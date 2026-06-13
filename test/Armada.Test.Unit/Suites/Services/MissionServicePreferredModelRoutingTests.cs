@@ -135,16 +135,17 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "composer-worker", "composer-2.5", "[\"Worker\"]").ConfigureAwait(false);
-                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "sonnet-judge", "claude-sonnet-4-6", "[\"Judge\"]").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier route", "mid", "Judge").ConfigureAwait(false);
+                    // Judge is a specialist persona, so it resolves on high-tier captains only.
+                    await CreateCaptainAsync(testDb.Driver, "opus-worker", "claude-opus-4-7", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "gpt-judge", "gpt-5.5", "[\"Judge\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier route", "high", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertTrue(assigned, "Tier preferredModel should choose a persona-eligible model");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(judgeCaptain.Id, readBack.CaptainId, "Persona-ineligible mid model should not be selected");
+                    AssertEqual(judgeCaptain.Id, readBack.CaptainId, "Persona-ineligible high model should not be selected");
                 }
             });
 
@@ -155,9 +156,10 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "sonnet-general", "claude-sonnet-4-6", "[\"Judge\"]").ConfigureAwait(false);
-                    Captain preferredJudge = await CreateCaptainAsync(testDb.Driver, "sonnet-preferred", "claude-sonnet-4-6", "[\"Judge\"]", "Judge").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier preferred persona", "mid", "Judge").ConfigureAwait(false);
+                    // Judge is a specialist persona, so it resolves on high-tier captains only.
+                    await CreateCaptainAsync(testDb.Driver, "opus-general", "claude-opus-4-7", "[\"Judge\"]").ConfigureAwait(false);
+                    Captain preferredJudge = await CreateCaptainAsync(testDb.Driver, "opus-preferred", "claude-opus-4-7", "[\"Judge\"]", "Judge").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier preferred persona", "high", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 

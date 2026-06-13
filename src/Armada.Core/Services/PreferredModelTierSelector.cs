@@ -118,27 +118,37 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Returns true when the persona requires a high-tier captain (Judge, Architect,
-        /// TestEngineer, specialist reviewers, MemoryConsolidator). Worker and null personas
-        /// return false.
+        /// Returns true when the persona is a specialist reserved for high-tier captains
+        /// (Judge, Architect, TestEngineer, specialist reviewers, MemoryConsolidator).
+        /// Worker and null personas return false. When <paramref name="specialistPersonas"/>
+        /// is null the built-in default specialist set is used, so existing call sites keep
+        /// their original behavior; operators can override the set via settings.
         /// </summary>
-        public static bool RequiresHighTier(string? persona)
+        /// <param name="persona">Persona name to test.</param>
+        /// <param name="specialistPersonas">Optional override set; null uses the built-in default.</param>
+        public static bool RequiresHighTier(string? persona, IReadOnlyCollection<string>? specialistPersonas = null)
         {
-            if (String.IsNullOrWhiteSpace(persona)) return false;
-            return _HighTierOnlyPersonas.Contains(persona);
+            return IsSpecialistPersona(persona, specialistPersonas);
         }
 
         /// <summary>
         /// Returns a PreferredModel value safe to store on a mission with the given persona.
-        /// For high-tier-only personas (Judge, Architect, etc.) this upgrades any tier
-        /// selector below "high" to "high". Null/empty preferredModel becomes "high" when
-        /// the persona requires it; literal model names are passed through unchanged
-        /// (operator-pinned literals stay honest -- the dispatcher's tier-fallback handles
-        /// the runtime case if no captain matches).
+        /// For specialist personas (Judge, Architect, etc.) this upgrades any tier selector
+        /// below "high" to "high". Null/empty preferredModel becomes "high" when the persona
+        /// requires it; literal model names are passed through unchanged (operator-pinned
+        /// literals stay honest -- the dispatcher's tier-fallback handles the runtime case
+        /// if no captain matches). When <paramref name="specialistPersonas"/> is null the
+        /// built-in default specialist set is used.
         /// </summary>
-        public static string? EnforceHighTierForPersona(string? preferredModel, string? persona)
+        /// <param name="preferredModel">Requested tier selector or literal model name.</param>
+        /// <param name="persona">Persona the mission requires.</param>
+        /// <param name="specialistPersonas">Optional override set; null uses the built-in default.</param>
+        public static string? EnforceHighTierForPersona(
+            string? preferredModel,
+            string? persona,
+            IReadOnlyCollection<string>? specialistPersonas = null)
         {
-            if (!RequiresHighTier(persona)) return preferredModel;
+            if (!RequiresHighTier(persona, specialistPersonas)) return preferredModel;
             if (String.IsNullOrWhiteSpace(preferredModel)) return HighTier;
             if (IsTierSelector(preferredModel))
             {
@@ -252,8 +262,11 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Selects a concrete model name from the requested tier (or the next available
-        /// tier upward) based on which idle captains are eligible for the given persona.
+        /// Selects a concrete model name based on which idle captains are eligible for the
+        /// given persona, honoring tier reservation. Specialist personas only ever resolve to
+        /// high-tier captains. Non-specialist personas prefer their requested tier, then the
+        /// other non-high tier, and fall up to high only as a last resort -- so a high-tier
+        /// captain is never handed to non-specialist work while a mid/low captain sits idle.
         /// </summary>
         /// <param name="tierValue">Tier selector value (low, mid, high, or alias).</param>
         /// <param name="idleCaptains">All currently idle captains.</param>
@@ -261,6 +274,9 @@ namespace Armada.Core.Services
         /// <param name="randomPick">
         /// Delegate that accepts an exclusive upper bound and returns a random index in
         /// [0, upperBound). Inject a deterministic function in tests.
+        /// </param>
+        /// <param name="specialistPersonas">
+        /// Optional override set of specialist persona names; null uses the built-in default.
         /// </param>
         /// <returns>
         /// A model name string if an eligible model was found, or null if no idle captain
@@ -270,21 +286,15 @@ namespace Armada.Core.Services
             string tierValue,
             IReadOnlyList<Captain> idleCaptains,
             string? persona,
-            Func<int, int> randomPick)
+            Func<int, int> randomPick,
+            IReadOnlyCollection<string>? specialistPersonas = null)
         {
             if (randomPick == null)
                 throw new ArgumentNullException(nameof(randomPick));
 
             string normalized = NormalizeTier(tierValue);
-
-            // Build the ordered list of tiers to try (requested tier, then upward only)
-            string[] tierOrder;
-            if (normalized == LowTier)
-                tierOrder = new string[] { LowTier, MidTier, HighTier };
-            else if (normalized == MidTier)
-                tierOrder = new string[] { MidTier, HighTier };
-            else
-                tierOrder = new string[] { HighTier };
+            bool isSpecialist = IsSpecialistPersona(persona, specialistPersonas);
+            string[] tierOrder = BuildTierOrder(isSpecialist, normalized);
 
             foreach (string tier in tierOrder)
             {
@@ -337,6 +347,34 @@ namespace Armada.Core.Services
                     return true;
             }
             return false;
+        }
+
+        private static bool IsSpecialistPersona(string? persona, IReadOnlyCollection<string>? specialistPersonas)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return false;
+            IEnumerable<string> set = specialistPersonas ?? _HighTierOnlyPersonas;
+            foreach (string specialist in set)
+            {
+                if (String.Equals(specialist, persona, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        // Single source of truth for the ordered tiers a mission is willing to land on.
+        // Specialists are reserved for high only. Non-specialists try their requested tier,
+        // then the OTHER non-high tier, and reach high only as a last resort -- this is what
+        // keeps high-tier captains free while mid/low captains are idle. A non-specialist that
+        // explicitly requests high is honored without downgrading (the operator asked for it).
+        private static string[] BuildTierOrder(bool isSpecialist, string normalizedTier)
+        {
+            if (isSpecialist)
+                return new string[] { HighTier };
+            if (normalizedTier == LowTier)
+                return new string[] { LowTier, MidTier, HighTier };
+            if (normalizedTier == MidTier)
+                return new string[] { MidTier, LowTier, HighTier };
+            return new string[] { HighTier };
         }
 
         private static int TierRank(string tier)

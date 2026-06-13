@@ -277,7 +277,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         object aliasResult = await DispatchWithAliasesAsync(
                             database, admiral, logging, title, description, vesselId,
-                            dispatchVessel, missions, mergedPlaybooks, pipelineId).ConfigureAwait(false);
+                            dispatchVessel, missions, mergedPlaybooks, pipelineId, settings).ConfigureAwait(false);
                         return await LinkObjectiveToVoyageResultAsync(objectiveService, objectiveId, aliasResult).ConfigureAwait(false);
                     }
 
@@ -896,7 +896,8 @@ namespace Armada.Server.Mcp.Tools
             Vessel? vessel,
             List<MissionDescription> missions,
             List<SelectedPlaybook> selectedPlaybooks,
-            string? pipelineId)
+            string? pipelineId,
+            ArmadaSettings? settings = null)
         {
             if (vessel == null)
                 return new { Error = "Vessel not found: " + vesselId };
@@ -1012,7 +1013,8 @@ namespace Armada.Server.Mcp.Tools
                         stageMission.DependsOnMissionId = groupDependencyId;
                         stageMission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
                             stage.PreferredModel ?? md.PreferredModel,
-                            stage.PersonaName);
+                            stage.PersonaName,
+                            settings?.ModelTier.SpecialistPersonas);
                         stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
 
                         // The very first mission of the chain gets the full prestaged files.

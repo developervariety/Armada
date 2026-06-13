@@ -321,7 +321,8 @@ namespace Armada.Core.Services
                         mission.DependsOnMissionId = groupDependencyId;
                         mission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
                             stage.PreferredModel ?? md.PreferredModel,
-                            stage.PersonaName);
+                            stage.PersonaName,
+                            _Settings.ModelTier.SpecialistPersonas);
 
                         // The very first mission of the chain (first stage of the first order group)
                         // gets the prestaged files. Subsequent missions re-use the same worktree.
@@ -473,7 +474,8 @@ namespace Armada.Core.Services
                             mission.DependsOnMissionId = groupDependencyId;
                             mission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
                                 stage.PreferredModel ?? md.PreferredModel,
-                                stage.PersonaName);
+                                stage.PersonaName,
+                                _Settings.ModelTier.SpecialistPersonas);
 
                             bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
                             if (isFirstChainMission)
