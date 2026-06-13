@@ -54,6 +54,17 @@ namespace Armada.Server
         /// </summary>
         public string? LastResultSummary { get; private set; }
 
+        /// <summary>
+        /// Number of objectives with currently active linked voyages, as of the last sweep tick.
+        /// </summary>
+        public int ActiveDispatchedCount { get; private set; }
+
+        /// <summary>
+        /// Reason the last sweep skipped dispatch (e.g. "disabled", "paused", "max_concurrent"),
+        /// or null if the last sweep dispatched normally.
+        /// </summary>
+        public string? LastSkipReason { get; private set; }
+
         #endregion
 
         #region Private-Members
@@ -197,6 +208,7 @@ namespace Armada.Server
                     _Logging.Debug(_Header + "sweep skipped: scheduler is disabled.");
                     await EmitSystemEventAsync("objective_scheduler.skipped_disabled",
                         "Autonomous objective scheduler sweep skipped: scheduler is disabled.", token).ConfigureAwait(false);
+                    LastSkipReason = "disabled";
                     LastResultSummary = "skipped (disabled)";
                     return;
                 }
@@ -206,6 +218,7 @@ namespace Armada.Server
                     _Logging.Debug(_Header + "sweep skipped: scheduler is paused.");
                     await EmitSystemEventAsync("objective_scheduler.skipped_paused",
                         "Autonomous objective scheduler sweep skipped: scheduler is paused.", token).ConfigureAwait(false);
+                    LastSkipReason = "paused";
                     LastResultSummary = "skipped (paused)";
                     return;
                 }
@@ -219,6 +232,7 @@ namespace Armada.Server
                 List<Objective> eligible = AutonomousObjectiveSelector.SelectEligible(snapshot);
 
                 int activeCount = CountActiveDispatched(snapshot);
+                ActiveDispatchedCount = activeCount;
                 int capacity = MaxConcurrentVoyages - activeCount;
 
                 if (capacity <= 0)
@@ -226,6 +240,7 @@ namespace Armada.Server
                     _Logging.Debug(_Header + "sweep: max concurrent voyages reached (" + activeCount + "/" + MaxConcurrentVoyages + ").");
                     await EmitSystemEventAsync("objective_scheduler.skipped_max_concurrent",
                         "Autonomous objective scheduler dispatch skipped: max concurrent voyages reached (" + activeCount + "/" + MaxConcurrentVoyages + ").", token).ConfigureAwait(false);
+                    LastSkipReason = "max_concurrent";
                     LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (max_concurrent)";
                     return;
                 }
@@ -252,6 +267,7 @@ namespace Armada.Server
                     }
                 }
 
+                LastSkipReason = null;
                 LastResultSummary = "reconciled=" + reconciledCount + " dispatched=" + dispatched;
                 _Logging.Info(_Header + "sweep complete: reconciled=" + reconciledCount + " dispatched=" + dispatched + " capacity=" + capacity + ".");
             }

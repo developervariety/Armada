@@ -88,6 +88,15 @@ namespace Armada.Core.Models
             set => _StructuredDelivery = value ?? new StructuredDeliveryStatus();
         }
 
+        /// <summary>
+        /// Autonomous objective scheduler runtime state.
+        /// </summary>
+        public ObjectiveSchedulerStatus Scheduler
+        {
+            get => _Scheduler;
+            set => _Scheduler = value ?? new ObjectiveSchedulerStatus();
+        }
+
         #endregion
 
         #region Private-Members
@@ -97,6 +106,7 @@ namespace Armada.Core.Models
         private List<Signal> _RecentSignals = new List<Signal>();
         private RemoteTunnelStatus _RemoteTunnel = new RemoteTunnelStatus();
         private StructuredDeliveryStatus _StructuredDelivery = new StructuredDeliveryStatus();
+        private ObjectiveSchedulerStatus _Scheduler = new ObjectiveSchedulerStatus();
 
         #endregion
 

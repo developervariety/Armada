@@ -237,6 +237,7 @@ namespace Armada.Server
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             _RemoteDashboardRelay = new RemoteDashboardRelayService(_Logging, _Settings, _RemoteTunnel.PublishEventAsync);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
+            admiralService.OnGetSchedulerStatus = () => McpObjectiveSchedulerTools.BuildStatus(_ObjectiveScheduler);
             // Seed built-in prompt templates, personas, and pipelines
             await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "prompt template seeding completed");
@@ -1166,7 +1167,8 @@ namespace Armada.Server
                 releaseService: _ReleaseService,
                 deploymentService: _DeploymentService,
                 runbookService: _RunbookService,
-                incidentService: _IncidentService);
+                incidentService: _IncidentService,
+                objectiveScheduler: _ObjectiveScheduler);
         }
 
         private async Task EmitEventAsync(string eventType, string message,
