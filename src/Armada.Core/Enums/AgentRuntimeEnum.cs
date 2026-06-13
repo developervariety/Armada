@@ -34,6 +34,12 @@ namespace Armada.Core.Enums
         Cursor,
 
         /// <summary>
+        /// OpenCode agent runtime.
+        /// </summary>
+        [EnumMember(Value = "OpenCode")]
+        OpenCode,
+
+        /// <summary>
         /// Mux CLI.
         /// </summary>
         [EnumMember(Value = "Mux")]
