@@ -565,24 +565,6 @@ namespace Armada.Core.Services
             }
         }
 
-        /// <inheritdoc />
-        public async Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default)
-        {
-            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
-            if (String.IsNullOrEmpty(baseCommit) || String.IsNullOrEmpty(tipCommit)) return 0;
-
-            try
-            {
-                string output = await RunGitAsync(repoPath, token, "rev-list", "--count", baseCommit + ".." + tipCommit).ConfigureAwait(false);
-                if (Int32.TryParse(output.Trim(), out int count)) return count;
-                return 0;
-            }
-            catch
-            {
-                return 0;
-            }
-        }
-
         /// <summary>
         /// Check if a local branch exists in the repository.
         /// </summary>

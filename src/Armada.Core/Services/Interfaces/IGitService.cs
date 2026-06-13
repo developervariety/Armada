@@ -209,17 +209,6 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default);
 
         /// <summary>
-        /// Count commits reachable from <paramref name="tipCommit"/> that are not reachable from <paramref name="baseCommit"/>.
-        /// Returns the number of commits by which <paramref name="tipCommit"/> is ahead of <paramref name="baseCommit"/>.
-        /// </summary>
-        /// <param name="repoPath">Path to the repository.</param>
-        /// <param name="baseCommit">The base commit SHA (e.g. the running build).</param>
-        /// <param name="tipCommit">The tip commit SHA (e.g. the landed HEAD).</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>Number of commits between base and tip, or 0 on error.</returns>
-        Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default);
-
-        /// <summary>
         /// Check if a local branch exists in the repository.
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>
