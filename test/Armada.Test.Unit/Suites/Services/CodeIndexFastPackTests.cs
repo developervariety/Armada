@@ -149,6 +149,173 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             });
+
+            await RunTest("CodeIndexSettings_FastPack_DefaultsAndBoundaryValuesPreserved", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+
+                // Defaults match the brief (8000 ms budget, 1500-file threshold).
+                AssertEqual(8000, settings.ContextPackBudgetMs, "Default ContextPackBudgetMs should be 8000");
+                AssertEqual(1500, settings.FastPackFileThreshold, "Default FastPackFileThreshold should be 1500");
+
+                // Inclusive clamp boundaries must be preserved, not clamped further.
+                settings.ContextPackBudgetMs = 500;
+                AssertEqual(500, settings.ContextPackBudgetMs, "Minimum ContextPackBudgetMs boundary should be preserved");
+                settings.ContextPackBudgetMs = 120000;
+                AssertEqual(120000, settings.ContextPackBudgetMs, "Maximum ContextPackBudgetMs boundary should be preserved");
+
+                // Zero is the inclusive floor for the threshold (>= 0), not clamped up to one.
+                settings.FastPackFileThreshold = 0;
+                AssertEqual(0, settings.FastPackFileThreshold, "Zero FastPackFileThreshold boundary should be preserved");
+
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ShouldUseFastPackAsync_BlankVesselId_ThrowsArgumentNull", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-blankid-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await AssertThrowsAsync<ArgumentNullException>(
+                            () => service.ShouldUseFastPackAsync(null!),
+                            "Null vesselId should throw").ConfigureAwait(false);
+                        await AssertThrowsAsync<ArgumentNullException>(
+                            () => service.ShouldUseFastPackAsync("   "),
+                            "Whitespace vesselId should throw").ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("ShouldUseFastPackAsync_UnknownVessel_ThrowsInvalidOperation", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-unknown-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await AssertThrowsAsync<InvalidOperationException>(
+                            () => service.ShouldUseFastPackAsync("vsl_does_not_exist"),
+                            "Unknown vessel should throw").ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("ShouldUseFastPackAsync_NeverIndexedVessel_ReturnsFalse", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-fast-pack-noindex-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+
+                        // No UpdateAsync call: there is no persisted status, so the indexed count is
+                        // treated as zero. Even a zero threshold must not trigger the fast pack
+                        // because the comparison is strictly greater-than.
+                        CodeIndexService service = CreateService(testDb, dataRoot, s => s.FastPackFileThreshold = 0);
+
+                        AssertFalse(
+                            await service.ShouldUseFastPackAsync(vessel.Id).ConfigureAwait(false),
+                            "A never-indexed vessel should not use the fast pack");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("ShouldUseFastPackAsync_CountEqualToThresholdIsFalse_OneBelowIsTrue", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-fast-pack-boundary-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+
+                        CodeIndexService indexer = CreateService(testDb, dataRoot);
+                        CodeIndexStatus status = await indexer.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(status.DocumentCount >= 2, "Fixture should index at least two files");
+
+                        // Strictly greater-than: a threshold equal to the indexed count must NOT trigger.
+                        CodeIndexService atThreshold = CreateService(testDb, dataRoot, s => s.FastPackFileThreshold = status.DocumentCount);
+                        AssertFalse(
+                            await atThreshold.ShouldUseFastPackAsync(vessel.Id).ConfigureAwait(false),
+                            "Count equal to threshold must not use the fast pack");
+
+                        // One below the count is exceeded, so the fast pack engages.
+                        CodeIndexService justBelow = CreateService(testDb, dataRoot, s => s.FastPackFileThreshold = status.DocumentCount - 1);
+                        AssertTrue(
+                            await justBelow.ShouldUseFastPackAsync(vessel.Id).ConfigureAwait(false),
+                            "Count one above threshold must use the fast pack");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_InvalidRequests_ThrowArgumentNull", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-invalid-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await AssertThrowsAsync<ArgumentNullException>(
+                            () => service.BuildContextPackAsync(null!),
+                            "Null request should throw").ConfigureAwait(false);
+                        await AssertThrowsAsync<ArgumentNullException>(
+                            () => service.BuildContextPackAsync(new ContextPackRequest { VesselId = "   ", Goal = "g", FastPackOnly = true }),
+                            "Blank VesselId should throw").ConfigureAwait(false);
+                        await AssertThrowsAsync<ArgumentNullException>(
+                            () => service.BuildContextPackAsync(new ContextPackRequest { VesselId = "vsl_x", Goal = "   ", FastPackOnly = true }),
+                            "Blank Goal should throw").ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("RecordingCodeIndexService_ShouldUseFastPackAsync_ReturnsFalseAndRecordsVessel", async () =>
+            {
+                RecordingCodeIndexService recording = new RecordingCodeIndexService();
+
+                bool result = await recording.ShouldUseFastPackAsync("vsl_recorded").ConfigureAwait(false);
+
+                AssertFalse(result, "Recording double should opt out of the fast pack");
+                AssertEqual(1, recording.ShouldUseFastPackVesselIds.Count, "Recording double should record one call");
+                AssertEqual("vsl_recorded", recording.ShouldUseFastPackVesselIds[0], "Recording double should record the vessel id");
+            });
         }
 
         #region Helpers
