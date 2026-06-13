@@ -664,6 +664,88 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            // Guard 2 second detection branch: a zero-commit auto-rescue identified by the
+            // description marker alone (no ParentMissionId) must also be failed, proving the
+            // marker -- not just the parent link -- discriminates a rescue from the legitimate
+            // non-rescue already-integrated mission above (same Persona, same head, no marker).
+            await RunTest("MergeQueueLanding_MarkerOnlyAutoRescueZeroCommits_FailsWithRescueNoCommitsReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                    IMessageTemplateService templateService = new MessageTemplateService(logging);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new StubMergeQueueService(),
+                        landingService,
+                        new AutoLandEvaluator(),
+                        new ConventionChecker(),
+                        new CriticalTriggerEvaluator(),
+                        templateService,
+                        null,
+                        dockService,
+                        new NoOpRemoteTriggerService(),
+                        null);
+
+                    string repoPath = Path.Combine(Path.GetTempPath(), "armada_noop_marker_" + Guid.NewGuid().ToString("N"));
+                    string captainBranch = "armada/marker-captain/msn_marker123";
+                    try
+                    {
+                        string head = await InitNoOpRepoAsync(repoPath, captainBranch);
+
+                        Vessel vessel = new Vessel("noop-marker-vessel", "https://github.com/test/repo.git");
+                        vessel.LocalPath = repoPath;
+                        vessel.WorkingDirectory = repoPath;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.MergeQueue;
+                        await testDb.Driver.Vessels.CreateAsync(vessel);
+
+                        Captain captain = new Captain("marker-captain");
+                        captain.State = CaptainStateEnum.Working;
+                        await testDb.Driver.Captains.CreateAsync(captain);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.CaptainId = captain.Id;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_noop_marker_wt_" + Guid.NewGuid().ToString("N"));
+                        dock.BranchName = captainBranch;
+                        dock.Active = true;
+                        await testDb.Driver.Docks.CreateAsync(dock);
+
+                        // Auto-rescue identified by the marker only -- no ParentMissionId set.
+                        Mission mission = new Mission("Rescue mission");
+                        mission.VesselId = vessel.Id;
+                        mission.CaptainId = captain.Id;
+                        mission.DockId = dock.Id;
+                        mission.Persona = "Worker";
+                        mission.Description = "Autonomous rescue. <!-- ARMADA:AUTO-RESCUE -->";
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.CommitHash = head;
+                        await testDb.Driver.Missions.CreateAsync(mission);
+
+                        await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                        AssertNotNull(updated, "Mission should still exist");
+                        AssertEqual(MissionStatusEnum.Failed, updated!.Status, "Marker-only zero-commit auto-rescue must end Failed");
+                        AssertEqual("rescue_produced_no_commits", updated.FailureReason ?? "", "Failure reason must be rescue_produced_no_commits");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100);
+                        AssertTrue(events.Any(item => item.EventType == "mission.rescue_no_commits"), "Structured mission.rescue_no_commits event must be emitted");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(repoPath, true); } catch { /* best-effort */ }
+                    }
+                }
+            });
         }
 
         private static async Task<string> InitNoOpRepoAsync(string repoPath, string captainBranch)
