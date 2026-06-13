@@ -254,6 +254,23 @@ namespace Armada.Core.Services
             await RunGitAsync(repoPath, "push", "origin", srcRef + ":" + destRef).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+
+            return (await RunGitAsync(repoPath, token, "symbolic-ref", "HEAD").ConfigureAwait(false)).Trim();
+        }
+
+        /// <inheritdoc />
+        public async Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            await RunGitAsync(repoPath, token, "symbolic-ref", "HEAD", "refs/heads/" + branchName).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Create a pull request using the gh CLI.
         /// </summary>
@@ -545,6 +562,24 @@ namespace Armada.Core.Services
             catch
             {
                 return false;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(baseCommit) || String.IsNullOrEmpty(tipCommit)) return 0;
+
+            try
+            {
+                string output = await RunGitAsync(repoPath, token, "rev-list", "--count", baseCommit + ".." + tipCommit).ConfigureAwait(false);
+                if (Int32.TryParse(output.Trim(), out int count)) return count;
+                return 0;
+            }
+            catch
+            {
+                return 0;
             }
         }
 

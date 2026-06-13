@@ -2677,6 +2677,12 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
 
             /// <inheritdoc />
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");
+
+            /// <inheritdoc />
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+
+            /// <inheritdoc />
             public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
 
             /// <inheritdoc />
@@ -2710,6 +2716,9 @@ namespace Armada.Test.Unit.Suites.Services
             /// <inheritdoc />
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
                 => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+
+            /// <inheritdoc />
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => Task.FromResult(0);
 
             /// <inheritdoc />
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)

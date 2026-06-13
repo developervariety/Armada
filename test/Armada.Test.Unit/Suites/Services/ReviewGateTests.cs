@@ -324,6 +324,8 @@ namespace Armada.Test.Unit.Suites.Services
             public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
             public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => Task.CompletedTask;
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
             public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default)
                 => Task.FromResult("https://github.com/test/repo/pull/1");
             public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
@@ -342,6 +344,7 @@ namespace Armada.Test.Unit.Suites.Services
                 => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(true);
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => Task.FromResult(0);
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
                 => Task.FromResult(_Branches.Contains(branchName));
             public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)

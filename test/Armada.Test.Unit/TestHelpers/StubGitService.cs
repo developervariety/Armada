@@ -19,6 +19,7 @@ namespace Armada.Test.Unit.TestHelpers
         public List<string> PullFastForwardOnlyCalls { get; } = new List<string>();
         public List<string> PruneWorktreeCalls { get; } = new List<string>();
         public List<string> DiffCalls { get; } = new List<string>();
+        public List<string> RepositoryHeadCalls { get; } = new List<string>();
         public List<string> OperationCalls { get; } = new List<string>();
 
         // Result controls
@@ -26,6 +27,7 @@ namespace Armada.Test.Unit.TestHelpers
         public bool IsPrMergedResult { get; set; } = true;
         public string CreatePrResult { get; set; } = "https://github.com/test/repo/pull/1";
         public string DiffResult { get; set; } = "";
+        public string RepositoryHeadRefResult { get; set; } = "refs/heads/main";
         public string? CurrentBranchResult { get; set; } = "main";
         public bool IsWorkingDirectoryCleanResult { get; set; } = true;
         public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = Array.Empty<string>();
@@ -112,6 +114,21 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
+        public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default)
+        {
+            RepositoryHeadCalls.Add("get-head:" + repoPath);
+            OperationCalls.Add("get-head:" + repoPath);
+            return Task.FromResult(RepositoryHeadRefResult);
+        }
+
+        public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            RepositoryHeadRefResult = "refs/heads/" + branchName;
+            RepositoryHeadCalls.Add("set-head:" + repoPath + ":" + branchName);
+            OperationCalls.Add("set-head:" + branchName);
+            return Task.CompletedTask;
+        }
+
         public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default)
         {
             PruneWorktreeCalls.Add(repoPath);
@@ -158,6 +175,7 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
         public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
+        public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => Task.FromResult(0);
         public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
         {
             if (ExistingBranches.Contains(branchName)) return Task.FromResult(true);

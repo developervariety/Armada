@@ -29,6 +29,7 @@ namespace Armada.Server.Routes
         private readonly DateTime _startUtc;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly LoggingModule _logging;
+        private readonly IBuildDriftService? _buildDrift;
         private readonly Func<RemoteTunnelStatus>? _getRemoteTunnelStatus;
         private readonly Func<Task>? _onRemoteControlSettingsChanged;
 
@@ -42,6 +43,7 @@ namespace Armada.Server.Routes
         /// <param name="startUtc">Server start timestamp.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="logging">Logging module.</param>
+        /// <param name="buildDrift">Optional build drift service.</param>
         /// <param name="getRemoteTunnelStatus">Optional callback that returns the current remote tunnel status.</param>
         /// <param name="onRemoteControlSettingsChanged">Optional callback invoked after remote-control settings are updated.</param>
         public StatusRoutes(
@@ -52,6 +54,7 @@ namespace Armada.Server.Routes
             DateTime startUtc,
             JsonSerializerOptions jsonOptions,
             LoggingModule logging,
+            IBuildDriftService? buildDrift = null,
             Func<RemoteTunnelStatus>? getRemoteTunnelStatus = null,
             Func<Task>? onRemoteControlSettingsChanged = null)
         {
@@ -62,6 +65,7 @@ namespace Armada.Server.Routes
             _startUtc = startUtc;
             _jsonOptions = jsonOptions;
             _logging = logging;
+            _buildDrift = buildDrift;
             _getRemoteTunnelStatus = getRemoteTunnelStatus;
             _onRemoteControlSettingsChanged = onRemoteControlSettingsChanged;
         }
@@ -101,6 +105,18 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/status/health", async (ApiRequest req) =>
             {
                 TimeSpan uptime = DateTime.UtcNow - _startUtc;
+                BuildDriftReport? driftReport = null;
+                if (_buildDrift != null)
+                {
+                    try
+                    {
+                        driftReport = await _buildDrift.GetReportAsync().ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // health endpoint must not fail due to drift lookup
+                    }
+                }
                 return new
                 {
                     Status = "healthy",
@@ -113,7 +129,11 @@ namespace Armada.Server.Routes
                         Admiral = _settings.AdmiralPort,
                         Mcp = _settings.McpPort
                     },
-                    RemoteTunnel = BuildRemoteTunnelStatus()
+                    RemoteTunnel = BuildRemoteTunnelStatus(),
+                    RunningCommit = driftReport?.RunningCommit,
+                    LandedCommit = driftReport?.LandedCommit,
+                    BehindBy = driftReport?.BehindBy ?? 0,
+                    DriftWarning = driftReport?.Warning
                 };
             },
             api => api

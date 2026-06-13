@@ -80,6 +80,7 @@ namespace Armada.Core.Services
         private IDockService _Docks;
         private IPlaybookService _Playbooks;
         private IEscalationService? _Escalation;
+        private IBuildDriftService? _BuildDrift;
         private bool _RetryDispatchNeeded = false;
         private DateTime? _LastAuditNotifyUtc = null;
         private readonly object _AuditNotifyLock = new object();
@@ -99,6 +100,7 @@ namespace Armada.Core.Services
         /// <param name="voyages">Voyage service.</param>
         /// <param name="docks">Dock service.</param>
         /// <param name="escalation">Optional escalation service.</param>
+        /// <param name="buildDrift">Optional build drift service.</param>
         public AdmiralService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -107,7 +109,8 @@ namespace Armada.Core.Services
             IMissionService missions,
             IVoyageService voyages,
             IDockService docks,
-            IEscalationService? escalation = null)
+            IEscalationService? escalation = null,
+            IBuildDriftService? buildDrift = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -118,6 +121,7 @@ namespace Armada.Core.Services
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Playbooks = new PlaybookService(_Database, _Logging);
             _Escalation = escalation;
+            _BuildDrift = buildDrift;
         }
 
         #endregion
@@ -847,6 +851,18 @@ namespace Armada.Core.Services
             if (OnGetRemoteTunnelStatus != null)
             {
                 status.RemoteTunnel = OnGetRemoteTunnelStatus();
+            }
+
+            if (_BuildDrift != null)
+            {
+                try
+                {
+                    status.BuildDrift = await _BuildDrift.GetReportAsync(token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "build drift report failed, status continues without it: " + ex.Message);
+                }
             }
 
             return status;

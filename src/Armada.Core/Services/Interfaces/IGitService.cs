@@ -100,6 +100,22 @@ namespace Armada.Core.Services.Interfaces
         Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default);
 
         /// <summary>
+        /// Get the symbolic ref currently stored in repository HEAD.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The symbolic HEAD ref, such as refs/heads/main.</returns>
+        Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default);
+
+        /// <summary>
+        /// Set repository HEAD to the symbolic ref for a local branch.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="branchName">Local branch name to store in HEAD.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default);
+
+        /// <summary>
         /// Prune stale worktree registrations (entries for worktrees whose directories no longer exist).
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>
@@ -191,6 +207,17 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the PR has been merged.</returns>
         Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default);
+
+        /// <summary>
+        /// Count commits reachable from <paramref name="tipCommit"/> that are not reachable from <paramref name="baseCommit"/>.
+        /// Returns the number of commits by which <paramref name="tipCommit"/> is ahead of <paramref name="baseCommit"/>.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository.</param>
+        /// <param name="baseCommit">The base commit SHA (e.g. the running build).</param>
+        /// <param name="tipCommit">The tip commit SHA (e.g. the landed HEAD).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of commits between base and tip, or 0 on error.</returns>
+        Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default);
 
         /// <summary>
         /// Check if a local branch exists in the repository.

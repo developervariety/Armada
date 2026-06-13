@@ -118,6 +118,81 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertThrowsAsync<ArgumentNullException>(() => service.PushBranchAsync(null!));
             });
 
+            await RunTest("GetRepositoryHeadRefAsync NullRepoPath Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.GetRepositoryHeadRefAsync(null!));
+            });
+
+            await RunTest("GetRepositoryHeadRefAsync EmptyRepoPath Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.GetRepositoryHeadRefAsync(""));
+            });
+
+            await RunTest("SetRepositoryHeadAsync NullRepoPath Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetRepositoryHeadAsync(null!, "main"));
+            });
+
+            await RunTest("SetRepositoryHeadAsync EmptyRepoPath Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetRepositoryHeadAsync("", "main"));
+            });
+
+            await RunTest("SetRepositoryHeadAsync NullBranchName Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetRepositoryHeadAsync("/tmp/repo", null!));
+            });
+
+            await RunTest("SetRepositoryHeadAsync EmptyBranchName Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetRepositoryHeadAsync("/tmp/repo", ""));
+            });
+
+            await RunTest("SetRepositoryHeadAsync BareRepo RestoresMainSymbolicRef", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "branch", "feature/head-test").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "symbolic-ref", "HEAD", "refs/heads/feature/head-test").ConfigureAwait(false);
+
+                    string movedHead = await service.GetRepositoryHeadRefAsync(bareDir).ConfigureAwait(false);
+                    AssertEqual("refs/heads/feature/head-test", movedHead);
+
+                    await service.SetRepositoryHeadAsync(bareDir, "main").ConfigureAwait(false);
+
+                    string restoredHead = (await RunGitAsync(bareDir, "symbolic-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual("refs/heads/main", restoredHead);
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("CreatePullRequestAsync NullPath Throws", async () =>
             {
                 GitService service = CreateService();
