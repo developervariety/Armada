@@ -897,6 +897,15 @@ namespace Armada.Core.Settings
             set => _CodeIndex = value ?? new CodeIndexSettings();
         }
 
+        /// <summary>
+        /// Autonomous objective scheduler settings.
+        /// </summary>
+        public AutonomousObjectiveSchedulerSettings AutonomousObjectiveScheduler
+        {
+            get => _AutonomousObjectiveScheduler;
+            set => _AutonomousObjectiveScheduler = value ?? new AutonomousObjectiveSchedulerSettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -964,6 +973,7 @@ namespace Armada.Core.Settings
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
+        private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
         private bool _DatabasePathConfigured = false;
 
         #endregion
