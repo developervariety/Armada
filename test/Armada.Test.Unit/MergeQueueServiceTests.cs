@@ -514,6 +514,84 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("TestGate_FailsAfterTargetAdvanced_AuditEventCarriesFullShapeAndRollsBackBareLocal", async () =>
+            {
+                // Pins the audit-event contract for the TEST-GATE failure path. The
+                // post-push/land path already pins this shape in MergeQueueBranchCleanupTests;
+                // this asserts the gate path emits an identically-shaped event AND -- unlike the
+                // sibling gate test that only inspects the remote -- that the bare local target
+                // ref is rolled back too, and that the payload reason marks the gate path.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gate_shape_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("gate-shape-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        // Advance origin/main out-of-band, then fail, so the gate-failure path
+                        // observes an advanced target and must roll back + audit.
+                        entry.TestCommand = "git push origin HEAD:main --force && git rev-parse --verify refs/heads/__armada_no_such_ref__";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string preBareHead = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when the test gate command fails");
+
+                        // Both the remote AND the bare local target ref must be restored to the captured head.
+                        string postRemoteHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string postBareHead = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertEqual(preRemoteHead, postRemoteHead, "Remote target must be rolled back to the captured pre-gate head");
+                        AssertEqual(preBareHead, postBareHead, "Bare local target ref must also be rolled back to the captured pre-gate head");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "A gate failure with an advanced target must emit exactly one audit event");
+
+                        ArmadaEvent auditEvent = events[0];
+                        AssertEqual("merge_queue.failed_target_advanced", auditEvent.EventType, "Audit event type marker");
+                        AssertEqual("merge_entry", auditEvent.EntityType ?? "", "Audit event should be scoped to the merge entry");
+                        AssertEqual(entry.Id, auditEvent.EntityId ?? "", "Audit event should reference the failed merge entry id");
+                        AssertEqual(vessel.Id, auditEvent.VesselId ?? "", "Audit event should carry the vessel id");
+                        AssertTrue((auditEvent.Message ?? "").Length > 0, "Audit event should carry a human-readable summary message");
+                        AssertContains(entry.Id, auditEvent.Message ?? "", "Summary message should name the failed merge entry");
+
+                        string payload = auditEvent.Payload ?? "";
+                        AssertContains(preRemoteHead, payload, "Audit payload should include the captured pre-gate head");
+                        AssertContains("main", payload, "Audit payload should include the target branch");
+                        AssertContains("advancedHead", payload, "Audit payload should record the advanced head field");
+                        AssertContains("merge-queue test gate failed", payload, "Audit payload reason should identify the test-gate failure path");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("LandedEntry_DoesNotEmitTargetAdvancedAuditEvent", async () =>
             {
                 // A clean land (no gate failure) must never emit the invariant-violation audit
