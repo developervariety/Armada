@@ -296,6 +296,8 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         private static void BindObjective(MySqlCommand cmd, Objective objective)
         {
+            objective.NormalizeTenancy();
+
             cmd.Parameters.AddWithValue("@id", objective.Id);
             cmd.Parameters.AddWithValue("@tenant_id", (object?)objective.TenantId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@user_id", (object?)objective.UserId ?? DBNull.Value);
@@ -390,6 +392,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             objective.ReleaseIds = ObjectivePersistenceHelper.DeserializeList(reader["release_ids_json"]);
             objective.DeploymentIds = ObjectivePersistenceHelper.DeserializeList(reader["deployment_ids_json"]);
             objective.IncidentIds = ObjectivePersistenceHelper.DeserializeList(reader["incident_ids_json"]);
+            objective.NormalizeTenancy();
             return objective;
         }
     }

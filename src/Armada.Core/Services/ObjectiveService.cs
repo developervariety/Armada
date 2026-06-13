@@ -1025,7 +1025,9 @@ namespace Armada.Core.Services
 
             try
             {
-                return JsonSerializer.Deserialize<Objective>(snapshot.Payload, _JsonOptions);
+                Objective? objective = JsonSerializer.Deserialize<Objective>(snapshot.Payload, _JsonOptions);
+                objective?.NormalizeTenancy();
+                return objective;
             }
             catch
             {

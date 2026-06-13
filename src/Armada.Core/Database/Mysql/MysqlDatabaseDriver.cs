@@ -571,6 +571,11 @@ namespace Armada.Core.Database.Mysql
                     51,
                     "Add durable landing jobs",
                     TableQueries.MigrationV51Statements
+                ),
+                new SchemaMigration(
+                    52,
+                    "Normalize NULL objective tenant_id/user_id to default",
+                    TableQueries.MigrationV52Statements
                 )
             };
         }

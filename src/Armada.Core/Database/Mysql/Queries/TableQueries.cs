@@ -889,6 +889,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v52 statements for normalizing objective tenancy.
+        /// </summary>
+        public static readonly string[] MigrationV52Statements = new string[]
+        {
+            @"UPDATE objectives SET tenant_id = 'default' WHERE tenant_id IS NULL;",
+            @"UPDATE objectives SET user_id = 'default' WHERE user_id IS NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

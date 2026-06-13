@@ -617,6 +617,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('landing_jobs') AND name = 'idx_landing_jobs_vessel_target')
                         CREATE INDEX idx_landing_jobs_vessel_target ON landing_jobs(vessel_id, target_branch);"
+                ),
+                new SchemaMigration(
+                    52,
+                    "Normalize NULL objective tenant_id/user_id to default",
+                    @"UPDATE objectives SET tenant_id = 'default' WHERE tenant_id IS NULL;",
+                    @"UPDATE objectives SET user_id = 'default' WHERE user_id IS NULL;"
                 )
             };
         }
