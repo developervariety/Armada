@@ -210,6 +210,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VoyageMailboxSignalPayloadTests());
             runner.AddSuite(new McpSignalToolsTests());
             runner.AddSuite(new MissionMailboxDrainTests());
+            runner.AddSuite(new BuildDriftEvaluatorTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;
