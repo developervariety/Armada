@@ -1721,6 +1721,12 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.EnsureLocalBranchAsync(repoPath, branchName, token);
 
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => _Inner.IsWorktreeRegisteredAsync(repoPath, worktreePath, token);
+
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => _Inner.GetRepositoryHeadRefAsync(repoPath, token);
+
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.SetRepositoryHeadAsync(repoPath, branchName, token);
+
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, fromRef, toRef, token);
         }
 
         private sealed class GitRepoSetup

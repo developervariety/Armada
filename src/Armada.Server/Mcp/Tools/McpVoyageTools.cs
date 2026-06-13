@@ -658,6 +658,18 @@ namespace Armada.Server.Mcp.Tools
                         continue;
                     }
 
+                    if (String.Equals(mode, CodeContextModeAuto, StringComparison.Ordinal))
+                    {
+                        // Cache miss on auto path: persist deferred intent for the stager.
+                        // Dispatch returns without blocking on warm or build.
+                        mission.CodeContextMode = mode;
+                        mission.CodeContextQuery = query;
+                        LogCodeContextInfo(logging,
+                            "code context for mission '" + mission.Title + "': auto_deferred"
+                            + " vesselId=" + vesselId);
+                        continue;
+                    }
+
                     LogCodeContextInfo(logging,
                         "code context for mission '" + mission.Title + "': cache_miss; warming baseline cache for vessel " + vesselId);
                     await codeIndexService.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);

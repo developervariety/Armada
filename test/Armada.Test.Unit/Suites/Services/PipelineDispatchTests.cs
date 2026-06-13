@@ -2718,9 +2718,6 @@ namespace Armada.Test.Unit.Suites.Services
                 => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
 
             /// <inheritdoc />
-            public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => Task.FromResult(0);
-
-            /// <inheritdoc />
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
                 => Task.FromResult(branchName == "main" || WorktreeBranches.Contains(branchName));
 

@@ -195,17 +195,17 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_AttachesContextPackAndPreservesPrestagedFiles", async () =>
+            await RunTest("Dispatch_CodeContextForce_AttachesContextPackAndPreservesPrestagedFiles", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("code-context-auto-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        new Vessel("code-context-force-attach-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
                     codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        Path.Combine(Path.GetTempPath(), "context-pack-auto.md"),
+                        Path.Combine(Path.GetTempPath(), "context-pack-force.md"),
                         "_briefing/context-pack.md"));
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
@@ -225,6 +225,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         title = "context voyage",
                         vesselId = vessel.Id,
+                        codeContextMode = "force",
                         codeContextTokenBudget = 1200,
                         codeContextMaxResults = 3,
                         missions = new object[]
@@ -245,7 +246,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should request one context pack");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should request one context pack");
                     AssertContains("Task A", codeIndex.ContextPackRequests[0].Goal);
                     AssertContains("Fix dispatch parsing", codeIndex.ContextPackRequests[0].Goal);
                     AssertEqual(1200, codeIndex.ContextPackRequests[0].TokenBudget);
@@ -387,16 +388,15 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_ContinuesWhenGenerationFails", async () =>
+            await RunTest("Dispatch_CodeContextAuto_CacheMiss_DeferredNoBuildAttempted", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("code-context-auto-failure-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        new Vessel("code-context-auto-defer-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
-                    codeIndex.BuildException = new InvalidOperationException("index offline");
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
@@ -410,74 +410,72 @@ namespace Armada.Test.Unit.Suites.Services
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
-                        title = "auto failure voyage",
+                        title = "auto defer voyage",
                         vesselId = vessel.Id,
                         missions = new object[]
                         {
-                            new { title = "Task A", description = "Auto mode should continue" }
+                            new { title = "Task A", description = "Auto mode defers on cache miss" }
                         }
                     });
 
                     object result = await dispatchHandler!(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
 
-                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should continue after context generation failure: " + resultJson);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should attempt context generation");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Auto generation failure should not block dispatch persistence");
-                    AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Dispatch should still receive the mission");
-                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Failed auto generation should not add prestaged files");
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should not return error on cache miss: " + resultJson);
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto mode must NOT call build on cache miss");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must NOT warm on cache miss");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after auto deferral");
+                    AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Dispatch should receive the mission");
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Auto deferred missions have no inline prestaged context file");
+                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set on mission description");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].CodeContextQuery, "Deferred query must be set so the stager knows what to generate");
+                    AssertContains("Task A", admiralDouble.LastMissionDescriptions[0].CodeContextQuery!);
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_ContinuesWhenGenerationTimesOut", async () =>
+            await RunTest("Dispatch_CodeContextAuto_CacheMiss_ReturnsPromptlyWithoutBlocking", async () =>
             {
-                string? priorTimeout = Environment.GetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS");
-                Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", "100");
-                try
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-auto-nonblocking-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    // NeverCompleteBuild would block indefinitely if called; its presence
+                    // verifies that auto mode never reaches BuildContextPackAsync on a cache miss.
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
                     {
-                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                            new Vessel("code-context-auto-timeout-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        NeverCompleteBuild = true
+                    };
 
-                        RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-                        RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "auto nonblocking voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
                         {
-                            NeverCompleteBuild = true
-                        };
+                            new { title = "Task A", description = "Auto mode must not block on cache miss" }
+                        }
+                    });
 
-                        Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                        McpVoyageTools.Register(
-                            (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
-                            testDb.Driver,
-                            admiralDouble,
-                            null,
-                            null,
-                            null,
-                            codeIndex);
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
 
-                        JsonElement args = JsonSerializer.SerializeToElement(new
-                        {
-                            title = "auto timeout voyage",
-                            vesselId = vessel.Id,
-                            missions = new object[]
-                            {
-                                new { title = "Task A", description = "Auto mode should continue after a slow context pack" }
-                            }
-                        });
-
-                        object result = await dispatchHandler!(args).ConfigureAwait(false);
-                        string resultJson = JsonSerializer.Serialize(result);
-
-                        AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should continue after context generation timeout: " + resultJson);
-                        AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should attempt context generation");
-                        AssertTrue(admiralDouble.DispatchVoyageCalled, "Auto generation timeout should not block dispatch persistence");
-                        AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Timed-out auto generation should not add prestaged files");
-                    }
-                }
-                finally
-                {
-                    Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", priorTimeout);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must not return error on cache miss: " + resultJson);
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto mode must NOT call build (would block)");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must NOT warm on cache miss");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after auto deferral");
+                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set");
                 }
             });
 
@@ -935,12 +933,12 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CachedContextPackMiss_FallsBackToGeneration", async () =>
+            await RunTest("Dispatch_Force_CacheMiss_FallsBackToGeneration", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("cache-miss-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        new Vessel("cache-miss-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -961,11 +959,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
-                        title = "cache miss voyage",
+                        title = "cache miss force voyage",
                         vesselId = vessel.Id,
+                        codeContextMode = "force",
                         missions = new object[]
                         {
-                            new { title = "Task B", description = "should fall back to generation" }
+                            new { title = "Task B", description = "force must fall back to generation on cache miss" }
                         }
                     });
 
@@ -983,12 +982,12 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CacheMiss_LazyWarmHitsCache_SkipsGeneration", async () =>
+            await RunTest("Dispatch_Force_CacheMiss_LazyWarmHitsCache_SkipsGeneration", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("lazy-warm-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        new Vessel("lazy-warm-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -1020,11 +1019,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
-                        title = "lazy warm voyage",
+                        title = "lazy warm force voyage",
                         vesselId = vessel.Id,
+                        codeContextMode = "force",
                         missions = new object[]
                         {
-                            new { title = "Task D", description = "should warm then use cached pack" }
+                            new { title = "Task D", description = "force must warm then use cached pack" }
                         }
                     });
 
@@ -1033,7 +1033,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
                     AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run on cold dispatch");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run on cache miss");
                     AssertEqual(vessel.Id, codeIndex.WarmBaselineCacheVesselIds[0]);
                     AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must be skipped when warm produces cache hit");
                     AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
@@ -1042,25 +1042,21 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_WarmThrows_AutoMode_SwallowsAndContinues", async () =>
+            await RunTest("Dispatch_CodeContextAuto_CacheMiss_NeverCallsWarm", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("warm-throw-auto-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        new Vessel("warm-never-called-auto-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
-                    // First cache lookup misses, then the baseline warm throws. In auto mode the
-                    // exception must be swallowed so dispatch still proceeds, and generation must
-                    // NOT run (the warm threw before the retry/generation could be reached).
+                    // WarmBaselineCacheException would surface if WarmBaselineCacheAsync were
+                    // called; its presence proves auto mode never reaches warm on a cache miss.
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
                     {
-                        WarmBaselineCacheException = new InvalidOperationException("warm boom")
+                        WarmBaselineCacheException = new InvalidOperationException("warm must not be called")
                     };
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        Path.Combine(Path.GetTempPath(), "should-not-generate-after-warm-throw.md"),
-                        "_briefing/context-pack.md"));
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
@@ -1074,24 +1070,24 @@ namespace Armada.Test.Unit.Suites.Services
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
-                        title = "warm throw auto voyage",
+                        title = "auto no warm voyage",
                         vesselId = vessel.Id,
                         missions = new object[]
                         {
-                            new { title = "Task E", description = "warm throws but auto must not fail" }
+                            new { title = "Task E", description = "auto must not call warm on cache miss" }
                         }
                     });
 
                     object result = await dispatchHandler!(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
 
-                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must swallow warm failure: " + resultJson);
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "Only the first cache lookup runs; warm threw before the retry");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must have been attempted");
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must NOT run after warm throws");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed despite warm failure");
-                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles,
-                        "No pack should be staged when warm fails in auto mode");
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must not error: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Only one cache lookup runs for auto miss");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must NOT call warm on cache miss");
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto mode must NOT call build on cache miss");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set");
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "No pack should be staged for deferred auto");
                 }
             });
 

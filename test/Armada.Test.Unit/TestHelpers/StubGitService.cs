@@ -175,7 +175,6 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
         public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
-        public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => Task.FromResult(0);
         public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
         {
             if (ExistingBranches.Contains(branchName)) return Task.FromResult(true);
