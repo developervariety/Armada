@@ -191,11 +191,12 @@ namespace Armada.Runtimes
             {
                 if (!String.IsNullOrEmpty(e.Data))
                 {
-                    _Logging.Debug(_Header + "[stdout] " + e.Data);
-                    try { logWriter?.WriteLine(e.Data); }
+                    string outputLine = TransformOutputLine(e.Data);
+                    _Logging.Debug(_Header + "[stdout] " + outputLine);
+                    try { logWriter?.WriteLine(outputLine); }
                     catch (ObjectDisposedException) { }
 
-                    try { OnOutputReceived?.Invoke(process.Id, e.Data); }
+                    try { OnOutputReceived?.Invoke(process.Id, outputLine); }
                     catch { }
                 }
             };
@@ -422,6 +423,15 @@ namespace Armada.Runtimes
         protected virtual void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
         }
+
+        /// <summary>
+        /// Transform a raw stdout line before it is written to the log and fired via
+        /// <see cref="OnOutputReceived"/>. The default implementation returns the line
+        /// unchanged. Override in runtimes that wrap output in a structured format
+        /// (e.g. JSON event streams) and need to extract the inner text so that
+        /// plain-text protocol markers remain detectable by subscribers.
+        /// </summary>
+        protected virtual string TransformOutputLine(string line) => line;
 
         private static void ApplySharedCaptainEnvironment(ProcessStartInfo startInfo)
         {
