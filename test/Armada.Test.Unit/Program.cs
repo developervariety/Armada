@@ -43,6 +43,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new SchemaMigrationV40ReflectionTests());
             runner.AddSuite(new SchemaMigrationV41ReorganizeTests());
+            runner.AddSuite(new VesselArchitectCapColumnTests());
             runner.AddSuite(new SchemaMigrationV42PipelineStageParallelTests());
             runner.AddSuite(new ObjectiveTenantNormalizationTests());
             runner.AddSuite(new ObjectiveAutoDispatchTests());
