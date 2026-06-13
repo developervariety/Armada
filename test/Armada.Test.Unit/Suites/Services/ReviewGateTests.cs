@@ -344,6 +344,7 @@ namespace Armada.Test.Unit.Suites.Services
                 => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(true);
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => Task.FromResult(0);
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
                 => Task.FromResult(_Branches.Contains(branchName));
             public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)

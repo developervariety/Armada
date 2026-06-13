@@ -53,6 +53,7 @@ namespace Armada.Server
         private IGitService _Git = null!;
         private IDockService _Docks = null!;
         private IAdmiralService _Admiral = null!;
+        private IBuildDriftService _BuildDriftService = null!;
         private AgentRuntimeFactory _RuntimeFactory = null!;
 
         private Webserver _App = null!;
@@ -191,7 +192,8 @@ namespace Armada.Server
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
-            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
+            _BuildDriftService = new BuildDriftService(_Git, _Database, BuildInfo.RunningCommit, _Logging);
+            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService);
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
@@ -662,7 +664,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Status, health, doctor, settings, server control
-            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync)
+            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Fleets

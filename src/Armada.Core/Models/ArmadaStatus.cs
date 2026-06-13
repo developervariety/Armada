@@ -65,6 +65,12 @@ namespace Armada.Core.Models
         public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
 
         /// <summary>
+        /// Build drift between the running server binary and the landed default-branch HEAD.
+        /// Null when the drift service is unavailable or resolution fails.
+        /// </summary>
+        public BuildDriftReport? BuildDrift { get; set; } = null;
+
+        /// <summary>
         /// Remote tunnel connectivity status.
         /// </summary>
         public RemoteTunnelStatus RemoteTunnel
