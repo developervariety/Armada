@@ -786,11 +786,19 @@ namespace Armada.Core.Services
             if (String.Equals(targetHead, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase) ||
                 (!alreadyMerged && String.Equals(headBeforeMerge, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase)))
             {
-                string failureReason = "No-op merge queue entry: branch " + entry.BranchName +
-                    " does not advance target branch " + entry.TargetBranch +
-                    " (HEAD remains " + integrationHeadAfterMerge + ")";
-                _Logging.Warn(_Header + failureReason + " for " + entryTag);
-                await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
+                string noOpSummary = "No-op identity merge: captain branch " + entry.BranchName +
+                    " contributed no commits over " + entry.TargetBranch;
+                _Logging.Warn(_Header + noOpSummary + " (tip " + integrationHeadAfterMerge + ") for " + entryTag);
+
+                entry.Status = MergeStatusEnum.Failed;
+                entry.MergeFailureClass = MergeFailureClassEnum.NoOpIdentityPush;
+                entry.MergeFailureSummary = noOpSummary;
+                entry.TestOutput = noOpSummary;
+                entry.CompletedUtc = DateTime.UtcNow;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(entry, noOpSummary, token).ConfigureAwait(false);
+                await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Failed, "merge_queue_noop_identity_push", token, entry.TenantId).ConfigureAwait(false);
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
             }
         }
@@ -1400,6 +1408,31 @@ namespace Armada.Core.Services
         {
             try
             {
+                // Belt check: if the captain branch tip equals the target branch tip the entry
+                // contributed zero commits (e.g. a review-persona rescue that wrote no code).
+                // Treat as NoOpIdentityPush failure rather than letting the alreadyPushed path
+                // below mark it as Landed.  A genuine push-retry has captain tip != target tip
+                // because the target was advanced by the merged integration commit.
+                string captainTip = await ResolveCommitAsync(repoPath, entry.BranchName, token).ConfigureAwait(false);
+                string targetTip = await ResolveCommitAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false);
+                if (String.Equals(captainTip, targetTip, StringComparison.OrdinalIgnoreCase))
+                {
+                    string noOpSummary = "No-op identity merge: captain branch " + entry.BranchName +
+                        " contributed no commits over " + entry.TargetBranch;
+                    _Logging.Warn(_Header + noOpSummary + " (belt, tip " + captainTip + ") for " + entry.Id);
+
+                    entry.Status = MergeStatusEnum.Failed;
+                    entry.MergeFailureClass = MergeFailureClassEnum.NoOpIdentityPush;
+                    entry.MergeFailureSummary = noOpSummary;
+                    entry.TestOutput = noOpSummary;
+                    entry.CompletedUtc = DateTime.UtcNow;
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    await UpdateLandingJobFromEntryAsync(entry, noOpSummary, token).ConfigureAwait(false);
+                    await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Failed, "merge_queue_noop_identity_push", token, entry.TenantId).ConfigureAwait(false);
+                    return;
+                }
+
                 bool alreadyPushed = await IsRemoteTargetAtIntegrationHeadAsync(repoPath, entry.TargetBranch, integrationBranch, token).ConfigureAwait(false);
                 if (!alreadyPushed)
                 {

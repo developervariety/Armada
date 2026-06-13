@@ -91,6 +91,47 @@ namespace Armada.Test.Unit.Suites.Services
             return new GitRepoSetup(remoteDir, bareDir, workingDir, captainBranch);
         }
 
+        /// <summary>
+        /// Set up a local bare repo with a main branch and a zero-commit captain branch
+        /// (captain branch created at the same tip as main with no additional commits).
+        /// The caller is responsible for cleanup.
+        /// </summary>
+        private async Task<GitRepoSetup> CreateGitSetupZeroCommitAsync(string rootDir)
+        {
+            string remoteDir = Path.Combine(rootDir, "remote.git");
+            string sourceDir = Path.Combine(rootDir, "source");
+            string bareDir = Path.Combine(rootDir, "bare.git");
+            string workingDir = Path.Combine(rootDir, "working");
+
+            Directory.CreateDirectory(sourceDir);
+            await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "# test\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+            // Create captain branch at the same tip as main -- no additional commits.
+            string captainBranch = "armada/captain-1/msn_noop001";
+            await RunGitAsync(sourceDir, "branch", captainBranch).ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "remote", "add", "origin", remoteDir).ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "push", "origin", "main").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "push", "origin", captainBranch).ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", "--bare", remoteDir, bareDir).ConfigureAwait(false);
+            await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", remoteDir, workingDir).ConfigureAwait(false);
+            await RunGitAsync(workingDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(workingDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            return new GitRepoSetup(remoteDir, bareDir, workingDir, captainBranch);
+        }
+
         private async Task<bool> BranchExistsInRepoAsync(string repoPath, string branchName)
         {
             ProcessStartInfo startInfo = new ProcessStartInfo
@@ -541,6 +582,183 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Dock? afterDelete = await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
                     AssertNull(afterDelete, "Dock record should be removed");
+                }
+            });
+
+            // === No-op identity push detection tests ===
+
+            await RunTest("ProcessEntryByIdAsync_ZeroCommitCaptainBranch_FailsWithNoOpIdentityPush", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_noop_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupZeroCommitAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("noop-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission mission = new Mission("noop-mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        string mainTipBefore = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Zero-commit branch must fail, not land");
+                        AssertEqual(MergeFailureClassEnum.NoOpIdentityPush, updated!.MergeFailureClass, "MergeFailureClass must be NoOpIdentityPush");
+                        AssertContains("No-op identity merge", updated.TestOutput ?? "", "TestOutput should describe the no-op");
+
+                        Mission? updatedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(updatedMission, "Mission should still exist");
+                        AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Mission must reconcile to Failed for no-op identity push");
+
+                        string mainTipAfter = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertEqual(mainTipBefore, mainTipAfter, "Target branch tip must be unchanged after no-op failure");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntryByIdAsync_RealCommitBranch_LandsSuccessfully", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_realcommit_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    // Use the standard setup which creates a captain branch with one real commit
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("realcommit-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Real-commit branch must land successfully (no-op guard must not over-fire)");
+                        AssertNull(updated.MergeFailureClass, "MergeFailureClass must be null on successful land");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_BeltCheck_ZeroCommitEntryAtPushing_FailsWithNoOpIdentityPush", async () =>
+            {
+                // Belt check: entry with a zero-commit captain branch that somehow reached
+                // Pushing status (e.g. resumed in-flight entry that skipped the merge stage)
+                // must be caught by the belt check in LandEntryAsync before it is marked Landed.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_belt_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupZeroCommitAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("belt-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission mission = new Mission("belt-mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        // Force the entry directly to Pushing to bypass MergeIntegrationWorktreeAsync
+                        // and exercise only the belt check in LandEntryAsync.
+                        entry.Status = MergeStatusEnum.Pushing;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        // Create the integration worktree at target tip (simulates PrepareIntegrationWorktreeAsync
+                        // having run for a zero-commit captain branch -- integration tip == target tip).
+                        string integrationBranch = "armada/merge-queue/" + entry.Id;
+                        string integrationPath = Path.Combine(settings.DocksDirectory, "_merge-queue", entry.Id);
+                        Directory.CreateDirectory(Path.GetDirectoryName(integrationPath) ?? settings.DocksDirectory);
+                        await RunGitAsync(repos.BareDir, "worktree", "add", "-b", integrationBranch, integrationPath, "main").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Belt check must prevent no-op entry from landing");
+                        AssertEqual(MergeFailureClassEnum.NoOpIdentityPush, updated!.MergeFailureClass, "MergeFailureClass must be NoOpIdentityPush from belt check");
+
+                        Mission? updatedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(updatedMission, "Mission should still exist");
+                        AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Mission must reconcile to Failed");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
                 }
             });
         }
