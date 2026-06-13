@@ -89,6 +89,21 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.FromResult(new ContextPackResponse());
         }
 
+        /// <summary>
+        /// Vessel ids passed to <see cref="ShouldUseFastPackAsync"/>, in call order.
+        /// </summary>
+        public List<string> ShouldUseFastPackVesselIds { get; } = new List<string>();
+
+        /// <inheritdoc />
+        public Task<bool> ShouldUseFastPackAsync(string vesselId, CancellationToken token = default)
+        {
+            lock (_Gate)
+            {
+                ShouldUseFastPackVesselIds.Add(vesselId ?? "");
+            }
+            return Task.FromResult(false);
+        }
+
         /// <inheritdoc />
         public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
         {

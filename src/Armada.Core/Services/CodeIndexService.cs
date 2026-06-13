@@ -570,7 +570,12 @@ namespace Armada.Core.Services
                 }
             }
 
-            GraphContextPackExpansion graphExpansion = await BuildGraphContextPackExpansionAsync(request.VesselId, request.Goal, search, token).ConfigureAwait(false);
+            // When the caller requests a search-only fast pack, skip graph/impact expansion
+            // entirely (no BuildGraphContextPackExpansionAsync call). GraphIncludedFiles stays
+            // empty and GraphExpansionUsed stays false; everything else is unchanged.
+            GraphContextPackExpansion graphExpansion = request.FastPackOnly
+                ? new GraphContextPackExpansion()
+                : await BuildGraphContextPackExpansionAsync(request.VesselId, request.Goal, search, token).ConfigureAwait(false);
             foreach (string warning in graphExpansion.Warnings)
             {
                 warnings.Add(warning);
@@ -656,10 +661,24 @@ namespace Armada.Core.Services
                 response,
                 graphExpansionUsed: graphExpansion.Used,
                 vesselCount: 1,
+                fastPackFallbackUsed: request.FastPackOnly,
                 searchElapsedMs: searchElapsedMs,
                 summarizerElapsedMs: summarizerElapsedMs,
                 totalElapsedMs: totalStopwatch.ElapsedMilliseconds);
             return response;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> ShouldUseFastPackAsync(string vesselId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+
+            // Cheap status lookup only: read the persisted index metadata for the indexed file
+            // count. Deliberately avoids GetStatusAsync, which can resolve/clone the repository.
+            Vessel vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
+            CodeIndexStatus? status = await ReadPersistedStatusAsync(vessel).ConfigureAwait(false);
+            int documentCount = status?.DocumentCount ?? 0;
+            return documentCount > _Settings.CodeIndex.FastPackFileThreshold;
         }
 
         /// <inheritdoc />
@@ -3322,7 +3341,7 @@ namespace Armada.Core.Services
             return builder.ToString().TrimEnd() + "\n";
         }
 
-        private static ContextPackMetrics BuildContextPackMetrics(ContextPackResponse response, bool graphExpansionUsed, int vesselCount, long searchElapsedMs = 0, long summarizerElapsedMs = 0, long totalElapsedMs = 0)
+        private static ContextPackMetrics BuildContextPackMetrics(ContextPackResponse response, bool graphExpansionUsed, int vesselCount, bool fastPackFallbackUsed = false, long searchElapsedMs = 0, long summarizerElapsedMs = 0, long totalElapsedMs = 0)
         {
             List<string> includedFiles = response.Results
                 .Select(r => r.Record?.Path ?? "")
@@ -3343,6 +3362,7 @@ namespace Armada.Core.Services
                     .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                     .ToList(),
                 GraphExpansionUsed = graphExpansionUsed,
+                FastPackFallbackUsed = fastPackFallbackUsed,
                 WarningCount = response.Warnings.Count,
                 IsSummarized = response.IsSummarized,
                 PrestagedFileCount = response.PrestagedFiles.Count,

@@ -168,6 +168,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CSharpSymbolExtractorNegativePathTests());
             runner.AddSuite(new PolyglotSymbolExtractorTests());
             runner.AddSuite(new CodeIndexServiceTests());
+            runner.AddSuite(new CodeIndexFastPackTests());
             runner.AddSuite(new CodeIndexServiceGraphSidecarTests());
             runner.AddSuite(new CodeIndexServiceGraphQueryTests());
             runner.AddSuite(new CodeIndexServiceGraphQueryNegativePathTests());

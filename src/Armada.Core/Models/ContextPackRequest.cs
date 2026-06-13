@@ -27,6 +27,11 @@ namespace Armada.Core.Models
         /// </summary>
         public int? MaxResults { get; set; } = null;
 
+        /// <summary>
+        /// When true, skip graph/impact expansion and build a search-only pack.
+        /// </summary>
+        public bool FastPackOnly { get; set; } = false;
+
         #endregion
     }
 }

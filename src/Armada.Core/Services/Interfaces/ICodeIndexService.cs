@@ -34,6 +34,17 @@ namespace Armada.Core.Services.Interfaces
         Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default);
 
         /// <summary>
+        /// Decide whether a vessel is large enough to prefer the search-only fast-pack path.
+        /// Returns true when the vessel's indexed file count exceeds the configured fast-pack threshold.
+        /// Cheap status lookup only; does not refresh or mutate the index. Defaults to false so that
+        /// existing implementations opt out of the fast-pack path unless they override it.
+        /// </summary>
+        Task<bool> ShouldUseFastPackAsync(string vesselId, CancellationToken token = default)
+        {
+            return Task.FromResult(false);
+        }
+
+        /// <summary>
         /// Generate and persist a baseline context pack for the vessel, keyed by the current indexed commit SHA.
         /// Called in the background after each successful code-index refresh. Failures are non-fatal.
         /// </summary>
