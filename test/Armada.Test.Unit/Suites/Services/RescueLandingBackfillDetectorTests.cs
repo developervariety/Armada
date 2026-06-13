@@ -126,6 +126,75 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("WorkerRescueWithCommitHashEqualToParent_IsFlaggedWithCommitHashEqualsParentReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+
+                    // The parent's landed commit hash. A rescue that "lands" with the identical
+                    // hash contributed no new commit -- a false-positive landing that reason (d)
+                    // must flag even though the persona is Worker and the hash is non-empty.
+                    Mission parent = new Mission("Identity parent");
+                    parent.Status = MissionStatusEnum.Failed;
+                    parent.CommitHash = "sharedidentityhash";
+                    parent = await testDb.Driver.Missions.CreateAsync(parent).ConfigureAwait(false);
+
+                    Mission rescue = new Mission("Rescue Identity parent");
+                    rescue.Status = MissionStatusEnum.Complete;
+                    rescue.ParentMissionId = parent.Id;
+                    rescue.Persona = "Worker"; // not a reviewer -> reason (a) does not fire
+                    rescue.CommitHash = "sharedidentityhash"; // equals parent -> triggers reason (d), not (b)
+                    rescue.Description = "<!-- ARMADA:AUTO-RESCUE --> Recovering.";
+                    rescue = await testDb.Driver.Missions.CreateAsync(rescue).ConfigureAwait(false);
+
+                    // No merge entry seeded -> reason (c) noop_merge_entry must not fire either,
+                    // isolating commit_hash_equals_parent as the sole reason.
+
+                    RescueLandingBackfillDetector detector = new RescueLandingBackfillDetector(testDb.Driver, logging);
+                    List<SuspectRescueLanding> results = await detector.DetectAsync().ConfigureAwait(false);
+
+                    SuspectRescueLanding? suspect = FindSuspect(results, rescue.Id);
+                    AssertNotNull(suspect, "Identity-hash rescue should appear in suspect list");
+                    AssertTrue(suspect!.Reasons.Contains("commit_hash_equals_parent"),
+                        "Reason commit_hash_equals_parent expected");
+                    AssertTrue(!suspect.Reasons.Contains("empty_commit_hash"),
+                        "empty_commit_hash must NOT fire for a non-empty hash");
+                    AssertTrue(!suspect.Reasons.Contains("reviewer_persona_rescue_completed"),
+                        "reviewer_persona_rescue_completed must NOT fire for a Worker persona");
+                    AssertTrue(!suspect.Reasons.Contains("noop_merge_entry"),
+                        "noop_merge_entry must NOT fire with no merge entry seeded");
+                }
+            });
+
+            await RunTest("WorkerRescueWithDistinctCommitHashFromParent_IsNotFlaggedForIdentity", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+
+                    Mission parent = new Mission("Distinct-hash parent");
+                    parent.Status = MissionStatusEnum.Failed;
+                    parent.CommitHash = "parenthashAAA";
+                    parent = await testDb.Driver.Missions.CreateAsync(parent).ConfigureAwait(false);
+
+                    Mission rescue = new Mission("Rescue Distinct-hash parent");
+                    rescue.Status = MissionStatusEnum.Complete;
+                    rescue.ParentMissionId = parent.Id;
+                    rescue.Persona = "Worker";
+                    rescue.CommitHash = "rescuehashBBB"; // distinct from parent -> reason (d) must NOT fire
+                    rescue.Description = "<!-- ARMADA:AUTO-RESCUE --> Recovering.";
+                    rescue = await testDb.Driver.Missions.CreateAsync(rescue).ConfigureAwait(false);
+
+                    RescueLandingBackfillDetector detector = new RescueLandingBackfillDetector(testDb.Driver, logging);
+                    List<SuspectRescueLanding> results = await detector.DetectAsync().ConfigureAwait(false);
+
+                    SuspectRescueLanding? suspect = FindSuspect(results, rescue.Id);
+                    AssertTrue(suspect == null,
+                        "Worker rescue with a distinct, non-empty commit hash must NOT be flagged");
+                }
+            });
+
             await RunTest("LegitimateWorkerRescue_IsNotFlagged", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
