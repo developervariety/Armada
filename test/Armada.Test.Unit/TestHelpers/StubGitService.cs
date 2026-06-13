@@ -39,6 +39,7 @@ namespace Armada.Test.Unit.TestHelpers
         public bool ShouldThrowOnCreatePr { get; set; } = false;
         public bool ShouldThrowOnMergeLocal { get; set; } = false;
         public bool ShouldThrowOnDeleteBranch { get; set; } = false;
+        public bool ShouldThrowOnSetHeadSymbolicRef { get; set; } = false;
 
         public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
         {
@@ -170,6 +171,7 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default)
         {
+            if (ShouldThrowOnSetHeadSymbolicRef) throw new InvalidOperationException("Simulated HEAD symbolic-ref restore failure");
             OperationCalls.Add("set-head-symbolic-ref:" + targetRef);
             return Task.CompletedTask;
         }
