@@ -39,6 +39,11 @@ namespace Armada.Server
         private ICodeIndexService? _CodeIndexService;
 
         /// <summary>
+        /// Optional incident service used to annotate rescue-related incidents on zero-commit refusals.
+        /// </summary>
+        private IncidentService? _Incidents;
+
+        /// <summary>
         /// Per-vessel semaphores to prevent concurrent merge operations on the same repository.
         /// </summary>
         private ConcurrentDictionary<string, SemaphoreSlim> _VesselMergeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
@@ -65,6 +70,7 @@ namespace Armada.Server
         /// <param name="remoteTriggerService">Remote trigger service for drainer wake events.</param>
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
         /// <param name="codeIndexService">Optional code index service refreshed after successful non-queue landings.</param>
+        /// <param name="incidents">Optional incident service used to annotate rescue incidents on zero-commit refusals.</param>
         public MissionLandingHandler(
             LoggingModule logging,
             DatabaseDriver database,
@@ -80,7 +86,8 @@ namespace Armada.Server
             IDockService docks,
             IRemoteTriggerService remoteTriggerService,
             ArmadaWebSocketHub? webSocketHub,
-            ICodeIndexService? codeIndexService = null)
+            ICodeIndexService? codeIndexService = null,
+            IncidentService? incidents = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -97,6 +104,7 @@ namespace Armada.Server
             _RemoteTriggerService = remoteTriggerService ?? throw new ArgumentNullException(nameof(remoteTriggerService));
             _WebSocketHub = webSocketHub;
             _CodeIndexService = codeIndexService;
+            _Incidents = incidents;
         }
 
         #endregion
@@ -266,6 +274,8 @@ namespace Armada.Server
             bool landingSucceeded = false;
             bool landingAttempted = false;
             string? landingFailureReason = null;
+            bool zeroCommitRefusal = false;
+            string? zeroCommitHeadSha = null;
 
             try
             {
@@ -501,6 +511,8 @@ namespace Armada.Server
                             landingAttempted = true;
                             landingSucceeded = noOpDecision.TreatAsSuccess;
                             landingFailureReason = noOpDecision.TreatAsSuccess ? null : noOpDecision.Reason;
+                            zeroCommitRefusal = noOpDecision.ZeroCommitRescue;
+                            zeroCommitHeadSha = noOpDecision.HeadSha;
                             if (noOpDecision.TreatAsSuccess)
                             {
                                 _Logging.Info(_Header + "mission " + mission.Id + " merge-queue enqueue is a no-op already integrated case: " + noOpDecision.Reason);
@@ -709,6 +721,38 @@ namespace Armada.Server
                     catch (Exception evtEx)
                     {
                         _Logging.Warn(_Header + "error emitting mission.completed event for " + mission.Id + ": " + evtEx.Message);
+                    }
+                }
+                else if (zeroCommitRefusal)
+                {
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.FailureReason = "rescue_produced_no_commits";
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "mission " + mission.Id + " refused: rescue produced no commits, status set to Failed");
+
+                    // Emit mission.rescue_produced_no_commits event
+                    try
+                    {
+                        ArmadaEvent refusalEvent = new ArmadaEvent("mission.rescue_produced_no_commits", "Rescue mission refused landing: captain branch HEAD equals target branch HEAD");
+                        refusalEvent.EntityType = "mission";
+                        refusalEvent.EntityId = mission.Id;
+                        refusalEvent.CaptainId = mission.CaptainId;
+                        refusalEvent.MissionId = mission.Id;
+                        refusalEvent.VesselId = mission.VesselId;
+                        refusalEvent.VoyageId = mission.VoyageId;
+                        await _Database.Events.CreateAsync(refusalEvent).ConfigureAwait(false);
+                    }
+                    catch (Exception evtEx)
+                    {
+                        _Logging.Warn(_Header + "error emitting mission.rescue_produced_no_commits event for " + mission.Id + ": " + evtEx.Message);
+                    }
+
+                    // Annotate the linked incident with a recovery note (best-effort; failure does not block transition).
+                    if (!String.IsNullOrWhiteSpace(mission.ParentMissionId) && _Incidents != null)
+                    {
+                        await TryNoteRescueIncidentAsync(mission, zeroCommitHeadSha ?? "unknown").ConfigureAwait(false);
                     }
                 }
                 else
@@ -991,18 +1035,47 @@ namespace Armada.Server
                 captainHead = mission.CommitHash.Trim();
             }
 
+            // Fallback: resolve HEAD directly inside the worktree path when neither
+            // the bare repo branch ref nor CommitHash yielded a captain HEAD.
+            if (String.IsNullOrWhiteSpace(captainHead) && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+            {
+                captainHead = await TryResolveGitRefAsync(dock.WorktreePath, "HEAD").ConfigureAwait(false);
+            }
+
             if (String.IsNullOrWhiteSpace(captainHead)) return null;
             if (!String.Equals(captainHead, targetHead, StringComparison.OrdinalIgnoreCase)) return null;
 
             string persona = mission.Persona ?? "Worker";
             bool reviewOnly = persona.IndexOf("judge", StringComparison.OrdinalIgnoreCase) >= 0
                 || persona.IndexOf("review", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool hasCommitHash = !String.IsNullOrWhiteSpace(mission.CommitHash);
+
+            // Detect auto-rescue missions: ParentMissionId set plus rescue marker in description
+            // or title starting with "Rescue" (mirrors IsAutoRescueMission in AutonomousRecoveryOrchestrator).
+            bool isAutoRescue = !String.IsNullOrWhiteSpace(mission.ParentMissionId)
+                && ((mission.Description ?? String.Empty).Contains("<!-- ARMADA:AUTO-RESCUE -->", StringComparison.Ordinal)
+                    || (mission.Title ?? String.Empty).StartsWith("Rescue:", StringComparison.OrdinalIgnoreCase));
+
             string reason = "No-op merge queue enqueue: captain branch " + (dock.BranchName ?? "(unknown)") +
                 " is already at target branch " + targetBranch + " HEAD " + targetHead;
-            return new MergeQueueNoOpDecision(!reviewOnly && !String.IsNullOrWhiteSpace(mission.CommitHash), reason);
+
+            // Legit already-integrated: CommitHash matches target HEAD, not review-flavored, not a rescue.
+            bool isLegitAlreadyIntegrated = hasCommitHash
+                && String.Equals(mission.CommitHash!.Trim(), targetHead, StringComparison.OrdinalIgnoreCase)
+                && !reviewOnly
+                && !isAutoRescue;
+
+            if (isLegitAlreadyIntegrated)
+            {
+                return new MergeQueueNoOpDecision(true, reason);
+            }
+
+            // All other heads-equal cases are zero-commit refusals.
+            string refusalReason = "Rescue mission produced no new commits: captain branch HEAD equals target branch " + targetBranch + " HEAD " + targetHead;
+            return new MergeQueueNoOpDecision(false, refusalReason, ZeroCommitRescue: true, HeadSha: targetHead);
         }
 
-        private sealed record MergeQueueNoOpDecision(bool TreatAsSuccess, string Reason);
+        private sealed record MergeQueueNoOpDecision(bool TreatAsSuccess, string Reason, bool ZeroCommitRescue = false, string? HeadSha = null);
 
         private async Task<string?> TryResolveGitRefAsync(string repoPath, string refName)
         {
@@ -1037,6 +1110,48 @@ namespace Armada.Server
             {
                 _Logging.Debug(_Header + "could not resolve git ref " + refName + " in " + repoPath + ": " + ex.Message);
                 return null;
+            }
+        }
+
+        private async Task TryNoteRescueIncidentAsync(Mission mission, string captainHeadSha)
+        {
+            if (_Incidents == null) return;
+            if (String.IsNullOrWhiteSpace(mission.ParentMissionId)) return;
+
+            try
+            {
+                AuthContext auth = AuthContext.Authenticated(
+                    mission.TenantId ?? Constants.DefaultTenantId,
+                    mission.UserId ?? Constants.DefaultUserId,
+                    false,
+                    true,
+                    "MissionLanding",
+                    principalDisplay: "Armada Mission Landing");
+
+                EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = mission.ParentMissionId,
+                    PageNumber = 1,
+                    PageSize = 25
+                }).ConfigureAwait(false);
+
+                string note = "Rescue " + mission.Id + " refused landing: rescue_produced_no_commits (captain branch HEAD == target HEAD " + captainHeadSha + ").";
+
+                foreach (Incident incident in existing.Objects)
+                {
+                    string updatedNotes = String.IsNullOrWhiteSpace(incident.RecoveryNotes)
+                        ? note
+                        : incident.RecoveryNotes.TrimEnd() + Environment.NewLine + Environment.NewLine + note;
+
+                    await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        RecoveryNotes = updatedNotes
+                    }).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error annotating incident for rescue mission " + mission.Id + ": " + ex.Message);
             }
         }
 

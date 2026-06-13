@@ -1,7 +1,10 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -501,6 +504,260 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             });
+
+            // === Zero-Commit Rescue Landing Guard ===
+
+            await RunTest("AutoRescue_ZeroCommitBranch_TransitionsToFailed_WithReasonRescueProducedNoCommits", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_zc_test_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ZeroCommitGitSetup repos = await CreateZeroCommitGitSetupAsync(rootDir);
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                        IMessageTemplateService templateService = new MessageTemplateService(logging);
+                        TrackingMergeQueueService trackingMq = new TrackingMergeQueueService();
+
+                        MissionLandingHandler handler = new MissionLandingHandler(
+                            logging, testDb.Driver, settings, git, trackingMq, landingService,
+                            new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator(),
+                            templateService, null, dockService, new NoOpRemoteTriggerService(), null);
+
+                        Vessel vessel = new Vessel("rescue-test", "https://github.com/test/repo.git");
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.MergeQueue;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.BranchName = repos.CaptainBranch;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_zc_wt_" + Guid.NewGuid().ToString("N"));
+                        await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                        // Create the parent mission first to satisfy the FK constraint.
+                        Mission parentMission = new Mission("Original failing mission");
+                        parentMission.VesselId = vessel.Id;
+                        await testDb.Driver.Missions.CreateAsync(parentMission).ConfigureAwait(false);
+
+                        Mission mission = new Mission("Rescue: fix the broken thing");
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.VesselId = vessel.Id;
+                        mission.DockId = dock.Id;
+                        mission.ParentMissionId = parentMission.Id;
+                        mission.Description = "<!-- ARMADA:AUTO-RESCUE --> Fix the flaky test.";
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Mission should exist after refusal");
+                        AssertEqual(MissionStatusEnum.Failed, updated!.Status, "Zero-commit rescue should be set to Failed, not LandingFailed");
+                        AssertEqual("rescue_produced_no_commits", updated.FailureReason, "FailureReason must be rescue_produced_no_commits");
+                        AssertFalse(trackingMq.EnqueueCalled, "EnqueueAsync must not be called for a zero-commit rescue");
+                    }
+                }
+                finally
+                {
+                    DeleteDirectoryForce(rootDir);
+                }
+            });
+
+            await RunTest("AutoRescue_ZeroCommitBranch_WithLinkedIncident_NotesRecoveryNote", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_zcnote_test_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ZeroCommitGitSetup repos = await CreateZeroCommitGitSetupAsync(rootDir);
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                        IMessageTemplateService templateService = new MessageTemplateService(logging);
+                        IncidentService incidentService = new IncidentService(testDb.Driver);
+
+                        MissionLandingHandler handler = new MissionLandingHandler(
+                            logging, testDb.Driver, settings, git, new TrackingMergeQueueService(), landingService,
+                            new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator(),
+                            templateService, null, dockService, new NoOpRemoteTriggerService(), null,
+                            incidents: incidentService);
+
+                        Vessel vessel = new Vessel("rescue-note-test", "https://github.com/test/repo.git");
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.MergeQueue;
+                        vessel.TenantId = Constants.DefaultTenantId;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.BranchName = repos.CaptainBranch;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_zcnote_wt_" + Guid.NewGuid().ToString("N"));
+                        await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                        // Create the parent mission first to satisfy the FK constraint.
+                        Mission parentMission = new Mission("Original failing mission for note test");
+                        parentMission.VesselId = vessel.Id;
+                        parentMission.TenantId = Constants.DefaultTenantId;
+                        await testDb.Driver.Missions.CreateAsync(parentMission).ConfigureAwait(false);
+
+                        // Create a linked incident with MissionId = parentMission.Id
+                        AuthContext auth = AuthContext.Authenticated(
+                            Constants.DefaultTenantId, Constants.DefaultUserId, false, true, "test");
+                        Incident incident = await incidentService.CreateAsync(auth, new IncidentUpsertRequest
+                        {
+                            Title = "Parent mission failed",
+                            Status = IncidentStatusEnum.Open,
+                            MissionId = parentMission.Id,
+                            VesselId = vessel.Id
+                        }).ConfigureAwait(false);
+
+                        Mission mission = new Mission("Rescue: note test");
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.VesselId = vessel.Id;
+                        mission.DockId = dock.Id;
+                        mission.ParentMissionId = parentMission.Id;
+                        mission.TenantId = Constants.DefaultTenantId;
+                        mission.Description = "<!-- ARMADA:AUTO-RESCUE --> Note test.";
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                        Incident? updatedIncident = await incidentService.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                        AssertNotNull(updatedIncident, "Incident should still exist");
+                        AssertTrue(
+                            (updatedIncident!.RecoveryNotes ?? String.Empty).Contains("rescue_produced_no_commits", StringComparison.Ordinal),
+                            "RecoveryNotes should contain rescue_produced_no_commits");
+                        AssertTrue(
+                            (updatedIncident.RecoveryNotes ?? String.Empty).Contains(mission.Id, StringComparison.Ordinal),
+                            "RecoveryNotes should reference the rescue mission id");
+                    }
+                }
+                finally
+                {
+                    DeleteDirectoryForce(rootDir);
+                }
+            });
+
+            await RunTest("AutoRescue_DifferentHeads_StillEnqueues", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_diffhead_test_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        DifferentHeadsGitSetup repos = await CreateDifferentHeadsGitSetupAsync(rootDir);
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                        IMessageTemplateService templateService = new MessageTemplateService(logging);
+                        TrackingMergeQueueService trackingMq = new TrackingMergeQueueService();
+
+                        MissionLandingHandler handler = new MissionLandingHandler(
+                            logging, testDb.Driver, settings, git, trackingMq, landingService,
+                            new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator(),
+                            templateService, null, dockService, new NoOpRemoteTriggerService(), null);
+
+                        Vessel vessel = new Vessel("diff-head-test", "https://github.com/test/repo.git");
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.MergeQueue;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.BranchName = repos.CaptainBranch;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_diffhead_wt_" + Guid.NewGuid().ToString("N"));
+                        await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                        // Create parent mission to satisfy FK constraint.
+                        Mission parentMission = new Mission("Original failing mission for diff-heads test");
+                        parentMission.VesselId = vessel.Id;
+                        await testDb.Driver.Missions.CreateAsync(parentMission).ConfigureAwait(false);
+
+                        Mission mission = new Mission("Rescue: heads differ");
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.VesselId = vessel.Id;
+                        mission.DockId = dock.Id;
+                        mission.ParentMissionId = parentMission.Id;
+                        mission.Description = "<!-- ARMADA:AUTO-RESCUE --> Has real commits.";
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                        AssertTrue(trackingMq.EnqueueCalled, "A rescue mission with real commits should be enqueued normally");
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Mission should still exist");
+                        AssertNotEqual(MissionStatusEnum.Failed, updated!.Status, "Mission with different heads must not be refused");
+                    }
+                }
+                finally
+                {
+                    DeleteDirectoryForce(rootDir);
+                }
+            });
+
+            await RunTest("NonRescueWorker_AlreadyIntegrated_TransitionsComplete", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_already_test_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ZeroCommitGitSetup repos = await CreateZeroCommitGitSetupAsync(rootDir);
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                        IMessageTemplateService templateService = new MessageTemplateService(logging);
+                        TrackingMergeQueueService trackingMq = new TrackingMergeQueueService();
+
+                        MissionLandingHandler handler = new MissionLandingHandler(
+                            logging, testDb.Driver, settings, git, trackingMq, landingService,
+                            new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator(),
+                            templateService, null, dockService, new NoOpRemoteTriggerService(), null);
+
+                        Vessel vessel = new Vessel("already-integrated-test", "https://github.com/test/repo.git");
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.MergeQueue;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.BranchName = repos.CaptainBranch;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_already_wt_" + Guid.NewGuid().ToString("N"));
+                        await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                        // CommitHash == targetHead means the work is already in main (legit already-integrated)
+                        // No ParentMissionId -> not a rescue mission
+                        Mission mission = new Mission("Regular Worker mission");
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.VesselId = vessel.Id;
+                        mission.DockId = dock.Id;
+                        mission.CommitHash = repos.MainHead;
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Mission should exist after already-integrated detection");
+                        AssertEqual(MissionStatusEnum.Complete, updated!.Status, "Legit already-integrated non-rescue Worker should be Complete");
+                        AssertFalse(trackingMq.EnqueueCalled, "Already-integrated mission must not be enqueued");
+                    }
+                }
+                finally
+                {
+                    DeleteDirectoryForce(rootDir);
+                }
+            });
         }
 
         private static string ExtractBetween(string contents, string startToken, string endToken)
@@ -572,6 +829,164 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default) => Task.FromResult(0);
             public Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default) => Task.FromResult(0);
             public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
+        }
+
+        private sealed class TrackingMergeQueueService : IMergeQueueService
+        {
+            public bool EnqueueCalled { get; private set; }
+            public Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default)
+            {
+                EnqueueCalled = true;
+                return Task.FromResult(entry);
+            }
+            public Task ProcessQueueAsync(CancellationToken token = default) => Task.CompletedTask;
+            public Task CancelAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.CompletedTask;
+            public Task<List<MergeEntry>> ListAsync(string? tenantId = null, CancellationToken token = default) => Task.FromResult(new List<MergeEntry>());
+            public Task<MergeEntry?> ProcessSingleAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult<MergeEntry?>(null);
+            public Task ProcessEntryByIdAsync(string entryId, CancellationToken token = default) => Task.CompletedTask;
+            public Task<MergeEntry?> GetAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult<MergeEntry?>(null);
+            public Task<bool> DeleteAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult(false);
+            public Task<MergeQueuePurgeResult> DeleteMultipleAsync(List<string> entryIds, string? tenantId = null, CancellationToken token = default)
+                => Task.FromResult(new MergeQueuePurgeResult());
+            public Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, string? tenantId = null, CancellationToken token = default)
+                => Task.FromResult(0);
+            public Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
+        }
+
+        private sealed class ZeroCommitGitSetup
+        {
+            public string BareDir { get; }
+            public string CaptainBranch { get; }
+            public string MainHead { get; }
+            public ZeroCommitGitSetup(string bareDir, string captainBranch, string mainHead)
+            {
+                BareDir = bareDir;
+                CaptainBranch = captainBranch;
+                MainHead = mainHead;
+            }
+        }
+
+        private sealed class DifferentHeadsGitSetup
+        {
+            public string BareDir { get; }
+            public string CaptainBranch { get; }
+            public DifferentHeadsGitSetup(string bareDir, string captainBranch)
+            {
+                BareDir = bareDir;
+                CaptainBranch = captainBranch;
+            }
+        }
+
+        private static async Task<ZeroCommitGitSetup> CreateZeroCommitGitSetupAsync(string rootDir)
+        {
+            string sourceDir = Path.Combine(rootDir, "source");
+            string bareDir = Path.Combine(rootDir, "bare.git");
+
+            Directory.CreateDirectory(sourceDir);
+            await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "# test\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+            string mainHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+            // Captain branch at the same commit (zero new commits)
+            string captainBranch = "armada/captain-1/msn_rescue001";
+            await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+            await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            return new ZeroCommitGitSetup(bareDir, captainBranch, mainHead);
+        }
+
+        private static async Task<DifferentHeadsGitSetup> CreateDifferentHeadsGitSetupAsync(string rootDir)
+        {
+            string sourceDir = Path.Combine(rootDir, "source");
+            string bareDir = Path.Combine(rootDir, "bare.git");
+
+            Directory.CreateDirectory(sourceDir);
+            await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "# test\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+            string captainBranch = "armada/captain-1/msn_rescue002";
+            await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
+
+            // Add a real commit on the captain branch
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "feature.txt"), "feature\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "feature.txt").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "commit", "-m", "Add feature").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+            await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            return new DifferentHeadsGitSetup(bareDir, captainBranch);
+        }
+
+        private static void DeleteDirectoryForce(string path)
+        {
+            if (!Directory.Exists(path)) return;
+            foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+            Directory.Delete(path, true);
+        }
+
+        private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            foreach (string arg in args)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+
+                if (process.ExitCode != 0)
+                {
+                    throw new InvalidOperationException("git failed (exit " + process.ExitCode + "): " + stderr.Trim());
+                }
+
+                return stdout;
+            }
+        }
+
+        private void AssertNotEqual<T>(T unexpected, T actual, string message)
+        {
+            if (Object.Equals(unexpected, actual))
+            {
+                throw new Exception(message + " Value should NOT be " + unexpected);
+            }
         }
 
     }
