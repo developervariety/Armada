@@ -409,6 +409,131 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("EnsureLocalBranchAsync TargetBranchCheckedOutInWorktree SkipsLocalRefSync", async () =>
+            {
+                // Sibling-dock conflict: the target branch is checked out in another
+                // worktree of the same repo while origin has advanced. The force-update
+                // (git branch -f) would fail with "checked out in a worktree", so the
+                // production code must detect the worktree, skip the local ref sync,
+                // and still return success without throwing.
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string workDir = Path.Combine(rootDir, "work");
+                string pusherDir = Path.Combine(rootDir, "pusher");
+                string worktreeDir = Path.Combine(rootDir, "main-worktree");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, workDir).ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    string originalMain = (await RunGitAsync(workDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    // Advance origin/main from an independent clone so the bare repo is ahead of the work clone.
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, pusherDir).ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(pusherDir, "README.md"), "base\nupstream advance\n").ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "commit", "-am", "Advance main").ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "push", "origin", "main").ConfigureAwait(false);
+
+                    string advancedMain = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    AssertFalse(String.Equals(originalMain, advancedMain, StringComparison.OrdinalIgnoreCase),
+                        "Origin main should be ahead of the work clone for this scenario to be meaningful");
+
+                    // Move the work clone's primary checkout off main, then check out main in a sibling worktree.
+                    await RunGitAsync(workDir, "checkout", "-b", "holding").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "worktree", "add", worktreeDir, "main").ConfigureAwait(false);
+
+                    bool ensured = await service.EnsureLocalBranchAsync(workDir, "main").ConfigureAwait(false);
+
+                    string postLocalMain = (await RunGitAsync(workDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string postRemoteMain = (await RunGitAsync(workDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+
+                    AssertTrue(ensured, "EnsureLocalBranchAsync should report success even when the branch is checked out in a worktree");
+                    AssertEqual(advancedMain, postRemoteMain, "Fetch should still advance the remote-tracking ref");
+                    AssertEqual(originalMain, postLocalMain, "Local target ref must be left untouched when it is checked out in a sibling worktree");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("EnsureLocalBranchAsync ExistingBranchNotInWorktree ForceUpdatesToOrigin", async () =>
+            {
+                // Complement to the worktree-skip case: when the branch is NOT checked
+                // out in any worktree, the guard must not over-trigger -- the local ref
+                // should be force-updated to match the advanced origin branch.
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string workDir = Path.Combine(rootDir, "work");
+                string pusherDir = Path.Combine(rootDir, "pusher");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, workDir).ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, pusherDir).ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(pusherDir, "README.md"), "base\nupstream advance\n").ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "commit", "-am", "Advance main").ConfigureAwait(false);
+                    await RunGitAsync(pusherDir, "push", "origin", "main").ConfigureAwait(false);
+
+                    string advancedMain = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    // Move off main so it is not checked out anywhere; no worktree is created.
+                    await RunGitAsync(workDir, "checkout", "-b", "holding").ConfigureAwait(false);
+
+                    bool ensured = await service.EnsureLocalBranchAsync(workDir, "main").ConfigureAwait(false);
+
+                    string postLocalMain = (await RunGitAsync(workDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    AssertTrue(ensured, "EnsureLocalBranchAsync should report success for an existing local branch");
+                    AssertEqual(advancedMain, postLocalMain, "Local ref should be force-updated to origin when the branch is not checked out in a worktree");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("CreateWorktreeAsync ExistingBranch StaysOnNamedBranch", async () =>
             {
                 GitService service = CreateService();
@@ -605,6 +730,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Directory.CreateDirectory(sourceDir);
                     await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base change\n").ConfigureAwait(false);
@@ -618,7 +744,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitAsync(sourceDir, "commit", "-am", "Branch change").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "push", "armada", "armada/conflict").ConfigureAwait(false);
 
-                    await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, targetDir).ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(targetDir, "README.md"), "target change\n").ConfigureAwait(false);
@@ -670,6 +796,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Directory.CreateDirectory(sourceDir);
                     await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
@@ -683,7 +810,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitAsync(sourceDir, "commit", "-am", "Worker change").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "push", "armada", "armada/worktree-merge").ConfigureAwait(false);
 
-                    await RunGitAsync(rootDir, "clone", bareDir, targetRepoDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, targetRepoDir).ConfigureAwait(false);
                     await RunGitAsync(targetRepoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(targetRepoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await RunGitAsync(targetRepoDir, "checkout", "-b", "hold").ConfigureAwait(false);
@@ -719,6 +846,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Directory.CreateDirectory(sourceDir);
                     await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
@@ -726,7 +854,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, targetDir).ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
 
