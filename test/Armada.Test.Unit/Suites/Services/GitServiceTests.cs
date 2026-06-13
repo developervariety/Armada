@@ -466,6 +466,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Directory.CreateDirectory(sourceDir);
                     await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base change\n").ConfigureAwait(false);
@@ -479,7 +480,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitAsync(sourceDir, "commit", "-am", "Branch change").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "push", "armada", "armada/conflict").ConfigureAwait(false);
 
-                    await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, targetDir).ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(targetDir, "README.md"), "target change\n").ConfigureAwait(false);
@@ -531,6 +532,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Directory.CreateDirectory(sourceDir);
                     await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
@@ -544,7 +546,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitAsync(sourceDir, "commit", "-am", "Worker change").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "push", "armada", "armada/worktree-merge").ConfigureAwait(false);
 
-                    await RunGitAsync(rootDir, "clone", bareDir, targetRepoDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, targetRepoDir).ConfigureAwait(false);
                     await RunGitAsync(targetRepoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(targetRepoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await RunGitAsync(targetRepoDir, "checkout", "-b", "hold").ConfigureAwait(false);
@@ -580,6 +582,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Directory.CreateDirectory(sourceDir);
                     await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
@@ -587,7 +590,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, targetDir).ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
 
