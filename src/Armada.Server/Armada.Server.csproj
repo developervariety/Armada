@@ -26,4 +26,13 @@
     <ProjectReference Include="..\Armada.Runtimes\Armada.Runtimes.csproj" />
   </ItemGroup>
 
+  <Target Name="EmbedGitSha" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitSha" />
+    </Exec>
+    <PropertyGroup Condition="'$(_GitSha)' != ''">
+      <SourceRevisionId>$(_GitSha)</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
+
 </Project>
