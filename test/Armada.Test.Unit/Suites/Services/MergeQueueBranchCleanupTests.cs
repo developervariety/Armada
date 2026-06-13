@@ -115,6 +115,15 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        /// <summary>
+        /// Resolve a git ref to its current commit hash.
+        /// </summary>
+        private async Task<string> ResolveGitRefAsync(string repoPath, string refName)
+        {
+            string output = await RunGitAsync(repoPath, "rev-parse", "--verify", refName).ConfigureAwait(false);
+            return output.Trim();
+        }
+
         protected override async Task RunTestsAsync()
         {
             // === MergeQueueService Branch Cleanup Tests ===
@@ -162,6 +171,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                         bool captainInRemote = await BranchExistsInRepoAsync(repos.RemoteDir, repos.CaptainBranch).ConfigureAwait(false);
                         AssertTrue(captainInRemote, "Captain branch should be preserved on remote for LocalOnly policy");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(0, events.Count, "Clean landed entries should not emit failed target-advanced audit events");
                     }
                 }
                 finally
@@ -260,6 +272,121 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string mainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
                         AssertFalse(mainFiles.Contains("_briefing/spec.md"), "Protected briefing file should not land on main");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_GateFails_TargetHeadUnchanged", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gate_fail_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("gate-fail-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "exit 1";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        string preBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when the merge gate command fails");
+
+                        string postRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        string postBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+                        AssertEqual(preRemoteHead, postRemoteHead, "Remote target branch should not move when tests fail before pushing");
+                        AssertEqual(preBareHead, postBareHead, "Bare local target branch should not move when tests fail before pushing");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(0, events.Count, "Gate failure before push should not emit target-advanced audit events");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_PushSucceedsThenSyncFails_RollsBackTargetAndEmitsAuditEvent", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_push_sync_fail_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string checkedOutMainDir = Path.Combine(rootDir, "checked-out-main");
+                    await RunGitAsync(repos.BareDir, "worktree", "add", checkedOutMainDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("sync-fail-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        string preBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when local target sync fails after push");
+
+                        string postRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        string postBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+                        AssertEqual(preRemoteHead, postRemoteHead, "Remote target branch should roll back to the pre-land head");
+                        AssertEqual(preBareHead, postBareHead, "Bare local target branch should remain at the pre-land head");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "Post-push failure should emit one target-advanced audit event");
+                        AssertEqual(entry.Id, events[0].EntityId, "Audit event should reference the failed merge entry");
+                        AssertContains(preRemoteHead, events[0].Payload ?? "", "Audit payload should include the pre-land head");
                     }
                 }
                 finally
