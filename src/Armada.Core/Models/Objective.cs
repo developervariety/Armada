@@ -56,6 +56,11 @@ namespace Armada.Core.Models
         public ObjectiveStatusEnum Status { get; set; } = ObjectiveStatusEnum.Draft;
 
         /// <summary>
+        /// When true, the autonomous scheduler may dispatch this objective without a human trigger.
+        /// </summary>
+        public bool AutoDispatchEnabled { get; set; } = false;
+
+        /// <summary>
         /// Backlog/objective classification.
         /// </summary>
         public ObjectiveKindEnum Kind { get; set; } = ObjectiveKindEnum.Feature;
