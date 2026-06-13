@@ -124,6 +124,30 @@ namespace Armada.Test.Unit.Suites.Services
             return output.Trim();
         }
 
+        /// <summary>
+        /// Install a server-side pre-receive hook on a bare repo that rejects any push
+        /// updating the given branch, so a land-push can be forced to fail without
+        /// advancing the remote target.
+        /// </summary>
+        private async Task InstallRejectBranchPushHookAsync(string bareRepoDir, string branchName)
+        {
+            string hooksDir = Path.Combine(bareRepoDir, "hooks");
+            Directory.CreateDirectory(hooksDir);
+
+            // LF line endings and no BOM so git's bundled shell parses the shebang.
+            string hookBody =
+                "#!/bin/sh\n" +
+                "while read oldrev newrev refname; do\n" +
+                "  if [ \"$refname\" = \"refs/heads/" + branchName + "\" ]; then\n" +
+                "    echo \"pre-receive hook: pushes to " + branchName + " are rejected for this test\" 1>&2\n" +
+                "    exit 1\n" +
+                "  fi\n" +
+                "done\n" +
+                "exit 0\n";
+
+            await File.WriteAllTextAsync(Path.Combine(hooksDir, "pre-receive"), hookBody, new System.Text.UTF8Encoding(false)).ConfigureAwait(false);
+        }
+
         protected override async Task RunTestsAsync()
         {
             // === MergeQueueService Branch Cleanup Tests ===
@@ -511,6 +535,73 @@ namespace Armada.Test.Unit.Suites.Services
                         // The rollback must un-merge the feature from origin, not merely reset the ref label.
                         string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
                         AssertFalse(remoteMainFiles.Contains("feature.txt"), "Rollback must remove the captain feature file from origin/main after a failed land");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_LandPushRejected_NoAdvanceNoAuditEventAndTargetUnchanged", async () =>
+            {
+                // Negative complement to the post-push rollback test: when the land-push to the
+                // target is rejected outright, the target never advances. The rollback path must
+                // recognize "not advanced" and stay silent -- no false-positive failed_target_advanced
+                // audit event, no rollback force-push, and the target HEAD/tree must be untouched.
+                // This exercises the no-advance early-return in RollbackTargetIfAdvancedAsync.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_push_rejected_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
+
+                    // Reject the land-push to main at the remote. The integration branch is never
+                    // pushed to origin (admiral-internal), so only the land-push hits this hook.
+                    await InstallRejectBranchPushHookAsync(repos.RemoteDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("push-rejected-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        string preBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when the land-push is rejected by the remote");
+
+                        string postRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        string postBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+                        AssertEqual(preRemoteHead, postRemoteHead, "Remote target branch must not move when the land-push is rejected");
+                        AssertEqual(preBareHead, postBareHead, "Bare local target branch must not move when the land-push is rejected");
+
+                        string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertFalse(remoteMainFiles.Contains("feature.txt"), "Captain feature file must not reach origin/main when the land-push is rejected");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(0, events.Count, "A landing failure that did not advance the target must not emit a target-advanced audit event");
                     }
                 }
                 finally
