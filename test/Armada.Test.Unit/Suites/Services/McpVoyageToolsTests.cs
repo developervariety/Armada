@@ -1339,6 +1339,126 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
                 }
             });
+
+            await RunTest("Dispatch_EmptyMissions_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("empty-missions-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "empty missions voyage",
+                        description = "no missions supplied",
+                        vesselId = vessel.Id,
+                        missions = new object[] { }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("missions", resultJson);
+                    AssertContains("missing_missions", resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Missions validation must fire, not vessel_not_found: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached on empty missions");
+                }
+            });
+
+            await RunTest("Dispatch_MissionMissingTitle_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("mission-no-title-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "missing mission title voyage",
+                        description = "one mission lacks a title",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { description = "has description but no title" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("title", resultJson);
+                    AssertContains("missing_mission_title", resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Mission title validation must fire, not vessel_not_found: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when a mission lacks a title");
+                }
+            });
+
+            await RunTest("Dispatch_MissionMissingDescription_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("mission-no-desc-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "missing mission description voyage",
+                        description = "one mission lacks a description",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "has title but no description" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("description", resultJson);
+                    AssertContains("missing_mission_description", resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Mission description validation must fire, not vessel_not_found: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when a mission lacks a description");
+                }
+            });
         }
 
         /// <summary>
