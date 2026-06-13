@@ -1414,7 +1414,7 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "push already reflected on origin/" + entry.TargetBranch + " for " + entry.Id);
                 }
 
-                await SynchronizeTargetBranchAfterPushAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false);
+                await SynchronizeTargetBranchAfterPushAsync(entry, repoPath, entry.TargetBranch, token).ConfigureAwait(false);
 
                 entry.Status = MergeStatusEnum.Landed;
                 entry.CompletedUtc = DateTime.UtcNow;
@@ -1595,8 +1595,10 @@ namespace Armada.Core.Services
         /// <summary>
         /// After a successful push, make the bare repository's local target branch
         /// match the fetched remote target before advertising the merge as landed.
+        /// When the target branch is checked out in a worktree, the update is skipped
+        /// and a structured event is emitted rather than failing the land.
         /// </summary>
-        private async Task SynchronizeTargetBranchAfterPushAsync(string repoPath, string targetBranch, CancellationToken token)
+        private async Task SynchronizeTargetBranchAfterPushAsync(MergeEntry entry, string repoPath, string targetBranch, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrWhiteSpace(targetBranch)) throw new ArgumentNullException(nameof(targetBranch));
@@ -1613,7 +1615,9 @@ namespace Armada.Core.Services
 
             if (await IsBranchCheckedOutInWorktreeAsync(repoPath, targetBranch, token).ConfigureAwait(false))
             {
-                throw new InvalidOperationException("Unable to update local target branch " + targetBranch + " because it is checked out in a worktree");
+                _Logging.Warn(_Header + "skipping local target ref sync for " + targetBranch + " because it is checked out in a worktree");
+                await EmitTargetRefSyncSkippedAsync(entry, targetBranch, "branch_checked_out_in_worktree", token).ConfigureAwait(false);
+                return;
             }
 
             await RunGitAsync(repoPath, token, "branch", "-f", targetBranch, remoteRef).ConfigureAwait(false);
@@ -1735,6 +1739,9 @@ namespace Armada.Core.Services
                     _Logging.Debug(_Header + "could not delete integration branch " + integrationBranch + " from bare repo: " + ex.Message);
                 }
             }
+
+            await SyncWorkingDirectoryAfterLandAsync(entry, vessel, token).ConfigureAwait(false);
+            await RestoreBareHeadAsync(entry, vessel, repoPath, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2061,6 +2068,273 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(output)) return "";
             if (output.Length > 4096) return output.Substring(0, 4096) + "\n... (truncated)";
             return output;
+        }
+
+        /// <summary>
+        /// Fast-forward the vessel WorkingDirectory to the landed commit when it is
+        /// clean and checked out on the configured default branch.
+        /// Emits merge_queue.workdir_synced on success or merge_queue.workdir_sync_skipped
+        /// with a structured reason when any precondition is not met.
+        /// </summary>
+        private async Task SyncWorkingDirectoryAfterLandAsync(MergeEntry entry, Vessel? vessel, CancellationToken token)
+        {
+            string? workingDirectory = vessel?.WorkingDirectory;
+            if (String.IsNullOrEmpty(workingDirectory))
+            {
+                return;
+            }
+
+            if (!Directory.Exists(workingDirectory))
+            {
+                await EmitWorkdirSyncSkippedAsync(entry, workingDirectory, "directory_missing", token).ConfigureAwait(false);
+                return;
+            }
+
+            if (!await _Git.IsRepositoryAsync(workingDirectory, token).ConfigureAwait(false))
+            {
+                await EmitWorkdirSyncSkippedAsync(entry, workingDirectory, "not_a_repository", token).ConfigureAwait(false);
+                return;
+            }
+
+            string expectedBranch = !String.IsNullOrEmpty(vessel?.DefaultBranch) ? vessel!.DefaultBranch : entry.TargetBranch;
+            string? currentBranch = null;
+            try
+            {
+                currentBranch = await _Git.GetCurrentBranchAsync(workingDirectory, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not determine current branch of WorkingDirectory " + workingDirectory + ": " + ex.Message);
+                await EmitWorkdirSyncSkippedAsync(entry, workingDirectory, "branch_check_failed", token).ConfigureAwait(false);
+                return;
+            }
+
+            if (!String.Equals(currentBranch, expectedBranch, StringComparison.OrdinalIgnoreCase))
+            {
+                _Logging.Warn(_Header + "skipping WorkingDirectory sync for " + workingDirectory + ": on branch " + currentBranch + " not " + expectedBranch);
+                await EmitWorkdirSyncSkippedAsync(entry, workingDirectory, "on_non_default_branch", token).ConfigureAwait(false);
+                return;
+            }
+
+            bool isClean = false;
+            try
+            {
+                isClean = await _Git.IsWorkingDirectoryCleanAsync(workingDirectory, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not check cleanliness of WorkingDirectory " + workingDirectory + ": " + ex.Message);
+                await EmitWorkdirSyncSkippedAsync(entry, workingDirectory, "clean_check_failed", token).ConfigureAwait(false);
+                return;
+            }
+
+            if (!isClean)
+            {
+                _Logging.Warn(_Header + "skipping WorkingDirectory sync for " + workingDirectory + ": uncommitted changes present");
+                await EmitWorkdirSyncSkippedAsync(entry, workingDirectory, "dirty_working_directory", token).ConfigureAwait(false);
+                return;
+            }
+
+            try
+            {
+                await _Git.PullFastForwardOnlyAsync(workingDirectory, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "fast-forwarded WorkingDirectory " + workingDirectory + " to " + expectedBranch + " after land of " + entry.Id);
+                await EmitWorkdirSyncedAsync(entry, workingDirectory, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "WorkingDirectory fast-forward failed for " + workingDirectory + ": " + ex.Message);
+                await EmitWorkdirSyncSkippedAsync(entry, workingDirectory, "fast_forward_failed", token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Restore the bare repository HEAD symbolic-ref to the default branch after
+        /// captain and integration branches are cleaned up. Emits merge_queue.bare_head_restored
+        /// on success or merge_queue.bare_head_restore_skipped when the operation cannot run.
+        /// </summary>
+        private async Task RestoreBareHeadAsync(MergeEntry entry, Vessel? vessel, string repoPath, CancellationToken token)
+        {
+            string defaultBranch = !String.IsNullOrEmpty(vessel?.DefaultBranch) ? vessel!.DefaultBranch : entry.TargetBranch;
+            if (String.IsNullOrEmpty(defaultBranch) || String.IsNullOrEmpty(repoPath))
+            {
+                return;
+            }
+
+            try
+            {
+                await RunGitAsync(repoPath, token, "symbolic-ref", "HEAD", "refs/heads/" + defaultBranch).ConfigureAwait(false);
+                _Logging.Info(_Header + "restored bare repo HEAD to refs/heads/" + defaultBranch + " after land of " + entry.Id);
+                await EmitBareHeadRestoredAsync(entry, repoPath, defaultBranch, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "bare repo HEAD restore failed for " + repoPath + " after land of " + entry.Id + ": " + ex.Message);
+                await EmitBareHeadRestoreSkippedAsync(entry, repoPath, defaultBranch, ex.Message, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Emit a structured event when the local target ref sync is skipped because
+        /// the branch is checked out in a worktree.
+        /// </summary>
+        private async Task EmitTargetRefSyncSkippedAsync(MergeEntry entry, string targetBranch, string reason, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent();
+                evt.TenantId = entry.TenantId;
+                evt.EventType = "merge_queue.target_ref_sync_skipped";
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = entry.MissionId;
+                evt.VesselId = entry.VesselId;
+                evt.Message = "Local target ref sync skipped for " + targetBranch + ": " + reason;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = entry.Id,
+                    missionId = entry.MissionId,
+                    vesselId = entry.VesselId,
+                    targetBranch,
+                    reason
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record target-ref-sync-skipped event for " + entry.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Emit a structured event when the WorkingDirectory is successfully fast-forwarded
+        /// after a successful land.
+        /// </summary>
+        private async Task EmitWorkdirSyncedAsync(MergeEntry entry, string workingDirectory, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent();
+                evt.TenantId = entry.TenantId;
+                evt.EventType = "merge_queue.workdir_synced";
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = entry.MissionId;
+                evt.VesselId = entry.VesselId;
+                evt.Message = "WorkingDirectory fast-forwarded after land of " + entry.Id;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = entry.Id,
+                    missionId = entry.MissionId,
+                    vesselId = entry.VesselId,
+                    targetBranch = entry.TargetBranch,
+                    workingDirectory
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record workdir-synced event for " + entry.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Emit a structured event when the WorkingDirectory sync is skipped due to
+        /// a precondition not being met (missing, dirty, wrong branch, or ff failure).
+        /// </summary>
+        private async Task EmitWorkdirSyncSkippedAsync(MergeEntry entry, string workingDirectory, string reason, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent();
+                evt.TenantId = entry.TenantId;
+                evt.EventType = "merge_queue.workdir_sync_skipped";
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = entry.MissionId;
+                evt.VesselId = entry.VesselId;
+                evt.Message = "WorkingDirectory sync skipped for " + entry.Id + ": " + reason;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = entry.Id,
+                    missionId = entry.MissionId,
+                    vesselId = entry.VesselId,
+                    targetBranch = entry.TargetBranch,
+                    workingDirectory,
+                    reason
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record workdir-sync-skipped event for " + entry.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Emit a structured event when the bare repo HEAD is restored to the default branch
+        /// after branch cleanup.
+        /// </summary>
+        private async Task EmitBareHeadRestoredAsync(MergeEntry entry, string repoPath, string defaultBranch, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent();
+                evt.TenantId = entry.TenantId;
+                evt.EventType = "merge_queue.bare_head_restored";
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = entry.MissionId;
+                evt.VesselId = entry.VesselId;
+                evt.Message = "Bare repo HEAD restored to refs/heads/" + defaultBranch + " after land of " + entry.Id;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = entry.Id,
+                    missionId = entry.MissionId,
+                    vesselId = entry.VesselId,
+                    targetBranch = entry.TargetBranch,
+                    defaultBranch,
+                    repoPath
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record bare-head-restored event for " + entry.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Emit a structured event when the bare repo HEAD restore fails or is skipped.
+        /// </summary>
+        private async Task EmitBareHeadRestoreSkippedAsync(MergeEntry entry, string repoPath, string defaultBranch, string reason, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent();
+                evt.TenantId = entry.TenantId;
+                evt.EventType = "merge_queue.bare_head_restore_skipped";
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = entry.MissionId;
+                evt.VesselId = entry.VesselId;
+                evt.Message = "Bare repo HEAD restore skipped for " + entry.Id + ": " + reason;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = entry.Id,
+                    missionId = entry.MissionId,
+                    vesselId = entry.VesselId,
+                    targetBranch = entry.TargetBranch,
+                    defaultBranch,
+                    repoPath,
+                    reason
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record bare-head-restore-skipped event for " + entry.Id + ": " + ex.Message);
+            }
         }
 
         #endregion
