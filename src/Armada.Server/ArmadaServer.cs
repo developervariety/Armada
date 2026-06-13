@@ -93,6 +93,7 @@ namespace Armada.Server
         private RunbookService _RunbookService = null!;
         private AutomaticCheckRunOrchestrator _AutomaticCheckRuns = null!;
         private AutonomousRecoveryOrchestrator _AutonomousRecovery = null!;
+        private AutonomousObjectiveScheduler _ObjectiveScheduler = null!;
         private IncidentLifecycleOrchestrator _IncidentLifecycle = null!;
         private GitHubIntegrationService _GitHubIntegrationService = null!;
         private LandingPreviewService _LandingPreviewService = null!;
@@ -228,6 +229,7 @@ namespace Armada.Server
             _RunbookService = new RunbookService(_Database, _Logging);
             _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(_Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging);
             _AutonomousRecovery = new AutonomousRecoveryOrchestrator(_Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging);
+            _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex);
             _IncidentLifecycle = new IncidentLifecycleOrchestrator(_Database, _IncidentService, _Settings, _Logging);
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
@@ -1249,6 +1251,7 @@ namespace Armada.Server
                 _AutomaticCheckRuns.TriggerBackgroundSweep(token);
                 _AutonomousRecovery.TriggerBackgroundSweep(token);
                 _IncidentLifecycle.TriggerBackgroundSweep(token);
+                _ObjectiveScheduler.TriggerBackgroundSweep(token);
                 _Logging.Info(_Header + "startup health check completed");
             }
             catch (Exception ex)
@@ -1265,6 +1268,7 @@ namespace Armada.Server
                     _AutomaticCheckRuns.TriggerBackgroundSweep(token);
                     _AutonomousRecovery.TriggerBackgroundSweep(token);
                     _IncidentLifecycle.TriggerBackgroundSweep(token);
+                    _ObjectiveScheduler.TriggerBackgroundSweep(token);
 
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;

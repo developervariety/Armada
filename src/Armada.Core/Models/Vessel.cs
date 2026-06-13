@@ -263,11 +263,6 @@ namespace Armada.Core.Models
         public int? PackCurateThreshold { get; set; } = null;
 
         /// <summary>
-        /// Per-vessel cap on Architect missions per voyage. Null means use the global ArchitectSettings default.
-        /// </summary>
-        public int? ArchitectMaxMissionsPerVoyage { get; set; } = null;
-
-        /// <summary>
         /// Count of successful auto-landings on this vessel. Used by the auto-land
         /// safety net's calibration period: while this count is below 50, every
         /// auto-landed entry is queued for deep review regardless of critical-trigger
