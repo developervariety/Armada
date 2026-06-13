@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.Collections.Generic;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -44,6 +45,14 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective>());
                 AssertEqual(0, result.Count, "Empty input should yield empty output");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectEligible_NullInput_ThrowsArgumentNullException", () =>
+            {
+                AssertThrows<ArgumentNullException>(
+                    () => AutonomousObjectiveSelector.SelectEligible(null!),
+                    "Null snapshot must throw ArgumentNullException");
                 return Task.CompletedTask;
             });
 
@@ -95,6 +104,22 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectEligible_ReleasedStatus_Excluded", () =>
+            {
+                Objective obj = MakeObjective("obj-released", status: ObjectiveStatusEnum.Released);
+                List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
+                AssertEqual(0, result.Count, "Released status must be excluded");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectEligible_DeployedStatus_Excluded", () =>
+            {
+                Objective obj = MakeObjective("obj-deployed", status: ObjectiveStatusEnum.Deployed);
+                List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
+                AssertEqual(0, result.Count, "Deployed status must be excluded");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectEligible_ScopedStatus_Included", () =>
             {
                 Objective obj = MakeObjective("obj-7", status: ObjectiveStatusEnum.Scoped);
@@ -108,6 +133,38 @@ namespace Armada.Test.Unit.Suites.Services
                 Objective obj = MakeObjective("obj-8", status: ObjectiveStatusEnum.Planned);
                 List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
                 AssertEqual(1, result.Count, "Planned status must be included");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectEligible_PlannedWithVoyageIds_StillEligible", () =>
+            {
+                Objective obj = MakeObjective(
+                    "obj-voyage-planned",
+                    status: ObjectiveStatusEnum.Planned,
+                    voyageIds: new List<string> { "vyg_existing" });
+                List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
+                AssertEqual(1, result.Count, "Planned objective with linked voyage ids remains eligible at model level");
+                AssertEqual("obj-voyage-planned", result[0].Id, "Planned+voyage objective should be returned");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectEligible_ScopedWithVoyageIds_StillEligible", () =>
+            {
+                Objective obj = MakeObjective(
+                    "obj-voyage-scoped",
+                    status: ObjectiveStatusEnum.Scoped,
+                    voyageIds: new List<string> { "vyg_existing" });
+                List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
+                AssertEqual(1, result.Count, "Scoped objective with linked voyage ids remains eligible at model level");
+                AssertEqual("obj-voyage-scoped", result[0].Id, "Scoped+voyage objective should be returned");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectEligible_EmptyBlockerList_Eligible", () =>
+            {
+                Objective obj = MakeObjective("obj-no-blockers", blockedBy: new List<string>());
+                List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
+                AssertEqual(1, result.Count, "Objective with empty blocker list should be eligible");
                 return Task.CompletedTask;
             });
 
@@ -139,6 +196,33 @@ namespace Armada.Test.Unit.Suites.Services
                     new List<Objective> { blocker, unlocked });
                 AssertEqual(1, result.Count, "Objective with completed blocker should be eligible");
                 AssertEqual("unlocked-1", result[0].Id, "Unlocked objective should be in results");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectEligible_MultipleBlockers_OneIncomplete_Excluded", () =>
+            {
+                Objective blockerA = MakeObjective("multi-blocker-a", status: ObjectiveStatusEnum.Completed);
+                Objective blockerB = MakeObjective("multi-blocker-b", status: ObjectiveStatusEnum.Scoped);
+                Objective blocked = MakeObjective(
+                    "multi-blocked",
+                    blockedBy: new List<string> { "multi-blocker-a", "multi-blocker-b" });
+                List<Objective> result = AutonomousObjectiveSelector.SelectEligible(
+                    new List<Objective> { blockerA, blockerB, blocked });
+                AssertEqual(0, result.Count, "All blockers must be Completed before objective is eligible");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectEligible_MultipleBlockers_AllCompleted_Unblocked", () =>
+            {
+                Objective blockerA = MakeObjective("multi-done-a", status: ObjectiveStatusEnum.Completed);
+                Objective blockerB = MakeObjective("multi-done-b", status: ObjectiveStatusEnum.Completed);
+                Objective unlocked = MakeObjective(
+                    "multi-unlocked",
+                    blockedBy: new List<string> { "multi-done-a", "multi-done-b" });
+                List<Objective> result = AutonomousObjectiveSelector.SelectEligible(
+                    new List<Objective> { blockerA, blockerB, unlocked });
+                AssertEqual(1, result.Count, "Objective with all blockers completed should be eligible");
+                AssertEqual("multi-unlocked", result[0].Id, "Unlocked objective should be returned");
                 return Task.CompletedTask;
             });
 
