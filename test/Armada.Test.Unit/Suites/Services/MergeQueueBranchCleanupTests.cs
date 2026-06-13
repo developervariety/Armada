@@ -977,6 +977,256 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("LandEntryAsync_NullWorkingDirectory_NoSyncEventEmitted", async () =>
+            {
+                // When the vessel has no WorkingDirectory configured, the sync step returns
+                // silently: neither workdir_synced nor workdir_sync_skipped is emitted, and
+                // the land still succeeds. This pins the early null/empty guard as distinct
+                // from the directory_missing skip path.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wd_null_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("wd-null-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = null; // no working directory configured
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land when no WorkingDirectory is configured");
+
+                        // Neither sync nor skip event should fire for an unconfigured WorkingDirectory
+                        List<ArmadaEvent> syncEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_synced").ConfigureAwait(false);
+                        AssertEqual(0, syncEvents.Count, "No workdir_synced event should fire when WorkingDirectory is null");
+
+                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_sync_skipped").ConfigureAwait(false);
+                        AssertEqual(0, skipEvents.Count, "No workdir_sync_skipped event should fire when WorkingDirectory is null");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_WorkingDirectoryMissing_SkipsWithDirectoryMissingEvent", async () =>
+            {
+                // WorkingDirectory configured but the path does not exist -> sync skipped with
+                // a directory_missing reason. Verify the full structured payload shape.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wd_missing_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    string missingWorkingDir = Path.Combine(rootDir, "does-not-exist");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("wd-missing-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = missingWorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission mission = new Mission("workdir missing mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land despite a missing WorkingDirectory");
+
+                        AssertFalse(Directory.Exists(missingWorkingDir), "Sync must not create the missing WorkingDirectory");
+
+                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_sync_skipped").ConfigureAwait(false);
+                        AssertEqual(1, skipEvents.Count, "Should emit one workdir_sync_skipped event for a missing WorkingDirectory");
+
+                        WorkdirSyncSkippedPayload? payload = JsonSerializer.Deserialize<WorkdirSyncSkippedPayload>(
+                            skipEvents[0].Payload ?? "",
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        AssertNotNull(payload, "workdir_sync_skipped payload should deserialize");
+                        AssertEqual("directory_missing", payload!.Reason ?? "", "Payload reason should be directory_missing");
+                        AssertEqual(entry.Id, payload.EntryId ?? "", "Payload entry id");
+                        AssertEqual(mission.Id, payload.MissionId ?? "", "Payload mission id");
+                        AssertEqual(vessel.Id, payload.VesselId ?? "", "Payload vessel id");
+                        AssertEqual("main", payload.TargetBranch ?? "", "Payload target branch");
+                        AssertEqual(missingWorkingDir, payload.WorkingDirectory ?? "", "Payload working directory");
+
+                        List<ArmadaEvent> syncEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_synced").ConfigureAwait(false);
+                        AssertEqual(0, syncEvents.Count, "No workdir_synced event should fire for a missing WorkingDirectory");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_WorkingDirectoryNotARepository_SkipsWithNotARepositoryEvent", async () =>
+            {
+                // WorkingDirectory exists but is not a git repository -> sync skipped with a
+                // not_a_repository reason. The land still succeeds.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wd_norepo_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    string nonRepoWorkingDir = Path.Combine(rootDir, "plain-dir");
+                    Directory.CreateDirectory(nonRepoWorkingDir);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("wd-norepo-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = nonRepoWorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land when WorkingDirectory is not a repository");
+
+                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_sync_skipped").ConfigureAwait(false);
+                        AssertEqual(1, skipEvents.Count, "Should emit one workdir_sync_skipped event when WorkingDirectory is not a repository");
+                        AssertContains("not_a_repository", skipEvents[0].Payload ?? "", "Payload should name the not_a_repository reason");
+                        AssertContains(entry.Id, skipEvents[0].Payload ?? "", "Payload should include entry id");
+
+                        List<ArmadaEvent> syncEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_synced").ConfigureAwait(false);
+                        AssertEqual(0, syncEvents.Count, "No workdir_synced event should fire when WorkingDirectory is not a repository");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_WorkingDirectoryDivergedOnDefaultBranch_SkipsWithFastForwardFailedEvent", async () =>
+            {
+                // WorkingDirectory is clean and on the default branch but has a divergent local
+                // commit, so the fast-forward-only pull fails. The sync is skipped with a
+                // fast_forward_failed reason, the local commit is preserved (never discarded),
+                // and the land still succeeds.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wd_fffail_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    // Create a divergent local commit on main in the WorkingDirectory. The tree
+                    // is clean afterward (committed), but origin/main will advance to a different
+                    // commit on land, making a fast-forward impossible.
+                    await File.WriteAllTextAsync(Path.Combine(repos.WorkingDir, "local-only.txt"), "local\n").ConfigureAwait(false);
+                    await RunGitAsync(repos.WorkingDir, "add", "local-only.txt").ConfigureAwait(false);
+                    await RunGitAsync(repos.WorkingDir, "commit", "-m", "Local divergent commit").ConfigureAwait(false);
+                    string preWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("wd-fffail-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land even when the WorkingDirectory fast-forward fails");
+
+                        // The divergent local commit must be preserved -- the sync never discards local changes
+                        string postWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+                        AssertEqual(preWdHead, postWdHead, "WorkingDirectory HEAD must be unchanged when fast-forward fails");
+                        AssertTrue(File.Exists(Path.Combine(repos.WorkingDir, "local-only.txt")), "Local divergent commit content must be preserved");
+
+                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_sync_skipped").ConfigureAwait(false);
+                        AssertEqual(1, skipEvents.Count, "Should emit one workdir_sync_skipped event when fast-forward fails");
+                        AssertContains("fast_forward_failed", skipEvents[0].Payload ?? "", "Payload should name the fast_forward_failed reason");
+                        AssertContains(entry.Id, skipEvents[0].Payload ?? "", "Payload should include entry id");
+
+                        List<ArmadaEvent> syncEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_synced").ConfigureAwait(false);
+                        AssertEqual(0, syncEvents.Count, "No workdir_synced event should fire when fast-forward fails");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             // === DockService.DeleteAsync Branch Cleanup Tests ===
 
             await RunTest("DockDeleteAsync_LocalOnlyPolicy_DeletesCaptainBranchFromBareOnly", async () =>
@@ -1192,6 +1442,21 @@ namespace Armada.Test.Unit.Suites.Services
             public string? IntegrationHead { get; set; }
 
             public string? RollbackResult { get; set; }
+
+            public string? Reason { get; set; }
+        }
+
+        private sealed class WorkdirSyncSkippedPayload
+        {
+            public string? EntryId { get; set; }
+
+            public string? MissionId { get; set; }
+
+            public string? VesselId { get; set; }
+
+            public string? TargetBranch { get; set; }
+
+            public string? WorkingDirectory { get; set; }
 
             public string? Reason { get; set; }
         }
