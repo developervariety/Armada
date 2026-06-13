@@ -22,6 +22,18 @@ namespace Armada.Test.Unit.Suites.Services
         private static string MakePlanPrefix() =>
             "**Goal:** Build something great\n\n## File structure\n\n| File | Role |\n|---|---|\n\n## Task dispatch graph\n\nM1 -> M2\n\n";
 
+        /// <summary>Builds <paramref name="count"/> dependency-free, structurally valid mission blocks joined by newlines.</summary>
+        private static string MakeValidMissionBlocks(int count)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            for (int i = 1; i <= count; i++)
+            {
+                if (i > 1) sb.Append('\n');
+                sb.Append(MakeMissionBlock("M" + i, "Mission " + i, "mid"));
+            }
+            return sb.ToString();
+        }
+
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
@@ -243,6 +255,65 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
                 AssertTrue(found, "Error should have type=no_mission_blocks");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_NineMissionsCapEight_ReturnsOverCap", () =>
+            {
+                ArchitectOutputParser sut = CreateSut();
+                string input = MakePlanPrefix() + MakeValidMissionBlocks(9);
+                ArchitectParseResult result = sut.Parse(input, 8);
+
+                AssertEqual(ArchitectParseVerdict.OverCap, result.Verdict, "9 missions with cap 8 should return OverCap");
+                AssertEqual(0, result.Errors.Count, "Well-formed over-cap output should have no structural errors");
+                AssertEqual(9, result.Missions.Count, "All 9 missions should still be parsed");
+                AssertEqual(9, result.MissionCount, "MissionCount should report the parsed count");
+                AssertEqual(8, result.MaxMissions, "MaxMissions should echo the cap that was exceeded");
+                AssertEqual(2, result.RecommendedSubVoyages, "ceil(9/8) == 2 recommended sub-voyages");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_AtCap_ReturnsValid", () =>
+            {
+                ArchitectOutputParser sut = CreateSut();
+                string input = MakePlanPrefix() + MakeValidMissionBlocks(8);
+                ArchitectParseResult result = sut.Parse(input, 8);
+
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "Exactly at cap (8 == 8) should return Valid, not OverCap");
+                AssertEqual(8, result.Missions.Count, "All 8 missions should be parsed");
+                AssertEqual(0, result.Errors.Count, "No errors expected at cap");
+                AssertEqual(0, result.MissionCount, "MissionCount stays 0 when not OverCap");
+                AssertEqual(0, result.MaxMissions, "MaxMissions stays 0 when not OverCap");
+                AssertEqual(0, result.RecommendedSubVoyages, "RecommendedSubVoyages stays 0 when not OverCap");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_OverCapButMalformed_StillStructuralFailure", () =>
+            {
+                ArchitectOutputParser sut = CreateSut();
+                // 8 valid blocks plus one with a bad id shape -> 9 missions (over cap 8) AND a structural error.
+                string badBlock = "[ARMADA:MISSION]\nid: Mission9\ntitle: Bad ID\npreferredModel: mid\ndescription: oops\n[ARMADA:MISSION-END]";
+                string input = MakePlanPrefix() + MakeValidMissionBlocks(8) + "\n" + badBlock;
+                ArchitectParseResult result = sut.Parse(input, 8);
+
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, result.Verdict, "Structural errors must win over OverCap");
+                AssertTrue(result.Errors.Count > 0, "Errors list should be non-empty");
+                AssertEqual(0, result.MissionCount, "MissionCount should not be set on the StructuralFailure path");
+                AssertEqual(0, result.MaxMissions, "MaxMissions should not be set on the StructuralFailure path");
+                AssertEqual(0, result.RecommendedSubVoyages, "RecommendedSubVoyages should not be set on the StructuralFailure path");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_NoCapOverload_DefaultsUnbounded", () =>
+            {
+                ArchitectOutputParser sut = CreateSut();
+                string input = MakePlanPrefix() + MakeValidMissionBlocks(20);
+                ArchitectParseResult result = sut.Parse(input);
+
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "Single-arg Parse is unbounded; 20 missions should stay Valid");
+                AssertEqual(20, result.Missions.Count, "All 20 missions should be parsed");
+                AssertEqual(0, result.Errors.Count, "No errors expected");
+                AssertEqual(0, result.MissionCount, "MissionCount stays 0 on the unbounded path");
                 return Task.CompletedTask;
             });
         }
