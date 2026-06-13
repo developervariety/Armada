@@ -65,6 +65,7 @@ namespace Armada.Server.Mcp
         /// <param name="deploymentService">Optional deployment service for delivery deployment workflows.</param>
         /// <param name="runbookService">Optional runbook service for guided operational workflows.</param>
         /// <param name="incidentService">Optional incident service for operational incident workflows.</param>
+        /// <param name="objectiveScheduler">Optional autonomous objective scheduler for scheduler control tools.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -90,7 +91,8 @@ namespace Armada.Server.Mcp
             ReleaseService? releaseService = null,
             DeploymentService? deploymentService = null,
             RunbookService? runbookService = null,
-            IncidentService? incidentService = null)
+            IncidentService? incidentService = null,
+            AutonomousObjectiveScheduler? objectiveScheduler = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -115,6 +117,7 @@ namespace Armada.Server.Mcp
             if (deploymentService != null) McpDeploymentTools.Register(register, deploymentService);
             if (runbookService != null) McpRunbookTools.Register(register, runbookService);
             if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
+            if (objectiveScheduler != null && objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(register, database, reflectionBootstrap);
             McpPipelineTools.Register(register, database);

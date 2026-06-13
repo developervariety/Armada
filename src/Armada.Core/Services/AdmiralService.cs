@@ -64,6 +64,13 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<RemoteTunnelStatus>? OnGetRemoteTunnelStatus { get; set; }
 
+        /// <summary>
+        /// Optional callback for retrieving the autonomous objective scheduler status.
+        /// Set by ArmadaServer after the scheduler is instantiated so Core does not
+        /// take a dependency on the Server-layer scheduler type.
+        /// </summary>
+        public Func<ObjectiveSchedulerStatus>? OnGetSchedulerStatus { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -851,6 +858,11 @@ namespace Armada.Core.Services
             if (OnGetRemoteTunnelStatus != null)
             {
                 status.RemoteTunnel = OnGetRemoteTunnelStatus();
+            }
+
+            if (OnGetSchedulerStatus != null)
+            {
+                status.Scheduler = OnGetSchedulerStatus();
             }
 
             if (_BuildDrift != null)
