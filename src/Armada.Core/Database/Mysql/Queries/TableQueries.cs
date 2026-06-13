@@ -898,6 +898,17 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v53 statements for adding code-context intent columns to missions.
+        /// </summary>
+        public static readonly string[] MigrationV53Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS code_context_mode LONGTEXT;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS code_context_query LONGTEXT;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS code_context_token_budget INT;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS code_context_max_results INT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

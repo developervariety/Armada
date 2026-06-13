@@ -66,10 +66,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description,
                         status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_model, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
+                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_model, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, last_recovery_action_utc, code_context_mode, code_context_query, code_context_token_budget, code_context_max_results, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description,
                         @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @last_recovery_action_utc, @code_context_mode, @code_context_query, @code_context_token_budget, @code_context_max_results, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     AddMissionParameters(cmd, mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -149,6 +149,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         recovery_attempts = @recovery_attempts,
                         landing_retry_count = @landing_retry_count,
                         last_recovery_action_utc = @last_recovery_action_utc,
+                        code_context_mode = @code_context_mode,
+                        code_context_query = @code_context_query,
+                        code_context_token_budget = @code_context_token_budget,
+                        code_context_max_results = @code_context_max_results,
                         started_utc = @started_utc, completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -825,6 +829,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
             cmd.Parameters.AddWithValue("@landing_retry_count", mission.LandingRetryCount);
             cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)mission.LastRecoveryActionUtc.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@code_context_mode", (object?)mission.CodeContextMode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@code_context_query", (object?)mission.CodeContextQuery ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@code_context_token_budget", mission.CodeContextTokenBudget.HasValue ? (object)mission.CodeContextTokenBudget.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@code_context_max_results", mission.CodeContextMaxResults.HasValue ? (object)mission.CodeContextMaxResults.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", mission.CreatedUtc);
             cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)mission.StartedUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)mission.CompletedUtc.Value : DBNull.Value);
@@ -948,6 +956,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
             try { object lr = reader["landing_retry_count"]; mission.LandingRetryCount = (lr == null || lr == DBNull.Value) ? 0 : Convert.ToInt32(lr); } catch { }
             try { mission.LastRecoveryActionUtc = NullableDateTime(reader["last_recovery_action_utc"]); } catch { }
+            try { mission.CodeContextMode = NullableString(reader["code_context_mode"]); } catch { }
+            try { mission.CodeContextQuery = NullableString(reader["code_context_query"]); } catch { }
+            try { mission.CodeContextTokenBudget = NullableInt(reader["code_context_token_budget"]); } catch { }
+            try { mission.CodeContextMaxResults = NullableInt(reader["code_context_max_results"]); } catch { }
             return mission;
         }
 

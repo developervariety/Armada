@@ -618,6 +618,10 @@ namespace Armada.Core.Database.Sqlite
             try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
             try { object lr = reader["landing_retry_count"]; mission.LandingRetryCount = (lr == null || lr == DBNull.Value) ? 0 : Convert.ToInt32(lr); } catch { }
             try { mission.LastRecoveryActionUtc = FromIso8601Nullable(reader["last_recovery_action_utc"]); } catch { }
+            try { mission.CodeContextMode = NullableString(reader["code_context_mode"]); } catch { }
+            try { mission.CodeContextQuery = NullableString(reader["code_context_query"]); } catch { }
+            try { mission.CodeContextTokenBudget = NullableInt(reader["code_context_token_budget"]); } catch { }
+            try { mission.CodeContextMaxResults = NullableInt(reader["code_context_max_results"]); } catch { }
             return mission;
         }
 

@@ -202,6 +202,42 @@ namespace Armada.Core.Models
         public List<PrestagedFile>? PrestagedFiles { get; set; } = null;
 
         /// <summary>
+        /// Optional code-context mode for pack generation. Supported values are
+        /// auto, off, and force. Copied from MissionDescription at creation time
+        /// so provisioning can defer pack generation.
+        /// </summary>
+        public string? CodeContextMode { get; set; } = null;
+
+        /// <summary>
+        /// Optional query used to build the code-index context pack for this
+        /// mission. When null or empty, the mission title and description are used.
+        /// Copied from MissionDescription at creation time.
+        /// </summary>
+        public string? CodeContextQuery { get; set; } = null;
+
+        /// <summary>
+        /// Optional token budget cap for code-index context pack generation.
+        /// When null, the global default is applied by the pack generator.
+        /// Clamped to a positive value when set.
+        /// </summary>
+        public int? CodeContextTokenBudget
+        {
+            get => _CodeContextTokenBudget;
+            set => _CodeContextTokenBudget = value.HasValue ? Math.Max(1, value.Value) : (int?)null;
+        }
+
+        /// <summary>
+        /// Optional maximum number of results returned by the code-index search
+        /// used to build the context pack. When null, the global default applies.
+        /// Clamped to a positive value when set.
+        /// </summary>
+        public int? CodeContextMaxResults
+        {
+            get => _CodeContextMaxResults;
+            set => _CodeContextMaxResults = value.HasValue ? Math.Max(1, value.Value) : (int?)null;
+        }
+
+        /// <summary>
         /// Creation timestamp in UTC.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
@@ -274,6 +310,8 @@ namespace Armada.Core.Models
         private DateTime? _StartedUtc = null;
         private DateTime? _CompletedUtc = null;
         private long? _TotalRuntimeMs = null;
+        private int? _CodeContextTokenBudget = null;
+        private int? _CodeContextMaxResults = null;
 
         #endregion
 

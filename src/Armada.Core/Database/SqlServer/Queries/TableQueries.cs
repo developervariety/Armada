@@ -623,6 +623,22 @@ namespace Armada.Core.Database.SqlServer.Queries
                     "Normalize NULL objective tenant_id/user_id to default",
                     @"UPDATE objectives SET tenant_id = 'default' WHERE tenant_id IS NULL;",
                     @"UPDATE objectives SET user_id = 'default' WHERE user_id IS NULL;"
+                ),
+                new SchemaMigration(
+                    53,
+                    "Add code-context intent columns to missions",
+                    @"
+                    IF COL_LENGTH('missions', 'code_context_mode') IS NULL
+                        ALTER TABLE missions ADD code_context_mode NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('missions', 'code_context_query') IS NULL
+                        ALTER TABLE missions ADD code_context_query NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('missions', 'code_context_token_budget') IS NULL
+                        ALTER TABLE missions ADD code_context_token_budget INT;",
+                    @"
+                    IF COL_LENGTH('missions', 'code_context_max_results') IS NULL
+                        ALTER TABLE missions ADD code_context_max_results INT;"
                 )
             };
         }

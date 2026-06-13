@@ -190,6 +190,10 @@ namespace Armada.Core.Services
                 mission.VesselId = vesselId;
                 mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                 mission.PreferredModel = md.PreferredModel;
+                mission.CodeContextMode = md.CodeContextMode;
+                mission.CodeContextQuery = md.CodeContextQuery;
+                mission.CodeContextTokenBudget = md.CodeContextTokenBudget;
+                mission.CodeContextMaxResults = md.CodeContextMaxResults;
                 if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                     mission.DependsOnMissionId = md.DependsOnMissionId;
                 mission.AssignmentState = MissionAssignmentStateEnum.Pending;
@@ -331,6 +335,10 @@ namespace Armada.Core.Services
                             mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                         }
 
+                        mission.CodeContextMode = md.CodeContextMode;
+                        mission.CodeContextQuery = md.CodeContextQuery;
+                        mission.CodeContextTokenBudget = md.CodeContextTokenBudget;
+                        mission.CodeContextMaxResults = md.CodeContextMaxResults;
                         mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                         mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                         List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
@@ -433,6 +441,10 @@ namespace Armada.Core.Services
                     mission.VesselId = vesselId;
                     mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                     mission.PreferredModel = md.PreferredModel;
+                    mission.CodeContextMode = md.CodeContextMode;
+                    mission.CodeContextQuery = md.CodeContextQuery;
+                    mission.CodeContextTokenBudget = md.CodeContextTokenBudget;
+                    mission.CodeContextMaxResults = md.CodeContextMaxResults;
                     if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                         mission.DependsOnMissionId = md.DependsOnMissionId;
 
@@ -479,6 +491,10 @@ namespace Armada.Core.Services
                             if (isFirstChainMission)
                                 mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
 
+                            mission.CodeContextMode = md.CodeContextMode;
+                            mission.CodeContextQuery = md.CodeContextQuery;
+                            mission.CodeContextTokenBudget = md.CodeContextTokenBudget;
+                            mission.CodeContextMaxResults = md.CodeContextMaxResults;
                             mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                             List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
                                 voyage.SelectedPlaybooks,

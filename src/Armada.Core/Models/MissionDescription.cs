@@ -40,6 +40,18 @@ namespace Armada.Core.Models
         public string? CodeContextQuery { get; set; } = null;
 
         /// <summary>
+        /// Optional token budget cap for code-index context pack generation.
+        /// When null, the global default is applied by the pack generator.
+        /// </summary>
+        public int? CodeContextTokenBudget { get; set; } = null;
+
+        /// <summary>
+        /// Optional maximum number of results returned by the code-index search
+        /// used to build the context pack. When null, the global default applies.
+        /// </summary>
+        public int? CodeContextMaxResults { get; set; } = null;
+
+        /// <summary>
         /// Optional captain Model filter for assignment. Plumbed through to
         /// <see cref="Mission.PreferredModel"/> on the created mission.
         /// </summary>
