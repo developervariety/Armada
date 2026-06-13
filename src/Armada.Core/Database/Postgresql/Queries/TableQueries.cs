@@ -682,6 +682,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(53, "Add auto_dispatch_enabled opt-in flag to objectives",
                     @"ALTER TABLE objectives ADD COLUMN IF NOT EXISTS auto_dispatch_enabled BOOLEAN NOT NULL DEFAULT FALSE;"
+                ),
+                new SchemaMigration(54, "Add architect_max_missions_per_voyage column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS architect_max_missions_per_voyage INTEGER;"
                 )
             };
         }
