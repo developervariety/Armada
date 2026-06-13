@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Text.Json;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -123,6 +124,33 @@ namespace Armada.Test.Unit.Suites.Services
             string output = await RunGitAsync(repoPath, "rev-parse", "--verify", refName).ConfigureAwait(false);
             return output.Trim();
         }
+
+        /// <summary>
+        /// Strongly-typed view of the merge_queue.failed_target_advanced audit payload
+        /// so tests can assert the advancement delta without raw JsonElement access.
+        /// </summary>
+        private sealed class FailedTargetAdvancedPayload
+        {
+            /// <summary>Merge entry id the failed land belonged to.</summary>
+            public string? Id { get; set; }
+
+            /// <summary>Target branch that was advanced and then rolled back.</summary>
+            public string? TargetBranch { get; set; }
+
+            /// <summary>Commit origin/target pointed at before the failed land.</summary>
+            public string? PreLandRemoteTargetHead { get; set; }
+
+            /// <summary>Commit origin/target was advanced to before the failure was observed.</summary>
+            public string? AdvancedHead { get; set; }
+
+            /// <summary>Human-readable failure reason that triggered the rollback.</summary>
+            public string? Reason { get; set; }
+        }
+
+        private static readonly JsonSerializerOptions _PayloadJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
 
         protected override async Task RunTestsAsync()
         {
@@ -511,6 +539,80 @@ namespace Armada.Test.Unit.Suites.Services
                         // The rollback must un-merge the feature from origin, not merely reset the ref label.
                         string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
                         AssertFalse(remoteMainFiles.Contains("feature.txt"), "Rollback must remove the captain feature file from origin/main after a failed land");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_PushSucceedsThenSyncFails_AuditPayloadRecordsRealAdvancementDelta", async () =>
+            {
+                // The existing shape test only proves the "advancedHead" field name is present.
+                // This pins the payload SEMANTICS: the recorded advancedHead must be a real commit
+                // that differs from the pre-land head (proving an actual advancement was detected),
+                // the pre-land head must match what origin pointed at before the land, and the
+                // reason must be carried through. A regression that recorded advancedHead == preLand
+                // (claiming advancement when none occurred) or dropped the reason would slip past the
+                // shape-only assertions but fail here.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_audit_delta_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
+                    string checkedOutMainDir = Path.Combine(rootDir, "checked-out-main");
+                    await RunGitAsync(repos.BareDir, "worktree", "add", checkedOutMainDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("audit-delta-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when local target sync fails after push");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "Post-push failure should emit exactly one target-advanced audit event");
+
+                        string payloadJson = events[0].Payload ?? "";
+                        AssertTrue(payloadJson.Length > 0, "Audit event must carry a JSON payload");
+
+                        FailedTargetAdvancedPayload? payload = JsonSerializer.Deserialize<FailedTargetAdvancedPayload>(payloadJson, _PayloadJsonOptions);
+                        AssertNotNull(payload, "Audit payload should deserialize into the typed shape");
+
+                        AssertEqual(entry.Id, payload!.Id ?? "", "Payload id should match the failed merge entry");
+                        AssertEqual("main", payload.TargetBranch ?? "", "Payload target branch should be main");
+                        AssertEqual(preRemoteHead, payload.PreLandRemoteTargetHead ?? "", "Payload pre-land head should match origin/main before the land");
+
+                        string advancedHead = payload.AdvancedHead ?? "";
+                        AssertTrue(advancedHead.Length > 0, "Payload must record the advanced head commit");
+                        AssertNotEqual(preRemoteHead, advancedHead, "Advanced head must differ from the pre-land head to represent a real advancement");
+
+                        AssertTrue((payload.Reason ?? "").Length > 0, "Payload must carry the failure reason that triggered the rollback");
                     }
                 }
                 finally
