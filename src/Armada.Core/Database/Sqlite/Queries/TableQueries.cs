@@ -1268,6 +1268,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_landing_jobs_state_created ON landing_jobs(state, created_utc);",
                     @"CREATE INDEX IF NOT EXISTS idx_landing_jobs_merge_entry ON landing_jobs(merge_entry_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_landing_jobs_vessel_target ON landing_jobs(vessel_id, target_branch);"
+                ),
+                new SchemaMigration(52, "Normalize NULL objective tenant_id/user_id to default",
+                    @"UPDATE objectives SET tenant_id = 'default' WHERE tenant_id IS NULL;",
+                    @"UPDATE objectives SET user_id = 'default' WHERE user_id IS NULL;"
                 )
             };
         }

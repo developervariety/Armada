@@ -276,6 +276,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
         private static void BindObjective(SqliteCommand cmd, Objective objective)
         {
+            objective.NormalizeTenancy();
+
             cmd.Parameters.AddWithValue("@id", objective.Id);
             cmd.Parameters.AddWithValue("@tenant_id", (object?)objective.TenantId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@user_id", (object?)objective.UserId ?? DBNull.Value);
@@ -370,6 +372,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             objective.ReleaseIds = DeserializeList(reader["release_ids_json"]);
             objective.DeploymentIds = DeserializeList(reader["deployment_ids_json"]);
             objective.IncidentIds = DeserializeList(reader["incident_ids_json"]);
+            objective.NormalizeTenancy();
             return objective;
         }
 

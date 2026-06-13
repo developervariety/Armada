@@ -240,6 +240,22 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime? CompletedUtc { get; set; } = null;
 
+        /// <summary>
+        /// Normalize missing tenancy fields to the default tenant and user.
+        /// </summary>
+        public void NormalizeTenancy()
+        {
+            if (String.IsNullOrWhiteSpace(TenantId))
+            {
+                TenantId = Constants.DefaultTenantId;
+            }
+
+            if (String.IsNullOrWhiteSpace(UserId))
+            {
+                UserId = Constants.DefaultUserId;
+            }
+        }
+
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.ObjectiveIdPrefix, 24);
         private string _Title = "Objective";
     }
