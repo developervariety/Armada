@@ -2677,6 +2677,12 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
 
             /// <inheritdoc />
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");
+
+            /// <inheritdoc />
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+
+            /// <inheritdoc />
             public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
 
             /// <inheritdoc />

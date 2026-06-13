@@ -100,6 +100,22 @@ namespace Armada.Core.Services.Interfaces
         Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default);
 
         /// <summary>
+        /// Get the symbolic ref currently stored in repository HEAD.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The symbolic HEAD ref, such as refs/heads/main.</returns>
+        Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default);
+
+        /// <summary>
+        /// Set repository HEAD to the symbolic ref for a local branch.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="branchName">Local branch name to store in HEAD.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default);
+
+        /// <summary>
         /// Prune stale worktree registrations (entries for worktrees whose directories no longer exist).
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>
