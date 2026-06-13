@@ -19,6 +19,7 @@ namespace Armada.Test.Unit.TestHelpers
         public List<string> PullFastForwardOnlyCalls { get; } = new List<string>();
         public List<string> PruneWorktreeCalls { get; } = new List<string>();
         public List<string> DiffCalls { get; } = new List<string>();
+        public List<string> RepositoryHeadCalls { get; } = new List<string>();
         public List<string> OperationCalls { get; } = new List<string>();
 
         // Result controls
@@ -26,6 +27,7 @@ namespace Armada.Test.Unit.TestHelpers
         public bool IsPrMergedResult { get; set; } = true;
         public string CreatePrResult { get; set; } = "https://github.com/test/repo/pull/1";
         public string DiffResult { get; set; } = "";
+        public string RepositoryHeadRefResult { get; set; } = "refs/heads/main";
         public string? CurrentBranchResult { get; set; } = "main";
         public bool IsWorkingDirectoryCleanResult { get; set; } = true;
         public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = Array.Empty<string>();
@@ -109,6 +111,21 @@ namespace Armada.Test.Unit.TestHelpers
             if (ShouldThrowOnPush) throw new InvalidOperationException("Simulated push failure");
             PushCalls.Add(repoPath + ":" + srcRef + ":" + destRef);
             OperationCalls.Add("push-refspec:" + srcRef + ":" + destRef);
+            return Task.CompletedTask;
+        }
+
+        public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default)
+        {
+            RepositoryHeadCalls.Add("get-head:" + repoPath);
+            OperationCalls.Add("get-head:" + repoPath);
+            return Task.FromResult(RepositoryHeadRefResult);
+        }
+
+        public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            RepositoryHeadRefResult = "refs/heads/" + branchName;
+            RepositoryHeadCalls.Add("set-head:" + repoPath + ":" + branchName);
+            OperationCalls.Add("set-head:" + branchName);
             return Task.CompletedTask;
         }
 
