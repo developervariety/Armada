@@ -23,6 +23,7 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly SemaphoreSlim _BackfillLock = new SemaphoreSlim(1, 1);
         private bool _BackfillCompleted = false;
+        private const string _ObjectiveDeletedEventType = "objective.deleted";
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -351,7 +352,11 @@ namespace Armada.Core.Services
             await EnsureBackfilledAsync(token).ConfigureAwait(false);
 
             Objective? existing = await ReadObjectiveRowAsync(auth, id, token).ConfigureAwait(false);
-            List<ArmadaEvent> snapshots = await ReadObjectiveSnapshotEventsAsync(auth, id, token).ConfigureAwait(false);
+
+            // Purge snapshots tenant-agnostically: objective ids are globally unique (obj_ PrettyId),
+            // so an unscoped enumerate-by-entity surfaces snapshots that admin/null-tenant imports left
+            // behind even when the caller is a tenant-admin that cannot see them through scoped reads.
+            List<ArmadaEvent> snapshots = await ReadObjectiveSnapshotEventsUnscopedAsync(id, token).ConfigureAwait(false);
             if (existing == null && snapshots.Count == 0)
                 throw new InvalidOperationException("Objective not found.");
 
@@ -362,8 +367,12 @@ namespace Armada.Core.Services
 
             foreach (ArmadaEvent snapshot in snapshots)
             {
-                await DeleteEventAsync(auth, snapshot.Id, token).ConfigureAwait(false);
+                await _Database.Events.DeleteAsync(snapshot.Id, token).ConfigureAwait(false);
             }
+
+            // Durable guard: even if a snapshot escapes the purge, the tombstone keeps the objective
+            // deleted across both resurrection paths until something deliberately re-persists the id.
+            await WriteTombstoneAsync(id, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -653,6 +662,7 @@ namespace Armada.Core.Services
 
         private async Task BackfillFromSnapshotsAsync(CancellationToken token)
         {
+            HashSet<string> tombstoned = await ReadTombstonedObjectiveIdsAsync(token).ConfigureAwait(false);
             Dictionary<string, ArmadaEvent> latestByObjectiveId = new Dictionary<string, ArmadaEvent>(StringComparer.OrdinalIgnoreCase);
             int pageNumber = 1;
 
@@ -670,6 +680,9 @@ namespace Armada.Core.Services
                     && String.Equals(evt.EventType, "objective.snapshot", StringComparison.OrdinalIgnoreCase)))
                 {
                     if (String.IsNullOrWhiteSpace(snapshot.EntityId))
+                        continue;
+
+                    if (tombstoned.Contains(snapshot.EntityId))
                         continue;
 
                     if (!latestByObjectiveId.TryGetValue(snapshot.EntityId, out ArmadaEvent? existing)
@@ -698,6 +711,9 @@ namespace Armada.Core.Services
 
         private async Task<Objective?> TryRehydrateObjectiveFromSnapshotsAsync(AuthContext auth, string id, CancellationToken token)
         {
+            if (await IsObjectiveTombstonedAsync(id, token).ConfigureAwait(false))
+                return null;
+
             List<ArmadaEvent> snapshots = await ReadObjectiveSnapshotEventsAsync(auth, id, token).ConfigureAwait(false);
             Objective? objective = ProjectLatestObjective(snapshots);
             if (objective == null)
@@ -712,6 +728,10 @@ namespace Armada.Core.Services
         {
             await UpsertObjectiveRowAsync(objective, token, skipIfExistingNewer: false).ConfigureAwait(false);
             await WriteSnapshotAsync(auth, objective, token).ConfigureAwait(false);
+
+            // A deliberate (re)persist of an id must win over a stale tombstone from a prior delete,
+            // otherwise the resurrection guards would keep a legitimately re-created objective hidden.
+            await ClearTombstoneAsync(objective.Id, token).ConfigureAwait(false);
         }
 
         private async Task UpsertObjectiveRowAsync(Objective objective, CancellationToken token, bool skipIfExistingNewer)
@@ -977,6 +997,79 @@ namespace Armada.Core.Services
             }
 
             await _Database.Events.DeleteAsync(auth.TenantId!, eventId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Read every snapshot event for an objective id regardless of tenant stamping.
+        /// </summary>
+        private async Task<List<ArmadaEvent>> ReadObjectiveSnapshotEventsUnscopedAsync(string id, CancellationToken token)
+        {
+            List<ArmadaEvent> events = await _Database.Events.EnumerateByEntityAsync("objective", id, 5000, token).ConfigureAwait(false);
+            return events
+                .Where(item =>
+                    String.Equals(item.EntityType, "objective", StringComparison.OrdinalIgnoreCase)
+                    && String.Equals(item.EventType, "objective.snapshot", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Record a tombstone marking an objective id as deleted. Stamped with a null tenant so the
+        /// unscoped resurrection reads can always observe it.
+        /// </summary>
+        private async Task WriteTombstoneAsync(string id, CancellationToken token)
+        {
+            ArmadaEvent tombstone = new ArmadaEvent
+            {
+                TenantId = null,
+                EventType = _ObjectiveDeletedEventType,
+                EntityType = "objective",
+                EntityId = id,
+                CreatedUtc = DateTime.UtcNow
+            };
+            await _Database.Events.CreateAsync(tombstone, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Load the set of objective ids that carry a deletion tombstone (unscoped).
+        /// </summary>
+        private async Task<HashSet<string>> ReadTombstonedObjectiveIdsAsync(CancellationToken token)
+        {
+            List<ArmadaEvent> tombstones = await _Database.Events.EnumerateByTypeAsync(_ObjectiveDeletedEventType, 5000, token).ConfigureAwait(false);
+            HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ArmadaEvent tombstone in tombstones)
+            {
+                if (!String.IsNullOrWhiteSpace(tombstone.EntityId)
+                    && String.Equals(tombstone.EntityType, "objective", StringComparison.OrdinalIgnoreCase))
+                {
+                    ids.Add(tombstone.EntityId);
+                }
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// Determine whether a specific objective id carries a deletion tombstone (unscoped).
+        /// </summary>
+        private async Task<bool> IsObjectiveTombstonedAsync(string id, CancellationToken token)
+        {
+            List<ArmadaEvent> events = await _Database.Events.EnumerateByEntityAsync("objective", id, 5000, token).ConfigureAwait(false);
+            return events.Any(item =>
+                String.Equals(item.EntityType, "objective", StringComparison.OrdinalIgnoreCase)
+                && String.Equals(item.EventType, _ObjectiveDeletedEventType, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Remove any deletion tombstones for an objective id (unscoped) after a deliberate (re)persist.
+        /// </summary>
+        private async Task ClearTombstoneAsync(string id, CancellationToken token)
+        {
+            List<ArmadaEvent> events = await _Database.Events.EnumerateByEntityAsync("objective", id, 5000, token).ConfigureAwait(false);
+            foreach (ArmadaEvent tombstone in events.Where(item =>
+                String.Equals(item.EntityType, "objective", StringComparison.OrdinalIgnoreCase)
+                && String.Equals(item.EventType, _ObjectiveDeletedEventType, StringComparison.OrdinalIgnoreCase)))
+            {
+                await _Database.Events.DeleteAsync(tombstone.Id, token).ConfigureAwait(false);
+            }
         }
 
         private async Task<Objective> PersistLinkedObjectiveAsync(AuthContext auth, Objective objective, CancellationToken token)
