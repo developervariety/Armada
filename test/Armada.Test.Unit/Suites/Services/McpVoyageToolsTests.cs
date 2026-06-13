@@ -1459,6 +1459,141 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when a mission lacks a description");
                 }
             });
+
+            await RunTest("Dispatch_MissingTitle_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("missing-title-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    // Title is whitespace-only: exercises the IsNullOrWhiteSpace branch
+                    // (not merely an absent field). A well-formed mission is supplied so
+                    // the title guard -- not the missions guard -- is the failing check.
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "   ",
+                        description = "voyage with a blank title",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "valid mission", description = "valid description" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("title", resultJson);
+                    AssertContains("missing_title", resultJson);
+                    AssertFalse(resultJson.Contains("missing_missions"), "Title guard must fire before missions guard: " + resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Title validation must fire before the vessel read: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when the voyage title is blank");
+                }
+            });
+
+            await RunTest("Dispatch_SecondMissionMissingDescription_NamesMissionIndex", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("second-mission-bad-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    // First mission is valid; the SECOND mission lacks a description.
+                    // This proves the 1-based index is actionable and points at the
+                    // offending mission (mission 2), not always the first one.
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "second mission bad voyage",
+                        description = "first mission ok, second lacks a description",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "first valid mission", description = "first description" },
+                            new { title = "second mission has a title only" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("missing_mission_description", resultJson);
+                    AssertContains("mission 2", resultJson);
+                    AssertFalse(resultJson.Contains("mission 1"), "Error must name the offending mission (2), not the valid first mission: " + resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Mission validation must fire, not vessel_not_found: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when a later mission is malformed");
+                }
+            });
+
+            await RunTest("Dispatch_WhitespaceMissionTitle_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("whitespace-mission-title-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    // Mission title is present but whitespace-only: a JSON-schema
+                    // "required" check would pass this, so the runtime IsNullOrWhiteSpace
+                    // guard is the only thing that catches it.
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "whitespace mission title voyage",
+                        description = "mission title is blank",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "   ", description = "has a description but a blank title" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("missing_mission_title", resultJson);
+                    AssertContains("mission 1", resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Mission title validation must fire, not vessel_not_found: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when a mission title is whitespace");
+                }
+            });
         }
 
         /// <summary>
