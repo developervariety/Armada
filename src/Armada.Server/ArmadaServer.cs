@@ -188,7 +188,7 @@ namespace Armada.Server
             ScheduleStartupBaselineCacheWarmup(_CodeIndex);
             await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
 
-            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
+            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, _CodeIndex);
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);

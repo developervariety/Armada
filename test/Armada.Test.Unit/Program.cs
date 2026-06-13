@@ -170,6 +170,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PolyglotSymbolExtractorTests());
             runner.AddSuite(new CodeIndexServiceTests());
             runner.AddSuite(new CodeIndexFastPackTests());
+            runner.AddSuite(new ContextPackStagerTests());
             runner.AddSuite(new CodeIndexServiceGraphSidecarTests());
             runner.AddSuite(new CodeIndexServiceGraphQueryTests());
             runner.AddSuite(new CodeIndexServiceGraphQueryNegativePathTests());

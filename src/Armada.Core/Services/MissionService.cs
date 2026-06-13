@@ -46,6 +46,7 @@ namespace Armada.Core.Services
         private ICaptainService _Captains;
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
+        private ContextPackStager? _ContextPackStager;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
@@ -124,6 +125,7 @@ namespace Armada.Core.Services
         /// <param name="captains">Captain service.</param>
         /// <param name="promptTemplates">Prompt template service (optional for backward compatibility).</param>
         /// <param name="git">Git service used for branch cleanup on non-landed intermediate stages.</param>
+        /// <param name="codeIndex">Code index service used to generate context packs at provisioning time. Optional -- pack staging is skipped when null.</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -131,7 +133,8 @@ namespace Armada.Core.Services
             IDockService docks,
             ICaptainService captains,
             IPromptTemplateService? promptTemplates = null,
-            IGitService? git = null)
+            IGitService? git = null,
+            ICodeIndexService? codeIndex = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -141,6 +144,8 @@ namespace Armada.Core.Services
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
             _PromptTemplates = promptTemplates;
             _Prestaging = new PrestagedFileCopier(_Logging);
+            if (codeIndex != null)
+                _ContextPackStager = new ContextPackStager(codeIndex, _Database, _Logging, _Settings.CodeIndex.ContextPackBudgetMs);
         }
 
         #endregion
@@ -472,6 +477,10 @@ namespace Armada.Core.Services
                     return false;
                 }
             }
+
+            // Generate and stage the context pack if configured.
+            if (_ContextPackStager != null)
+                await _ContextPackStager.GenerateAndStageAsync(mission, vessel, dock.WorktreePath!, token).ConfigureAwait(false);
 
             // Refresh in-memory captain state to match the atomic update
             captain.State = CaptainStateEnum.Working;
