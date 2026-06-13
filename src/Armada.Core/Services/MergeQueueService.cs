@@ -2163,7 +2163,7 @@ namespace Armada.Core.Services
 
             try
             {
-                await RunGitAsync(repoPath, token, "symbolic-ref", "HEAD", "refs/heads/" + defaultBranch).ConfigureAwait(false);
+                await _Git.SetHeadSymbolicRefAsync(repoPath, "refs/heads/" + defaultBranch, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "restored bare repo HEAD to refs/heads/" + defaultBranch + " after land of " + entry.Id);
                 await EmitBareHeadRestoredAsync(entry, repoPath, defaultBranch, token).ConfigureAwait(false);
             }

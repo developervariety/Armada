@@ -167,5 +167,10 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
             => BranchExistsAsync(repoPath, branchName, token);
         public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+        public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default)
+        {
+            OperationCalls.Add("set-head-symbolic-ref:" + repoPath + ":" + targetRef);
+            return Task.CompletedTask;
+        }
     }
 }
