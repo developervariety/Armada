@@ -1390,6 +1390,66 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(afterDelete, "Dock record should be removed");
                 }
             });
+
+            await RunTest("DockDeleteAsync_LocalOnlyPolicy_RestoresBareRepoHead", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    Vessel vessel = new Vessel("dock-head-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.BranchName = "armada/captain-1/msn_dock_head01";
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.Active = false;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    bool deleted = await dockService.DeleteAsync(dock.Id).ConfigureAwait(false);
+
+                    AssertTrue(deleted, "Delete should succeed");
+                    AssertTrue(
+                        git.OperationCalls.Contains("set-head-symbolic-ref:refs/heads/main"),
+                        "Bare repo HEAD should be restored to refs/heads/main after captain branch deletion");
+                }
+            });
+
+            await RunTest("DockDeleteAsync_NonePolicy_DoesNotRestoreBareRepoHead", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    Vessel vessel = new Vessel("dock-head-vessel2", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.BranchName = "armada/captain-1/msn_dock_head02";
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.Active = false;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    bool deleted = await dockService.DeleteAsync(dock.Id).ConfigureAwait(false);
+
+                    AssertTrue(deleted, "Delete should succeed");
+                    AssertFalse(
+                        git.OperationCalls.Contains("set-head-symbolic-ref:refs/heads/main"),
+                        "Bare repo HEAD should NOT be restored when cleanup policy is None (branch still exists)");
+                }
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)

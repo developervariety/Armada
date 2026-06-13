@@ -221,5 +221,15 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the path is a registered worktree.</returns>
         Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default);
+
+        /// <summary>
+        /// Set the HEAD symbolic-ref in a bare repository to point to the given branch ref.
+        /// Used to restore a bare repo HEAD after captain or integration branch cleanup so
+        /// subsequent git operations do not see a dangling HEAD.
+        /// </summary>
+        /// <param name="repoPath">Path to the bare repository.</param>
+        /// <param name="targetRef">Full ref name to point HEAD at (e.g. refs/heads/main).</param>
+        /// <param name="token">Cancellation token.</param>
+        Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default);
     }
 }
