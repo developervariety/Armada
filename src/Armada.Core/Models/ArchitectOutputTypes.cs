@@ -13,6 +13,9 @@ namespace Armada.Core.Models
 
         /// <summary>Architect emitted a BLOCKED marker with clarifying questions.</summary>
         Blocked,
+
+        /// <summary>Well-formed output exceeds the configured mission cap for a single voyage.</summary>
+        OverCap,
     }
 
     /// <summary>Structured representation of the plan-level narrative an Architect produces.</summary>
@@ -82,5 +85,17 @@ namespace Armada.Core.Models
 
         /// <summary>Populated when Verdict = Blocked.</summary>
         public List<string> BlockedQuestions { get; set; } = new List<string>();
+
+        /// <summary>Number of missions parsed when Verdict = OverCap; otherwise 0.</summary>
+        public int MissionCount { get; set; }
+
+        /// <summary>Mission cap that was exceeded when Verdict = OverCap; otherwise 0.</summary>
+        public int MaxMissions { get; set; }
+
+        /// <summary>
+        /// Suggested number of sub-voyages to split the decomposition into when Verdict = OverCap;
+        /// otherwise 0.
+        /// </summary>
+        public int RecommendedSubVoyages { get; set; }
     }
 }

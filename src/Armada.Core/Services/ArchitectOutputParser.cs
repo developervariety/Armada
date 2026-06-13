@@ -28,6 +28,12 @@ namespace Armada.Core.Services
         /// <summary>Parses the Architect captain's AgentOutput. Returns structured result with verdict.</summary>
         public ArchitectParseResult Parse(string agentOutput)
         {
+            return Parse(agentOutput, int.MaxValue);
+        }
+
+        /// <summary>Parses the Architect captain's AgentOutput with a mission-count cap.</summary>
+        public ArchitectParseResult Parse(string agentOutput, int maxMissions)
+        {
             ArchitectParseResult result = new ArchitectParseResult();
 
             if (string.IsNullOrWhiteSpace(agentOutput))
@@ -118,9 +124,22 @@ namespace Armada.Core.Services
                 result.Errors.Add(new ArchitectParseError("dispatch_graph_cycle", "", "dependsOnMissionId", "Cycle in dispatch graph"));
 
             result.Missions = missions;
-            result.Verdict = result.Errors.Count > 0
-                ? ArchitectParseVerdict.StructuralFailure
-                : ArchitectParseVerdict.Valid;
+            if (result.Errors.Count > 0)
+            {
+                result.Verdict = ArchitectParseVerdict.StructuralFailure;
+            }
+            else if (missions.Count > maxMissions)
+            {
+                result.Verdict = ArchitectParseVerdict.OverCap;
+                result.MissionCount = missions.Count;
+                result.MaxMissions = maxMissions;
+                result.RecommendedSubVoyages = (missions.Count + maxMissions - 1) / maxMissions;
+            }
+            else
+            {
+                result.Verdict = ArchitectParseVerdict.Valid;
+            }
+
             return result;
         }
 

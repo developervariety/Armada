@@ -898,6 +898,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Architect captain decomposition settings.
+        /// </summary>
+        public ArchitectSettings Architect
+        {
+            get => _Architect ??= new ArchitectSettings();
+            set => _Architect = value ?? throw new ArgumentNullException(nameof(Architect));
+        }
+
+        /// <summary>
         /// Autonomous objective scheduler settings.
         /// </summary>
         public AutonomousObjectiveSchedulerSettings AutonomousObjectiveScheduler
@@ -971,6 +980,7 @@ namespace Armada.Core.Settings
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
+        private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
