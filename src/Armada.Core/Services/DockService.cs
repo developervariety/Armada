@@ -485,6 +485,18 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "could not delete remote branch " + dock.BranchName + " for dock " + dock.Id + ": " + ex.Message);
                 }
             }
+
+            // Restore bare repo HEAD so subsequent git operations do not see a dangling ref.
+            string defaultBranch = !String.IsNullOrEmpty(vessel?.DefaultBranch) ? vessel!.DefaultBranch : "main";
+            try
+            {
+                await _Git.SetHeadSymbolicRefAsync(repoPath, "refs/heads/" + defaultBranch, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "restored bare repo HEAD to refs/heads/" + defaultBranch + " for dock " + dock.Id);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "bare repo HEAD restore failed for " + repoPath + " after dock " + dock.Id + " branch cleanup: " + ex.Message);
+            }
         }
 
         private async Task PersistDockStartCommitAsync(string dockId, string headCommit, CancellationToken token)

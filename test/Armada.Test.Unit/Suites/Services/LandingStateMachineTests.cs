@@ -394,6 +394,8 @@ namespace Armada.Test.Unit.Suites.Services
                 PushRefSpecCalls++;
                 return _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
             }
+
+            public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => _Inner.SetHeadSymbolicRefAsync(repoPath, targetRef, token);
         }
     }
 }

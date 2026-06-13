@@ -648,6 +648,15 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(targetRef)) throw new ArgumentNullException(nameof(targetRef));
+
+            await RunGitAsync(repoPath, token, "symbolic-ref", "HEAD", targetRef).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Private-Methods

@@ -2727,6 +2727,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             /// <inheritdoc />
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+
+            /// <inheritdoc />
+            public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => Task.CompletedTask;
         }
 
         #endregion

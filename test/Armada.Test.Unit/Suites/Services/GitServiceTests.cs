@@ -211,6 +211,70 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertThrowsAsync<ArgumentNullException>(() => service.RepairWorktreeAsync(null!));
             });
 
+            await RunTest("SetHeadSymbolicRefAsync NullRepoPath Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetHeadSymbolicRefAsync(null!, "refs/heads/main"));
+            });
+
+            await RunTest("SetHeadSymbolicRefAsync EmptyRepoPath Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetHeadSymbolicRefAsync("", "refs/heads/main"));
+            });
+
+            await RunTest("SetHeadSymbolicRefAsync NullTargetRef Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetHeadSymbolicRefAsync("/tmp/repo.git", null!));
+            });
+
+            await RunTest("SetHeadSymbolicRefAsync EmptyTargetRef Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.SetHeadSymbolicRefAsync("/tmp/repo.git", ""));
+            });
+
+            await RunTest("SetHeadSymbolicRefAsync BareRepo UpdatesHeadSymbolicRef", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-head-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada/captain-1").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "feature.txt"), "feature\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "feature.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Captain commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "symbolic-ref", "HEAD", "refs/heads/armada/captain-1").ConfigureAwait(false);
+
+                    await service.SetHeadSymbolicRefAsync(bareDir, "refs/heads/main").ConfigureAwait(false);
+
+                    string bareHead = (await RunGitAsync(bareDir, "symbolic-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual("refs/heads/main", bareHead, "SetHeadSymbolicRefAsync should point bare HEAD at the requested ref");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("IsRepositoryAsync NullPath ReturnsFalse", async () =>
             {
                 GitService service = CreateService();
