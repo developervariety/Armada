@@ -107,6 +107,9 @@ namespace Armada.Core.Models
         /// <summary>Whether symbol-graph expansion contributed additional context.</summary>
         public bool GraphExpansionUsed { get; set; }
 
+        /// <summary>Whether the search-only fast-pack path was used, skipping graph/impact expansion.</summary>
+        public bool FastPackFallbackUsed { get; set; } = false;
+
         /// <summary>Number of non-blocking warnings emitted during pack assembly.</summary>
         public int WarningCount { get; set; }
 
