@@ -1215,17 +1215,17 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Dispatch_CachedPackWithEmptyPrestagedFiles_FallsBackToGeneration", async () =>
+            await RunTest("Dispatch_Force_CachedPackWithEmptyPrestagedFiles_FallsBackToGeneration", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("cache-empty-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        new Vessel("cache-empty-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
                     // Cache returns a non-null response, but with NO prestaged files. The dispatch
-                    // guard (PrestagedFiles.Count > 0) must treat this as a miss and generate.
+                    // guard (PrestagedFiles.Count > 0) must treat this as a miss and generate (force).
                     ContextPackResponse emptyCachedPack = new ContextPackResponse
                     {
                         Goal = "empty cached pack",
@@ -1253,11 +1253,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
-                        title = "empty cache voyage",
+                        title = "empty cache force voyage",
                         vesselId = vessel.Id,
+                        codeContextMode = "force",
                         missions = new object[]
                         {
-                            new { title = "Task C", description = "empty cached pack must not short-circuit" }
+                            new { title = "Task C", description = "force must not short-circuit on empty cached pack" }
                         }
                     });
 
@@ -1275,17 +1276,17 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CachedPackWithNullPrestagedFiles_FallsBackToGeneration", async () =>
+            await RunTest("Dispatch_Force_CachedPackWithNullPrestagedFiles_FallsBackToGeneration", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("cache-null-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        new Vessel("cache-null-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
                     // Cache returns a non-null response whose PrestagedFiles is explicitly null.
-                    // The dispatch guard's null check must treat this as a miss and generate.
+                    // The dispatch guard's null check must treat this as a miss and generate (force).
                     ContextPackResponse nullCachedPack = new ContextPackResponse
                     {
                         Goal = "null cached pack",
@@ -1314,11 +1315,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
-                        title = "null cache voyage",
+                        title = "null cache force voyage",
                         vesselId = vessel.Id,
+                        codeContextMode = "force",
                         missions = new object[]
                         {
-                            new { title = "Task D", description = "null cached prestaged files must not short-circuit" }
+                            new { title = "Task D", description = "force must not short-circuit on null cached prestaged files" }
                         }
                     });
 
