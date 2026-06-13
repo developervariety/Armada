@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Text.Json;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -475,8 +476,14 @@ namespace Armada.Test.Unit.Suites.Services
                         vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
                         await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
+                        Mission mission = new Mission("post-push audit shape mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
                         MergeEntry entry = new MergeEntry();
                         entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
                         entry.BranchName = repos.CaptainBranch;
                         entry.TargetBranch = "main";
                         entry.Status = MergeStatusEnum.Queued;
@@ -500,13 +507,24 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("merge_queue.failed_target_advanced", auditEvent.EventType, "Audit event type should be the failed-target-advanced marker");
                         AssertEqual("merge_entry", auditEvent.EntityType ?? "", "Audit event should be scoped to the merge entry");
                         AssertEqual(entry.Id, auditEvent.EntityId ?? "", "Audit event should reference the failed merge entry id");
+                        AssertEqual(mission.Id, auditEvent.MissionId ?? "", "Audit event should carry the mission id");
                         AssertEqual(vessel.Id, auditEvent.VesselId ?? "", "Audit event should carry the vessel id");
                         AssertTrue((auditEvent.Message ?? "").Length > 0, "Audit event should carry a human-readable summary message");
 
-                        string payload = auditEvent.Payload ?? "";
-                        AssertContains(preRemoteHead, payload, "Audit payload should include the pre-land head");
-                        AssertContains("main", payload, "Audit payload should include the target branch");
-                        AssertContains("advancedHead", payload, "Audit payload should record the advanced head field");
+                        FailedTargetAdvancedPayload? payload = JsonSerializer.Deserialize<FailedTargetAdvancedPayload>(
+                            auditEvent.Payload ?? "",
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        AssertNotNull(payload, "Audit payload should deserialize");
+                        AssertEqual(entry.Id, payload!.EntryId ?? "", "Payload entry id");
+                        AssertEqual(mission.Id, payload.MissionId ?? "", "Payload mission id");
+                        AssertEqual(vessel.Id, payload.VesselId ?? "", "Payload vessel id");
+                        AssertEqual("main", payload.TargetBranch ?? "", "Payload target branch");
+                        AssertEqual(preRemoteHead, payload.PreviousTargetHead ?? "", "Payload previous target head");
+                        AssertEqual("rolled_back", payload.RollbackResult ?? "", "Payload rollback result");
+                        AssertTrue(!String.IsNullOrWhiteSpace(payload.IntegrationHead), "Payload integration head should be populated");
+                        AssertEqual(payload.IntegrationHead ?? "", payload.AdvancedTargetHead ?? "", "Advanced target head should match integration head");
+                        AssertTrue(!String.Equals(payload.AdvancedTargetHead, payload.PreviousTargetHead, StringComparison.OrdinalIgnoreCase),
+                            "Advanced target head should differ from previous target head");
 
                         // The rollback must un-merge the feature from origin, not merely reset the ref label.
                         string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
@@ -827,6 +845,25 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return stdout;
             }
+        }
+
+        private sealed class FailedTargetAdvancedPayload
+        {
+            public string? EntryId { get; set; }
+
+            public string? MissionId { get; set; }
+
+            public string? VesselId { get; set; }
+
+            public string? TargetBranch { get; set; }
+
+            public string? PreviousTargetHead { get; set; }
+
+            public string? AdvancedTargetHead { get; set; }
+
+            public string? IntegrationHead { get; set; }
+
+            public string? RollbackResult { get; set; }
         }
 
         private sealed class GitRepoSetup
