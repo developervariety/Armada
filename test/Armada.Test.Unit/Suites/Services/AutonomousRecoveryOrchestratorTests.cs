@@ -647,6 +647,84 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, signals.Objects.Count);
                 AssertContains("ARMADA_AUTO_NUDGE", signals.Objects[0].Payload ?? "", "Expected autonomous nudge marker.");
             }).ConfigureAwait(false);
+
+            await RunTest("Judge-stage failure inlines review feedback into Worker rescue brief", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.AgentOutput = "DISTINCTIVE_REVIEW_MARKER_42 the null guard on line 88 is missing.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertEqual("Worker", rescue!.Persona, "Judge-stage failures should dispatch Worker rescue missions.");
+                AssertContains("Review feedback from failed Judge stage", rescue!.Description ?? "", "Rescue brief should carry the review feedback header.");
+                AssertContains("address these findings with corrective code changes", rescue!.Description ?? "", "Rescue brief should instruct corrective changes.");
+                AssertContains("DISTINCTIVE_REVIEW_MARKER_42", rescue!.Description ?? "", "Rescue brief should inline the parent review output.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Worker-stage failure rescue omits the review feedback section", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.AgentOutput = "build output that should not be inlined";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertEqual("Worker", rescue!.Persona, "Worker-stage failures should keep the Worker persona.");
+                AssertFalse((rescue!.Description ?? "").Contains("Review feedback from failed", StringComparison.Ordinal), "Non-review-stage rescue should not carry the review feedback section.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Judge-stage failure with no agent output uses fallback review wording", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.AgentOutput = null;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission even without agent output.");
+                AssertEqual("Worker", rescue!.Persona, "Judge-stage failures should dispatch Worker rescue missions.");
+                AssertContains("Review feedback from failed Judge stage", rescue!.Description ?? "", "Rescue brief should carry the review feedback header.");
+                AssertContains("(no detailed review output recorded)", rescue!.Description ?? "", "Rescue brief should use the fallback wording when no agent output is recorded.");
+            }).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(

@@ -514,17 +514,19 @@ namespace Armada.Server
         private async Task<Mission> DispatchRescueMissionAsync(Mission failedMission, Incident incident, CancellationToken token)
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
+            string resolvedPersona = ResolveRescuePersona(failedMission.Persona);
+            bool remappedFromReviewer = IsReviewerPersona(failedMission.Persona);
             Mission rescue = new Mission
             {
                 TenantId = failedMission.TenantId,
                 UserId = failedMission.UserId,
                 VesselId = failedMission.VesselId,
                 ParentMissionId = failedMission.Id,
-                Persona = ResolveRescuePersona(failedMission.Persona),
+                Persona = resolvedPersona,
                 PreferredModel = failedMission.PreferredModel,
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
-                Description = BuildRescueDescription(failedMission, incident, attemptNumber)
+                Description = BuildRescueDescription(failedMission, incident, attemptNumber, remappedFromReviewer)
             };
 
             return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
@@ -671,7 +673,7 @@ namespace Armada.Server
                 "Policy: " + (decision.DispatchRescue ? "dispatch rescue" : "block") + " (" + decision.Reason + ").";
         }
 
-        private static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber)
+        private static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber, bool remappedFromReviewer)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine(_RescueMarker);
@@ -689,14 +691,34 @@ namespace Armada.Server
             sb.AppendLine();
             sb.AppendLine("Original mission description:");
             sb.AppendLine(failedMission.Description ?? "(no description recorded)");
+
+            if (remappedFromReviewer)
+            {
+                string reviewerStage = String.IsNullOrWhiteSpace(failedMission.Persona) ? "review" : failedMission.Persona.Trim();
+                sb.AppendLine();
+                sb.AppendLine("Review feedback from failed " + reviewerStage +
+                    " stage (address these findings with corrective code changes; do NOT re-run the review):");
+                if (String.IsNullOrWhiteSpace(failedMission.AgentOutput))
+                    sb.AppendLine("(no detailed review output recorded)");
+                else
+                    sb.AppendLine(Truncate(failedMission.AgentOutput, 6000));
+            }
+
             return sb.ToString();
         }
 
         private static string ResolveRescuePersona(string? failedPersona)
         {
             if (String.IsNullOrWhiteSpace(failedPersona)) return "Worker";
+            if (IsReviewerPersona(failedPersona)) return "Worker";
+            return failedPersona.Trim();
+        }
 
-            string normalized = failedPersona.Trim().ToLowerInvariant().Replace(" ", "");
+        private static bool IsReviewerPersona(string? persona)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return false;
+
+            string normalized = persona.Trim().ToLowerInvariant().Replace(" ", "");
             string[] reviewerPersonas =
             {
                 "judge",
@@ -711,13 +733,13 @@ namespace Armada.Server
             };
 
             if (reviewerPersonas.Any(item => String.Equals(item, normalized, StringComparison.Ordinal)))
-                return "Worker";
+                return true;
 
             if (normalized.EndsWith("reviewer", StringComparison.Ordinal)
                 || normalized.EndsWith("analyst", StringComparison.Ordinal))
-                return "Worker";
+                return true;
 
-            return failedPersona.Trim();
+            return false;
         }
 
         private static string AppendNote(string? existing, string note)
