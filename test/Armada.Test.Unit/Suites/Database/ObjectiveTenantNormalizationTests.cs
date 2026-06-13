@@ -151,6 +151,82 @@ namespace Armada.Test.Unit.Suites.Database
                     AssertEqual("usr_x", await ReadScalarStringAsync(db.ConnectionString, customId, "user_id").ConfigureAwait(false), "Custom user should be preserved on save");
                 }
             });
+
+            await RunTest("LoadNormalizesWhitespaceObjectiveTenancy", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string id = "obj_ws_load";
+                    await InsertRawObjectiveAsync(db.ConnectionString, id, "   ", "\t").ConfigureAwait(false);
+
+                    Objective? loaded = await db.Driver.Objectives.ReadAsync(id).ConfigureAwait(false);
+
+                    AssertNotNull(loaded, "Objective should load");
+                    AssertEqual(Constants.DefaultTenantId, loaded!.TenantId, "Whitespace tenant_id should normalize on load");
+                    AssertEqual(Constants.DefaultUserId, loaded.UserId, "Whitespace user_id should normalize on load");
+                }
+            });
+
+            await RunTest("NullObjectiveRow_RehydrateThenSave_PersistsDefaultNotNull", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string id = "obj_null_roundtrip";
+                    await InsertRawObjectiveAsync(db.ConnectionString, id, null, null).ConfigureAwait(false);
+
+                    Objective? loaded = await db.Driver.Objectives.ReadAsync(id).ConfigureAwait(false);
+                    AssertNotNull(loaded, "Stale NULL-tenant row should load");
+                    await db.Driver.Objectives.UpdateAsync(loaded!).ConfigureAwait(false);
+
+                    AssertEqual(Constants.DefaultTenantId, await ReadScalarStringAsync(db.ConnectionString, id, "tenant_id").ConfigureAwait(false), "Rehydrated NULL row must persist default tenant_id, never NULL");
+                    AssertEqual(Constants.DefaultUserId, await ReadScalarStringAsync(db.ConnectionString, id, "user_id").ConfigureAwait(false), "Rehydrated NULL row must persist default user_id, never NULL");
+                }
+            });
+
+            await RunTest("DeserializeSnapshot_NullTenancy_NormalizesToDefault", () =>
+            {
+                Objective? objective = InvokeDeserializeObjective("{\"Id\":\"obj_snap_null\",\"Title\":\"T\",\"TenantId\":null,\"UserId\":null}");
+
+                AssertNotNull(objective, "Snapshot with explicit null tenancy should deserialize");
+                AssertEqual(Constants.DefaultTenantId, objective!.TenantId, "Null tenant_id in snapshot must normalize on rehydrate");
+                AssertEqual(Constants.DefaultUserId, objective.UserId, "Null user_id in snapshot must normalize on rehydrate");
+            });
+
+            await RunTest("DeserializeSnapshot_OmittedTenancy_NormalizesToDefault", () =>
+            {
+                Objective? objective = InvokeDeserializeObjective("{\"Id\":\"obj_snap_omit\",\"Title\":\"T\"}");
+
+                AssertNotNull(objective, "Snapshot omitting tenancy fields should deserialize");
+                AssertEqual(Constants.DefaultTenantId, objective!.TenantId, "Omitted tenant_id in snapshot must normalize on rehydrate");
+                AssertEqual(Constants.DefaultUserId, objective.UserId, "Omitted user_id in snapshot must normalize on rehydrate");
+            });
+
+            await RunTest("DeserializeSnapshot_CustomTenancy_Preserved", () =>
+            {
+                Objective? objective = InvokeDeserializeObjective("{\"Id\":\"obj_snap_custom\",\"Title\":\"T\",\"TenantId\":\"tnt_real\",\"UserId\":\"usr_real\"}");
+
+                AssertNotNull(objective, "Snapshot with custom tenancy should deserialize");
+                AssertEqual("tnt_real", objective!.TenantId, "Custom tenant_id in snapshot must be preserved on rehydrate");
+                AssertEqual("usr_real", objective.UserId, "Custom user_id in snapshot must be preserved on rehydrate");
+            });
+        }
+
+        private static Objective? InvokeDeserializeObjective(string payload)
+        {
+            System.Reflection.MethodInfo? method = typeof(Armada.Core.Services.ObjectiveService).GetMethod(
+                "DeserializeObjective",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            if (method == null)
+            {
+                throw new InvalidOperationException("ObjectiveService.DeserializeObjective(ArmadaEvent) was not found via reflection");
+            }
+
+            ArmadaEvent snapshot = new ArmadaEvent
+            {
+                EventType = "objective.snapshot",
+                Payload = payload
+            };
+            return (Objective?)method.Invoke(null, new object[] { snapshot });
         }
 
         private static async Task InsertRawObjectiveAsync(string connectionString, string id, string? tenantId, string? userId)
