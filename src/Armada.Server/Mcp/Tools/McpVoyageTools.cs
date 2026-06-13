@@ -167,6 +167,49 @@ namespace Armada.Server.Mcp.Tools
                     List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
                     string? objectiveId = NormalizeEmpty(request.ObjectiveId);
 
+                    // Validate dispatch inputs up front so malformed requests return a
+                    // structured, actionable error here instead of reaching
+                    // AdmiralService.DispatchVoyageQueuedAsync and surfacing as a bare
+                    // JSON-RPC -32603. The service-layer throws stay in place as
+                    // defense-in-depth; this guard names the offending field for the caller.
+                    if (String.IsNullOrWhiteSpace(title)) return (object)new
+                    {
+                        Error = "armada_dispatch requires a non-empty title.",
+                        Code = "missing_title",
+                        Reason = "The voyage title was null or whitespace.",
+                        Action = "Provide a non-empty title naming the voyage."
+                    };
+
+                    if (missions == null || missions.Count == 0) return (object)new
+                    {
+                        Error = "armada_dispatch requires a non-empty missions array; each mission needs a title and description.",
+                        Code = "missing_missions",
+                        Reason = "The missions array was null or empty.",
+                        Action = "Provide at least one mission, each with a title and a description."
+                    };
+
+                    for (int i = 0; i < missions.Count; i++)
+                    {
+                        MissionDescription mission = missions[i];
+                        int missionNumber = i + 1;
+
+                        if (String.IsNullOrWhiteSpace(mission.Title)) return (object)new
+                        {
+                            Error = "armada_dispatch mission " + missionNumber + " is missing a title.",
+                            Code = "missing_mission_title",
+                            Reason = "Mission " + missionNumber + " had a null or whitespace title.",
+                            Action = "Provide a non-empty title for mission " + missionNumber + "."
+                        };
+
+                        if (String.IsNullOrWhiteSpace(mission.Description)) return (object)new
+                        {
+                            Error = "armada_dispatch mission " + missionNumber + " is missing a description.",
+                            Code = "missing_mission_description",
+                            Reason = "Mission " + missionNumber + " had a null or whitespace description.",
+                            Action = "Provide a non-empty description for mission " + missionNumber + "."
+                        };
+                    }
+
                     // Merge vessel DefaultPlaybooks with caller-supplied selectedPlaybooks.
                     // Start with the vessel defaults; caller entries override deliveryMode on collision and append new entries.
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
