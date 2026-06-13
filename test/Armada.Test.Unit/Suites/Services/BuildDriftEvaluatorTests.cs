@@ -113,6 +113,76 @@ namespace Armada.Test.Unit.Suites.Services
                 string? result = BuildInfo.ParseCommit("0.8.0+");
                 AssertNull(result, "ParseCommit result");
             });
+
+            // Pins the EXACT warning text. The brief requires the precise ASCII string
+            // ("--", not an em dash); AssertContains alone would not catch a wording,
+            // separator, or non-ASCII regression.
+            await RunTest("Evaluate_Drifted_WarningIsExactAsciiString", () =>
+            {
+                BuildDriftReport report = BuildDriftEvaluator.Evaluate("aaa111", "bbb222", 3);
+                AssertEqual(
+                    "running build is 3 commits behind landed main -- rebuild + restart to deploy",
+                    report.Warning,
+                    "Warning");
+            });
+
+            await RunTest("Evaluate_BothCommitsNull_IsDriftedFalseWarningNull", () =>
+            {
+                BuildDriftReport report = BuildDriftEvaluator.Evaluate(null, null, 4);
+                AssertFalse(report.IsDrifted, "IsDrifted");
+                AssertNull(report.Warning, "Warning");
+            });
+
+            // The equal (not-drifted) path must still echo the inputs and BehindBy into
+            // the report; the Worker only asserted field population on the drifted path.
+            await RunTest("Evaluate_SameCommits_PreservesFieldsAndBehindBy", () =>
+            {
+                BuildDriftReport report = BuildDriftEvaluator.Evaluate("abc123", "abc123", 2);
+                AssertEqual("abc123", report.RunningCommit, "RunningCommit");
+                AssertEqual("abc123", report.LandedCommit, "LandedCommit");
+                AssertEqual(2, report.BehindBy, "BehindBy");
+                AssertFalse(report.IsDrifted, "IsDrifted");
+            });
+
+            // Genuine zero behindBy (not via the negative clamp) on a drifted build.
+            await RunTest("Evaluate_DriftedWithZeroBehindBy_WarningContainsZero", () =>
+            {
+                BuildDriftReport report = BuildDriftEvaluator.Evaluate("aaa111", "bbb222", 0);
+                AssertTrue(report.IsDrifted, "IsDrifted");
+                AssertEqual(0, report.BehindBy, "BehindBy");
+                AssertContains("0 commits behind landed main", report.Warning!);
+            });
+
+            // Drift detection uses string.IsNullOrEmpty, NOT IsNullOrWhiteSpace -- a
+            // whitespace-only commit is treated as a real (non-empty) value, so it
+            // differs from a distinct commit and counts as drifted. Pins that intent.
+            await RunTest("Evaluate_WhitespaceRunningCommit_IsDriftedTrue", () =>
+            {
+                BuildDriftReport report = BuildDriftEvaluator.Evaluate("   ", "bbb222", 1);
+                AssertTrue(report.IsDrifted, "IsDrifted");
+                AssertNotNull(report.Warning, "Warning");
+            });
+
+            // ParseCommit splits on the FIRST '+', so a SHA containing further '+'
+            // characters is returned intact. Distinguishes IndexOf from LastIndexOf.
+            await RunTest("ParseCommit_MultiplePlus_ReturnsEverythingAfterFirstPlus", () =>
+            {
+                string? result = BuildInfo.ParseCommit("0.8.0+abc1234+extra");
+                AssertEqual("abc1234+extra", result, "ParseCommit result");
+            });
+
+            await RunTest("ParseCommit_WhitespaceAroundSha_ReturnsTrimmed", () =>
+            {
+                string? result = BuildInfo.ParseCommit("0.8.0+  abc1234  ");
+                AssertEqual("abc1234", result, "ParseCommit result");
+            });
+
+            // The substring after '+' trims to empty, exercising the trim -> null branch.
+            await RunTest("ParseCommit_WhitespaceOnlyAfterPlus_ReturnsNull", () =>
+            {
+                string? result = BuildInfo.ParseCommit("0.8.0+   ");
+                AssertNull(result, "ParseCommit result");
+            });
         }
     }
 }
