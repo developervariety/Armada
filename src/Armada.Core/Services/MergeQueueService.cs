@@ -664,7 +664,7 @@ namespace Armada.Core.Services
                     return true;
                 }
 
-                await TestIntegrationWorktreeAsync(entry, token).ConfigureAwait(false);
+                await TestIntegrationWorktreeAsync(entry, repoPath, token).ConfigureAwait(false);
                 if (entry.Status == MergeStatusEnum.Failed) return false;
                 await PersistStatusAsync(entry, MergeStatusEnum.Passed, token).ConfigureAwait(false);
                 return true;
@@ -795,7 +795,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task TestIntegrationWorktreeAsync(MergeEntry entry, CancellationToken token)
+        private async Task TestIntegrationWorktreeAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
             string integrationPath = GetIntegrationPath(entry);
             string entryTag = entry.Id + " branch " + entry.BranchName;
@@ -815,6 +815,20 @@ namespace Armada.Core.Services
             string testCommand = entry.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
             if (String.IsNullOrEmpty(testCommand)) return;
 
+            // Capture origin/<target> immediately before running the test gate. A failing
+            // gate must leave the target untouched: the target push/sync is reachable only
+            // from the Passed -> Pushing path. If the target advanced across the gate window
+            // (state-machine invariant violation), the failure path rolls it back and audits.
+            string preGateRemoteTargetHead = "";
+            try
+            {
+                preGateRemoteTargetHead = await CaptureRemoteTargetHeadAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not capture pre-gate target head for " + entry.Id + ": " + ex.Message);
+            }
+
             TestResult testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
             if (testResult.ExitCode != 0)
             {
@@ -829,6 +843,9 @@ namespace Armada.Core.Services
                     DiffLineCount = diffLineCount
                 };
                 ApplyClassification(entry, testContext);
+
+                await VerifyFailedEntryDidNotAdvanceTargetAsync(entry, repoPath, preGateRemoteTargetHead,
+                    "merge-queue test gate failed (exit " + testResult.ExitCode + ")", token).ConfigureAwait(false);
 
                 entry.Status = MergeStatusEnum.Failed;
                 entry.TestExitCode = testResult.ExitCode;
@@ -1442,7 +1459,7 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "failed to land " + entry.Id + ": " + ex.Message);
-                await RollbackTargetIfAdvancedAsync(entry, repoPath, preLandRemoteTargetHead, ex.Message, token).ConfigureAwait(false);
+                await VerifyFailedEntryDidNotAdvanceTargetAsync(entry, repoPath, preLandRemoteTargetHead, ex.Message, token).ConfigureAwait(false);
                 entry.Status = MergeStatusEnum.Failed;
                 entry.TestOutput = "Landing failed: " + ex.Message;
                 entry.CompletedUtc = DateTime.UtcNow;
@@ -1469,14 +1486,17 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Restore the target branch if a failed landing attempt already pushed
-        /// the integration head to origin.
+        /// Enforce the Failed-entry invariant: a merge entry that ends Failed must not have
+        /// advanced the target branch. Compares origin/&lt;target&gt; against the head captured
+        /// before the risky operation (test gate or land/push). If the target advanced, restore
+        /// it to the captured head and emit a <c>merge_queue.failed_target_advanced</c> audit
+        /// event. Shared by the test-gate failure path and the failed-landing path.
         /// </summary>
-        private async Task RollbackTargetIfAdvancedAsync(MergeEntry entry, string repoPath, string preLandRemoteTargetHead, string reason, CancellationToken token)
+        private async Task VerifyFailedEntryDidNotAdvanceTargetAsync(MergeEntry entry, string repoPath, string preLandRemoteTargetHead, string reason, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(preLandRemoteTargetHead))
             {
-                _Logging.Warn(_Header + "skipping target rollback for " + entry.Id + " because origin/" + entry.TargetBranch + " had no captured pre-land head");
+                _Logging.Warn(_Header + "skipping target rollback for " + entry.Id + " because origin/" + entry.TargetBranch + " had no captured pre-gate head");
                 return;
             }
 

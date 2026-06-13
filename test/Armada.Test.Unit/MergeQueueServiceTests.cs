@@ -394,6 +394,173 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("TestGate_Fails_TargetHeadUnchanged_NoAuditEvent", async () =>
+            {
+                // A failing test gate must leave origin/<target> and the bare local target
+                // untouched and must NOT emit the failed-target-advanced audit event, because
+                // the gate never reaches the Passed -> Pushing path that advances the target.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gate_unchanged_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("gate-unchanged-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "exit 1";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string preBareHead = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when the test gate command fails");
+
+                        string postRemoteHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string postBareHead = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertEqual(preRemoteHead, postRemoteHead, "Remote target branch must not move when the test gate fails");
+                        AssertEqual(preBareHead, postBareHead, "Bare local target branch must not move when the test gate fails");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(0, events.Count, "A clean gate failure must not emit a target-advanced audit event");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            await RunTest("TestGate_FailsAfterTargetAdvanced_RollsBackAndEmitsAuditEvent", async () =>
+            {
+                // Invariant-violation path: the test gate command advances origin/<target>
+                // out-of-band and then fails. The Failed transition must detect the advanced
+                // target, roll it back to the captured pre-gate head, and emit exactly one
+                // merge_queue.failed_target_advanced audit event scoped to the entry.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gate_advanced_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("gate-advanced-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        // Push the integration head onto origin/main (advancing the target) and
+                        // then fail, so the gate-failure path observes an advanced target.
+                        entry.TestCommand = "git push origin HEAD:main --force && git rev-parse --verify refs/heads/__armada_no_such_ref__";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when the test gate command fails");
+
+                        string postRemoteHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertEqual(preRemoteHead, postRemoteHead, "Advanced target must be rolled back to the captured pre-gate head");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "A gate failure with an advanced target must emit one audit event");
+                        AssertEqual(entry.Id, events[0].EntityId ?? "", "Audit event should reference the failed merge entry id");
+                        AssertContains(preRemoteHead, events[0].Payload ?? "", "Audit payload should include the captured pre-gate head");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            await RunTest("LandedEntry_DoesNotEmitTargetAdvancedAuditEvent", async () =>
+            {
+                // A clean land (no gate failure) must never emit the invariant-violation audit
+                // event; the target advances only through the sanctioned Passed -> Pushing path.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_clean_land_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("clean-land-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Landed, afterProcess!.Status, "Expected Landed merge entry");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(0, events.Count, "A clean landed entry must not emit a target-advanced audit event");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("CodeIndexRefreshScheduler_CoalescesRapidRequestsForSameVessel", async () =>
             {
                 RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
