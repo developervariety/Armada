@@ -216,6 +216,132 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, decision.ConsecutiveInstantFailures, "Benched captain can still record exits");
                 return Task.CompletedTask;
             });
+
+            await RunTest("RecordExit_CustomFailureThreshold_BenchesAtConfiguredValue", () =>
+            {
+                CrashLoopDetectionSettings settings = new CrashLoopDetectionSettings { FailureThreshold = 2 };
+                CaptainHealthMonitor monitor = CreateMonitor(settings);
+                string captainId = "cpt_custom_threshold";
+
+                CaptainHealthDecision first = RecordNearInstantExit(monitor, captainId, 0);
+                AssertFalse(first.ShouldBench, "First failure should not bench at threshold 2");
+
+                CaptainHealthDecision second = RecordNearInstantExit(monitor, captainId, 1);
+                AssertTrue(second.ShouldBench, "Second failure should bench at threshold 2 (benching honors configured threshold, not a hardcoded 3)");
+                AssertEqual(2, second.ConsecutiveInstantFailures, "Counter at configured threshold");
+                AssertContains("2 consecutive near-instant exit-1 launches", second.Reason, "Reason reflects configured threshold count");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("RecordExit_FailuresPastThreshold_StayBenchedAndKeepCounting", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+                string captainId = "cpt_past_threshold";
+
+                RecordNearInstantExit(monitor, captainId, 0);
+                RecordNearInstantExit(monitor, captainId, 1);
+                RecordNearInstantExit(monitor, captainId, 2);
+
+                CaptainHealthDecision fourth = RecordNearInstantExit(monitor, captainId, 3);
+                AssertTrue(fourth.ShouldBench, "Failures past the threshold remain ShouldBench");
+                AssertEqual(4, fourth.ConsecutiveInstantFailures, "Counter keeps climbing past the threshold");
+                AssertContains("4 consecutive near-instant exit-1 launches", fourth.Reason, "Reason reflects the current (climbing) count");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("RecordExit_BenchReason_IncludesRuntimeCeilingMs", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+                string captainId = "cpt_reason_ms";
+
+                RecordNearInstantExit(monitor, captainId, 0);
+                RecordNearInstantExit(monitor, captainId, 1);
+                CaptainHealthDecision third = RecordNearInstantExit(monitor, captainId, 2);
+
+                AssertContains("runtime < 5000 ms", third.Reason, "Reason includes the near-instant ceiling in ms (MaxRuntimeSeconds * 1000)");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("RecordExit_RuntimeZero_IsNearInstant", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+                string captainId = "cpt_runtime_zero";
+
+                CaptainHealthDecision decision = monitor.RecordExit(captainId, AgentRuntimeEnum.Cursor, 1, 0L);
+                AssertEqual(1, decision.ConsecutiveInstantFailures, "Runtime of 0 ms (strictly below ceiling) counts as near-instant");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("RecordExit_PropagatesRuntimeOntoDecision", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+
+                CaptainHealthDecision claude = monitor.RecordExit("cpt_runtime_field", AgentRuntimeEnum.ClaudeCode, 1, 100L);
+                AssertEqual(AgentRuntimeEnum.ClaudeCode, claude.Runtime, "Decision echoes the runtime that exited");
+
+                CrashLoopDetectionSettings disabled = new CrashLoopDetectionSettings { Enabled = false };
+                CaptainHealthMonitor disabledMonitor = CreateMonitor(disabled);
+                CaptainHealthDecision disabledDecision = disabledMonitor.RecordExit("cpt_runtime_field2", AgentRuntimeEnum.Codex, 1, 100L);
+                AssertEqual(AgentRuntimeEnum.Codex, disabledDecision.Runtime, "Disabled early-return path still echoes the runtime");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("PublicMethods_EmptyCaptainId_Throw", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+
+                AssertThrows<ArgumentException>(() => monitor.RecordExit(string.Empty, AgentRuntimeEnum.Cursor, 1, 100L), "RecordExit rejects empty captainId");
+                AssertThrows<ArgumentException>(() => monitor.MarkBenched(string.Empty, DateTime.UtcNow), "MarkBenched rejects empty captainId");
+                AssertThrows<ArgumentException>(() => monitor.IsBenched(string.Empty), "IsBenched rejects empty captainId");
+                AssertThrows<ArgumentException>(() => monitor.ClearBench(string.Empty), "ClearBench rejects empty captainId");
+                AssertThrows<ArgumentException>(() => monitor.Reset(string.Empty), "Reset rejects empty captainId");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("GetElapsedBenched_MultipleCaptains_ReturnsOnlyElapsed", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+                DateTime now = new DateTime(2026, 6, 13, 12, 0, 0, DateTimeKind.Utc);
+
+                AssertEqual(0, monitor.GetElapsedBenched(now).Count, "No benched captains yields an empty list");
+
+                monitor.MarkBenched("cpt_elapsed", now.AddMinutes(-1));
+                monitor.MarkBenched("cpt_boundary", now);
+                monitor.MarkBenched("cpt_future", now.AddMinutes(5));
+
+                IReadOnlyList<string> elapsed = monitor.GetElapsedBenched(now);
+                AssertEqual(2, elapsed.Count, "Only past-and-at-boundary deadlines are elapsed");
+                AssertTrue(elapsed.Contains("cpt_elapsed"), "Past deadline is elapsed");
+                AssertTrue(elapsed.Contains("cpt_boundary"), "Deadline exactly at now is elapsed");
+                AssertFalse(elapsed.Contains("cpt_future"), "Future deadline is not elapsed");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClearBenchAndReset_UnknownCaptain_DoNotThrow", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+
+                monitor.ClearBench("cpt_never_seen");
+                monitor.Reset("cpt_never_seen");
+                AssertFalse(monitor.IsBenched("cpt_never_seen"), "Unknown captain is not benched after no-op clear/reset");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("MarkBenched_CalledTwice_OverwritesDeadline", () =>
+            {
+                CaptainHealthMonitor monitor = CreateMonitor();
+                string captainId = "cpt_overwrite";
+                DateTime now = new DateTime(2026, 6, 13, 12, 0, 0, DateTimeKind.Utc);
+
+                monitor.MarkBenched(captainId, now.AddMinutes(10));
+                AssertEqual(0, monitor.GetElapsedBenched(now).Count, "Initial future deadline is not elapsed");
+
+                monitor.MarkBenched(captainId, now.AddMinutes(-1));
+                IReadOnlyList<string> elapsed = monitor.GetElapsedBenched(now);
+                AssertEqual(1, elapsed.Count, "Second MarkBenched overwrites the deadline (now in the past)");
+                AssertEqual(captainId, elapsed[0], "Overwritten captain id");
+                return Task.CompletedTask;
+            });
         }
     }
 }
