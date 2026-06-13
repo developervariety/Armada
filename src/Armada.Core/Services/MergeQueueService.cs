@@ -1398,9 +1398,21 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task LandEntryAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
         {
+            string previousTargetHead = "";
+            string integrationHead = "";
+
             try
             {
-                bool alreadyPushed = await IsRemoteTargetAtIntegrationHeadAsync(repoPath, entry.TargetBranch, integrationBranch, token).ConfigureAwait(false);
+                if (entry.Status != MergeStatusEnum.Pushing)
+                {
+                    throw new InvalidOperationException("Merge queue land invariant violated for " + entry.Id + ": status is " + entry.Status);
+                }
+
+                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                previousTargetHead = await ResolveCommitAsync(repoPath, "refs/remotes/origin/" + entry.TargetBranch, token).ConfigureAwait(false);
+                integrationHead = await ResolveCommitAsync(repoPath, integrationBranch, token).ConfigureAwait(false);
+
+                bool alreadyPushed = String.Equals(previousTargetHead, integrationHead, StringComparison.OrdinalIgnoreCase);
                 if (!alreadyPushed)
                 {
                     await _Git.PushRefSpecAsync(repoPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
@@ -1439,6 +1451,13 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
+                await AuditAndRollbackAdvancedTargetAsync(
+                    entry,
+                    repoPath,
+                    previousTargetHead,
+                    integrationHead,
+                    token).ConfigureAwait(false);
+
                 _Logging.Warn(_Header + "failed to land " + entry.Id + ": " + ex.Message);
                 entry.Status = MergeStatusEnum.Failed;
                 entry.TestOutput = "Landing failed: " + ex.Message;
@@ -1451,6 +1470,107 @@ namespace Armada.Core.Services
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
                     "Merge queue landing failed: " + ex.Message, token, entry.TenantId).ConfigureAwait(false);
             }
+        }
+
+        private async Task AuditAndRollbackAdvancedTargetAsync(
+            MergeEntry entry,
+            string repoPath,
+            string previousTargetHead,
+            string integrationHead,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(previousTargetHead) || String.IsNullOrWhiteSpace(integrationHead)) return;
+            if (String.Equals(previousTargetHead, integrationHead, StringComparison.OrdinalIgnoreCase)) return;
+
+            string advancedTargetHead = "";
+
+            try
+            {
+                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                advancedTargetHead = await ResolveCommitAsync(repoPath, "refs/remotes/origin/" + entry.TargetBranch, token).ConfigureAwait(false);
+                if (!String.Equals(advancedTargetHead, integrationHead, StringComparison.OrdinalIgnoreCase)) return;
+
+                _Logging.Warn(
+                    _Header + "failed entry " + entry.Id +
+                    " advanced target branch " + entry.TargetBranch +
+                    " from " + previousTargetHead +
+                    " to " + advancedTargetHead +
+                    "; attempting rollback");
+
+                string rollbackResult = await RollbackAdvancedTargetAsync(entry, repoPath, previousTargetHead, token).ConfigureAwait(false);
+                await PersistFailedTargetAdvancedEventAsync(
+                    entry,
+                    previousTargetHead,
+                    advancedTargetHead,
+                    integrationHead,
+                    rollbackResult,
+                    token).ConfigureAwait(false);
+            }
+            catch (Exception auditEx)
+            {
+                _Logging.Warn(_Header + "failed target-advance audit for " + entry.Id + ": " + auditEx.Message);
+            }
+        }
+
+        private async Task<string> RollbackAdvancedTargetAsync(MergeEntry entry, string repoPath, string previousTargetHead, CancellationToken token)
+        {
+            try
+            {
+                await RunGitAsync(repoPath, token, "push", "origin", "+" + previousTargetHead + ":" + entry.TargetBranch).ConfigureAwait(false);
+                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+
+                if (!await IsBranchCheckedOutInWorktreeAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false))
+                {
+                    await RunGitAsync(repoPath, token, "branch", "-f", entry.TargetBranch, previousTargetHead).ConfigureAwait(false);
+                }
+
+                string remoteHead = await ResolveCommitAsync(repoPath, "refs/remotes/origin/" + entry.TargetBranch, token).ConfigureAwait(false);
+                if (!String.Equals(remoteHead, previousTargetHead, StringComparison.OrdinalIgnoreCase))
+                {
+                    return "rollback_failed: remote target remains at " + remoteHead;
+                }
+
+                string localHead = await ResolveCommitAsync(repoPath, "refs/heads/" + entry.TargetBranch, token).ConfigureAwait(false);
+                if (!String.Equals(localHead, previousTargetHead, StringComparison.OrdinalIgnoreCase))
+                {
+                    return "partial_rollback: local target remains at " + localHead;
+                }
+
+                return "rolled_back";
+            }
+            catch (Exception ex)
+            {
+                return "rollback_failed: " + ex.Message;
+            }
+        }
+
+        private async Task PersistFailedTargetAdvancedEventAsync(
+            MergeEntry entry,
+            string previousTargetHead,
+            string advancedTargetHead,
+            string integrationHead,
+            string rollbackResult,
+            CancellationToken token)
+        {
+            ArmadaEvent evt = new ArmadaEvent("merge_queue.failed_target_advanced", "Merge queue failed after advancing target branch");
+            evt.TenantId = entry.TenantId;
+            evt.EntityType = "merge_entry";
+            evt.EntityId = entry.Id;
+            evt.MissionId = entry.MissionId;
+            evt.VesselId = entry.VesselId;
+            evt.Payload = JsonSerializer.Serialize(new
+            {
+                entryId = entry.Id,
+                missionId = entry.MissionId,
+                vesselId = entry.VesselId,
+                targetBranch = entry.TargetBranch,
+                previousTargetHead,
+                advancedTargetHead,
+                integrationHead,
+                rollbackResult
+            });
+
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1504,17 +1624,6 @@ namespace Armada.Core.Services
         {
             GitProcessResult result = await RunGitCapturingAsync(workingDir, token, "merge-base", "--is-ancestor", ancestorRef, descendantRef).ConfigureAwait(false);
             return result.ExitCode == 0;
-        }
-
-        private async Task<bool> IsRemoteTargetAtIntegrationHeadAsync(string repoPath, string targetBranch, string integrationBranch, CancellationToken token)
-        {
-            await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
-
-            string integrationHead = await ResolveCommitAsync(repoPath, integrationBranch, token).ConfigureAwait(false);
-            GitProcessResult remoteResult = await RunGitCapturingAsync(repoPath, token, "rev-parse", "--verify", "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
-            string remoteHead = remoteResult.StandardOutput.Trim();
-            return !String.IsNullOrWhiteSpace(remoteHead)
-                && String.Equals(remoteHead, integrationHead, StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task MarkExistingPullRequestOpenAsync(MergeEntry entry, CancellationToken token)

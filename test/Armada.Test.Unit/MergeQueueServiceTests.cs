@@ -182,6 +182,143 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("ProcessSingle_FailingTestCommand_LeavesTargetRefsUnchanged", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_testfail_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    await RunGitAsync(repos.BareDir, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*").ConfigureAwait(false);
+                    await RunGitAsync(repos.BareDir, "fetch", "--all", "--prune").ConfigureAwait(false);
+                    string initialLocalMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string initialOriginMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+                    AssertEqual(initialOriginMain, initialLocalMain, "Fixture should start with local main matching origin/main");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mqtestfail-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "exit 7";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "Failing gate command should fail the entry");
+                        AssertEqual(7, afterProcess.TestExitCode, "Exit code should be recorded");
+
+                        string localMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string originMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+
+                        AssertEqual(initialLocalMain, localMain, "Bare repo local main must remain at the initial target head");
+                        AssertEqual(initialOriginMain, originMain, "Bare repo origin/main must remain at the initial target head");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            await RunTest("ProcessSingle_PostPushLocalSyncFailure_RollsBackAdvancedTarget", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_rollback_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    await RunGitAsync(repos.BareDir, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*").ConfigureAwait(false);
+                    await RunGitAsync(repos.BareDir, "fetch", "--all", "--prune").ConfigureAwait(false);
+                    string initialLocalMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string initialOriginMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+                    AssertEqual(initialOriginMain, initialLocalMain, "Fixture should start with local main matching origin/main");
+
+                    string checkedOutMainDir = Path.Combine(rootDir, "checked-out-main");
+                    await RunGitAsync(rootDir, "--git-dir", repos.BareDir, "worktree", "add", checkedOutMainDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mqrollback-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission mission = new Mission("post-push rollback mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "Local target sync failure should fail the entry");
+
+                        string localMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string originMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+
+                        AssertEqual(initialLocalMain, localMain, "Bare repo local main must be rolled back to the initial target head");
+                        AssertEqual(initialOriginMain, originMain, "Bare repo origin/main must be rolled back to the initial target head");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "Exactly one failed-target-advanced event should be persisted");
+                        AssertContains(entry.Id, events[0].Payload ?? "", "Audit payload should include entry id");
+                        AssertContains(initialOriginMain, events[0].Payload ?? "", "Audit payload should include previous target head");
+                        AssertContains("rolled_back", events[0].Payload ?? "", "Audit payload should include rollback result");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("ProcessSingle_FailsNoOpIdentityMerge", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_noop_" + Guid.NewGuid().ToString("N"));
