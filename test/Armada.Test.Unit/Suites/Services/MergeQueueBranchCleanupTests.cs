@@ -1227,6 +1227,189 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("LandEntryAsync_BranchCheckThrows_SkipsWithBranchCheckFailedEvent", async () =>
+            {
+                // The current-branch probe throws (e.g. corrupt HEAD / git error). The sync must
+                // swallow the exception, emit a branch_check_failed skip event, never touch the
+                // WorkingDirectory, and let the land still succeed.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wd_branchthrow_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        // Real git for the land; only the WorkingDirectory branch probe is faulted.
+                        FaultInjectingGitService git = new FaultInjectingGitService(new GitService(logging), throwOnGetCurrentBranch: true, throwOnIsClean: false);
+
+                        Vessel vessel = new Vessel("wd-branchthrow-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land even when the branch check throws");
+
+                        // WorkingDirectory must be untouched -- the sync bailed before any pull
+                        string postWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+                        AssertEqual(preWdHead, postWdHead, "WorkingDirectory HEAD must not move when the branch check fails");
+
+                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_sync_skipped").ConfigureAwait(false);
+                        AssertEqual(1, skipEvents.Count, "Should emit one workdir_sync_skipped event when the branch check throws");
+                        AssertContains("branch_check_failed", skipEvents[0].Payload ?? "", "Payload should name the branch_check_failed reason");
+                        AssertContains(entry.Id, skipEvents[0].Payload ?? "", "Payload should include entry id");
+
+                        List<ArmadaEvent> syncEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_synced").ConfigureAwait(false);
+                        AssertEqual(0, syncEvents.Count, "No workdir_synced event should fire when the branch check fails");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_CleanCheckThrows_SkipsWithCleanCheckFailedEvent", async () =>
+            {
+                // The cleanliness probe throws after the branch check passes. The sync must
+                // swallow the exception, emit a clean_check_failed skip event, never fast-forward,
+                // and let the land still succeed.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wd_cleanthrow_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        // Branch check uses real git (returns "main"); only the clean probe is faulted.
+                        FaultInjectingGitService git = new FaultInjectingGitService(new GitService(logging), throwOnGetCurrentBranch: false, throwOnIsClean: true);
+
+                        Vessel vessel = new Vessel("wd-cleanthrow-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land even when the clean check throws");
+
+                        // WorkingDirectory must be untouched -- the sync bailed before any pull
+                        string postWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+                        AssertEqual(preWdHead, postWdHead, "WorkingDirectory HEAD must not move when the clean check fails");
+
+                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_sync_skipped").ConfigureAwait(false);
+                        AssertEqual(1, skipEvents.Count, "Should emit one workdir_sync_skipped event when the clean check throws");
+                        AssertContains("clean_check_failed", skipEvents[0].Payload ?? "", "Payload should name the clean_check_failed reason");
+                        AssertContains(entry.Id, skipEvents[0].Payload ?? "", "Payload should include entry id");
+
+                        List<ArmadaEvent> syncEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_synced").ConfigureAwait(false);
+                        AssertEqual(0, syncEvents.Count, "No workdir_synced event should fire when the clean check fails");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_EmptyDefaultBranch_UsesTargetBranchAndFastForwards", async () =>
+            {
+                // When the vessel has no DefaultBranch configured, the expected branch falls back
+                // to the entry's TargetBranch. A clean WorkingDirectory on that target must still
+                // fast-forward and emit workdir_synced -- proving the fallback resolution path.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wd_nodefault_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("wd-nodefault-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = ""; // no default branch -- expected branch falls back to entry.TargetBranch
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should be Landed");
+
+                        // WD HEAD must advance to origin/main via the TargetBranch fallback
+                        string postWdHead = await ResolveGitRefAsync(repos.WorkingDir, "HEAD").ConfigureAwait(false);
+                        string remoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        AssertFalse(String.Equals(preWdHead, postWdHead, StringComparison.OrdinalIgnoreCase),
+                            "WorkingDirectory HEAD should advance even when DefaultBranch is unset");
+                        AssertEqual(remoteHead, postWdHead, "WorkingDirectory HEAD should match origin/main after fallback fast-forward");
+
+                        List<ArmadaEvent> syncEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_synced").ConfigureAwait(false);
+                        AssertEqual(1, syncEvents.Count, "Should emit one workdir_synced event using the TargetBranch fallback");
+
+                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.workdir_sync_skipped").ConfigureAwait(false);
+                        AssertEqual(0, skipEvents.Count, "No workdir_sync_skipped event should fire when the TargetBranch fallback fast-forward succeeds");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             // === DockService.DeleteAsync Branch Cleanup Tests ===
 
             await RunTest("DockDeleteAsync_LocalOnlyPolicy_DeletesCaptainBranchFromBareOnly", async () =>
@@ -1459,6 +1642,85 @@ namespace Armada.Test.Unit.Suites.Services
             public string? WorkingDirectory { get; set; }
 
             public string? Reason { get; set; }
+        }
+
+        /// <summary>
+        /// Decorates a real <see cref="IGitService"/> and delegates every operation to it,
+        /// except that the WorkingDirectory branch probe (<c>GetCurrentBranchAsync</c>) or the
+        /// cleanliness probe (<c>IsWorkingDirectoryCleanAsync</c>) can be forced to throw.
+        /// Used to exercise the defensive branch_check_failed and clean_check_failed skip paths
+        /// in MergeQueueService WorkingDirectory sync while the real land still runs.
+        /// </summary>
+        private sealed class FaultInjectingGitService : IGitService
+        {
+            private readonly IGitService _Inner;
+            private readonly bool _ThrowOnGetCurrentBranch;
+            private readonly bool _ThrowOnIsClean;
+
+            public FaultInjectingGitService(IGitService inner, bool throwOnGetCurrentBranch, bool throwOnIsClean)
+            {
+                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                _ThrowOnGetCurrentBranch = throwOnGetCurrentBranch;
+                _ThrowOnIsClean = throwOnIsClean;
+            }
+
+            public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default)
+            {
+                if (_ThrowOnGetCurrentBranch) throw new InvalidOperationException("injected branch-check failure");
+                return _Inner.GetCurrentBranchAsync(workingDirectory, token);
+            }
+
+            public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default)
+            {
+                if (_ThrowOnIsClean) throw new InvalidOperationException("injected clean-check failure");
+                return _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
+            }
+
+            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => _Inner.CloneBareAsync(repoUrl, localPath, token);
+
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default) => _Inner.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, token);
+
+            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => _Inner.RemoveWorktreeAsync(worktreePath, token);
+
+            public Task FetchAsync(string repoPath, CancellationToken token = default) => _Inner.FetchAsync(repoPath, token);
+
+            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => _Inner.PushBranchAsync(worktreePath, remoteName, token);
+
+            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => _Inner.CreatePullRequestAsync(worktreePath, title, body, token);
+
+            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => _Inner.RepairWorktreeAsync(worktreePath, token);
+
+            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => _Inner.IsRepositoryAsync(path, token);
+
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.DeleteLocalBranchAsync(repoPath, branchName, token);
+
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.DeleteRemoteBranchAsync(repoPath, branchName, token);
+
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
+
+            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => _Inner.PruneWorktreesAsync(repoPath, token);
+
+            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => _Inner.EnableAutoMergeAsync(worktreePath, prUrl, token);
+
+            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => _Inner.MergeBranchLocalAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, commitMessage, token);
+
+            public Task PullAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullAsync(workingDirectory, token);
+
+            public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullFastForwardOnlyAsync(workingDirectory, token);
+
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => _Inner.DiffAsync(worktreePath, baseBranch, token);
+
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => _Inner.GetHeadCommitHashAsync(worktreePath, token);
+
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => _Inner.GetChangedFilesSinceAsync(worktreePath, startCommit, token);
+
+            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => _Inner.IsPrMergedAsync(workingDirectory, prUrl, token);
+
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.BranchExistsAsync(repoPath, branchName, token);
+
+            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.EnsureLocalBranchAsync(repoPath, branchName, token);
+
+            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => _Inner.IsWorktreeRegisteredAsync(repoPath, worktreePath, token);
         }
 
         private sealed class GitRepoSetup
