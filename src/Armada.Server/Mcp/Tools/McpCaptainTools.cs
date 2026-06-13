@@ -68,7 +68,7 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         name = new { type = "string", description = "Captain display name" },
-                        runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
+                        runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, OpenCode, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
                         model = new { type = "string", description = "AI model identifier; null means runtime default" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
@@ -121,7 +121,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" },
                         name = new { type = "string", description = "New display name" },
-                        runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
+                        runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, OpenCode, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "New system instructions for this captain" },
                         model = new { type = "string", description = "New AI model identifier; null means runtime default" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },

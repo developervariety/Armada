@@ -40,6 +40,14 @@ namespace Armada.Core.Services
             "low", "medium", "high"
         };
 
+        /// <summary>
+        /// Reasoning-effort tiers accepted by OpenCode.
+        /// </summary>
+        public static readonly IReadOnlySet<string> OpenCodeReasoningEfforts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "low", "medium", "high", "xhigh", "max"
+        };
+
         #endregion
 
         #region Private-Members
@@ -159,6 +167,11 @@ namespace Armada.Core.Services
                 case AgentRuntimeEnum.Cursor:
                     if (!CursorReasoningEfforts.Contains(trimmed))
                         return $"reasoningEffort '{trimmed}' is not supported for Cursor captains. Accepted values: low, medium, high.";
+                    return null;
+
+                case AgentRuntimeEnum.OpenCode:
+                    if (!OpenCodeReasoningEfforts.Contains(trimmed))
+                        return $"reasoningEffort '{trimmed}' is not supported for OpenCode captains. Accepted values: low, medium, high, xhigh, max.";
                     return null;
 
                 default:
