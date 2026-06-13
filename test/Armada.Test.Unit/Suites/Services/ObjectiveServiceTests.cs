@@ -580,6 +580,178 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 AssertTrue(present, "Re-persisted objective must be visible after a fresh-instance backfill.");
             }).ConfigureAwait(false);
+
+            await RunTest("DeleteAsync throws when the objective has neither a row nor any snapshots", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_notfound";
+                string userId = "usr_objective_notfound";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                // The "not found if no row AND no snapshots" guard must survive the tenant-agnostic
+                // purge rewrite: deleting an id that was never imported still throws.
+                await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    await objectives.DeleteAsync(auth, "obj_never_existed").ConfigureAwait(false)).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("DeleteAsync a second time still throws because the tombstone is not counted as a snapshot", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_doubledelete";
+                string userId = "usr_objective_doubledelete";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                Objective imported = new Objective
+                {
+                    Id = "obj_tombstone_doubledelete",
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Double delete objective",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    Kind = ObjectiveKindEnum.Feature,
+                    Priority = ObjectivePriorityEnum.P2,
+                    Rank = 50,
+                    BacklogState = ObjectiveBacklogStateEnum.Inbox,
+                    Effort = ObjectiveEffortEnum.M
+                };
+                await objectives.PersistImportedAsync(auth, imported).ConfigureAwait(false);
+                await objectives.DeleteAsync(auth, imported.Id).ConfigureAwait(false);
+
+                // After delete the row is gone and the snapshots are purged, but an objective.deleted
+                // tombstone event remains for the id. The not-found guard reads only objective.snapshot
+                // events, so the tombstone must not be mistaken for a surviving snapshot.
+                await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    await objectives.DeleteAsync(auth, imported.Id).ConfigureAwait(false)).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("BackfillFromSnapshotsAsync skips a snapshot that survived the delete purge when the id is tombstoned", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_backfillskip";
+                string userId = "usr_objective_backfillskip";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                Objective imported = new Objective
+                {
+                    Id = "obj_tombstone_backfillskip",
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Backfill skip objective",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    Kind = ObjectiveKindEnum.Feature,
+                    Priority = ObjectivePriorityEnum.P2,
+                    Rank = 60,
+                    BacklogState = ObjectiveBacklogStateEnum.Inbox,
+                    Effort = ObjectiveEffortEnum.M
+                };
+                await objectives.PersistImportedAsync(auth, imported).ConfigureAwait(false);
+                await objectives.DeleteAsync(auth, imported.Id).ConfigureAwait(false);
+
+                // Inject a snapshot that escaped the delete-time purge (e.g. raced the delete). Without
+                // the tombstone this projectable snapshot would resurrect the objective during backfill;
+                // the BackfillFromSnapshotsAsync skip branch must drop it before upserting a row.
+                await testDb.Driver.Events.CreateAsync(new ArmadaEvent
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    EventType = "objective.snapshot",
+                    EntityType = "objective",
+                    EntityId = imported.Id,
+                    Message = imported.Title,
+                    Payload = JsonSerializer.Serialize(imported),
+                    CreatedUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                // Fresh instance resets _BackfillCompleted so EnumerateAsync re-runs the backfill loop
+                // (the read-path rehydrate guard is a different code path and is covered separately).
+                ObjectiveService rehydrated = new ObjectiveService(testDb.Driver);
+                EnumerationResult<Objective> result = await rehydrated.EnumerateAsync(auth, new ObjectiveQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 25
+                }).ConfigureAwait(false);
+
+                foreach (Objective candidate in result.Objects)
+                    AssertTrue(!String.Equals(candidate.Id, imported.Id, StringComparison.OrdinalIgnoreCase), "A surviving snapshot must not resurrect a tombstoned objective during backfill.");
+
+                Objective? read = await rehydrated.ReadAsync(auth, imported.Id).ConfigureAwait(false);
+                AssertNull(read);
+            }).ConfigureAwait(false);
+
+            await RunTest("Deleting one objective leaves an untombstoned sibling visible after a fresh-instance backfill", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_sibling";
+                string userId = "usr_objective_sibling";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                Objective deleted = new Objective
+                {
+                    Id = "obj_tombstone_sibling_deleted",
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Sibling deleted",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    Kind = ObjectiveKindEnum.Feature,
+                    Priority = ObjectivePriorityEnum.P2,
+                    Rank = 70,
+                    BacklogState = ObjectiveBacklogStateEnum.Inbox,
+                    Effort = ObjectiveEffortEnum.M
+                };
+                Objective survivor = new Objective
+                {
+                    Id = "obj_tombstone_sibling_survivor",
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Sibling survivor",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    Kind = ObjectiveKindEnum.Feature,
+                    Priority = ObjectivePriorityEnum.P2,
+                    Rank = 71,
+                    BacklogState = ObjectiveBacklogStateEnum.Inbox,
+                    Effort = ObjectiveEffortEnum.M
+                };
+                await objectives.PersistImportedAsync(auth, deleted).ConfigureAwait(false);
+                await objectives.PersistImportedAsync(auth, survivor).ConfigureAwait(false);
+
+                // Only the deleted id gets a tombstone. The tombstone set must be keyed precisely by id,
+                // so the untouched sibling must still rehydrate through the fresh-instance backfill.
+                await objectives.DeleteAsync(auth, deleted.Id).ConfigureAwait(false);
+
+                ObjectiveService rehydrated = new ObjectiveService(testDb.Driver);
+                EnumerationResult<Objective> result = await rehydrated.EnumerateAsync(auth, new ObjectiveQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 25
+                }).ConfigureAwait(false);
+
+                bool survivorPresent = false;
+                foreach (Objective candidate in result.Objects)
+                {
+                    AssertTrue(!String.Equals(candidate.Id, deleted.Id, StringComparison.OrdinalIgnoreCase), "Tombstoned objective must not reappear after backfill.");
+                    if (String.Equals(candidate.Id, survivor.Id, StringComparison.OrdinalIgnoreCase))
+                        survivorPresent = true;
+                }
+                AssertTrue(survivorPresent, "Untombstoned sibling must remain visible after a fresh-instance backfill.");
+
+                Objective? survivorRead = await rehydrated.ReadAsync(auth, survivor.Id).ConfigureAwait(false);
+                AssertNotNull(survivorRead);
+                Objective? deletedRead = await rehydrated.ReadAsync(auth, deleted.Id).ConfigureAwait(false);
+                AssertNull(deletedRead);
+            }).ConfigureAwait(false);
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)
