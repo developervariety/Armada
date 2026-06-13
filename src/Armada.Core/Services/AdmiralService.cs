@@ -71,6 +71,7 @@ namespace Armada.Core.Services
         private string _Header = "[AdmiralService] ";
         private static readonly TimeSpan _AssignedOrphanRecoveryGracePeriod = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan _WorkProducedReleaseGracePeriod = TimeSpan.FromMinutes(2);
+        private const int _ContextPackUsageEventLimit = 500;
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
@@ -847,6 +848,34 @@ namespace Armada.Core.Services
             if (OnGetRemoteTunnelStatus != null)
             {
                 status.RemoteTunnel = OnGetRemoteTunnelStatus();
+            }
+
+            try
+            {
+                List<ArmadaEvent> usageEvents = await _Database.Events.EnumerateByTypeAsync(
+                    ContextPackUsageSummary.EventType,
+                    _ContextPackUsageEventLimit,
+                    token).ConfigureAwait(false);
+
+                List<ContextPackUsageSummary> summaries = new List<ContextPackUsageSummary>();
+                HashSet<string> seenMissionIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ArmadaEvent evt in usageEvents)
+                {
+                    ContextPackUsageSummary? summary = ContextPackUsageSummary.FromEventPayload(evt);
+                    if (summary == null) continue;
+                    if (String.IsNullOrEmpty(summary.MissionId)) continue;
+                    if (!seenMissionIds.Add(summary.MissionId)) continue;
+                    summaries.Add(summary);
+                }
+
+                if (summaries.Count > 0)
+                {
+                    status.ContextPackUsage = ContextPackUsageAggregate.FromSummaries(summaries);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "context pack usage aggregation failed: " + ex.Message);
             }
 
             return status;

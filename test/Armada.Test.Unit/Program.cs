@@ -68,6 +68,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SignalModelTests());
             runner.AddSuite(new ArmadaEventModelTests());
             runner.AddSuite(new ArmadaStatusModelTests());
+            runner.AddSuite(new ContextPackUsageAggregateTests());
             runner.AddSuite(new EnumModelTests());
             runner.AddSuite(new TenantMetadataTests());
             runner.AddSuite(new UserMasterTests());
@@ -76,6 +77,7 @@ namespace Armada.Test.Unit
 
             // Service tests
             runner.AddSuite(new AdmiralServiceTests());
+            runner.AddSuite(new ContextPackUsageStatusTests());
             runner.AddSuite(new MemoryHotfixRegressionTests());
             runner.AddSuite(new EntityResolverTests());
             runner.AddSuite(new MessageTemplateServiceTests());

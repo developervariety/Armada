@@ -82,6 +82,11 @@ namespace Armada.Core.Models
             set => _StructuredDelivery = value ?? new StructuredDeliveryStatus();
         }
 
+        /// <summary>
+        /// Optional fleet-level aggregate of recent context-pack usage telemetry.
+        /// </summary>
+        public ContextPackUsageAggregate? ContextPackUsage { get; set; }
+
         #endregion
 
         #region Private-Members
