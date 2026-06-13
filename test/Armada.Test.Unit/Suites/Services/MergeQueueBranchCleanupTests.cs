@@ -549,6 +549,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(payload.IntegrationHead ?? "", payload.AdvancedTargetHead ?? "", "Advanced target head should match integration head");
                         AssertTrue(!String.Equals(payload.AdvancedTargetHead, payload.PreviousTargetHead, StringComparison.OrdinalIgnoreCase),
                             "Advanced target head should differ from previous target head");
+                        AssertTrue(!String.IsNullOrWhiteSpace(payload.Reason), "Payload must carry the failure reason that triggered the rollback");
 
                         // The rollback must un-merge the feature from origin, not merely reset the ref label.
                         string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
@@ -955,6 +956,8 @@ namespace Armada.Test.Unit.Suites.Services
             public string? IntegrationHead { get; set; }
 
             public string? RollbackResult { get; set; }
+
+            public string? Reason { get; set; }
         }
 
         private sealed class GitRepoSetup
