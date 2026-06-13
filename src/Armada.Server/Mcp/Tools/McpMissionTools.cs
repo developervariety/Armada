@@ -13,6 +13,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using SyslogLogging;
 
     /// <summary>
     /// Registers MCP tools for mission operations (status, create, update, cancel, purge, restart, transition, diff, log).
@@ -64,7 +65,23 @@ namespace Armada.Server.Mcp.Tools
                     string missionId = request.MissionId;
                     Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
-                    return (object)mission;
+                    Mission sanitized = SanitizeMissionForStatus(mission);
+                    try
+                    {
+                        List<ArmadaEvent> missionEvents = await database.Events.EnumerateByMissionAsync(mission.Id, 50).ConfigureAwait(false);
+                        ArmadaEvent? usageEvent = missionEvents.FirstOrDefault(e => e.EventType == ContextPackUsageSummary.EventType);
+                        if (usageEvent != null)
+                        {
+                            sanitized.ContextPackUsage = ContextPackUsageSummary.FromEventPayload(usageEvent.Payload);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggingModule logging = CreateSilentLogging();
+                        logging.Warn("[McpMissionTools] context pack usage projection failed for " + mission.Id + ": " + ex.Message);
+                    }
+
+                    return (object)sanitized;
                 });
 
             register(
@@ -618,6 +635,16 @@ namespace Armada.Server.Mcp.Tools
             mission.AgentOutput = null;
             mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
             return mission;
+        }
+
+        /// <summary>
+        /// Creates a <see cref="LoggingModule"/> with console output disabled for warn-only paths.
+        /// </summary>
+        private static LoggingModule CreateSilentLogging()
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return logging;
         }
     }
 }

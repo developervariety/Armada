@@ -3177,7 +3177,7 @@ namespace Armada.Core.Services
                 PackUsageTriple usage = await miner.MineAsync(mission, token).ConfigureAwait(false);
 
                 ArmadaEvent usageEvent = new ArmadaEvent(
-                    "mission.context_pack_usage",
+                    ContextPackUsageSummary.EventType,
                     "Context pack usage: " + usage.ContextPackCompliance);
                 usageEvent.TenantId = mission.TenantId;
                 usageEvent.UserId = mission.UserId;

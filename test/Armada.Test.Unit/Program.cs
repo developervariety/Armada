@@ -62,6 +62,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VesselModelTests());
             runner.AddSuite(new CaptainModelTests());
             runner.AddSuite(new MissionModelTests());
+            runner.AddSuite(new ContextPackUsageSummaryTests());
             runner.AddSuite(new VoyageModelTests());
             runner.AddSuite(new PlanningSessionModelTests());
             runner.AddSuite(new DockModelTests());
@@ -190,6 +191,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpVoyageToolsTests());
             runner.AddSuite(new VoyageStatusAssignmentSurfaceTests());
             runner.AddSuite(new McpMissionToolsTests());
+            runner.AddSuite(new ContextPackUsageSummaryStatusTests());
             runner.AddSuite(new PreferredModelTierSelectorTests());
             runner.AddSuite(new PreferredModelUserGuidanceTests());
             runner.AddSuite(new MissionServicePreferredModelRoutingTests());

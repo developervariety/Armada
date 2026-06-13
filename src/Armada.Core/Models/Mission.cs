@@ -193,6 +193,12 @@ namespace Armada.Core.Models
         public List<MissionPlaybookSnapshot> PlaybookSnapshots { get; set; } = new List<MissionPlaybookSnapshot>();
 
         /// <summary>
+        /// Transient status-surface projection of context pack usage from the most recent
+        /// <c>mission.context_pack_usage</c> event. Not persisted to the missions table.
+        /// </summary>
+        public ContextPackUsageSummary? ContextPackUsage { get; set; }
+
+        /// <summary>
         /// Optional list of file-copy operations performed by the Admiral after a
         /// dock worktree is created and before the captain process is spawned. Each
         /// entry copies a file from an absolute path on the Admiral host into a
