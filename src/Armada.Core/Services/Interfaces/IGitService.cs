@@ -247,5 +247,15 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="targetRef">Full ref name to point HEAD at (e.g. refs/heads/main).</param>
         /// <param name="token">Cancellation token.</param>
         Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default);
+
+        /// <summary>
+        /// Count commits reachable from <paramref name="toRef"/> but not from <paramref name="fromRef"/>.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository.</param>
+        /// <param name="fromRef">Base ref.</param>
+        /// <param name="toRef">Tip ref.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of commits ahead; 0 when refs are equal or on any error.</returns>
+        Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default);
     }
 }

@@ -160,6 +160,12 @@ namespace Armada.Core.Models
         public BranchCleanupPolicyEnum? BranchCleanupPolicy { get; set; } = null;
 
         /// <summary>
+        /// Optional per-vessel override for the maximum number of missions allowed in a single
+        /// Architect decomposition. When null, global ArchitectSettings.MaxMissionsPerVoyage applies.
+        /// </summary>
+        public int? ArchitectMaxMissionsPerVoyage { get; set; } = null;
+
+        /// <summary>
         /// Whether this vessel allows multiple concurrent missions. Default false.
         /// When false, only one mission may be in an active state
         /// (Assigned, InProgress, WorkProduced, PullRequestOpen) at a time.
