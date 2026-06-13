@@ -220,6 +220,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new BuildDriftEvaluatorTests());
             runner.AddSuite(new BuildDriftServiceTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());
+            runner.AddSuite(new ArchitectSettingsTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;
