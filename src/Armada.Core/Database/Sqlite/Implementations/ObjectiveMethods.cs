@@ -38,9 +38,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO objectives
-                        (id, tenant_id, user_id, title, description, status, kind, category, priority, rank, backlog_state, effort, owner, target_version, due_utc, parent_objective_id, blocked_by_objective_ids_json, refinement_summary, suggested_pipeline_id, suggested_playbooks_json, tags_json, acceptance_criteria_json, non_goals_json, rollout_constraints_json, evidence_links_json, fleet_ids_json, vessel_ids_json, planning_session_ids_json, refinement_session_ids_json, voyage_ids_json, mission_ids_json, check_run_ids_json, release_ids_json, deployment_ids_json, incident_ids_json, source_provider, source_type, source_id, source_url, source_updated_utc, created_utc, last_update_utc, completed_utc)
+                        (id, tenant_id, user_id, title, description, status, kind, category, priority, rank, auto_dispatch_enabled, backlog_state, effort, owner, target_version, due_utc, parent_objective_id, blocked_by_objective_ids_json, refinement_summary, suggested_pipeline_id, suggested_playbooks_json, tags_json, acceptance_criteria_json, non_goals_json, rollout_constraints_json, evidence_links_json, fleet_ids_json, vessel_ids_json, planning_session_ids_json, refinement_session_ids_json, voyage_ids_json, mission_ids_json, check_run_ids_json, release_ids_json, deployment_ids_json, incident_ids_json, source_provider, source_type, source_id, source_url, source_updated_utc, created_utc, last_update_utc, completed_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @title, @description, @status, @kind, @category, @priority, @rank, @backlog_state, @effort, @owner, @target_version, @due_utc, @parent_objective_id, @blocked_by_objective_ids_json, @refinement_summary, @suggested_pipeline_id, @suggested_playbooks_json, @tags_json, @acceptance_criteria_json, @non_goals_json, @rollout_constraints_json, @evidence_links_json, @fleet_ids_json, @vessel_ids_json, @planning_session_ids_json, @refinement_session_ids_json, @voyage_ids_json, @mission_ids_json, @check_run_ids_json, @release_ids_json, @deployment_ids_json, @incident_ids_json, @source_provider, @source_type, @source_id, @source_url, @source_updated_utc, @created_utc, @last_update_utc, @completed_utc);";
+                        (@id, @tenant_id, @user_id, @title, @description, @status, @kind, @category, @priority, @rank, @auto_dispatch_enabled, @backlog_state, @effort, @owner, @target_version, @due_utc, @parent_objective_id, @blocked_by_objective_ids_json, @refinement_summary, @suggested_pipeline_id, @suggested_playbooks_json, @tags_json, @acceptance_criteria_json, @non_goals_json, @rollout_constraints_json, @evidence_links_json, @fleet_ids_json, @vessel_ids_json, @planning_session_ids_json, @refinement_session_ids_json, @voyage_ids_json, @mission_ids_json, @check_run_ids_json, @release_ids_json, @deployment_ids_json, @incident_ids_json, @source_provider, @source_type, @source_id, @source_url, @source_updated_utc, @created_utc, @last_update_utc, @completed_utc);";
                     BindObjective(cmd, objective);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -68,6 +68,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         category = @category,
                         priority = @priority,
                         rank = @rank,
+                        auto_dispatch_enabled = @auto_dispatch_enabled,
                         backlog_state = @backlog_state,
                         effort = @effort,
                         owner = @owner,
@@ -288,6 +289,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@category", (object?)objective.Category ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@priority", objective.Priority.ToString());
             cmd.Parameters.AddWithValue("@rank", objective.Rank);
+            cmd.Parameters.AddWithValue("@auto_dispatch_enabled", objective.AutoDispatchEnabled ? 1 : 0);
             cmd.Parameters.AddWithValue("@backlog_state", objective.BacklogState.ToString());
             cmd.Parameters.AddWithValue("@effort", objective.Effort.ToString());
             cmd.Parameters.AddWithValue("@owner", (object?)objective.Owner ?? DBNull.Value);
@@ -337,6 +339,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 Category = SqliteDatabaseDriver.NullableString(reader["category"]),
                 Priority = ParseEnum(reader["priority"], ObjectivePriorityEnum.P2),
                 Rank = SqliteDatabaseDriver.NullableInt(reader["rank"]) ?? 0,
+                AutoDispatchEnabled = SqliteDatabaseDriver.NullableBool(reader, "auto_dispatch_enabled") ?? false,
                 BacklogState = ParseEnum(reader["backlog_state"], ObjectiveBacklogStateEnum.Inbox),
                 Effort = ParseEnum(reader["effort"], ObjectiveEffortEnum.M),
                 Owner = SqliteDatabaseDriver.NullableString(reader["owner"]),

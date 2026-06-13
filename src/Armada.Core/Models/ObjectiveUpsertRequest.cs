@@ -44,6 +44,11 @@ namespace Armada.Core.Models
         public int? Rank { get; set; } = null;
 
         /// <summary>
+        /// When set, opts this objective in or out of scheduler auto-dispatch. Null leaves the existing value unchanged on update.
+        /// </summary>
+        public bool? AutoDispatchEnabled { get; set; } = null;
+
+        /// <summary>
         /// Backlog maturity override.
         /// </summary>
         public ObjectiveBacklogStateEnum? BacklogState { get; set; } = null;

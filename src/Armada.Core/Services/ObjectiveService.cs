@@ -178,6 +178,7 @@ namespace Armada.Core.Services
                 Category = Normalize(request.Category),
                 Priority = request.Priority ?? ObjectivePriorityEnum.P2,
                 Rank = await ResolveRankAsync(auth, request.Rank, token).ConfigureAwait(false),
+                AutoDispatchEnabled = request.AutoDispatchEnabled ?? false,
                 BacklogState = request.BacklogState ?? ObjectiveBacklogStateEnum.Inbox,
                 Effort = request.Effort ?? ObjectiveEffortEnum.M,
                 Owner = Normalize(request.Owner),
@@ -235,6 +236,7 @@ namespace Armada.Core.Services
             if (request.Category != null) objective.Category = Normalize(request.Category);
             objective.Priority = request.Priority ?? objective.Priority;
             if (request.Rank.HasValue) objective.Rank = request.Rank.Value;
+            if (request.AutoDispatchEnabled.HasValue) objective.AutoDispatchEnabled = request.AutoDispatchEnabled.Value;
             objective.BacklogState = request.BacklogState ?? objective.BacklogState;
             objective.Effort = request.Effort ?? objective.Effort;
             objective.Owner = request.Owner != null ? Normalize(request.Owner) : objective.Owner;
