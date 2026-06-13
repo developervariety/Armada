@@ -1594,6 +1594,136 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when a mission title is whitespace");
                 }
             });
+
+            await RunTest("Dispatch_AbsentMissions_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("absent-missions-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    // The missions field is omitted entirely. VoyageDispatchArgs.Missions
+                    // initializes to an empty list, so the absent case lands on the same
+                    // missing_missions guard as an explicit empty array. The acceptance
+                    // names "empty or absent missions input"; this proves the absent path.
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "absent missions voyage",
+                        description = "missions field omitted",
+                        vesselId = vessel.Id
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("missions", resultJson);
+                    AssertContains("missing_missions", resultJson);
+                    // Structured error must carry the actionable Reason/Action fields, not
+                    // just an Error string -- the whole point of the structured contract.
+                    AssertContains("\"Reason\"", resultJson);
+                    AssertContains("\"Action\"", resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Missions validation must fire, not vessel_not_found: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when missions is absent");
+                }
+            });
+
+            await RunTest("Dispatch_NullMissions_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("null-missions-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    // An explicit null missions value deserializes the property to null,
+                    // exercising the "missions == null" half of the guard distinctly from
+                    // the empty-array (Count == 0) tests above.
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "null missions voyage",
+                        description = "missions field is explicitly null",
+                        vesselId = vessel.Id,
+                        missions = (object?)null
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("missing_missions", resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Missions validation must fire before the vessel read: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when missions is null");
+                }
+            });
+
+            await RunTest("Dispatch_WhitespaceMissionDescription_ReturnsStructuredError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("whitespace-mission-desc-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(dispatchHandler);
+
+                    // Description is present but whitespace-only: a JSON-schema "required"
+                    // check would pass this, so the runtime IsNullOrWhiteSpace guard is the
+                    // only thing that rejects it. The prior description test used an absent
+                    // field; this proves the whitespace branch too.
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "whitespace mission description voyage",
+                        description = "mission description is blank",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "valid mission title", description = "   " }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("missing_mission_description", resultJson);
+                    AssertContains("mission 1", resultJson);
+                    AssertFalse(resultJson.Contains("-32603"), "Validation must not surface a bare JSON-RPC -32603: " + resultJson);
+                    AssertFalse(resultJson.Contains("vessel_not_found"), "Mission description validation must fire, not vessel_not_found: " + resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Admiral must not be reached when a mission description is whitespace");
+                }
+            });
         }
 
         /// <summary>
