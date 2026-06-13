@@ -86,6 +86,36 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Soft time budget, in milliseconds, for a single context-pack build operation.
+        /// Callers can use this to decide whether to fall back to a search-only fast pack.
+        /// Clamped to 500-120000 milliseconds.
+        /// </summary>
+        public int ContextPackBudgetMs
+        {
+            get => _ContextPackBudgetMs;
+            set
+            {
+                if (value < 500) value = 500;
+                if (value > 120000) value = 120000;
+                _ContextPackBudgetMs = value;
+            }
+        }
+
+        /// <summary>
+        /// Indexed file-count threshold above which a vessel is considered large enough to
+        /// prefer the search-only fast-pack path over full graph/impact expansion. Clamped to 0 or greater.
+        /// </summary>
+        public int FastPackFileThreshold
+        {
+            get => _FastPackFileThreshold;
+            set
+            {
+                if (value < 0) value = 0;
+                _FastPackFileThreshold = value;
+            }
+        }
+
+        /// <summary>
         /// Whether semantic search is enabled.
         /// </summary>
         public bool UseSemanticSearch { get; set; } = false;
@@ -481,6 +511,8 @@ namespace Armada.Core.Settings
         private int _MaxChunkLines = 80;
         private int _MaxSearchResults = 10;
         private int _MaxContextPackResults = 8;
+        private int _ContextPackBudgetMs = 8000;
+        private int _FastPackFileThreshold = 1500;
         private string _EmbeddingModel = "deepseek-embedding";
         private string _EmbeddingApiBaseUrl = "https://api.deepseek.com";
         private string _EmbeddingApiKey = string.Empty;
