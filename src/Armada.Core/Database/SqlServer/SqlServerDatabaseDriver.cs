@@ -414,6 +414,7 @@ namespace Armada.Core.Database.SqlServer
             try { vessel.ReflectionThreshold = reader["reflection_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reflection_threshold"]); } catch { }
             try { vessel.ReorganizeThreshold = reader["reorganize_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reorganize_threshold"]); } catch { }
             try { vessel.PackCurateThreshold = reader["pack_curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["pack_curate_threshold"]); } catch { }
+            try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToBoolean(reader["active"]);
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

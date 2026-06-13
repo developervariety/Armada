@@ -906,6 +906,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v54 statements for adding architect_max_missions_per_voyage column to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV54Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN architect_max_missions_per_voyage INT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

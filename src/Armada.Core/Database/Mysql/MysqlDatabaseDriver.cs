@@ -581,6 +581,11 @@ namespace Armada.Core.Database.Mysql
                     53,
                     "Add auto_dispatch_enabled opt-in flag to objectives",
                     TableQueries.MigrationV53Statements
+                ),
+                new SchemaMigration(
+                    54,
+                    "Add architect_max_missions_per_voyage column to vessels",
+                    TableQueries.MigrationV54Statements
                 )
             };
         }

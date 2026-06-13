@@ -1275,6 +1275,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(53, "Add auto_dispatch_enabled opt-in flag to objectives",
                     @"ALTER TABLE objectives ADD COLUMN auto_dispatch_enabled INTEGER NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(54, "Add architect_max_missions_per_voyage column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN architect_max_missions_per_voyage INTEGER;"
                 )
             };
         }

@@ -628,6 +628,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     53,
                     "Add auto_dispatch_enabled opt-in flag to objectives",
                     @"IF COL_LENGTH('objectives', 'auto_dispatch_enabled') IS NULL ALTER TABLE objectives ADD auto_dispatch_enabled BIT NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(
+                    54,
+                    "Add architect_max_missions_per_voyage column to vessels",
+                    @"IF COL_LENGTH('vessels', 'architect_max_missions_per_voyage') IS NULL ALTER TABLE vessels ADD architect_max_missions_per_voyage INT;"
                 )
             };
         }
