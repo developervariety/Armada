@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit
 {
     using System.Diagnostics;
+    using System.Text.Json;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
@@ -319,6 +320,154 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("ProcessSingle_FailingTestCommand_EmitsNoTargetAdvancedEvent", async () =>
+            {
+                // A pre-push gate failure never reaches LandEntryAsync, so the new
+                // failed-target-advance audit/rollback path must stay dormant: no
+                // merge_queue.failed_target_advanced event should be emitted. This
+                // pins the early-return invariant that audit fires ONLY when the
+                // target ref actually advanced, not on every Failed entry.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_noaudit_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mqnoaudit-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "exit 7";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "Failing gate command should fail the entry");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(0, events.Count, "A pre-push gate failure must not emit a failed-target-advanced audit event");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            await RunTest("ProcessSingle_PostPushSyncFailure_AuditEventCarriesFullPayloadAndEntityFields", async () =>
+            {
+                // Extends the Worker's rollback regression by proving the audit
+                // record is fully populated and queryable: the ArmadaEvent entity
+                // fields (entity type/id, mission id, vessel id) are set, and the
+                // JSON payload deserializes into all eight documented fields with
+                // the advanced head matching the integration head and the previous
+                // head matching the pre-entry target.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_payload_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    await RunGitAsync(repos.BareDir, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*").ConfigureAwait(false);
+                    await RunGitAsync(repos.BareDir, "fetch", "--all", "--prune").ConfigureAwait(false);
+                    string initialOriginMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+
+                    string checkedOutMainDir = Path.Combine(rootDir, "checked-out-main");
+                    await RunGitAsync(rootDir, "--git-dir", repos.BareDir, "worktree", "add", checkedOutMainDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mqpayload-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission mission = new Mission("post-push payload mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "Local target sync failure should fail the entry");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "Exactly one failed-target-advanced event should be persisted");
+
+                        ArmadaEvent evt = events[0];
+                        AssertEqual("merge_entry", evt.EntityType ?? "", "Audit event entity type should be merge_entry");
+                        AssertEqual(entry.Id, evt.EntityId ?? "", "Audit event entity id should be the merge entry id");
+                        AssertEqual(mission.Id, evt.MissionId ?? "", "Audit event should carry the mission id");
+                        AssertEqual(vessel.Id, evt.VesselId ?? "", "Audit event should carry the vessel id");
+
+                        FailedTargetAdvancedPayload? payload = JsonSerializer.Deserialize<FailedTargetAdvancedPayload>(
+                            evt.Payload ?? "",
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        AssertNotNull(payload, "Audit payload should deserialize");
+                        AssertEqual(entry.Id, payload!.EntryId ?? "", "Payload entry id");
+                        AssertEqual(mission.Id, payload.MissionId ?? "", "Payload mission id");
+                        AssertEqual(vessel.Id, payload.VesselId ?? "", "Payload vessel id");
+                        AssertEqual("main", payload.TargetBranch ?? "", "Payload target branch");
+                        AssertEqual(initialOriginMain, payload.PreviousTargetHead ?? "", "Payload previous target head should equal the pre-entry origin head");
+                        AssertEqual("rolled_back", payload.RollbackResult ?? "", "Payload rollback result should be rolled_back");
+                        AssertTrue(!String.IsNullOrWhiteSpace(payload.IntegrationHead), "Payload integration head should be populated");
+                        AssertEqual(payload.IntegrationHead ?? "", payload.AdvancedTargetHead ?? "", "Advanced target head should match the integration head it advanced to");
+                        AssertTrue(!String.Equals(payload.AdvancedTargetHead, payload.PreviousTargetHead, StringComparison.OrdinalIgnoreCase),
+                            "Advanced target head must differ from the previous head (the target actually moved)");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("ProcessSingle_FailsNoOpIdentityMerge", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_noop_" + Guid.NewGuid().ToString("N"));
@@ -547,6 +696,23 @@ namespace Armada.Test.Unit
                 AssertEqual(1, recordingIndex.UpdateAsyncVesselIds.Count(id => id == vesselId),
                     "rapid refresh requests for one vessel should be coalesced into one update");
             });
+        }
+
+        /// <summary>
+        /// Strongly-typed shape of the <c>merge_queue.failed_target_advanced</c>
+        /// audit payload, used to deserialize the event JSON without touching
+        /// <see cref="JsonElement"/> directly.
+        /// </summary>
+        private sealed class FailedTargetAdvancedPayload
+        {
+            public string? EntryId { get; set; }
+            public string? MissionId { get; set; }
+            public string? VesselId { get; set; }
+            public string? TargetBranch { get; set; }
+            public string? PreviousTargetHead { get; set; }
+            public string? AdvancedTargetHead { get; set; }
+            public string? IntegrationHead { get; set; }
+            public string? RollbackResult { get; set; }
         }
 
         /// <summary>
