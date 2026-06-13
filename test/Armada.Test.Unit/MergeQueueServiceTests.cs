@@ -231,11 +231,12 @@ namespace Armada.Test.Unit
                         MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
                         AssertNotNull(afterProcess, "Entry after process");
                         AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "No-op merge entry must fail, not land");
-                        AssertContains("No-op merge queue entry", afterProcess.TestOutput ?? "", "Failure reason should be structured");
+                        AssertEqual(MergeFailureClassEnum.NoOpIdentityPush, afterProcess!.MergeFailureClass, "MergeFailureClass should be NoOpIdentityPush");
+                        AssertContains("No-op identity merge", afterProcess.TestOutput ?? "", "Failure reason should be structured");
 
                         Mission? readMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                         AssertNotNull(readMission, "Mission should still exist");
-                        AssertEqual(MissionStatusEnum.LandingFailed, readMission!.Status, "Linked mission should become LandingFailed");
+                        AssertEqual(MissionStatusEnum.Failed, readMission!.Status, "Linked mission should become Failed (not LandingFailed) for no-op identity push");
                     }
                 }
                 finally

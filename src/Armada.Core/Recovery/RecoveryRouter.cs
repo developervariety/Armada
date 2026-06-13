@@ -58,6 +58,11 @@ namespace Armada.Core.Recovery
                     // NEEDS_REVISION rather than the auto-recovery loop.
                     return new RecoveryAction.Surface("test_failure_before_merge");
 
+                case MergeFailureClassEnum.NoOpIdentityPush:
+                    // Captain branch contributed zero commits; redispatch or rebase-captain
+                    // would loop forever on an empty branch -- surface only.
+                    return new RecoveryAction.Surface("noop_identity_push");
+
                 case MergeFailureClassEnum.Unknown:
                 default:
                     // Conservative: surface rather than guess.

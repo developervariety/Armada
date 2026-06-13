@@ -34,6 +34,13 @@ namespace Armada.Core.Enums
         TestFailureBeforeMerge,
 
         /// <summary>
+        /// Integration tip equals target tip because the captain branch contributed no commits;
+        /// usually a review-persona rescue that emitted only a verdict. Must surface as failure,
+        /// never as Landed, and must not trigger rebase-captain recovery.
+        /// </summary>
+        NoOpIdentityPush,
+
+        /// <summary>
         /// Failure shape could not be classified. The router must surface conservatively
         /// rather than guess at a recovery action.
         /// </summary>
