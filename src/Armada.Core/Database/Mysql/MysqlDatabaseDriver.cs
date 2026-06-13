@@ -576,6 +576,11 @@ namespace Armada.Core.Database.Mysql
                     52,
                     "Normalize NULL objective tenant_id/user_id to default",
                     TableQueries.MigrationV52Statements
+                ),
+                new SchemaMigration(
+                    53,
+                    "Add auto_dispatch_enabled opt-in flag to objectives",
+                    TableQueries.MigrationV53Statements
                 )
             };
         }

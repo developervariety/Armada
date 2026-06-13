@@ -623,6 +623,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     "Normalize NULL objective tenant_id/user_id to default",
                     @"UPDATE objectives SET tenant_id = 'default' WHERE tenant_id IS NULL;",
                     @"UPDATE objectives SET user_id = 'default' WHERE user_id IS NULL;"
+                ),
+                new SchemaMigration(
+                    53,
+                    "Add auto_dispatch_enabled opt-in flag to objectives",
+                    @"IF COL_LENGTH('objectives', 'auto_dispatch_enabled') IS NULL ALTER TABLE objectives ADD auto_dispatch_enabled BIT NOT NULL DEFAULT 0;"
                 )
             };
         }

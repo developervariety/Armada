@@ -1698,6 +1698,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
 
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, baseCommit, tipCommit, token);
+
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => _Inner.GetRepositoryHeadRefAsync(repoPath, token);
+
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.SetRepositoryHeadAsync(repoPath, branchName, token);
+
             public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => _Inner.PruneWorktreesAsync(repoPath, token);
 
             public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => _Inner.EnableAutoMergeAsync(worktreePath, prUrl, token);

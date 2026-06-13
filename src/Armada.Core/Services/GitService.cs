@@ -666,26 +666,6 @@ namespace Armada.Core.Services
             }
         }
 
-        /// <inheritdoc />
-        public async Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default)
-        {
-            if (String.IsNullOrEmpty(repoPath)) return 0;
-            if (String.IsNullOrEmpty(fromRef)) return 0;
-            if (String.IsNullOrEmpty(toRef)) return 0;
-
-            try
-            {
-                string result = await RunGitAsync(repoPath, token, "rev-list", "--count", fromRef + ".." + toRef).ConfigureAwait(false);
-                if (int.TryParse(result.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int count))
-                    return count;
-                return 0;
-            }
-            catch
-            {
-                return 0;
-            }
-        }
-
         #endregion
 
         #region Private-Methods

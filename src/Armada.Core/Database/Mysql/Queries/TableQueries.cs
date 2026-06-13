@@ -898,6 +898,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v53 statements for adding the objective auto-dispatch opt-in flag.
+        /// </summary>
+        public static readonly string[] MigrationV53Statements = new string[]
+        {
+            @"ALTER TABLE objectives ADD COLUMN auto_dispatch_enabled TINYINT(1) NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

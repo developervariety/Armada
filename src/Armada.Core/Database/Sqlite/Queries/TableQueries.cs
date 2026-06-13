@@ -1272,6 +1272,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(52, "Normalize NULL objective tenant_id/user_id to default",
                     @"UPDATE objectives SET tenant_id = 'default' WHERE tenant_id IS NULL;",
                     @"UPDATE objectives SET user_id = 'default' WHERE user_id IS NULL;"
+                ),
+                new SchemaMigration(53, "Add auto_dispatch_enabled opt-in flag to objectives",
+                    @"ALTER TABLE objectives ADD COLUMN auto_dispatch_enabled INTEGER NOT NULL DEFAULT 0;"
                 )
             };
         }
