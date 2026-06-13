@@ -167,5 +167,6 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
             => BranchExistsAsync(repoPath, branchName, token);
         public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+        public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
     }
 }

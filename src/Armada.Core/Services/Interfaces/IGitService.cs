@@ -221,5 +221,16 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the path is a registered worktree.</returns>
         Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default);
+
+        /// <summary>
+        /// Count how many commits <paramref name="toRef"/> is ahead of <paramref name="fromRef"/>
+        /// (i.e. commits reachable from <paramref name="toRef"/> but not from <paramref name="fromRef"/>).
+        /// </summary>
+        /// <param name="repoPath">Path to the repository.</param>
+        /// <param name="fromRef">The base ref (older / behind).</param>
+        /// <param name="toRef">The tip ref (newer / ahead).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of commits ahead; 0 when refs are equal or on any error.</returns>
+        Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default);
     }
 }
