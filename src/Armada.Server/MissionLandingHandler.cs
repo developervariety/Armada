@@ -22,6 +22,7 @@ namespace Armada.Server
         #region Private-Members
 
         private string _Header = "[MissionLanding] ";
+        private const string _AutoRescueMarker = "<!-- ARMADA:AUTO-RESCUE -->";
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
@@ -266,6 +267,7 @@ namespace Armada.Server
             bool landingSucceeded = false;
             bool landingAttempted = false;
             string? landingFailureReason = null;
+            bool rescueProducedNoCommits = false;
 
             try
             {
@@ -500,7 +502,10 @@ namespace Armada.Server
                         {
                             landingAttempted = true;
                             landingSucceeded = noOpDecision.TreatAsSuccess;
-                            landingFailureReason = noOpDecision.TreatAsSuccess ? null : noOpDecision.Reason;
+                            rescueProducedNoCommits = noOpDecision.RescueProducedNoCommits;
+                            landingFailureReason = noOpDecision.TreatAsSuccess
+                                ? null
+                                : (noOpDecision.RescueProducedNoCommits ? "rescue_produced_no_commits" : noOpDecision.Reason);
                             if (noOpDecision.TreatAsSuccess)
                             {
                                 _Logging.Info(_Header + "mission " + mission.Id + " merge-queue enqueue is a no-op already integrated case: " + noOpDecision.Reason);
@@ -711,6 +716,35 @@ namespace Armada.Server
                         _Logging.Warn(_Header + "error emitting mission.completed event for " + mission.Id + ": " + evtEx.Message);
                     }
                 }
+                else if (rescueProducedNoCommits)
+                {
+                    // An auto-rescue that emitted zero commits (captain branch HEAD == target HEAD)
+                    // is a hard failure, not a landing retry: there is nothing to land and the
+                    // rescue must not be reconciled to Complete. Fail the mission so the linked
+                    // incident reflects it via the recovery orchestrators that match by ParentMissionId.
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.FailureReason = "rescue_produced_no_commits";
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "auto-rescue mission " + mission.Id + " produced no commits, status set to Failed");
+
+                    // Emit mission.rescue_no_commits event
+                    try
+                    {
+                        ArmadaEvent rescueNoOpEvent = new ArmadaEvent("mission.rescue_no_commits", "Auto-rescue produced no commits: " + mission.Title);
+                        rescueNoOpEvent.EntityType = "mission";
+                        rescueNoOpEvent.EntityId = mission.Id;
+                        rescueNoOpEvent.CaptainId = mission.CaptainId;
+                        rescueNoOpEvent.MissionId = mission.Id;
+                        rescueNoOpEvent.VesselId = mission.VesselId;
+                        rescueNoOpEvent.VoyageId = mission.VoyageId;
+                        await _Database.Events.CreateAsync(rescueNoOpEvent).ConfigureAwait(false);
+                    }
+                    catch (Exception evtEx)
+                    {
+                        _Logging.Warn(_Header + "error emitting mission.rescue_no_commits event for " + mission.Id + ": " + evtEx.Message);
+                    }
+                }
                 else
                 {
                     mission.Status = MissionStatusEnum.LandingFailed;
@@ -756,6 +790,10 @@ namespace Armada.Server
                     case MissionStatusEnum.LandingFailed:
                         eventType = "mission.landing_failed";
                         eventMessage = "Landing failed: " + mission.Title;
+                        break;
+                    case MissionStatusEnum.Failed:
+                        eventType = "mission.failed";
+                        eventMessage = "Mission failed: " + mission.Title;
                         break;
                     case MissionStatusEnum.PullRequestOpen:
                         eventType = "mission.pull_request_open";
@@ -994,15 +1032,38 @@ namespace Armada.Server
             if (String.IsNullOrWhiteSpace(captainHead)) return null;
             if (!String.Equals(captainHead, targetHead, StringComparison.OrdinalIgnoreCase)) return null;
 
+            // An auto-rescue mission whose captain branch HEAD is identical to the target HEAD
+            // produced zero commits. Capturing the dock HEAD as CommitHash would otherwise make
+            // this look like a successful already-integrated landing, reconciling the rescue to
+            // Complete with CommitHash == target HEAD -- the exact false-positive being closed.
+            // Refuse the enqueue and surface a distinct reason so the transition fails the mission.
+            if (IsAutoRescueMission(mission))
+            {
+                string rescueReason = "Auto-rescue mission " + mission.Id + " produced no commits: captain branch " +
+                    (dock.BranchName ?? "(unknown)") + " is already at target branch " + targetBranch + " HEAD " + targetHead;
+                return new MergeQueueNoOpDecision(false, rescueReason, true);
+            }
+
             string persona = mission.Persona ?? "Worker";
             bool reviewOnly = persona.IndexOf("judge", StringComparison.OrdinalIgnoreCase) >= 0
                 || persona.IndexOf("review", StringComparison.OrdinalIgnoreCase) >= 0;
             string reason = "No-op merge queue enqueue: captain branch " + (dock.BranchName ?? "(unknown)") +
                 " is already at target branch " + targetBranch + " HEAD " + targetHead;
-            return new MergeQueueNoOpDecision(!reviewOnly && !String.IsNullOrWhiteSpace(mission.CommitHash), reason);
+            return new MergeQueueNoOpDecision(!reviewOnly && !String.IsNullOrWhiteSpace(mission.CommitHash), reason, false);
         }
 
-        private sealed record MergeQueueNoOpDecision(bool TreatAsSuccess, string Reason);
+        /// <summary>
+        /// Determine whether a mission is an Armada autonomous-recovery rescue. Rescues are
+        /// linked to their failed parent via <c>ParentMissionId</c> and carry the auto-rescue
+        /// marker in their description.
+        /// </summary>
+        private static bool IsAutoRescueMission(Mission mission)
+        {
+            return !String.IsNullOrWhiteSpace(mission.ParentMissionId)
+                || (mission.Description ?? String.Empty).Contains(_AutoRescueMarker, StringComparison.Ordinal);
+        }
+
+        private sealed record MergeQueueNoOpDecision(bool TreatAsSuccess, string Reason, bool RescueProducedNoCommits);
 
         private async Task<string?> TryResolveGitRefAsync(string repoPath, string refName)
         {

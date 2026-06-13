@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using Armada.Core.Database.Sqlite;
@@ -501,6 +502,216 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             });
+
+            // === MergeQueue Zero-Commit Auto-Rescue Guard ===
+
+            await RunTest("MergeQueueLanding_AutoRescueZeroCommits_FailsWithRescueNoCommitsReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                    IMessageTemplateService templateService = new MessageTemplateService(logging);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new StubMergeQueueService(),
+                        landingService,
+                        new AutoLandEvaluator(),
+                        new ConventionChecker(),
+                        new CriticalTriggerEvaluator(),
+                        templateService,
+                        null,
+                        dockService,
+                        new NoOpRemoteTriggerService(),
+                        null);
+
+                    string repoPath = Path.Combine(Path.GetTempPath(), "armada_noop_rescue_" + Guid.NewGuid().ToString("N"));
+                    string captainBranch = "armada/rescue-captain/msn_rescue123";
+                    try
+                    {
+                        string head = await InitNoOpRepoAsync(repoPath, captainBranch);
+
+                        Vessel vessel = new Vessel("noop-rescue-vessel", "https://github.com/test/repo.git");
+                        vessel.LocalPath = repoPath;
+                        vessel.WorkingDirectory = repoPath;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.MergeQueue;
+                        await testDb.Driver.Vessels.CreateAsync(vessel);
+
+                        Captain captain = new Captain("rescue-captain");
+                        captain.State = CaptainStateEnum.Working;
+                        await testDb.Driver.Captains.CreateAsync(captain);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.CaptainId = captain.Id;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_noop_rescue_wt_" + Guid.NewGuid().ToString("N"));
+                        dock.BranchName = captainBranch;
+                        dock.Active = true;
+                        await testDb.Driver.Docks.CreateAsync(dock);
+
+                        Mission parent = new Mission("Failed parent");
+                        parent.VesselId = vessel.Id;
+                        parent.Status = MissionStatusEnum.Failed;
+                        await testDb.Driver.Missions.CreateAsync(parent);
+
+                        Mission mission = new Mission("Rescue mission");
+                        mission.VesselId = vessel.Id;
+                        mission.CaptainId = captain.Id;
+                        mission.DockId = dock.Id;
+                        mission.ParentMissionId = parent.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.CommitHash = head;
+                        await testDb.Driver.Missions.CreateAsync(mission);
+
+                        await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                        AssertNotNull(updated, "Mission should still exist");
+                        AssertEqual(MissionStatusEnum.Failed, updated!.Status, "Zero-commit auto-rescue must end Failed, not Complete or LandingFailed");
+                        AssertEqual("rescue_produced_no_commits", updated.FailureReason ?? "", "Failure reason must be rescue_produced_no_commits");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100);
+                        AssertTrue(events.Any(item => item.EventType == "mission.rescue_no_commits"), "Structured mission.rescue_no_commits event must be emitted");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(repoPath, true); } catch { /* best-effort */ }
+                    }
+                }
+            });
+
+            await RunTest("MergeQueueLanding_NonRescueAlreadyIntegrated_ReconcilesWithoutFalseFailure", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                    IMessageTemplateService templateService = new MessageTemplateService(logging);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new StubMergeQueueService(),
+                        landingService,
+                        new AutoLandEvaluator(),
+                        new ConventionChecker(),
+                        new CriticalTriggerEvaluator(),
+                        templateService,
+                        null,
+                        dockService,
+                        new NoOpRemoteTriggerService(),
+                        null);
+
+                    string repoPath = Path.Combine(Path.GetTempPath(), "armada_noop_plain_" + Guid.NewGuid().ToString("N"));
+                    string captainBranch = "armada/worker-captain/msn_plain123";
+                    try
+                    {
+                        string head = await InitNoOpRepoAsync(repoPath, captainBranch);
+
+                        Vessel vessel = new Vessel("noop-plain-vessel", "https://github.com/test/repo.git");
+                        vessel.LocalPath = repoPath;
+                        vessel.WorkingDirectory = repoPath;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.MergeQueue;
+                        await testDb.Driver.Vessels.CreateAsync(vessel);
+
+                        Captain captain = new Captain("worker-captain");
+                        captain.State = CaptainStateEnum.Working;
+                        await testDb.Driver.Captains.CreateAsync(captain);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.CaptainId = captain.Id;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_noop_plain_wt_" + Guid.NewGuid().ToString("N"));
+                        dock.BranchName = captainBranch;
+                        dock.Active = true;
+                        await testDb.Driver.Docks.CreateAsync(dock);
+
+                        // Non-rescue mission (no ParentMissionId) whose branch was genuinely
+                        // integrated earlier -- the legitimate already-integrated path must
+                        // reconcile without manufacturing a failure.
+                        Mission mission = new Mission("Already integrated mission");
+                        mission.VesselId = vessel.Id;
+                        mission.CaptainId = captain.Id;
+                        mission.DockId = dock.Id;
+                        mission.Persona = "Worker";
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.CommitHash = head;
+                        await testDb.Driver.Missions.CreateAsync(mission);
+
+                        await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                        AssertNotNull(updated, "Mission should still exist");
+                        AssertEqual(MissionStatusEnum.Complete, updated!.Status, "A non-rescue already-integrated mission must reconcile to Complete");
+                        AssertNotEqual("rescue_produced_no_commits", updated.FailureReason ?? "", "Non-rescue path must not borrow the rescue failure reason");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100);
+                        AssertFalse(events.Any(item => item.EventType == "mission.rescue_no_commits"), "Non-rescue path must not emit the rescue no-commits event");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(repoPath, true); } catch { /* best-effort */ }
+                    }
+                }
+            });
+        }
+
+        private static async Task<string> InitNoOpRepoAsync(string repoPath, string captainBranch)
+        {
+            Directory.CreateDirectory(repoPath);
+            await RunGitAsync(repoPath, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repoPath, "README.md"), "# test\n").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "add", "README.md").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "commit", "-m", "Initial commit").ConfigureAwait(false);
+            // Captain branch points at the same commit as main -- a zero-commit identity branch.
+            await RunGitAsync(repoPath, "branch", captainBranch).ConfigureAwait(false);
+            string head = await RunGitAsync(repoPath, "rev-parse", "main").ConfigureAwait(false);
+            return head.Trim();
+        }
+
+        private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            foreach (string arg in args)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+
+                if (process.ExitCode != 0)
+                {
+                    throw new InvalidOperationException("git failed (exit " + process.ExitCode + "): " + stderr.Trim());
+                }
+
+                return stdout;
+            }
         }
 
         private static string ExtractBetween(string contents, string startToken, string endToken)

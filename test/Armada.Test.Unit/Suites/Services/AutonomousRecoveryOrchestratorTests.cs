@@ -647,6 +647,90 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, signals.Objects.Count);
                 AssertContains("ARMADA_AUTO_NUDGE", signals.Objects[0].Payload ?? "", "Expected autonomous nudge marker.");
             }).ConfigureAwait(false);
+
+            await RunTest("ReviewerFeedback_JudgeStageFailure_InlinedIntoWorkerRescueBrief", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_feedback", "usr_auto_feedback").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_feedback", "usr_auto_feedback").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.ReviewComment = "The fix is missing a regression test for the null-branch case; add coverage before resubmitting.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Reviewer-stage failure should dispatch one rescue.");
+                Mission rescue = admiral.DispatchedMissions[0];
+                AssertEqual("Worker", rescue.Persona, "Reviewer-stage failures must dispatch a Worker rescue.");
+                AssertContains("Reviewer feedback to address:", rescue.Description ?? "", "Rescue brief must label the inlined reviewer feedback.");
+                AssertContains(failed.ReviewComment!, rescue.Description ?? "", "Rescue brief must inline the parent's review feedback verbatim.");
+            }).ConfigureAwait(false);
+
+            await RunTest("FindSuspectNoOpRescues_CompleteRescueAtTargetHead_FlaggedAndAdvancedExcluded", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_backfill", "usr_auto_backfill").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_backfill", "usr_auto_backfill").ConfigureAwait(false);
+                Mission parent = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+
+                string targetHead = "1111111111111111111111111111111111111111";
+
+                Mission suspect = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    ParentMissionId = parent.Id,
+                    Title = "Rescue 1: Failed mission",
+                    Description = "Autonomous rescue mission. <!-- ARMADA:AUTO-RESCUE -->",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = targetHead
+                }).ConfigureAwait(false);
+
+                Mission advanced = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    ParentMissionId = parent.Id,
+                    Title = "Rescue 2: Failed mission",
+                    Description = "Autonomous rescue mission. <!-- ARMADA:AUTO-RESCUE -->",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = "2222222222222222222222222222222222222222"
+                }).ConfigureAwait(false);
+
+                // Non-rescue mission at the same head must be excluded (no auto-rescue marker).
+                Mission nonRescue = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Regular mission",
+                    Description = "Ordinary work, not a rescue.",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = targetHead
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                List<Mission> suspects = await orchestrator.FindSuspectNoOpRescueMissionsAsync(vessel.Id, targetHead).ConfigureAwait(false);
+
+                AssertEqual(1, suspects.Count, "Only the Complete rescue whose commit equals the target head should be flagged.");
+                AssertEqual(suspect.Id, suspects[0].Id, "The flagged suspect should be the no-op rescue.");
+                AssertFalse(suspects.Any(item => item.Id == advanced.Id), "A rescue that advanced the branch must be excluded.");
+                AssertFalse(suspects.Any(item => item.Id == nonRescue.Id), "A non-rescue mission must be excluded.");
+            }).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(

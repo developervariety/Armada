@@ -564,6 +564,52 @@ namespace Armada.Server
             return rescues;
         }
 
+        /// <summary>
+        /// Enumerate auto-rescue missions on a vessel that may have landed as a false-positive
+        /// no-op: missions marked <see cref="MissionStatusEnum.Complete"/> whose recorded commit
+        /// hash equals the supplied target-branch tip, meaning the rescue captain produced no
+        /// commits yet reconciled to Complete on an identity push.
+        ///
+        /// The caller supplies the current target-branch tip (for example the resolved HEAD of
+        /// the vessel default branch). The heuristic is best-effort: Armada keeps no historical
+        /// snapshot of the target-branch HEAD at each mission's landing time, so a rescue whose
+        /// commit hash happens to equal the current tip is flagged for operator review rather than
+        /// confirmed as a false-positive. Rescues whose commit hash differs from the supplied tip
+        /// (they advanced the branch with a real commit) are excluded.
+        /// </summary>
+        /// <param name="vesselId">Vessel to scan for suspect rescue missions.</param>
+        /// <param name="targetBranchHead">Current target-branch tip commit hash to compare against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>List of suspect Complete auto-rescue missions for operator review.</returns>
+        public async Task<List<Mission>> FindSuspectNoOpRescueMissionsAsync(
+            string vesselId,
+            string targetBranchHead,
+            CancellationToken token = default)
+        {
+            List<Mission> suspects = new List<Mission>();
+            if (String.IsNullOrWhiteSpace(vesselId) || String.IsNullOrWhiteSpace(targetBranchHead))
+                return suspects;
+
+            string normalizedHead = targetBranchHead.Trim();
+            List<MissionSummary> summaries = await _Database.Missions
+                .EnumerateMissionSummariesByVesselAsync(vesselId, token).ConfigureAwait(false);
+
+            foreach (MissionSummary summary in summaries)
+            {
+                if (summary.Status != MissionStatusEnum.Complete) continue;
+                if (String.IsNullOrWhiteSpace(summary.CommitHash)) continue;
+                if (!String.Equals(summary.CommitHash.Trim(), normalizedHead, StringComparison.OrdinalIgnoreCase)) continue;
+
+                Mission? mission = await ReadMissionAsync(summary.TenantId, summary.Id, token).ConfigureAwait(false);
+                if (mission == null) continue;
+                if (!IsAutoRescueMission(mission)) continue;
+
+                suspects.Add(mission);
+            }
+
+            return suspects;
+        }
+
         private async Task MarkPolicyBlockedAsync(Mission mission, CancellationToken token)
         {
             mission.RecoveryAttempts = Math.Max(
@@ -683,6 +729,12 @@ namespace Armada.Server
             sb.AppendLine("Failure reason: " + (failedMission.FailureReason ?? "not recorded"));
             if (!String.IsNullOrWhiteSpace(failedMission.BranchName))
                 sb.AppendLine("Original branch: " + failedMission.BranchName);
+            if (!String.IsNullOrWhiteSpace(failedMission.ReviewComment))
+            {
+                sb.AppendLine();
+                sb.AppendLine("Reviewer feedback to address:");
+                sb.AppendLine(failedMission.ReviewComment.Trim());
+            }
             sb.AppendLine();
             sb.AppendLine("Objective:");
             sb.AppendLine("Recover the original mission without repeating the failure. Inspect the original failure, make the smallest corrective change, run the vessel's workflow profile checks when available, and leave explicit evidence in Armada records.");
