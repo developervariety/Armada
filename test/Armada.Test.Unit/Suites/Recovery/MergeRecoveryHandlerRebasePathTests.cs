@@ -310,6 +310,11 @@ namespace Armada.Test.Unit.Suites.Recovery
                 RecoveryPokeCalls.Add(mergeEntryId);
                 return Task.FromResult(RecoveryPokeReturn);
             }
+
+            public Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default) => Task.FromResult(false);
+
+            public Task<SafetyNetEnqueueResult> TrySafetyNetEnqueueAsync(Mission mission, Vessel vessel, string? unifiedDiff, IAutoLandEvaluator autoLandEvaluator, IConventionChecker conventionChecker, ICriticalTriggerEvaluator criticalTriggerEvaluator, CancellationToken token = default)
+                => Task.FromResult(new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.Enqueued, null));
         }
 
         #endregion
