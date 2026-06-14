@@ -112,6 +112,153 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(missionId)) return false;
+
+            MergeEntry? entry = await ReadMostRecentMergeEntryAsync(missionId, token).ConfigureAwait(false);
+            if (entry == null) return false;
+
+            return !IsTerminalMergeStatus(entry.Status);
+        }
+
+        /// <inheritdoc />
+        public async Task<SafetyNetEnqueueResult> TrySafetyNetEnqueueAsync(
+            Mission mission,
+            Vessel vessel,
+            string? unifiedDiff,
+            IAutoLandEvaluator autoLandEvaluator,
+            IConventionChecker conventionChecker,
+            ICriticalTriggerEvaluator criticalTriggerEvaluator,
+            CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (autoLandEvaluator == null) throw new ArgumentNullException(nameof(autoLandEvaluator));
+            if (conventionChecker == null) throw new ArgumentNullException(nameof(conventionChecker));
+            if (criticalTriggerEvaluator == null) throw new ArgumentNullException(nameof(criticalTriggerEvaluator));
+
+            if (String.IsNullOrWhiteSpace(mission.BranchName))
+            {
+                return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.SkippedNoBranch, null, "mission has no branch name");
+            }
+
+            if (await HasActiveMergeEntryForMissionAsync(mission.Id, token).ConfigureAwait(false))
+            {
+                MergeEntry? existing = await ReadMostRecentMergeEntryAsync(mission.Id, token).ConfigureAwait(false);
+                return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.AlreadyEnqueued, existing, "active merge entry already exists");
+            }
+
+            string targetBranch = vessel.DefaultBranch ?? "main";
+            MergeEntry entry = new MergeEntry(mission.BranchName, targetBranch);
+            entry.MissionId = mission.Id;
+            entry.VesselId = mission.VesselId ?? vessel.Id;
+            entry.TenantId = mission.TenantId ?? vessel.TenantId;
+            entry = await EnqueueAsync(entry, token).ConfigureAwait(false);
+
+            AutoLandPredicate? autoLandPredicate = vessel.GetAutoLandPredicate();
+            bool flaggedForReview = false;
+            string? flagReason = null;
+
+            if (autoLandPredicate is { Enabled: true })
+            {
+                string diff = unifiedDiff ?? String.Empty;
+                if (String.IsNullOrWhiteSpace(diff))
+                {
+                    flaggedForReview = true;
+                    flagReason = "diff unavailable for auto-land predicate";
+                }
+                else
+                {
+                    EvaluationResult autoLandResult = autoLandEvaluator.Evaluate(diff, autoLandPredicate);
+                    if (autoLandResult is EvaluationResult.Fail autoLandFail)
+                    {
+                        flaggedForReview = true;
+                        flagReason = autoLandFail.Reason;
+                    }
+                    else if (autoLandResult is EvaluationResult.Pass)
+                    {
+                        ConventionCheckResult conventionResult = conventionChecker.Check(diff);
+                        CriticalTriggerResult triggerResult = criticalTriggerEvaluator.Evaluate(diff, conventionResult);
+
+                        bool calibrationActive = (vessel.AutoLandCalibrationLandedCount) < 50;
+                        bool needsDeepReview = calibrationActive || triggerResult.Fired;
+
+                        entry.AuditLane = needsDeepReview ? "Deferred" : "Fast";
+                        entry.AuditConventionPassed = conventionResult.Passed;
+                        entry.AuditConventionNotes = conventionResult.Passed
+                            ? null
+                            : JsonSerializer.Serialize(conventionResult.Violations);
+                        entry.AuditCriticalTrigger = String.Join(",", triggerResult.TriggeredCriteria);
+                        entry.AuditDeepPicked = needsDeepReview;
+                        entry.AuditDeepVerdict = needsDeepReview ? "Pending" : null;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+
+                        if (needsDeepReview)
+                        {
+                            flaggedForReview = true;
+                            flagReason = calibrationActive ? "calibration period" : "critical trigger";
+                        }
+                        else
+                        {
+                            string capturedEntryId = entry.Id;
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    await ProcessEntryByIdAsync(capturedEntryId, CancellationToken.None).ConfigureAwait(false);
+                                }
+                                catch (Exception bgEx)
+                                {
+                                    _Logging.Warn(_Header + "safety-net auto-land processing failed for entry " + capturedEntryId + ": " + bgEx.Message);
+                                }
+                            }, CancellationToken.None);
+
+                            await EmitSafetyNetMergeEventAsync(
+                                "merge_queue.auto_land_triggered",
+                                mission,
+                                entry,
+                                "Auto-land triggered by landing-drain safety net for mission " + mission.Id,
+                                JsonSerializer.Serialize(new { entryId = entry.Id, missionId = mission.Id, vesselId = entry.VesselId, predicate = autoLandPredicate }),
+                                token).ConfigureAwait(false);
+                        }
+                    }
+                }
+
+                if (flaggedForReview)
+                {
+                    entry.AuditDeepPicked = true;
+                    entry.AuditDeepVerdict = "Pending";
+                    entry.AuditLane = "Deferred";
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+
+                    await EmitSafetyNetMergeEventAsync(
+                        "merge_queue.auto_land_skipped",
+                        mission,
+                        entry,
+                        "Auto-land skipped by landing-drain safety net for mission " + mission.Id + ": " + flagReason,
+                        JsonSerializer.Serialize(new { entryId = entry.Id, missionId = mission.Id, vesselId = entry.VesselId, reason = flagReason, predicate = autoLandPredicate }),
+                        token).ConfigureAwait(false);
+                }
+            }
+
+            await EmitSafetyNetMergeEventAsync(
+                "merge_queue.enqueued",
+                mission,
+                entry,
+                "Mission " + mission.Id + " enqueued by landing-drain safety net: " + entry.BranchName + " -> " + targetBranch,
+                null,
+                token).ConfigureAwait(false);
+
+            SafetyNetEnqueueOutcomeEnum outcome = flaggedForReview
+                ? SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview
+                : SafetyNetEnqueueOutcomeEnum.Enqueued;
+            return new SafetyNetEnqueueResult(outcome, entry, flagReason);
+        }
+
+        /// <inheritdoc />
         public async Task ProcessQueueAsync(CancellationToken token = default)
         {
             // ProcessQueueAsync is a background/system method (called from Admiral loop).
@@ -1283,6 +1430,39 @@ namespace Armada.Core.Services
             catch
             {
                 return null;
+            }
+        }
+
+        private static bool IsTerminalMergeStatus(MergeStatusEnum status)
+        {
+            return status == MergeStatusEnum.Landed
+                || status == MergeStatusEnum.Failed
+                || status == MergeStatusEnum.Cancelled;
+        }
+
+        private async Task EmitSafetyNetMergeEventAsync(
+            string eventType,
+            Mission mission,
+            MergeEntry entry,
+            string message,
+            string? payload,
+            CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = mission.CaptainId;
+                evt.Payload = payload;
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error emitting " + eventType + " for safety-net mission " + mission.Id + ": " + ex.Message);
             }
         }
 

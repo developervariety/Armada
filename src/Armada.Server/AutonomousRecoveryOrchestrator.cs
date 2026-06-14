@@ -33,6 +33,11 @@ namespace Armada.Server
         private readonly RunbookService _Runbooks;
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
+        private readonly IMergeQueueService? _MergeQueue;
+        private readonly IGitService? _Git;
+        private readonly IAutoLandEvaluator? _AutoLandEvaluator;
+        private readonly IConventionChecker? _ConventionChecker;
+        private readonly ICriticalTriggerEvaluator? _CriticalTriggerEvaluator;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _MissionLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
 
@@ -46,6 +51,25 @@ namespace Armada.Server
             RunbookService runbooks,
             ArmadaSettings settings,
             LoggingModule logging)
+            : this(database, admiral, incidents, runbooks, settings, logging, null, null, null, null, null)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate with optional landing-drain dependencies.
+        /// </summary>
+        public AutonomousRecoveryOrchestrator(
+            DatabaseDriver database,
+            IAdmiralService admiral,
+            IncidentService incidents,
+            RunbookService runbooks,
+            ArmadaSettings settings,
+            LoggingModule logging,
+            IMergeQueueService? mergeQueue,
+            IGitService? git,
+            IAutoLandEvaluator? autoLandEvaluator,
+            IConventionChecker? conventionChecker,
+            ICriticalTriggerEvaluator? criticalTriggerEvaluator)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -53,6 +77,11 @@ namespace Armada.Server
             _Runbooks = runbooks ?? throw new ArgumentNullException(nameof(runbooks));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _MergeQueue = mergeQueue;
+            _Git = git;
+            _AutoLandEvaluator = autoLandEvaluator;
+            _ConventionChecker = conventionChecker;
+            _CriticalTriggerEvaluator = criticalTriggerEvaluator;
         }
 
         /// <summary>
@@ -102,6 +131,7 @@ namespace Armada.Server
             {
                 await NudgeStalledLiveCaptainsAsync(token).ConfigureAwait(false);
                 await ProcessRecentFailedMissionsAsync(token).ConfigureAwait(false);
+                await ProcessLandingDrainOpenVoyagesAsync(token).ConfigureAwait(false);
             }
             finally
             {
@@ -163,6 +193,381 @@ namespace Armada.Server
                 && (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Complete);
             cache[voyageId] = terminal;
             return terminal;
+        }
+
+        private async Task ProcessLandingDrainOpenVoyagesAsync(CancellationToken token)
+        {
+            if (!_Settings.AutonomousRecovery.Enabled || !_Settings.AutonomousRecovery.LandingDrainEnabled) return;
+            if (_MergeQueue == null || _AutoLandEvaluator == null || _ConventionChecker == null || _CriticalTriggerEvaluator == null)
+                return;
+
+            List<Voyage> candidates = new List<Voyage>();
+            candidates.AddRange(await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false));
+            candidates.AddRange(await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false));
+
+            int processed = 0;
+            int maxVoyages = _Settings.AutonomousRecovery.LandingDrainMaxVoyagesPerSweep;
+
+            foreach (Voyage voyage in candidates.OrderBy(item => item.LastUpdateUtc))
+            {
+                if (processed >= maxVoyages) break;
+                token.ThrowIfCancellationRequested();
+
+                List<MissionSummary> summaries = await _Database.Missions
+                    .EnumerateMissionSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+                if (summaries.Count == 0) continue;
+
+                if (summaries.Any(item => IsLandingDrainLiveMission(item.Status)))
+                    continue;
+
+                processed++;
+
+                // Isolate each voyage: a single failing voyage (e.g. a vessel with an
+                // unreachable working directory or a transient DB error) must not abort
+                // the entire drain pass and starve every voyage that sorts after it.
+                // Cancellation still propagates so the sweep can be torn down cleanly.
+                try
+                {
+                    await DrainIdleVoyageAsync(voyage, summaries, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "landing-drain failed for voyage " + voyage.Id + ": " + ex.Message);
+                }
+            }
+        }
+
+        private async Task DrainIdleVoyageAsync(Voyage voyage, List<MissionSummary> summaries, CancellationToken token)
+        {
+            await EnqueueJudgePassedWorkProducedAsync(voyage, summaries, token).ConfigureAwait(false);
+            await RescueFailedLeafChainsAsync(summaries, token).ConfigureAwait(false);
+
+            List<MissionSummary> refreshed = await _Database.Missions
+                .EnumerateMissionSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+            await TryCompleteIdleVoyageAsync(voyage, refreshed, token).ConfigureAwait(false);
+            await DetectStuckOpenVoyageAsync(voyage, refreshed, token).ConfigureAwait(false);
+        }
+
+        private async Task EnqueueJudgePassedWorkProducedAsync(Voyage voyage, List<MissionSummary> summaries, CancellationToken token)
+        {
+            foreach (MissionSummary summary in summaries
+                .Where(item => item.Status == MissionStatusEnum.WorkProduced && !String.IsNullOrWhiteSpace(item.BranchName))
+                .OrderBy(item => item.LastUpdateUtc))
+            {
+                if (IsReviewerPersona(summary.Persona)) continue;
+                if (!await IsReviewerChainPassedAsync(summaries, summary.Id, token).ConfigureAwait(false)) continue;
+
+                Mission? mission = await ReadMissionAsync(summary.TenantId, summary.Id, token).ConfigureAwait(false);
+                if (mission == null || String.IsNullOrWhiteSpace(mission.VesselId)) continue;
+
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel == null) continue;
+
+                // Isolate each candidate mission: a single failing enqueue (e.g. a transient
+                // merge-queue / DB error) must not abort the rest of this voyage's drain or
+                // skip the downstream completion / stuck-detection steps. Cancellation still
+                // propagates so the sweep can be torn down cleanly.
+                try
+                {
+                    string? diff = await TryLoadSafetyNetDiffAsync(mission, vessel, token).ConfigureAwait(false);
+                    SafetyNetEnqueueResult result = await _MergeQueue!.TrySafetyNetEnqueueAsync(
+                        mission,
+                        vessel,
+                        diff,
+                        _AutoLandEvaluator!,
+                        _ConventionChecker!,
+                        _CriticalTriggerEvaluator!,
+                        token).ConfigureAwait(false);
+
+                    if (result.Outcome == SafetyNetEnqueueOutcomeEnum.AlreadyEnqueued)
+                    {
+                        _Logging.Debug(_Header + "landing-drain skipped mission " + mission.Id + ": already enqueued");
+                        continue;
+                    }
+
+                    if (result.Outcome == SafetyNetEnqueueOutcomeEnum.SkippedNoBranch)
+                    {
+                        _Logging.Debug(_Header + "landing-drain skipped mission " + mission.Id + ": no branch");
+                        continue;
+                    }
+
+                    string eventType = result.Outcome == SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview
+                        ? "landing_drain.flagged_for_review"
+                        : "landing_drain.enqueued";
+                    string message = "Landing-drain safety net enqueued mission " + mission.Id +
+                        " on voyage " + voyage.Id + (result.Detail != null ? ": " + result.Detail : String.Empty);
+                    await EmitLandingDrainEventAsync(eventType, message, mission, voyage.Id, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "landing-drain enqueue failed for mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+        }
+
+        private async Task RescueFailedLeafChainsAsync(List<MissionSummary> summaries, CancellationToken token)
+        {
+            foreach (MissionSummary summary in summaries
+                .Where(item => item.Status == MissionStatusEnum.Failed && IsReviewerPersona(item.Persona)))
+            {
+                bool hasActiveDependents = summaries.Any(item =>
+                    String.Equals(item.DependsOnMissionId, summary.Id, StringComparison.Ordinal) &&
+                    item.Status != MissionStatusEnum.Failed &&
+                    item.Status != MissionStatusEnum.Cancelled &&
+                    item.Status != MissionStatusEnum.Complete &&
+                    item.Status != MissionStatusEnum.LandingFailed);
+                if (hasActiveDependents) continue;
+
+                Mission? failed = await ReadMissionAsync(summary.TenantId, summary.Id, token).ConfigureAwait(false);
+                if (failed == null) continue;
+
+                string reason = failed.FailureReason ?? String.Empty;
+                if (!reason.Contains("NEEDS_REVISION", StringComparison.OrdinalIgnoreCase) &&
+                    !reason.Contains("Judge verdict: FAIL", StringComparison.OrdinalIgnoreCase) &&
+                    !reason.Contains("did not emit an explicit PASS", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                await ApplyFailurePolicyAsync(failed.TenantId, failed.Id, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TryCompleteIdleVoyageAsync(Voyage voyage, List<MissionSummary> summaries, CancellationToken token)
+        {
+            if (voyage.Status == VoyageStatusEnum.Complete ||
+                voyage.Status == VoyageStatusEnum.Cancelled ||
+                voyage.Status == VoyageStatusEnum.Failed)
+            {
+                return;
+            }
+
+            if (summaries.Any(item => IsLandingDrainLiveMission(item.Status)))
+                return;
+
+            bool allTerminal = summaries.All(item => IsVoyageDrainTerminalStatus(item.Status));
+            if (!allTerminal) return;
+
+            bool anyFailed = summaries.Any(item =>
+                item.Status == MissionStatusEnum.Failed || item.Status == MissionStatusEnum.LandingFailed);
+
+            voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
+            voyage.CompletedUtc = DateTime.UtcNow;
+            voyage.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+
+            await EmitLandingDrainEventAsync(
+                "landing_drain.voyage_completed",
+                "Landing-drain marked voyage " + voyage.Id + " " + voyage.Status,
+                null,
+                voyage.Id,
+                token,
+                voyage.TenantId,
+                voyage.UserId).ConfigureAwait(false);
+
+            if (_Admiral.OnVoyageComplete != null)
+            {
+                try
+                {
+                    await _Admiral.OnVoyageComplete.Invoke(voyage).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "OnVoyageComplete failed for voyage " + voyage.Id + ": " + ex.Message);
+                }
+            }
+        }
+
+        private async Task DetectStuckOpenVoyageAsync(Voyage voyage, List<MissionSummary> summaries, CancellationToken token)
+        {
+            if (voyage.Status != VoyageStatusEnum.Open && voyage.Status != VoyageStatusEnum.InProgress) return;
+            if (summaries.Any(item => IsLandingDrainLiveMission(item.Status))) return;
+
+            DateTime lastProgress = voyage.LastUpdateUtc;
+            foreach (MissionSummary summary in summaries)
+            {
+                if (summary.LastUpdateUtc > lastProgress) lastProgress = summary.LastUpdateUtc;
+            }
+
+            double quietMinutes = (DateTime.UtcNow - lastProgress).TotalMinutes;
+            if (quietMinutes < _Settings.AutonomousRecovery.StuckOpenVoyageMinutes) return;
+
+            if (await HasOpenStuckVoyageIncidentAsync(voyage, token).ConfigureAwait(false)) return;
+
+            AuthContext auth = BuildVoyageAuth(voyage);
+            Incident incident = await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
+            {
+                Title = "Stuck open voyage: " + Truncate(voyage.Title, 96),
+                Summary = "Voyage " + voyage.Id + " has been " + voyage.Status + " with no live missions and no progress for " +
+                    quietMinutes.ToString("F1") + " minutes.",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.High,
+                VoyageId = voyage.Id,
+                Impact = "Produced work may not be landing and downstream stages may be stalled.",
+                RecoveryNotes = "Inspect judge-passed WorkProduced missions, pending handoffs, and merge queue entries.",
+                DetectedUtc = DateTime.UtcNow
+            }, token).ConfigureAwait(false);
+
+            await EmitLandingDrainEventAsync(
+                "landing_drain.stuck_open_voyage",
+                "Landing-drain opened incident " + incident.Id + " for stuck voyage " + voyage.Id,
+                null,
+                voyage.Id,
+                token,
+                voyage.TenantId,
+                voyage.UserId,
+                incident.Id).ConfigureAwait(false);
+        }
+
+        private async Task<bool> HasOpenStuckVoyageIncidentAsync(Voyage voyage, CancellationToken token)
+        {
+            AuthContext auth = BuildVoyageAuth(voyage);
+            EnumerationResult<Incident> page = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            {
+                VoyageId = voyage.Id,
+                PageNumber = 1,
+                PageSize = 25
+            }, token).ConfigureAwait(false);
+
+            return page.Objects.Any(item =>
+                item.Status != IncidentStatusEnum.Closed &&
+                item.Status != IncidentStatusEnum.RolledBack &&
+                (item.Summary ?? String.Empty).Contains("no live missions", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private async Task<bool> IsReviewerChainPassedAsync(List<MissionSummary> summaries, string rootMissionId, CancellationToken token)
+        {
+            List<MissionSummary> queue = summaries
+                .Where(item => String.Equals(item.DependsOnMissionId, rootMissionId, StringComparison.Ordinal))
+                .ToList();
+
+            while (queue.Count > 0)
+            {
+                MissionSummary current = queue[0];
+                queue.RemoveAt(0);
+
+                if (current.Status == MissionStatusEnum.Pending)
+                    return false;
+
+                if (current.Status == MissionStatusEnum.Failed ||
+                    current.Status == MissionStatusEnum.Cancelled ||
+                    current.Status == MissionStatusEnum.LandingFailed)
+                {
+                    return false;
+                }
+
+                if (IsReviewerPersona(current.Persona))
+                {
+                    if (current.Status != MissionStatusEnum.Complete && current.Status != MissionStatusEnum.WorkProduced)
+                        return false;
+
+                    Mission? reviewer = await ReadMissionAsync(current.TenantId, current.Id, token).ConfigureAwait(false);
+                    if (reviewer == null || !IsJudgePassMission(reviewer))
+                        return false;
+                }
+
+                queue.AddRange(summaries.Where(item => String.Equals(item.DependsOnMissionId, current.Id, StringComparison.Ordinal)));
+            }
+
+            return true;
+        }
+
+        private async Task<string?> TryLoadSafetyNetDiffAsync(Mission mission, Vessel vessel, CancellationToken token)
+        {
+            if (_Git == null) return null;
+
+            string? repoPath = vessel.WorkingDirectory ?? vessel.LocalPath;
+            if (String.IsNullOrWhiteSpace(repoPath)) return null;
+
+            try
+            {
+                return await _Git.DiffAsync(repoPath, vessel.DefaultBranch ?? "main", token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "landing-drain diff unavailable for mission " + mission.Id + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        private async Task EmitLandingDrainEventAsync(
+            string eventType,
+            string message,
+            Mission? mission,
+            string voyageId,
+            CancellationToken token,
+            string? tenantId = null,
+            string? userId = null,
+            string? incidentId = null)
+        {
+            ArmadaEvent evt = new ArmadaEvent(eventType, message)
+            {
+                TenantId = tenantId ?? mission?.TenantId,
+                UserId = userId ?? mission?.UserId,
+                EntityType = incidentId != null ? "incident" : (mission != null ? "mission" : "voyage"),
+                EntityId = incidentId ?? mission?.Id ?? voyageId,
+                MissionId = mission?.Id,
+                VesselId = mission?.VesselId,
+                VoyageId = voyageId
+            };
+
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+        }
+
+        private static bool IsLandingDrainLiveMission(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.InProgress ||
+                status == MissionStatusEnum.Assigned ||
+                status == MissionStatusEnum.Testing ||
+                status == MissionStatusEnum.Review ||
+                status == MissionStatusEnum.WaitingForInput;
+        }
+
+        private static bool IsVoyageDrainTerminalStatus(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Complete ||
+                status == MissionStatusEnum.Failed ||
+                status == MissionStatusEnum.Cancelled ||
+                status == MissionStatusEnum.LandingFailed ||
+                status == MissionStatusEnum.PullRequestOpen;
+        }
+
+        private static bool IsJudgePassMission(Mission mission)
+        {
+            if (!String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase)) return false;
+            if (mission.Status == MissionStatusEnum.Failed) return false;
+
+            string output = mission.AgentOutput ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(output)) return false;
+
+            string[] lines = output.Replace("\r\n", "\n").Split('\n');
+            for (int i = lines.Length - 1; i >= 0; i--)
+            {
+                string line = lines[i].Trim();
+                if (line.Contains("[ARMADA:VERDICT] PASS", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static AuthContext BuildVoyageAuth(Voyage voyage)
+        {
+            return AuthContext.Authenticated(
+                voyage.TenantId ?? Constants.DefaultTenantId,
+                voyage.UserId ?? Constants.DefaultUserId,
+                false,
+                true,
+                "AutonomousRecovery",
+                principalDisplay: "Armada Autonomous Recovery");
         }
 
         private async Task<List<MissionSummary>> EnumerateAllSummariesByStatusAsync(MissionStatusEnum? status, CancellationToken token)

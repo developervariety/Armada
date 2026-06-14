@@ -56,9 +56,34 @@ namespace Armada.Core.Settings
             set => _StallMailNudgeThresholdRatio = Math.Max(0.1, Math.Min(0.95, value));
         }
 
+        /// <summary>
+        /// Whether the periodic sweep should drain judge-passed WorkProduced branches on idle voyages.
+        /// </summary>
+        public bool LandingDrainEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Open or idle voyages with no progress for this many minutes may open a stuck-voyage incident.
+        /// </summary>
+        public int StuckOpenVoyageMinutes
+        {
+            get => _StuckOpenVoyageMinutes;
+            set => _StuckOpenVoyageMinutes = Math.Max(5, Math.Min(1440, value));
+        }
+
+        /// <summary>
+        /// Maximum number of open voyages processed per landing-drain sweep pass.
+        /// </summary>
+        public int LandingDrainMaxVoyagesPerSweep
+        {
+            get => _LandingDrainMaxVoyagesPerSweep;
+            set => _LandingDrainMaxVoyagesPerSweep = Math.Max(1, Math.Min(50, value));
+        }
+
         private int _MaxMissionRecoveryAttempts = 1;
         private int _FailedMissionLookbackHours = 24;
         private int _StallMailNudgeCooldownMinutes = 15;
         private double _StallMailNudgeThresholdRatio = 0.5;
+        private int _StuckOpenVoyageMinutes = 30;
+        private int _LandingDrainMaxVoyagesPerSweep = 10;
     }
 }
