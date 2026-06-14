@@ -231,7 +231,7 @@ namespace Armada.Server
                 snapshot = await ReadAllObjectivesAsync(systemAuth, token).ConfigureAwait(false);
                 List<Objective> eligible = AutonomousObjectiveSelector.SelectEligible(snapshot);
 
-                int activeCount = CountActiveDispatched(snapshot);
+                int activeCount = await CountActiveDispatchedAsync(snapshot, token).ConfigureAwait(false);
                 ActiveDispatchedCount = activeCount;
                 int capacity = MaxConcurrentVoyages - activeCount;
 
@@ -330,11 +330,16 @@ namespace Armada.Server
             return true;
         }
 
-        private static int CountActiveDispatched(List<Objective> snapshot)
+        private async Task<int> CountActiveDispatchedAsync(List<Objective> snapshot, CancellationToken token)
         {
-            return snapshot.Count(o =>
-                o.Status == ObjectiveStatusEnum.InProgress
-                && o.VoyageIds.Count > 0);
+            int count = 0;
+            foreach (Objective objective in snapshot)
+            {
+                if (await HasActiveLinkedVoyageAsync(objective, token).ConfigureAwait(false))
+                    count++;
+            }
+
+            return count;
         }
 
         private async Task DispatchObjectiveAsync(
@@ -342,6 +347,33 @@ namespace Armada.Server
             List<MergeEntry> mergeQueue,
             CancellationToken token)
         {
+            if (objective.Status == ObjectiveStatusEnum.Completed || objective.Status == ObjectiveStatusEnum.Cancelled)
+            {
+                _Logging.Debug(_Header + "objective " + objective.Id + " skipped: terminal status " + objective.Status + ".");
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_terminal_status",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": status is " + objective.Status + ".",
+                    objective, null, token).ConfigureAwait(false);
+                throw new ObjectiveSkippedException();
+            }
+
+            if (objective.VoyageIds.Count > 0)
+            {
+                if (await HasActiveLinkedVoyageAsync(objective, token).ConfigureAwait(false))
+                {
+                    _Logging.Debug(_Header + "objective " + objective.Id + " skipped: active linked voyage exists.");
+                    await EmitObjectiveEventAsync("objective_scheduler.skipped_active_voyage",
+                        "Autonomous scheduler skipped objective " + objective.Id + ": an active linked voyage already exists.",
+                        objective, null, token).ConfigureAwait(false);
+                    throw new ObjectiveSkippedException();
+                }
+
+                _Logging.Debug(_Header + "objective " + objective.Id + " skipped: linked voyages exist but reconcile has not completed.");
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_pending_reconcile",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": linked voyages exist; waiting for reconcile.",
+                    objective, null, token).ConfigureAwait(false);
+                throw new ObjectiveSkippedException();
+            }
+
             if (objective.VesselIds.Count != 1)
             {
                 _Logging.Warn(_Header + "objective " + objective.Id + " skipped: must have exactly one vessel for v1 auto-dispatch (has " + objective.VesselIds.Count + ").");
@@ -447,6 +479,23 @@ namespace Armada.Server
             return status == MergeStatusEnum.Landed
                 || status == MergeStatusEnum.Failed
                 || status == MergeStatusEnum.Cancelled;
+        }
+
+        private async Task<bool> HasActiveLinkedVoyageAsync(Objective objective, CancellationToken token)
+        {
+            foreach (string voyageId in objective.VoyageIds)
+            {
+                Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+                if (voyage != null && IsActiveVoyageStatus(voyage.Status))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsActiveVoyageStatus(VoyageStatusEnum status)
+        {
+            return status == VoyageStatusEnum.Open || status == VoyageStatusEnum.InProgress;
         }
 
         private async Task EmitSystemEventAsync(string eventType, string message, CancellationToken token)
