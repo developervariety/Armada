@@ -417,6 +417,8 @@ namespace Armada.Server
                 throw;
             }
 
+            await PersistStartedProcessIdAsync(processId, launchKey).ConfigureAwait(false);
+
             lock (_ProcessToCaptain)
             {
                 _ProcessToCaptain[processId] = captain.Id;
@@ -543,6 +545,58 @@ namespace Armada.Server
             {
                 _ProcessToCaptain[processId] = launch.CaptainId;
                 _ProcessToMission[processId] = launch.MissionId;
+            }
+
+            _ = PersistStartedProcessIdAsync(processId, launchKey);
+        }
+
+        /// <summary>
+        /// Persist a launch PID while the launch key still matches the active assignment.
+        /// </summary>
+        private async Task PersistStartedProcessIdAsync(int processId, string launchKey)
+        {
+            if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) launch))
+                return;
+
+            try
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(launch.CaptainId).ConfigureAwait(false);
+                Mission? mission = await _Database.Missions.ReadAsync(launch.MissionId).ConfigureAwait(false);
+
+                if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) currentLaunch) ||
+                    !String.Equals(currentLaunch.CaptainId, launch.CaptainId, StringComparison.Ordinal) ||
+                    !String.Equals(currentLaunch.MissionId, launch.MissionId, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                bool captainMatches = captain != null &&
+                    captain.State == CaptainStateEnum.Working &&
+                    String.Equals(captain.CurrentMissionId, launch.MissionId, StringComparison.Ordinal) &&
+                    (!captain.ProcessId.HasValue || captain.ProcessId.Value == processId);
+
+                bool missionMatches = mission != null &&
+                    String.Equals(mission.CaptainId, launch.CaptainId, StringComparison.Ordinal) &&
+                    (mission.Status == MissionStatusEnum.Assigned ||
+                     mission.Status == MissionStatusEnum.InProgress ||
+                     mission.Status == MissionStatusEnum.Review ||
+                     mission.Status == MissionStatusEnum.Testing) &&
+                    (!mission.ProcessId.HasValue || mission.ProcessId.Value == processId);
+
+                if (!captainMatches || !missionMatches)
+                    return;
+
+                captain!.ProcessId = processId;
+                await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                mission!.ProcessId = processId;
+                if (!mission.StartedUtc.HasValue)
+                    mission.StartedUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to persist launch process " + processId + " for launch " + launchKey + ": " + ex.Message);
             }
         }
 

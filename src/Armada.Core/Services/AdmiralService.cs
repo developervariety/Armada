@@ -1362,6 +1362,17 @@ namespace Armada.Core.Services
             {
                 if (isActive && mission != null)
                 {
+                    DateTime launchReferenceUtc = mission.StartedUtc ?? mission.LastUpdateUtc;
+                    TimeSpan launchAge = DateTime.UtcNow - launchReferenceUtc;
+                    TimeSpan launchGrace = TimeSpan.FromSeconds(_Settings.LaunchProcessIdGraceSeconds);
+                    if (launchAge < launchGrace)
+                    {
+                        _Logging.Debug(_Header + "captain " + captain.Id + " has active mission " + mission.Id +
+                            " without a process id inside launch grace (" + launchAge.TotalSeconds.ToString("F1") +
+                            "s of " + launchGrace.TotalSeconds.ToString("F0") + "s) - deferring missing-PID failure");
+                        return;
+                    }
+
                     string failureReason = "Captain is marked Working on active mission " + mission.Id +
                         " but no process ID is recorded; agent completion cannot be verified.";
                     _Logging.Warn(_Header + "captain " + captain.Id + " has active mission " + mission.Id +

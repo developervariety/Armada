@@ -570,6 +570,7 @@ namespace Armada.Test.Unit.Suites.Services
                     mission.VoyageId = voyage.Id;
                     mission.Status = MissionStatusEnum.InProgress;
                     mission.ProcessId = null;
+                    mission.StartedUtc = DateTime.UtcNow.AddMinutes(-1);
                     mission = await db.Missions.CreateAsync(mission);
 
                     Captain captain = new Captain("missing-pid-captain");
@@ -589,6 +590,47 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("no process ID", updatedMission.FailureReason ?? String.Empty, "Failure should explain the missing process id");
                     AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Captain should be released after the missing-PID failure");
                     AssertEqual(VoyageStatusEnum.Cancelled, updatedVoyage!.Status, "Voyage should halt after the missing-PID mission failure");
+                }
+            });
+
+            await RunTest("HealthCheckAsync FreshActiveMissionWithoutProcessId SkipsMissingPidFailure", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LaunchProcessIdGraceSeconds = 30;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Voyage voyage = new Voyage("Fresh Missing PID Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    voyage = await db.Voyages.CreateAsync(voyage);
+
+                    Mission mission = new Mission("Fresh Missing PID Mission");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = null;
+                    mission.StartedUtc = DateTime.UtcNow;
+                    mission = await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("fresh-missing-pid-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = null;
+                    await db.Captains.CreateAsync(captain);
+
+                    await service.HealthCheckAsync();
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id);
+                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id);
+                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id);
+
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.InProgress, updatedMission!.Status, "Fresh active mission without a PID should remain active inside launch grace");
+                    AssertNull(updatedMission.FailureReason, "Fresh active mission should not receive a missing-PID failure reason inside launch grace");
+                    AssertEqual(CaptainStateEnum.Working, updatedCaptain!.State, "Captain should remain working while launch PID registration is still fresh");
+                    AssertEqual(VoyageStatusEnum.InProgress, updatedVoyage!.Status, "Voyage should remain active while missing-PID grace applies");
                 }
             });
 

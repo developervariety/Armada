@@ -203,6 +203,61 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleLaunchAgentAsync persists returned process id before returning", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_cursor_pid_launch_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+
+                    try
+                    {
+                        Mission mission = new Mission("Launch PID mission")
+                        {
+                            Persona = "Worker",
+                            BranchName = "feature/pid-registration",
+                            Status = MissionStatusEnum.Assigned,
+                            AssignmentState = MissionAssignmentStateEnum.Assigned
+                        };
+
+                        Captain captain = new Captain("launch-pid-captain", AgentRuntimeEnum.Cursor)
+                        {
+                            Model = "slow-launch-model",
+                            State = CaptainStateEnum.Working,
+                            CurrentMissionId = mission.Id
+                        };
+
+                        mission.CaptainId = captain.Id;
+
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        Dock dock = new Dock
+                        {
+                            BranchName = "feature/pid-registration",
+                            WorktreePath = worktreePath
+                        };
+
+                        int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+
+                        Captain? persistedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        Mission? persistedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+
+                        AssertTrue(processId > 0, "Launch should return a process id");
+                        AssertNotNull(persistedCaptain, "Captain row should still exist");
+                        AssertNotNull(persistedMission, "Mission row should still exist");
+                        AssertEqual(processId, persistedCaptain!.ProcessId, "Captain row should have the returned process id before launch returns");
+                        AssertEqual(processId, persistedMission!.ProcessId, "Mission row should have the returned process id before launch returns");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("HandleAgentHeartbeat updates mission and voyage timestamps", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -846,6 +901,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "  ping 127.0.0.1 -n 10 >nul\r\n" +
                     "  exit /b 0\r\n" +
                     ")\r\n" +
+                    "if /I \"%MODEL%\"==\"slow-launch-model\" (\r\n" +
+                    "  ping 127.0.0.1 -n 3 >nul\r\n" +
+                    "  exit /b 0\r\n" +
+                    ")\r\n" +
                     "echo ok\r\n" +
                     "exit /b 0\r\n";
             }
@@ -870,6 +929,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "fi\n" +
                     "if [ \"$model\" = \"hang-model\" ]; then\n" +
                     "  sleep 10\n" +
+                    "  exit 0\n" +
+                    "fi\n" +
+                    "if [ \"$model\" = \"slow-launch-model\" ]; then\n" +
+                    "  sleep 2\n" +
                     "  exit 0\n" +
                     "fi\n" +
                     "printf '%s\\n' ok\n" +
