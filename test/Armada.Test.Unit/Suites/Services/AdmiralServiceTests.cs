@@ -87,6 +87,20 @@ namespace Armada.Test.Unit.Suites.Services
                     new AdmiralService(CreateLogging(), null!, null!, null!, null!, null!, null!));
             });
 
+            await RunTest("ArmadaSettings LaunchProcessIdGraceSeconds ClampsToRange", () =>
+            {
+                ArmadaSettings settings = CreateSettings();
+
+                settings.LaunchProcessIdGraceSeconds = 0;
+                AssertEqual(5, settings.LaunchProcessIdGraceSeconds, "Launch PID grace should clamp to the minimum");
+
+                settings.LaunchProcessIdGraceSeconds = 999;
+                AssertEqual(300, settings.LaunchProcessIdGraceSeconds, "Launch PID grace should clamp to the maximum");
+
+                settings.LaunchProcessIdGraceSeconds = 45;
+                AssertEqual(45, settings.LaunchProcessIdGraceSeconds, "Launch PID grace should preserve in-range values");
+            });
+
             await RunTest("GetStatusAsync EmptyDatabase ReturnsDefaults", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
