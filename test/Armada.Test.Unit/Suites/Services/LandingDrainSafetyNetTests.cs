@@ -399,6 +399,148 @@ namespace Armada.Test.Unit.Suites.Services
                     git.DiffCalls.Contains(vessel.WorkingDirectory!),
                     "Without a dock worktree, diff must fall back to vessel WorkingDirectory.");
             }).ConfigureAwait(false);
+
+            await RunTest("TryLoadSafetyNetDiff_DockRowMissing_FallsBackToVesselPath", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // DockId points at a row that does not exist (dock pruned/deleted). ReadAsync returns
+                // null, so the resolver must fall back to the vessel working directory rather than
+                // diffing a null/empty path.
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Worker mission",
+                    BranchName = "armada/worker-missing-dock",
+                    DockId = "dck_does_not_exist",
+                    Status = MissionStatusEnum.WorkProduced,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                StubGitService git = new StubGitService { DiffResult = "+++ b/src/A.cs\n+line1\n" };
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
+                AssertTrue(
+                    git.DiffCalls.Contains(vessel.WorkingDirectory!),
+                    "A missing dock row must fall back to the vessel WorkingDirectory.");
+            }).ConfigureAwait(false);
+
+            await RunTest("TryLoadSafetyNetDiff_DockWorktreePathEmpty_FallsBackToVesselPath", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // Dock row exists but has no worktree path (e.g. worktree already removed). The
+                // resolver must treat a whitespace WorktreePath as "no worktree" and fall back.
+                Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    WorktreePath = "   ",
+                    BranchName = "armada/worker-empty-worktree",
+                    Active = true
+                }).ConfigureAwait(false);
+
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Worker mission",
+                    BranchName = "armada/worker-empty-worktree",
+                    DockId = dock.Id,
+                    Status = MissionStatusEnum.WorkProduced,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                StubGitService git = new StubGitService { DiffResult = "+++ b/src/A.cs\n+line1\n" };
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
+                AssertTrue(
+                    git.DiffCalls.Contains(vessel.WorkingDirectory!),
+                    "An empty dock worktree path must fall back to the vessel WorkingDirectory.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_DiffUnavailableEmpty_FlagsForReview", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                vessel.AutoLandPredicate = "{\"enabled\":true,\"maxFiles\":10}";
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-empty-diff", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                // An empty diff is exactly the pre-fix failure mode (main-checkout diff was always
+                // empty). The safe direction is flag-for-review, never silent auto-land.
+                StubGitService git = new StubGitService { DiffResult = "" };
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
+                AssertEqual(
+                    SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview,
+                    mergeQueue.LastOutcome,
+                    "An empty/unavailable diff must flag for review, not auto-land.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_DiffLoadThrows_FlagsForReviewAndContinues", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                vessel.AutoLandPredicate = "{\"enabled\":true,\"maxFiles\":10}";
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-diff-throws", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                // When the diff genuinely cannot be loaded (git throws), TryLoadSafetyNetDiffAsync must
+                // swallow the exception and return null so the sweep keeps running, and the null diff
+                // must still drive the safe-direction flag-for-review (work is enqueued, not lost).
+                StubGitService git = new StubGitService { ShouldThrowOnDiff = true };
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "A diff-load failure must not lose the branch; it should still enqueue.");
+                AssertEqual(
+                    SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview,
+                    mergeQueue.LastOutcome,
+                    "A diff that cannot be loaded must flag for review, not auto-land.");
+            }).ConfigureAwait(false);
         }
 
         #region Helpers
@@ -486,12 +628,25 @@ namespace Armada.Test.Unit.Suites.Services
                 string? detail = null;
                 if (predicate is { Enabled: true })
                 {
-                    EvaluationResult result = autoLandEvaluator.Evaluate(unifiedDiff ?? String.Empty, predicate);
-                    if (result is EvaluationResult.Fail fail)
+                    // Mirror MergeQueueService.TrySafetyNetEnqueueAsync: a null/empty diff means the
+                    // delta could not be loaded, so take the safe direction and flag for review rather
+                    // than auto-landing an unknown-size branch. Only a loadable, in-cap diff auto-lands.
+                    string diff = unifiedDiff ?? String.Empty;
+                    if (String.IsNullOrWhiteSpace(diff))
                     {
                         outcome = SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview;
-                        detail = fail.Reason;
+                        detail = "diff unavailable for auto-land predicate";
                         entry.AuditDeepPicked = true;
+                    }
+                    else
+                    {
+                        EvaluationResult result = autoLandEvaluator.Evaluate(diff, predicate);
+                        if (result is EvaluationResult.Fail fail)
+                        {
+                            outcome = SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview;
+                            detail = fail.Reason;
+                            entry.AuditDeepPicked = true;
+                        }
                     }
                 }
 
