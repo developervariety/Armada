@@ -137,5 +137,32 @@ namespace Armada.Core.Services.Interfaces
         /// <returns>True when a PR was opened (the entry was transitioned to
         /// PullRequestOpen), false otherwise.</returns>
         Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default);
+
+        /// <summary>
+        /// Whether the mission already has a non-terminal merge queue entry.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enqueue a judge-passed WorkProduced branch from the landing-drain safety net.
+        /// Applies auto-land predicate evaluation and audit gates when configured.
+        /// </summary>
+        /// <param name="mission">Land-ready mission (must carry BranchName).</param>
+        /// <param name="vessel">Owning vessel.</param>
+        /// <param name="unifiedDiff">Optional diff against the target branch for predicate evaluation.</param>
+        /// <param name="autoLandEvaluator">Auto-land predicate evaluator.</param>
+        /// <param name="conventionChecker">Convention checker for the audit safety net.</param>
+        /// <param name="criticalTriggerEvaluator">Critical-trigger evaluator for the audit safety net.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<SafetyNetEnqueueResult> TrySafetyNetEnqueueAsync(
+            Mission mission,
+            Vessel vessel,
+            string? unifiedDiff,
+            IAutoLandEvaluator autoLandEvaluator,
+            IConventionChecker conventionChecker,
+            ICriticalTriggerEvaluator criticalTriggerEvaluator,
+            CancellationToken token = default);
     }
 }
