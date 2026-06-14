@@ -514,20 +514,118 @@ namespace Armada.Server
         private async Task<Mission> DispatchRescueMissionAsync(Mission failedMission, Incident incident, CancellationToken token)
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
+            string rescuePersona = ResolveRescuePersona(failedMission.Persona);
             Mission rescue = new Mission
             {
                 TenantId = failedMission.TenantId,
                 UserId = failedMission.UserId,
                 VesselId = failedMission.VesselId,
                 ParentMissionId = failedMission.Id,
-                Persona = ResolveRescuePersona(failedMission.Persona),
+                Persona = rescuePersona,
                 PreferredModel = failedMission.PreferredModel,
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
-                Description = BuildRescueDescription(failedMission, incident, attemptNumber)
+                Description = BuildRescueDescription(failedMission, incident, attemptNumber),
+                // Carry the recovery budget forward onto the rescue itself. A rescue stage that
+                // fails again is picked up by the sweep with RecoveryAttempts already at the
+                // attempt count, so Classify blocks further rescues once the budget is spent and
+                // the bounded revise->retest->rejudge loop terminates instead of recursing.
+                RecoveryAttempts = attemptNumber
             };
 
-            return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
+            // A reviewer rejection (for example a Judge NEEDS_REVISION) is recovered by a Worker
+            // revision. That revision must be re-verified before it lands rather than landing with
+            // no review. Chain a re-Judge (and re-TestEngineer where the vessel pipeline defines
+            // one) onto the revision so the revised branch is re-reviewed first.
+            bool chainReReview = IsReviewerPersona(failedMission.Persona)
+                && String.Equals(rescuePersona, "Worker", StringComparison.Ordinal);
+
+            if (!chainReReview)
+                return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
+
+            return await DispatchRescueReviewLoopAsync(failedMission, rescue, attemptNumber, token).ConfigureAwait(false);
+        }
+
+        // Dispatch the Worker revision rescue as the root of a dedicated rescue voyage, then chain
+        // the verification stages onto it via DependsOnMissionId. The standard pipeline handoff
+        // (MissionService) stamps each downstream stage with the revision branch and assigns it
+        // once the prior stage produces work, so the re-Judge reviews exactly the branch the
+        // revision lands on. Branch choice: the revision runs on a fresh captain branch (the
+        // existing root-mission behavior; revising in place on the original branch would require
+        // checkout-existing-branch support in dock provisioning, which is out of scope here), and
+        // the re-Judge inherits that branch through handoff -- so the re-judge always targets the
+        // branch the revision actually lands on.
+        private async Task<Mission> DispatchRescueReviewLoopAsync(Mission failedMission, Mission workerRescue, int attemptNumber, CancellationToken token)
+        {
+            Voyage rescueVoyage = await _Database.Voyages.CreateAsync(new Voyage(
+                "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 80),
+                "Autonomous revise/retest/rejudge loop for failed mission " + failedMission.Id + ".")
+            {
+                TenantId = failedMission.TenantId,
+                UserId = failedMission.UserId,
+                Status = VoyageStatusEnum.InProgress
+            }, token).ConfigureAwait(false);
+
+            workerRescue.VoyageId = rescueVoyage.Id;
+            Mission dispatchedWorker = await _Admiral.DispatchMissionAsync(workerRescue, token).ConfigureAwait(false);
+
+            string upstreamMissionId = dispatchedWorker.Id;
+
+            if (await VesselPipelineHasTestEngineerAsync(failedMission, token).ConfigureAwait(false))
+            {
+                Mission testStage = await _Database.Missions.CreateAsync(
+                    BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "TestEngineer", attemptNumber),
+                    token).ConfigureAwait(false);
+                upstreamMissionId = testStage.Id;
+            }
+
+            await _Database.Missions.CreateAsync(
+                BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "Judge", attemptNumber),
+                token).ConfigureAwait(false);
+
+            return dispatchedWorker;
+        }
+
+        // Build a downstream verification stage (TestEngineer / Judge) for the rescue loop. The
+        // stage carries the auto-rescue marker (so it is recognised as rescue work) and the
+        // recovery budget, but no ParentMissionId -- it is a pipeline dependent of the Worker
+        // rescue (via DependsOnMissionId), not a direct rescue of the original failure, so it does
+        // not inflate the original failure's rescue accounting. The persona preamble and prior-
+        // stage diff are injected by the standard MissionService handoff when the upstream stage
+        // completes.
+        private Mission BuildChainedRescueStage(Mission failedMission, string voyageId, string dependsOnMissionId, string persona, int attemptNumber)
+        {
+            return new Mission
+            {
+                TenantId = failedMission.TenantId,
+                UserId = failedMission.UserId,
+                VesselId = failedMission.VesselId,
+                VoyageId = voyageId,
+                DependsOnMissionId = dependsOnMissionId,
+                Persona = persona,
+                PreferredModel = failedMission.PreferredModel,
+                Priority = Math.Max(0, failedMission.Priority - 10),
+                Status = MissionStatusEnum.Pending,
+                RecoveryAttempts = attemptNumber,
+                Title = "Rescue " + attemptNumber + " " + persona + ": " + Truncate(failedMission.Title, 90),
+                Description = _RescueMarker + Environment.NewLine +
+                    "Re-verification stage for the autonomous revision rescue of failed mission " + failedMission.Id + "." + Environment.NewLine +
+                    "Confirm the revised branch resolves the original reviewer feedback before it lands."
+            };
+        }
+
+        private async Task<bool> VesselPipelineHasTestEngineerAsync(Mission failedMission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(failedMission.VesselId)) return false;
+
+            Vessel? vessel = await _Database.Vessels.ReadAsync(failedMission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return false;
+
+            Pipeline? pipeline = await _Admiral.ResolvePipelineAsync(null, vessel, token).ConfigureAwait(false);
+            if (pipeline == null) return false;
+
+            return pipeline.Stages.Any(stage =>
+                String.Equals(stage.PersonaName, "TestEngineer", StringComparison.OrdinalIgnoreCase));
         }
 
         private async Task<bool> IsAlreadyHandledAsync(Mission failedMission, CancellationToken token)
@@ -744,32 +842,40 @@ namespace Armada.Server
             return sb.ToString();
         }
 
+        private static readonly string[] _ReviewerPersonas =
+        {
+            "judge",
+            "testengineer",
+            "usabilityengineer",
+            "diagnosticprotocolreviewer",
+            "tenantsecurityreviewer",
+            "migrationdatareviewer",
+            "performancememoryreviewer",
+            "portingreferenceanalyst",
+            "frontendworkflowreviewer"
+        };
+
         private static string ResolveRescuePersona(string? failedPersona)
         {
-            if (String.IsNullOrWhiteSpace(failedPersona)) return "Worker";
+            if (IsReviewerPersona(failedPersona)) return "Worker";
+            return String.IsNullOrWhiteSpace(failedPersona) ? "Worker" : failedPersona.Trim();
+        }
 
-            string normalized = failedPersona.Trim().ToLowerInvariant().Replace(" ", "");
-            string[] reviewerPersonas =
-            {
-                "judge",
-                "testengineer",
-                "usabilityengineer",
-                "diagnosticprotocolreviewer",
-                "tenantsecurityreviewer",
-                "migrationdatareviewer",
-                "performancememoryreviewer",
-                "portingreferenceanalyst",
-                "frontendworkflowreviewer"
-            };
+        /// <summary>
+        /// Whether a failed mission's persona is a reviewer/judge persona. A reviewer rejection
+        /// (for example a Judge NEEDS_REVISION) is recovered by a Worker revision, and that
+        /// revision must be re-reviewed before it lands rather than landing un-judged.
+        /// </summary>
+        private static bool IsReviewerPersona(string? persona)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return false;
 
-            if (reviewerPersonas.Any(item => String.Equals(item, normalized, StringComparison.Ordinal)))
-                return "Worker";
+            string normalized = persona.Trim().ToLowerInvariant().Replace(" ", "");
+            if (_ReviewerPersonas.Any(item => String.Equals(item, normalized, StringComparison.Ordinal)))
+                return true;
 
-            if (normalized.EndsWith("reviewer", StringComparison.Ordinal)
-                || normalized.EndsWith("analyst", StringComparison.Ordinal))
-                return "Worker";
-
-            return failedPersona.Trim();
+            return normalized.EndsWith("reviewer", StringComparison.Ordinal)
+                || normalized.EndsWith("analyst", StringComparison.Ordinal);
         }
 
         private static string AppendNote(string? existing, string note)

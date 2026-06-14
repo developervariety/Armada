@@ -78,6 +78,55 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(body!.Contains("one item"));
                 return Task.CompletedTask;
             });
+
+            // ReviewComment population pin: a Judge that does not pass stores its written review as
+            // ReviewComment (not only the one-line FailureReason) so autonomous recovery can inline
+            // concrete reviewer feedback into the Worker rescue brief.
+            await RunTest("BuildJudgeReviewComment_PrefersWrittenReviewOverFailureReason", () =>
+            {
+                string review = "## Tests\nMissing negative-path coverage.\n\n## Verdict\nNEEDS_REVISION";
+                string? comment = InvokeBuildJudgeReviewComment(review, "Judge verdict: NEEDS_REVISION");
+                AssertNotNull(comment);
+                AssertTrue(comment!.Contains("Missing negative-path coverage"), "The review body should be preserved: " + comment);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("BuildJudgeReviewComment_FallsBackToFailureReasonWhenNoOutput", () =>
+            {
+                string? comment = InvokeBuildJudgeReviewComment(null, "Judge verdict: FAIL");
+                AssertNotNull(comment);
+                AssertTrue(comment!.Contains("Judge verdict: FAIL"), "Should fall back to the failure reason: " + comment);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("BuildJudgeReviewComment_AlwaysNonEmptyEvenWithNoFeedback", () =>
+            {
+                string? comment = InvokeBuildJudgeReviewComment("   ", null);
+                AssertNotNull(comment);
+                AssertFalse(String.IsNullOrWhiteSpace(comment), "ReviewComment must never be blank so the rescue feedback block is non-empty.");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("BuildJudgeReviewComment_TruncatesOverlongReview", () =>
+            {
+                string huge = new String('x', 9000);
+                string? comment = InvokeBuildJudgeReviewComment(huge, "Judge verdict: NEEDS_REVISION");
+                AssertNotNull(comment);
+                AssertTrue(comment!.Length < 9000, "An overlong review should be truncated to bound the rescue brief: " + comment!.Length);
+                AssertTrue(comment.Contains("truncated"), "Truncation should be marked: " + comment.Substring(Math.Max(0, comment.Length - 40)));
+                return Task.CompletedTask;
+            });
+        }
+
+        /// <summary>
+        /// Invoke the private static MissionService.BuildJudgeReviewComment via reflection.
+        /// </summary>
+        private static string? InvokeBuildJudgeReviewComment(string? agentOutput, string? failureReason)
+        {
+            Assembly asm = typeof(Mission).Assembly;
+            Type t = asm.GetType("Armada.Core.Services.MissionService")!;
+            MethodInfo mi = t.GetMethod("BuildJudgeReviewComment", BindingFlags.NonPublic | BindingFlags.Static)!;
+            return (string?)mi.Invoke(null, new object?[] { agentOutput, failureReason });
         }
 
         /// <summary>
