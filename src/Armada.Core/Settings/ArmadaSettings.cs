@@ -125,6 +125,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Grace window in seconds for freshly launched active missions whose process ID
+        /// has not yet been durably recorded. Clamped to [5, 300].
+        /// </summary>
+        public int LaunchProcessIdGraceSeconds
+        {
+            get => _LaunchProcessIdGraceSeconds;
+            set => _LaunchProcessIdGraceSeconds = Math.Max(5, Math.Min(300, value));
+        }
+
+        /// <summary>
         /// Stall detection threshold in minutes. Must be >= 1.
         /// </summary>
         public int StallThresholdMinutes
@@ -959,6 +969,7 @@ namespace Armada.Core.Settings
         private int _AdmiralPort = Constants.DefaultAdmiralPort;
         private int _McpPort = Constants.DefaultMcpPort;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
+        private int _LaunchProcessIdGraceSeconds = 30;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _StageWatchdogTimeoutMinutes = 30;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;

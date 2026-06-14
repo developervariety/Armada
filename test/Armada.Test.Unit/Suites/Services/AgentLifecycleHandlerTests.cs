@@ -203,6 +203,99 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleLaunchAgentAsync persists returned process id before returning", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_cursor_pid_launch_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+
+                    try
+                    {
+                        Mission mission = new Mission("Launch PID mission")
+                        {
+                            Persona = "Worker",
+                            BranchName = "feature/pid-registration",
+                            Status = MissionStatusEnum.Assigned,
+                            AssignmentState = MissionAssignmentStateEnum.Assigned
+                        };
+
+                        Captain captain = new Captain("launch-pid-captain", AgentRuntimeEnum.Cursor)
+                        {
+                            Model = "slow-launch-model",
+                            State = CaptainStateEnum.Working,
+                            CurrentMissionId = mission.Id
+                        };
+
+                        mission.CaptainId = captain.Id;
+
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        Dock dock = new Dock
+                        {
+                            BranchName = "feature/pid-registration",
+                            WorktreePath = worktreePath
+                        };
+
+                        int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+
+                        Captain? persistedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        Mission? persistedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+
+                        AssertTrue(processId > 0, "Launch should return a process id");
+                        AssertNotNull(persistedCaptain, "Captain row should still exist");
+                        AssertNotNull(persistedMission, "Mission row should still exist");
+                        AssertEqual(processId, persistedCaptain!.ProcessId, "Captain row should have the returned process id before launch returns");
+                        AssertEqual(processId, persistedMission!.ProcessId, "Mission row should have the returned process id before launch returns");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("PersistStartedProcessIdAsync ExistingDifferentMissionProcessId LeavesRowsUnchanged", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Mission mission = new Mission("Existing PID mission")
+                    {
+                        Status = MissionStatusEnum.InProgress,
+                        ProcessId = 111111
+                    };
+
+                    Captain captain = new Captain("existing-pid-captain", AgentRuntimeEnum.Cursor)
+                    {
+                        State = CaptainStateEnum.Working,
+                        CurrentMissionId = mission.Id,
+                        ProcessId = null
+                    };
+
+                    mission.CaptainId = captain.Id;
+
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    string launchKey = captain.Id + ":" + mission.Id;
+                    RegisterPendingLaunch(handler, launchKey, captain.Id, mission.Id);
+                    await InvokePersistStartedProcessIdAsync(handler, 222222, launchKey).ConfigureAwait(false);
+
+                    Captain? persistedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    Mission? persistedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+
+                    AssertNotNull(persistedCaptain, "Captain row should still exist");
+                    AssertNotNull(persistedMission, "Mission row should still exist");
+                    AssertNull(persistedCaptain!.ProcessId, "Persistence must not record a new PID when the mission already has a different PID");
+                    AssertEqual(111111, persistedMission!.ProcessId, "Persistence must not overwrite an existing different mission PID");
+                    AssertNull(persistedMission.StartedUtc, "Rejected PID persistence should not mark the mission started");
+                }
+            });
+
             await RunTest("HandleAgentHeartbeat updates mission and voyage timestamps", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -577,6 +670,32 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        private static void RegisterPendingLaunch(AgentLifecycleHandler handler, string launchKey, string captainId, string missionId)
+        {
+            FieldInfo launchesField = typeof(AgentLifecycleHandler).GetField("_PendingLaunches", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find _PendingLaunches field");
+
+            object launches = launchesField.GetValue(handler)
+                ?? throw new InvalidOperationException("Pending launches map was null");
+            Type launchValueType = launches.GetType().GetGenericArguments()[1];
+            object launchValue = Activator.CreateInstance(launchValueType, captainId, missionId)
+                ?? throw new InvalidOperationException("Pending launch value could not be created");
+            MethodInfo setItem = launches.GetType().GetProperty("Item")?.SetMethod
+                ?? throw new InvalidOperationException("Could not find pending launch indexer");
+
+            setItem.Invoke(launches, new object[] { launchKey, launchValue });
+        }
+
+        private static async Task InvokePersistStartedProcessIdAsync(AgentLifecycleHandler handler, int processId, string launchKey)
+        {
+            MethodInfo method = typeof(AgentLifecycleHandler).GetMethod("PersistStartedProcessIdAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find PersistStartedProcessIdAsync method");
+            Task task = (Task)(method.Invoke(handler, new object[] { processId, launchKey })
+                ?? throw new InvalidOperationException("PersistStartedProcessIdAsync did not return a task"));
+
+            await task.ConfigureAwait(false);
+        }
+
         private static void SeedMissionOutput(AgentLifecycleHandler handler, string missionId, string output)
         {
             FieldInfo outputField = typeof(AgentLifecycleHandler).GetField("_MissionOutput", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -846,6 +965,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "  ping 127.0.0.1 -n 10 >nul\r\n" +
                     "  exit /b 0\r\n" +
                     ")\r\n" +
+                    "if /I \"%MODEL%\"==\"slow-launch-model\" (\r\n" +
+                    "  ping 127.0.0.1 -n 3 >nul\r\n" +
+                    "  exit /b 0\r\n" +
+                    ")\r\n" +
                     "echo ok\r\n" +
                     "exit /b 0\r\n";
             }
@@ -870,6 +993,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "fi\n" +
                     "if [ \"$model\" = \"hang-model\" ]; then\n" +
                     "  sleep 10\n" +
+                    "  exit 0\n" +
+                    "fi\n" +
+                    "if [ \"$model\" = \"slow-launch-model\" ]; then\n" +
+                    "  sleep 2\n" +
                     "  exit 0\n" +
                     "fi\n" +
                     "printf '%s\\n' ok\n" +
