@@ -946,6 +946,400 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, suspects.Count, "Case and whitespace differences must not hide a no-op rescue.");
                 AssertEqual(suspect.Id, suspects[0].Id, "The flagged suspect should be the case-folded match.");
             }).ConfigureAwait(false);
+
+            await RunTest("Sweep excludes auto-rescue candidate with ParentMissionId set", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_rescue_excl", "usr_sweep_rescue_excl").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_rescue_excl", "usr_sweep_rescue_excl").ConfigureAwait(false);
+
+                // Plain failed mission -- the one that spawned the rescue; should still be processed.
+                Mission originalFailed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+
+                // Auto-rescue child: has ParentMissionId set (the marker used by the sweep exclusion),
+                // and also carries the rescue description marker so Classify would block it.
+                Mission rescueFailed = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    ParentMissionId = originalFailed.Id,
+                    Title = "Rescue 1: Failed mission",
+                    Description = "<!-- ARMADA:AUTO-RESCUE -->\nAutonomous rescue attempt 1 for failed mission " + originalFailed.Id + ".",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "Agent process exited with code 1",
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-2),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-2)
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                // The auto-rescue must be excluded from sweep processing.
+                Mission? rescueAfter = await testDb.Driver.Missions.ReadAsync(rescueFailed.Id).ConfigureAwait(false);
+                AssertFalse(rescueAfter!.LastRecoveryActionUtc.HasValue, "Auto-rescue with ParentMissionId must be excluded from sweep processing.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_sweep_rescue_excl", "usr_sweep_rescue_excl", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = rescueFailed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(0, incidentPage.Objects.Count, "No incident must be created for the excluded auto-rescue.");
+
+                // The original failed mission (no ParentMissionId) must still be processed.
+                Mission? originalAfter = await testDb.Driver.Missions.ReadAsync(originalFailed.Id).ConfigureAwait(false);
+                AssertTrue(originalAfter!.LastRecoveryActionUtc.HasValue, "Original failed mission without ParentMissionId must still be processed by the sweep.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Sweep excludes voyage-less failed mission older than max age setting", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_aged_excl", "usr_sweep_aged_excl").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_aged_excl", "usr_sweep_aged_excl").ConfigureAwait(false);
+
+                // Voyage-less mission older than the configured max age.
+                Mission agedFailed = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Aged voyage-less failure",
+                    Description = "Old non-rescue voyage-less failure",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "Agent process exited with code 1",
+                    CompletedUtc = DateTime.UtcNow.AddHours(-3),
+                    LastUpdateUtc = DateTime.UtcNow.AddHours(-3)
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousRecovery = new AutonomousRecoverySettings
+                    {
+                        RecoverySweepMaxFailedMissionAgeHours = 1
+                    }
+                };
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "Aged voyage-less failed mission must not be processed by the sweep.");
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(agedFailed.Id).ConfigureAwait(false);
+                AssertFalse(after!.LastRecoveryActionUtc.HasValue, "Aged voyage-less candidate must be excluded from sweep selection.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Sweep excludes a Failed-voyage failed candidate before policy application", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_failed_vyg", "usr_sweep_failed_vyg").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_failed_vyg", "usr_sweep_failed_vyg").ConfigureAwait(false);
+
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+
+                Mission failedVoyageMission = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failedVoyageMission.VoyageId = failedVoyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(failedVoyageMission).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "Failed-voyage failures must not be processed by the sweep.");
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(failedVoyageMission.Id).ConfigureAwait(false);
+                AssertFalse(after!.LastRecoveryActionUtc.HasValue, "Failed-voyage candidate must be excluded before policy application.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_sweep_failed_vyg", "usr_sweep_failed_vyg", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failedVoyageMission.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(0, incidentPage.Objects.Count, "Excluded Failed-voyage candidate must not open an incident.");
+            }).ConfigureAwait(false);
+
+            await RunTest("PolicyBlock skips incident and closes existing for rescue_produced_no_commits auto-rescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_no_commits", "usr_rescue_no_commits").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_no_commits", "usr_rescue_no_commits").ConfigureAwait(false);
+
+                Mission originalFailed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+
+                // Auto-rescue mission deliberately failed with rescue_produced_no_commits.
+                Mission noOpRescue = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    ParentMissionId = originalFailed.Id,
+                    Title = "Rescue 1: Failed mission",
+                    Description = "<!-- ARMADA:AUTO-RESCUE -->\nAutonomous rescue attempt 1 for failed mission " + originalFailed.Id + ".",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "rescue_produced_no_commits",
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-2),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-2)
+                }).ConfigureAwait(false);
+
+                // Pre-seed an open incident that the guard must close.
+                AuthContext auth = AuthContext.Authenticated("ten_rescue_no_commits", "usr_rescue_no_commits", false, true, "UnitTest");
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                Incident existingIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Pre-existing incident for rescue",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    MissionId = noOpRescue.Id
+                }).ConfigureAwait(false);
+
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(noOpRescue, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "No rescue must be dispatched for a rescue_produced_no_commits auto-rescue.");
+
+                // The pre-existing incident must be closed.
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = noOpRescue.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertTrue(incidentPage.Objects.All(item => item.Status == IncidentStatusEnum.Closed),
+                    "Existing open incident for rescue_produced_no_commits must be closed by the guard.");
+
+                // Policy must be marked blocked so subsequent sweeps short-circuit via IsAlreadyHandledAsync.
+                Mission? rescueAfter = await testDb.Driver.Missions.ReadAsync(noOpRescue.Id).ConfigureAwait(false);
+                AssertTrue(rescueAfter!.LastRecoveryActionUtc.HasValue, "Policy-blocked marker must be set to prevent repeated processing.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Sweep still processes a recent voyage-less non-rescue failure despite age setting", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_recent_ok", "usr_sweep_recent_ok").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_recent_ok", "usr_sweep_recent_ok").ConfigureAwait(false);
+
+                // Recent voyage-less failure: within the age window, no ParentMissionId. Must be processed.
+                Mission recentFailed = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Recent recoverable failure",
+                    Description = "Plain mission that failed recently",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "Agent process exited with code 1",
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-30),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-30)
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousRecovery = new AutonomousRecoverySettings
+                    {
+                        RecoverySweepMaxFailedMissionAgeHours = 2
+                    }
+                };
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A recent voyage-less non-rescue failure must still be processed by the sweep.");
+                AssertEqual(recentFailed.Id, admiral.DispatchedMissions[0].ParentMissionId, "The dispatched rescue must target the recent failure.");
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(recentFailed.Id).ConfigureAwait(false);
+                AssertTrue(after!.LastRecoveryActionUtc.HasValue, "Recent voyage-less failure must be marked processed.");
+            }).ConfigureAwait(false);
+
+            // Pins the house-style clamp on the new age-gate setting: the getter must default
+            // to 6, clamp negatives up to 0 (the documented gate-disabled sentinel), clamp
+            // above the 168-hour (7-day) ceiling, and preserve in-range values verbatim.
+            await RunTest("RecoverySweepMaxFailedMissionAgeHours clamps to [0,168] and defaults to 6", () =>
+            {
+                AutonomousRecoverySettings settings = new AutonomousRecoverySettings();
+                AssertEqual(6, settings.RecoverySweepMaxFailedMissionAgeHours, "Default age gate must be 6 hours.");
+
+                settings.RecoverySweepMaxFailedMissionAgeHours = -5;
+                AssertEqual(0, settings.RecoverySweepMaxFailedMissionAgeHours, "A negative age must clamp up to 0 (gate disabled).");
+
+                settings.RecoverySweepMaxFailedMissionAgeHours = 1000;
+                AssertEqual(168, settings.RecoverySweepMaxFailedMissionAgeHours, "An out-of-range age must clamp down to the 168-hour ceiling.");
+
+                settings.RecoverySweepMaxFailedMissionAgeHours = 0;
+                AssertEqual(0, settings.RecoverySweepMaxFailedMissionAgeHours, "Zero must be accepted as the gate-disabled sentinel.");
+
+                settings.RecoverySweepMaxFailedMissionAgeHours = 24;
+                AssertEqual(24, settings.RecoverySweepMaxFailedMissionAgeHours, "An in-range value must be preserved verbatim.");
+            }).ConfigureAwait(false);
+
+            // No over-exclusion when the age gate is disabled (= 0): a voyage-less failure older
+            // than any positive window must STILL be processed, exercising the > 0 false branch
+            // of the sweep's age guard.
+            await RunTest("Sweep processes aged voyage-less failure when age gate is disabled", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_gate_off", "usr_sweep_gate_off").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_gate_off", "usr_sweep_gate_off").ConfigureAwait(false);
+
+                // Voyage-less failure 10 hours old -- older than the default 6h window, but the
+                // gate is disabled so age must not exclude it.
+                Mission agedFailed = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Aged voyage-less failure, gate disabled",
+                    Description = "Old non-rescue voyage-less failure",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "Agent process exited with code 1",
+                    CompletedUtc = DateTime.UtcNow.AddHours(-10),
+                    LastUpdateUtc = DateTime.UtcNow.AddHours(-10)
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousRecovery = new AutonomousRecoverySettings
+                    {
+                        RecoverySweepMaxFailedMissionAgeHours = 0
+                    }
+                };
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A disabled age gate must not exclude an aged voyage-less failure.");
+                AssertEqual(agedFailed.Id, admiral.DispatchedMissions[0].ParentMissionId, "The dispatched rescue must target the aged failure.");
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(agedFailed.Id).ConfigureAwait(false);
+                AssertTrue(after!.LastRecoveryActionUtc.HasValue, "Aged voyage-less failure must be processed when the gate is disabled.");
+            }).ConfigureAwait(false);
+
+            // Age fallback: when CompletedUtc is absent the sweep measures age by LastUpdateUtc
+            // (the CompletedUtc ?? LastUpdateUtc branch). The persistence layer always stamps
+            // LastUpdateUtc to "now" on write, so a null-CompletedUtc Failed candidate is treated
+            // as fresh and must be processed -- the coalesce must not throw or mis-read null as old.
+            await RunTest("Sweep age gate falls back to LastUpdateUtc when CompletedUtc is null", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_nocompleted", "usr_sweep_nocompleted").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_nocompleted", "usr_sweep_nocompleted").ConfigureAwait(false);
+
+                // CompletedUtc deliberately left null; the age guard must coalesce to LastUpdateUtc
+                // (stamped to now by the driver), keeping this fresh candidate eligible.
+                Mission noCompleted = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Voyage-less failure without CompletedUtc",
+                    Description = "Non-rescue voyage-less failure, no completion timestamp",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "Agent process exited with code 1"
+                }).ConfigureAwait(false);
+                AssertFalse(noCompleted.CompletedUtc.HasValue, "Pre-condition: the candidate must have no CompletedUtc.");
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousRecovery = new AutonomousRecoverySettings
+                    {
+                        RecoverySweepMaxFailedMissionAgeHours = 1
+                    }
+                };
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A null-CompletedUtc candidate must coalesce to a fresh LastUpdateUtc and still be processed.");
+                AssertEqual(noCompleted.Id, admiral.DispatchedMissions[0].ParentMissionId, "The dispatched rescue must target the null-CompletedUtc failure.");
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(noCompleted.Id).ConfigureAwait(false);
+                AssertTrue(after!.LastRecoveryActionUtc.HasValue, "Age fallback to LastUpdateUtc must keep the fresh candidate eligible.");
+            }).ConfigureAwait(false);
+
+            // No over-suppression: the incident-suppression guard is gated on IsAutoRescueMission.
+            // A plain (non-rescue) mission whose FailureReason coincidentally equals
+            // "rescue_produced_no_commits" must NOT be suppressed -- it still recovers normally.
+            await RunTest("Sweep still recovers a non-rescue mission whose reason is rescue_produced_no_commits", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_nocommits_plain", "usr_sweep_nocommits_plain").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_nocommits_plain", "usr_sweep_nocommits_plain").ConfigureAwait(false);
+
+                // Plain mission: no auto-rescue marker, no "Rescue:" title, no ParentMissionId.
+                // The no-commits reason alone must not trip the auto-rescue suppression guard.
+                Mission plainFailed = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Ordinary failed mission",
+                    Description = "Not an autonomous rescue, just an ordinary failure.",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "rescue_produced_no_commits",
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A non-rescue mission must recover normally regardless of the coincidental reason string.");
+                AssertEqual(plainFailed.Id, admiral.DispatchedMissions[0].ParentMissionId, "The dispatched rescue must target the ordinary failure.");
+
+                // The suppression guard (which closes incidents) must NOT have fired; a normal
+                // recovery incident must exist for the non-rescue failure.
+                AuthContext auth = AuthContext.Authenticated("ten_sweep_nocommits_plain", "usr_sweep_nocommits_plain", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = plainFailed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "A non-rescue failure must still open a recovery incident (no over-suppression).");
+            }).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(

@@ -79,11 +79,23 @@ namespace Armada.Core.Settings
             set => _LandingDrainMaxVoyagesPerSweep = Math.Max(1, Math.Min(50, value));
         }
 
+        /// <summary>
+        /// Voyage-less failed missions whose CompletedUtc (or LastUpdateUtc when CompletedUtc is absent)
+        /// is older than this many hours are excluded from the recovery sweep. Set to 0 to disable the
+        /// age gate and process all voyage-less failures within the FailedMissionLookbackHours window.
+        /// </summary>
+        public int RecoverySweepMaxFailedMissionAgeHours
+        {
+            get => _RecoverySweepMaxFailedMissionAgeHours;
+            set => _RecoverySweepMaxFailedMissionAgeHours = Math.Max(0, Math.Min(168, value));
+        }
+
         private int _MaxMissionRecoveryAttempts = 1;
         private int _FailedMissionLookbackHours = 24;
         private int _StallMailNudgeCooldownMinutes = 15;
         private double _StallMailNudgeThresholdRatio = 0.5;
         private int _StuckOpenVoyageMinutes = 30;
         private int _LandingDrainMaxVoyagesPerSweep = 10;
+        private int _RecoverySweepMaxFailedMissionAgeHours = 6;
     }
 }

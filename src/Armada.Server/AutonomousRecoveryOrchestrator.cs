@@ -174,6 +174,26 @@ namespace Armada.Server
                 if (await IsTerminalVoyageAsync(candidate.VoyageId, terminalVoyageCache, token).ConfigureAwait(false))
                     continue;
 
+                // Exclude auto-rescue missions: they can never be rescued again (Classify returns
+                // Blocked for any auto-rescue). Processing them only re-opens a High incident on
+                // every sweep tick, generating repeated operator toil with no recovery value.
+                // ParentMissionId is set exclusively by rescue dispatch and is present on the
+                // lightweight summary, avoiding a full description load at this stage.
+                if (!String.IsNullOrWhiteSpace(candidate.ParentMissionId))
+                    continue;
+
+                // Voyage-less failures older than the configured window are unlikely to need
+                // autonomous recovery and sweeping them indefinitely generates stale incidents.
+                // Age is measured by CompletedUtc when available, LastUpdateUtc otherwise.
+                if (String.IsNullOrWhiteSpace(candidate.VoyageId)
+                    && _Settings.AutonomousRecovery.RecoverySweepMaxFailedMissionAgeHours > 0)
+                {
+                    DateTime ageCutoff = DateTime.UtcNow.AddHours(-_Settings.AutonomousRecovery.RecoverySweepMaxFailedMissionAgeHours);
+                    DateTime missionTimestamp = candidate.CompletedUtc ?? candidate.LastUpdateUtc;
+                    if (missionTimestamp < ageCutoff)
+                        continue;
+                }
+
                 await ApplyFailurePolicyAsync(candidate.TenantId, candidate.Id, token).ConfigureAwait(false);
                 processed++;
             }
@@ -190,7 +210,9 @@ namespace Armada.Server
 
             Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
             terminal = voyage != null
-                && (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Complete);
+                && (voyage.Status == VoyageStatusEnum.Cancelled
+                    || voyage.Status == VoyageStatusEnum.Complete
+                    || voyage.Status == VoyageStatusEnum.Failed);
             cache[voyageId] = terminal;
             return terminal;
         }
@@ -630,6 +652,26 @@ namespace Armada.Server
 
                 RecoveryDecision decision = Classify(latest);
                 AuthContext auth = BuildAuth(latest);
+
+                // A block-policy rescue that produced no commits (rescue_produced_no_commits) was
+                // deliberately failed by the no-op detection guard in MissionLandingHandler. No
+                // further recovery is possible and no incident is meaningful for operator review:
+                // the work already landed via another path. Close any pre-existing open incident
+                // and skip the normal incident/runbook path so the sweep never re-opens one.
+                if (!decision.DispatchRescue
+                    && IsAutoRescueMission(latest)
+                    && String.Equals(latest.FailureReason, "rescue_produced_no_commits", StringComparison.OrdinalIgnoreCase))
+                {
+                    await CloseActiveMissionIncidentsAsync(auth, latest,
+                        "Autonomous recovery suppressed: rescue produced no commits; no further recovery possible.",
+                        token).ConfigureAwait(false);
+                    await MarkPolicyBlockedAsync(latest, token).ConfigureAwait(false);
+                    await EmitEventAsync("autonomous_recovery.blocked",
+                        "Autonomous recovery blocked for no-op rescue mission " + latest.Id + ": rescue_produced_no_commits",
+                        latest, null, token).ConfigureAwait(false);
+                    return;
+                }
+
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 RunbookExecution? execution = await ExecuteRecoveryRunbookAsync(auth, latest, incident, decision, token).ConfigureAwait(false);
 
