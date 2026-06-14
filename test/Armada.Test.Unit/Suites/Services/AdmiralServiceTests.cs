@@ -471,7 +471,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("HandleProcessExitAsync stalls captain on non-retryable runtime failure", async () =>
+            await RunTest("HandleProcessExitAsync RateLimitFailure RequeuesMissionWithoutHaltingVoyage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -479,6 +479,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.MaxRecoveryAttempts = 3;
+                    settings.MinIdleCaptains = 0;
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
@@ -488,7 +489,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = new Mission("Quota Judge");
                     mission.VoyageId = voyage.Id;
+                    // No VesselId: drives the deterministic _RetryDispatchNeeded fallback requeue branch
+                    // (QueueVoyageAssignments needs a vessel id; its absence avoids a background reassign race).
                     mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
                     mission.ProcessId = 4242;
                     await db.Missions.CreateAsync(mission);
 
@@ -513,11 +517,20 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(updatedMission, "Mission should still exist");
                     AssertNotNull(updatedCaptain, "Captain should still exist");
                     AssertNotNull(updatedVoyage, "Voyage should still exist");
-                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Mission should fail immediately on a non-retryable runtime error");
-                    AssertContains("hit your limit", updatedMission.FailureReason ?? String.Empty, "Mission should preserve the runtime failure reason");
-                    AssertEqual(CaptainStateEnum.Stalled, updatedCaptain!.State, "Captain should be stalled when the runtime is unavailable");
-                    AssertNull(updatedCaptain.CurrentMissionId, "Captain mission assignment should be cleared");
-                    AssertEqual(VoyageStatusEnum.Cancelled, updatedVoyage!.Status, "Voyage should be halted after the failed mission");
+                    // Old behavior marked the mission Failed and cancelled the voyage; the retry path requeues instead.
+                    AssertEqual(MissionStatusEnum.Pending, updatedMission!.Status, "Rate-limit (captain-unavailable) failure should requeue the mission to Pending, not Failed");
+                    AssertEqual(MissionAssignmentStateEnum.Pending, updatedMission.AssignmentState, "Requeued mission should reset AssignmentState to Pending");
+                    AssertContains("hit your limit", updatedMission.FailureReason ?? String.Empty, "Requeued mission should preserve the failure reason for operator visibility");
+                    AssertNull(updatedMission.CaptainId, "Requeued mission should clear the captain binding");
+                    AssertNull(updatedMission.ProcessId, "Requeued mission should clear the stale process id");
+                    AssertEqual(CaptainStateEnum.Stalled, updatedCaptain!.State, "Failing captain should be benched (Stalled) so the retry selects a different captain");
+                    AssertNull(updatedCaptain.CurrentMissionId, "Stalled captain should release its mission assignment");
+                    AssertEqual(VoyageStatusEnum.InProgress, updatedVoyage!.Status, "Transient captain failure must NOT halt the voyage");
+                    AssertTrue(GetRetryDispatchNeeded(service), "Requeue without a vessel id should flag the retry dispatch sweep");
+
+                    EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
+                    AssertFalse(events.Objects.Any(e => e.EventType == "mission.failed" && e.MissionId == mission.Id), "Retryable requeue must not emit mission.failed");
+                    AssertTrue(events.Objects.Any(e => e.EventType == "mission.retry_requeued" && e.MissionId == mission.Id), "Requeue should emit a non-terminal mission.retry_requeued event");
                 }
             });
 
@@ -554,13 +567,15 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("HealthCheckAsync WorkingCaptainNoProcessId ActiveMission FailsLoud", async () =>
+            await RunTest("HealthCheckAsync CompletionVerificationMissingPid RequeuesMissionAndLeavesSiblingsUntouched", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
                     Voyage voyage = new Voyage("Missing PID Voyage");
                     voyage.Status = VoyageStatusEnum.InProgress;
@@ -568,9 +583,18 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = new Mission("Missing PID Mission");
                     mission.VoyageId = voyage.Id;
+                    // No VesselId: keeps the requeue on the deterministic _RetryDispatchNeeded fallback branch.
                     mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
                     mission.ProcessId = null;
                     mission = await db.Missions.CreateAsync(mission);
+
+                    // Sibling already finished its work; the requeue must leave it alone (no voyage halt).
+                    Mission sibling = new Mission("Sibling WorkProduced");
+                    sibling.VoyageId = voyage.Id;
+                    sibling.Status = MissionStatusEnum.WorkProduced;
+                    sibling.LastUpdateUtc = DateTime.UtcNow;
+                    sibling = await db.Missions.CreateAsync(sibling);
 
                     Captain captain = new Captain("missing-pid-captain");
                     captain.State = CaptainStateEnum.Working;
@@ -581,14 +605,22 @@ namespace Armada.Test.Unit.Suites.Services
                     await service.HealthCheckAsync();
 
                     Mission? updatedMission = await db.Missions.ReadAsync(mission.Id);
+                    Mission? updatedSibling = await db.Missions.ReadAsync(sibling.Id);
                     Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id);
                     Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id);
 
                     AssertNotNull(updatedMission, "Mission should still exist");
-                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Active mission without a PID should fail loudly");
-                    AssertContains("no process ID", updatedMission.FailureReason ?? String.Empty, "Failure should explain the missing process id");
-                    AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Captain should be released after the missing-PID failure");
-                    AssertEqual(VoyageStatusEnum.Cancelled, updatedVoyage!.Status, "Voyage should halt after the missing-PID mission failure");
+                    // Old behavior failed the mission loudly and cancelled the voyage; completion-verification
+                    // failures are now treated as transient orchestration faults and requeued.
+                    AssertEqual(MissionStatusEnum.Pending, updatedMission!.Status, "Completion-verification (missing PID) failure should requeue the mission to Pending");
+                    AssertEqual(MissionAssignmentStateEnum.Pending, updatedMission.AssignmentState, "Requeued mission should reset AssignmentState to Pending");
+                    AssertContains("agent completion cannot be verified", updatedMission.FailureReason ?? String.Empty, "Requeue should record the completion-verification reason");
+                    AssertNull(updatedMission.CaptainId, "Requeued mission should clear the captain binding");
+                    AssertEqual(CaptainStateEnum.Stalled, updatedCaptain!.State, "Failing captain should be benched (Stalled) after a completion-verification fault");
+                    AssertNull(updatedCaptain.CurrentMissionId, "Stalled captain should release its mission assignment");
+                    AssertEqual(VoyageStatusEnum.InProgress, updatedVoyage!.Status, "Voyage must remain InProgress when a mission is requeued");
+                    AssertNotNull(updatedSibling, "Sibling should still exist");
+                    AssertEqual(MissionStatusEnum.WorkProduced, updatedSibling!.Status, "Sibling WorkProduced mission must be untouched by the requeue");
                 }
             });
 
@@ -945,6 +977,120 @@ namespace Armada.Test.Unit.Suites.Services
                     await service.HealthCheckAsync();
 
                     AssertTrue(GetRetryDispatchNeeded(service));
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync InvalidModelFailure RequeuesViaQueueVoyageAssignments", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Voyage voyage = new Voyage("Model Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    // Real vessel (FK target) but no idle captains, so the QueueVoyageAssignments branch
+                    // is taken and its background reassign attempt is a deterministic no-op.
+                    Vessel vessel = new Vessel("Requeue Vessel", "https://github.com/test/repo");
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Mission mission = new Mission("Invalid Model Mission");
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vessel.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    mission.ProcessId = 7100;
+                    await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("invalid-model-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7100;
+                    await db.Captains.CreateAsync(captain);
+
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, mission.Id + ".log"),
+                        "[stderr] invalid model: foo-bar-9000 is not a recognized model\n[2026-04-02 23:49:03] Agent exited with code 1").ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(7100, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Pending, updatedMission!.Status, "Invalid-model (captain-unavailable) failure should requeue the mission to Pending");
+                    AssertContains("invalid model", updatedMission.FailureReason ?? String.Empty, "Requeued mission should preserve the model failure reason");
+                    AssertEqual(CaptainStateEnum.Stalled, updatedCaptain!.State, "Failing captain should be benched (Stalled) after an invalid-model fault");
+                    AssertEqual(VoyageStatusEnum.InProgress, updatedVoyage!.Status, "Invalid-model failure must NOT halt the voyage");
+                    AssertFalse(GetRetryDispatchNeeded(service), "Requeue with a vessel id should use QueueVoyageAssignments, not the retry-sweep fallback flag");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync GenuineUnrecoverableFailure HaltsVoyageAndCancelsNonTerminalSiblings", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Voyage voyage = new Voyage("Doomed Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    // No mission log file: the reason falls back to a generic non-transient exit message.
+                    Mission mission = new Mission("Genuine Failure Mission");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = 7200;
+                    await db.Missions.CreateAsync(mission);
+
+                    Mission activeSibling = new Mission("Active Sibling");
+                    activeSibling.VoyageId = voyage.Id;
+                    activeSibling.Status = MissionStatusEnum.InProgress;
+                    await db.Missions.CreateAsync(activeSibling);
+
+                    Mission producedSibling = new Mission("Produced Sibling");
+                    producedSibling.VoyageId = voyage.Id;
+                    producedSibling.Status = MissionStatusEnum.WorkProduced;
+                    await db.Missions.CreateAsync(producedSibling);
+
+                    Captain captain = new Captain("genuine-failure-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7200;
+                    await db.Captains.CreateAsync(captain);
+
+                    await service.HandleProcessExitAsync(7200, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Mission? updatedActiveSibling = await db.Missions.ReadAsync(activeSibling.Id).ConfigureAwait(false);
+                    Mission? updatedProducedSibling = await db.Missions.ReadAsync(producedSibling.Id).ConfigureAwait(false);
+                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "A genuine unrecoverable failure should still mark the mission Failed");
+                    AssertContains("exited with code", updatedMission.FailureReason ?? String.Empty, "Failed mission should record the generic exit reason");
+                    AssertEqual(VoyageStatusEnum.Cancelled, updatedVoyage!.Status, "Genuine unrecoverable failure should still halt the voyage");
+                    AssertEqual(MissionStatusEnum.Cancelled, updatedActiveSibling!.Status, "Non-terminal siblings should be cancelled when the voyage halts");
+                    AssertEqual(MissionStatusEnum.WorkProduced, updatedProducedSibling!.Status, "WorkProduced siblings are terminal and must not be cancelled by the halt");
+                    AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "A non-captain-unavailable failure should release the captain to Idle, not Stalled");
+
+                    EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
+                    AssertTrue(events.Objects.Any(e => e.EventType == "mission.failed" && e.MissionId == mission.Id), "Genuine failure should emit mission.failed");
                 }
             });
         }
