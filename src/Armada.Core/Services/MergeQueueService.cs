@@ -30,6 +30,7 @@ namespace Armada.Core.Services
         private Func<PullRequestPlatform, string, IPullRequestService>? _PullRequestServiceFactory;
         private ICodeIndexService? _CodeIndexService;
         private IMergeRecoveryHandler? _RecoveryHandler;
+        private ISelfDeployService? _SelfDeployService;
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
@@ -80,6 +81,15 @@ namespace Armada.Core.Services
         public void SetRecoveryHandler(IMergeRecoveryHandler handler)
         {
             _RecoveryHandler = handler;
+        }
+
+        /// <summary>
+        /// Wire the self-deploy service post-construction.
+        /// </summary>
+        /// <param name="selfDeployService">Self-deploy service invoked after self-vessel lands.</param>
+        public void SetSelfDeployService(ISelfDeployService selfDeployService)
+        {
+            _SelfDeployService = selfDeployService;
         }
 
         #endregion
@@ -1394,6 +1404,21 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Fire-and-forget self-deploy scheduling when the self-hosted vessel lands
+        /// to its default branch.
+        /// </summary>
+        private void FireSelfDeployAfterLand(MergeEntry entry, Vessel? vessel)
+        {
+            if (_SelfDeployService == null) return;
+            if (String.IsNullOrWhiteSpace(entry.VesselId)) return;
+
+            string defaultBranch = !String.IsNullOrEmpty(vessel?.DefaultBranch) ? vessel!.DefaultBranch : entry.TargetBranch;
+            if (!String.Equals(entry.TargetBranch, defaultBranch, StringComparison.OrdinalIgnoreCase)) return;
+
+            _SelfDeployService.ScheduleAfterLand(entry.VesselId, entry.Id, "merge queue landed entry " + entry.Id);
+        }
+
+        /// <summary>
         /// Land a single entry by pushing the integration branch to the target.
         /// </summary>
         private async Task LandEntryAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
@@ -1741,6 +1766,7 @@ namespace Armada.Core.Services
             }
 
             await SyncWorkingDirectoryAfterLandAsync(entry, vessel, token).ConfigureAwait(false);
+            FireSelfDeployAfterLand(entry, vessel);
             await RestoreBareHeadAsync(entry, vessel, repoPath, token).ConfigureAwait(false);
         }
 

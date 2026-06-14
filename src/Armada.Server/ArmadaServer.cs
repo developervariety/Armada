@@ -210,6 +210,19 @@ namespace Armada.Server
                 _Logging, _Database, _Settings, recoveryRouter, rebaseDockSetup, _MergeQueue, recoveryPlaybookService);
             _MergeRecoveryHandler = mergeRecoveryHandler;
             ((MergeQueueService)_MergeQueue).SetRecoveryHandler(_MergeRecoveryHandler);
+            SelfDeployService selfDeployService = new SelfDeployService(
+                _Logging,
+                _Database,
+                _Settings,
+                _Git,
+                new SelfDeployBuildRunner(_Logging),
+                new SelfDeploySupervisor(_Logging),
+                () =>
+                {
+                    Stop();
+                    Environment.Exit(0);
+                });
+            ((MergeQueueService)_MergeQueue).SetSelfDeployService(selfDeployService);
             _AutoLandEvaluator = new AutoLandEvaluator();
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();
