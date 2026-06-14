@@ -135,16 +135,17 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "composer-worker", "composer-2.5", "[\"Worker\"]").ConfigureAwait(false);
-                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "sonnet-judge", "claude-sonnet-4-6", "[\"Judge\"]").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier route", "mid", "Judge").ConfigureAwait(false);
+                    // Judge is a specialist persona, so it resolves on high-tier captains only.
+                    await CreateCaptainAsync(testDb.Driver, "opus-worker", "claude-opus-4-7", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "gpt-judge", "gpt-5.5", "[\"Judge\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier route", "high", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertTrue(assigned, "Tier preferredModel should choose a persona-eligible model");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(judgeCaptain.Id, readBack.CaptainId, "Persona-ineligible mid model should not be selected");
+                    AssertEqual(judgeCaptain.Id, readBack.CaptainId, "Persona-ineligible high model should not be selected");
                 }
             });
 
@@ -155,9 +156,10 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "sonnet-general", "claude-sonnet-4-6", "[\"Judge\"]").ConfigureAwait(false);
-                    Captain preferredJudge = await CreateCaptainAsync(testDb.Driver, "sonnet-preferred", "claude-sonnet-4-6", "[\"Judge\"]", "Judge").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier preferred persona", "mid", "Judge").ConfigureAwait(false);
+                    // Judge is a specialist persona, so it resolves on high-tier captains only.
+                    await CreateCaptainAsync(testDb.Driver, "opus-general", "claude-opus-4-7", "[\"Judge\"]").ConfigureAwait(false);
+                    Captain preferredJudge = await CreateCaptainAsync(testDb.Driver, "opus-preferred", "claude-opus-4-7", "[\"Judge\"]", "Judge").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier preferred persona", "high", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
@@ -300,6 +302,94 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(assigned, "Unclassified fallback must still honor persona eligibility");
                     AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending when the only captain cannot fill the persona");
                     AssertNull(readBack.CaptainId, "No captain should be assigned");
+                }
+            });
+
+            await RunTest("TryAssign_NonSpecialistIdleMidAndHigh_AssignsMidNotHigh", async () =>
+            {
+                // End-to-end last-resort rule: with an idle mid AND an idle high captain, a
+                // non-specialist mid mission must take the mid captain and leave high free.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-4-7").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "non-specialist mid route", "mid", "Worker").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Non-specialist mid mission should assign when an idle mid captain exists");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
+                    AssertEqual(midCaptain.Id, readBack.CaptainId, "Non-specialist work must take the idle mid captain, not the high one");
+                }
+            });
+
+            await RunTest("TryAssign_NonSpecialistOnlyHighIdle_FallsUpToHighLastResort", async () =>
+            {
+                // End-to-end last-resort fall-up: no idle mid/low captain exists, so a non-specialist
+                // mid mission may use the idle high captain rather than stay pending.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-only", "claude-opus-4-7").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "non-specialist last resort", "mid", "Worker").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Non-specialist mission should fall up to high when no mid/low captain is idle");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched via last-resort high");
+                    AssertEqual(highCaptain.Id, readBack.CaptainId, "High is the last-resort captain when no mid/low captain is idle");
+                }
+            });
+
+            await RunTest("TryAssign_NonSpecialistEmptyPreferredModel_DoesNotGrabIdleHigh", async () =>
+            {
+                // Empty-preferredModel leak fix: a non-specialist mission with no preferred model
+                // must route through the unified selector at a mid default and NOT grab the idle
+                // high captain while a mid captain sits free.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-4-7").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "empty preferred non-specialist", "", "Worker").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Empty preferredModel non-specialist mission should still assign");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
+                    AssertEqual(midCaptain.Id, readBack.CaptainId, "Empty-preferredModel non-specialist must take the idle mid captain, not the high one");
+                }
+            });
+
+            await RunTest("TryAssign_SpecialistEmptyPreferredModel_RoutesToHigh", async () =>
+            {
+                // Specialist default: a specialist mission with no preferred model defaults to high,
+                // so it takes the idle high captain even though an idle mid captain exists.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-4-7").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "empty preferred specialist", "", "Judge").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Specialist mission with empty preferredModel should assign to a high captain");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
+                    AssertEqual(highCaptain.Id, readBack.CaptainId, "Specialist work defaults to the high captain even when a mid captain is idle");
                 }
             });
         }

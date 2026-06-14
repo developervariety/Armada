@@ -3343,6 +3343,9 @@ namespace Armada.Core.Services
             string? persona = mission?.Persona;
             string? preferredModel = mission?.PreferredModel;
 
+            List<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
+            bool isSpecialist = _Settings.ModelTier.IsSpecialistPersona(persona);
+
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             if (idleCaptains.Count == 0)
@@ -3354,7 +3357,7 @@ namespace Armada.Core.Services
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
                     string? selectedModel = PreferredModelTierSelector.SelectModel(
-                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n));
+                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas);
                     if (selectedModel == null) return null;
                     List<Captain> filtered = new List<Captain>();
                     foreach (Captain captain in idleCaptains)
@@ -3391,7 +3394,7 @@ namespace Armada.Core.Services
                         if (classifiedTier != null)
                         {
                             string? fallbackModel = PreferredModelTierSelector.SelectModel(
-                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n));
+                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas);
                             if (fallbackModel == null) return null;
                             List<Captain> tierFiltered = new List<Captain>();
                             foreach (Captain captain in idleCaptains)
@@ -3408,6 +3411,31 @@ namespace Armada.Core.Services
                         // Else: unclassified concrete model -- leave idleCaptains unrestricted;
                         // persona filtering below narrows to compatible candidates.
                     }
+                }
+            }
+            else
+            {
+                // No preferredModel: route through the unified selector with a sensible
+                // default tier (high for specialists, mid for everyone else) so a non-specialist
+                // mission is never handed an idle high-tier captain while a mid/low one is free.
+                // If the selector finds no classified captain, fall through unrestricted so
+                // captains carrying custom/unclassified models still receive work.
+                string defaultTier = isSpecialist ? PreferredModelTierSelector.HighTier : PreferredModelTierSelector.MidTier;
+                string? defaultedModel = PreferredModelTierSelector.SelectModel(
+                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas);
+                if (defaultedModel != null)
+                {
+                    List<Captain> filtered = new List<Captain>();
+                    foreach (Captain captain in idleCaptains)
+                    {
+                        if (!String.IsNullOrEmpty(captain.Model) &&
+                            String.Equals(captain.Model, defaultedModel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            filtered.Add(captain);
+                        }
+                    }
+                    if (filtered.Count > 0)
+                        idleCaptains = filtered;
                 }
             }
 

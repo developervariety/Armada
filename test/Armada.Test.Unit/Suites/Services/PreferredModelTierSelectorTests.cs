@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
 
     /// <summary>
@@ -166,16 +167,16 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SelectModel_FiltersByPersonaEligibility", () =>
             {
-                // Two mid-tier captains, only one allows Judge persona
+                // Two high-tier captains, only one allows the Judge specialist persona.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5", "[\"Worker\"]"),
-                    MakeCaptain("claude-sonnet-4-6", "[\"Worker\",\"Judge\"]")
+                    MakeCaptain("claude-opus-4-7", "[\"Worker\"]"),
+                    MakeCaptain("gpt-5.5", "[\"Worker\",\"Judge\"]")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Judge", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0);
                 AssertNotNull(selected, "Should find a model eligible for Judge persona");
-                AssertEqual("claude-sonnet-4-6", selected, "Only claude-sonnet-4-6 captain allows Judge persona");
+                AssertEqual("gpt-5.5", selected, "Only gpt-5.5 captain allows Judge persona");
                 return Task.CompletedTask;
             });
 
@@ -344,13 +345,14 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SelectModel_CaptainNullAllowedPersonas_AcceptsAnyPersona", () =>
             {
-                // Captain with null AllowedPersonas should be eligible for any persona
+                // Captain with null AllowedPersonas should be eligible for any persona. Judge is a
+                // specialist persona that resolves on high tier, so the captain carries a high model.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-sonnet-4-6", null)
+                    MakeCaptain("claude-opus-4-7", null)
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Judge", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0);
                 AssertNotNull(selected, "Captain with null AllowedPersonas should serve any persona including Judge");
                 return Task.CompletedTask;
             });
@@ -409,6 +411,158 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "mid"), "high model satisfies a mid pin (upward chain)");
                 AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-sonnet-4-6", "high"), "mid model does not satisfy a high pin");
                 AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("some-custom-model", "low"), "unclassified model satisfies no tier pin");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_NonSpecialistWithIdleMid_ReturnsMidNotHigh", () =>
+            {
+                // A mid AND a high captain are idle. A non-specialist persona must take the mid
+                // captain and leave the high captain free.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                AssertEqual("composer-2.5", selected, "Non-specialist work should take the idle mid captain, not the high one");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_NonSpecialistAllMidLowBusy_FallsUpToHigh", () =>
+            {
+                // No mid or low captains are idle -- only a high one. High is the last resort, so
+                // a non-specialist mission may use it rather than stay pending.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel(selected), "High is selected as a last resort when no mid/low captain is idle");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_NonSpecialistMid_TriesLowBeforeHigh", () =>
+            {
+                // A low AND a high captain are idle but no mid. The non-specialist order is
+                // [mid, low, high], so low must win over high.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("kimi-k2.5"),
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                AssertEqual("kimi-k2.5", selected, "A non-specialist mid request must try low before high");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_SpecialistPersona_ReturnsHigh", () =>
+            {
+                // A mid AND a high captain are idle. A specialist persona is reserved for high.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Judge", _ => 0);
+                AssertEqual("claude-opus-4-7", selected, "Specialist persona must resolve to the high-tier captain only");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsSpecialistPersona_ConfigurableViaSettings", () =>
+            {
+                ModelTierSettings defaults = new ModelTierSettings();
+                AssertTrue(defaults.IsSpecialistPersona("Judge"), "Judge is a default specialist");
+                AssertTrue(defaults.IsSpecialistPersona("memoryconsolidator"), "specialist match is case-insensitive");
+                AssertFalse(defaults.IsSpecialistPersona("Worker"), "Worker is not a specialist");
+                AssertFalse(defaults.IsSpecialistPersona(null), "null persona is not a specialist");
+                AssertEqual(10, defaults.SpecialistPersonas.Count, "default specialist set has the 10 reserved personas");
+
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.SpecialistPersonas = new List<string> { "Curator" };
+                AssertTrue(custom.IsSpecialistPersona("Curator"), "custom persona is reclassified as a specialist");
+                AssertFalse(custom.IsSpecialistPersona("Judge"), "Judge is no longer a specialist under a custom set");
+                AssertTrue(PreferredModelTierSelector.RequiresHighTier("Curator", custom.SpecialistPersonas), "selector honors the custom specialist set");
+                AssertFalse(PreferredModelTierSelector.RequiresHighTier("Judge", custom.SpecialistPersonas), "selector excludes Judge under the custom set");
+
+                custom.SpecialistPersonas = null!;
+                AssertTrue(custom.IsSpecialistPersona("Judge"), "null setter restores the built-in default specialists");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("EnforceHighTierForPersona_NonSpecialist_PassesTierThroughUnchanged", () =>
+            {
+                // Create-time enforcement must NOT upgrade non-specialist work. A Worker mission
+                // that asked for mid keeps mid; the last-resort fall-up happens later at dispatch.
+                AssertEqual("mid", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Worker"), "non-specialist mid request is preserved at create time");
+                AssertEqual("low", PreferredModelTierSelector.EnforceHighTierForPersona("low", "Worker"), "non-specialist low request is preserved at create time");
+                AssertNull(PreferredModelTierSelector.EnforceHighTierForPersona(null, "Worker"), "non-specialist with no preferred model is left unset, not forced to high");
+                AssertNull(PreferredModelTierSelector.EnforceHighTierForPersona(null, null), "null persona is non-specialist and is left unset");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("EnforceHighTierForPersona_Specialist_UpgradesBelowHighToHigh", () =>
+            {
+                // Specialist personas are reserved for high: any sub-high tier selector (or an
+                // unset preferred model) is forced up to high at create time.
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge"), "specialist mid request is upgraded to high");
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("low", "Architect"), "specialist low request is upgraded to high");
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona(null, "TestEngineer"), "specialist with no preferred model defaults to high");
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("high", "Judge"), "specialist that already asked for high stays high");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("EnforceHighTierForPersona_SpecialistLiteralModel_PassesThroughUnchanged", () =>
+            {
+                // An operator-pinned literal model name is honored verbatim even for a specialist;
+                // the runtime tier-fallback handles the case where no matching captain is idle.
+                AssertEqual("claude-sonnet-4-6", PreferredModelTierSelector.EnforceHighTierForPersona("claude-sonnet-4-6", "Judge"), "specialist literal pin is not rewritten to a tier selector");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("EnforceHighTierForPersona_ConfigurableViaSettings", () =>
+            {
+                // Reclassifying personas through settings must flow through create-time enforcement,
+                // not just the boolean predicate: a custom specialist is upgraded and a former
+                // default specialist is no longer upgraded -- all without a code change.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.SpecialistPersonas = new List<string> { "Curator" };
+
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Curator", custom.SpecialistPersonas), "custom specialist is upgraded to high at create time");
+                AssertEqual("mid", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge", custom.SpecialistPersonas), "Judge is no longer a specialist under the custom set, so its tier is preserved");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_NonSpecialistLow_TriesMidBeforeHigh", () =>
+            {
+                // A mid AND a high captain are idle but no low. The non-specialist order for a low
+                // request is [low, mid, high], so the mid captain must win over the high one.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("low", captains, "Worker", _ => 0);
+                AssertEqual("composer-2.5", selected, "A non-specialist low request must try mid before falling up to high");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_NonSpecialistExplicitHigh_HonoredWithoutDowngrade", () =>
+            {
+                // A non-specialist that explicitly asks for high is honored: high is not silently
+                // downgraded to the idle mid captain (the operator asked for high deliberately).
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Worker", _ => 0);
+                AssertEqual("claude-opus-4-7", selected, "An explicit high request by a non-specialist resolves to the high captain, not the idle mid one");
                 return Task.CompletedTask;
             });
         }
