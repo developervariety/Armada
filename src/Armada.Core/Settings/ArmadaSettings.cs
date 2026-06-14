@@ -917,6 +917,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Self-deploy settings for rebuilding and supervised restart when the
+        /// self-hosted vessel lands to its own default branch.
+        /// </summary>
+        public SelfDeploySettings SelfDeploy
+        {
+            get => _SelfDeploy;
+            set => _SelfDeploy = value ?? new SelfDeploySettings();
+        }
+
+        /// <summary>
         /// Model-tier reservation settings: which personas are reserved for high-tier
         /// captains versus routed to mid/low with high held back as a last resort.
         /// </summary>
@@ -1010,6 +1020,7 @@ namespace Armada.Core.Settings
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
+        private SelfDeploySettings _SelfDeploy = new SelfDeploySettings();
         private ModelTierSettings _ModelTier = new ModelTierSettings();
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();

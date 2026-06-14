@@ -220,6 +220,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MissionMailboxDrainTests());
             runner.AddSuite(new BuildDriftEvaluatorTests());
             runner.AddSuite(new BuildDriftServiceTests());
+            runner.AddSuite(new SelfDeployServiceTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());
             runner.AddSuite(new ArchitectSettingsTests());
             runner.AddSuite(new McpObjectiveSchedulerToolsTests());

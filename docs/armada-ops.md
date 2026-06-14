@@ -562,6 +562,30 @@ These are the operationally-painful lessons encountered in the field. Treat them
 5. **Captain dock MCP config is only seeded for new docks.** If a running captain cannot see `armada_code_search`, `armada_context_pack`, or graph tools, check whether the dock predates the seeding change, whether the runtime loads project MCP config (`.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml`, or `.gemini/settings.json`), and whether Admiral's MCP endpoint is running on the configured port.
 6. **Dispatch blocked by index update is expected.** If MCP returns `code_index_update_in_progress`, do not bypass with `codeContextMode=off` unless the user explicitly wants code-blind work. Poll `armada_index_status` until `updateInProgress` is false, then retry the same dispatch so the auto context pack is generated from the latest landed code.
 7. **Stale memory checks are read-only.** Use `armada_check_stale_memory` to inspect accepted reflection anchors for missing files or missing source missions. The same warnings are fed into future vessel reflection briefs so MemoryConsolidator can propose disable/merge/rewrite updates through normal review; the diagnostic itself never edits playbooks or events.
+8. **Self-deploy requires an external watchdog.** When `settings.selfDeploy.enabled` is true for the self-hosted armada vessel, a successful land to the vessel default branch schedules a debounced Release build. Build failure opens an incident and leaves the running admiral online. Build success spawns `scripts/windows/admiral-watchdog.ps1` (Windows) or `scripts/linux/admiral-watchdog.sh` / `scripts/macos/admiral-watchdog.sh`, then the current admiral exits so the watchdog can start the newly built `Armada.Server.dll`. Run the admiral with WorkingDirectory inside the armada repo. Self-deploy waits for merge-queue landing work to finish and refuses to hard-reset a WorkingDirectory that still has unpushed local commits.
+
+### Self-deploy runbook
+
+Self-deploy is opt-in and only applies when the landed vessel is the self-hosted armada vessel (resolved from `selfDeploy.selfVesselId` or from the admiral process running inside the vessel `workingDirectory`). After merge-queue cleanup and WorkingDirectory sync, Admiral emits structured `self_deploy.*` events for each step.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `selfDeploy.enabled` | `false` | Master enable for rebuild + supervised restart. |
+| `selfDeploy.selfVesselId` | `null` | Optional vessel pin. When null, auto-resolve from the running process path. |
+| `selfDeploy.debounceSeconds` | `30` | Coalesce burst lands into one deploy. |
+| `selfDeploy.mergeQueueDrainTimeoutSeconds` | `300` | Wait for in-flight landing work before building. |
+| `selfDeploy.buildTimeoutSeconds` | `600` | Release build timeout. |
+| `selfDeploy.solutionRelativePath` | `src/Armada.sln` | Solution built before restart. |
+| `selfDeploy.buildConfiguration` | `Release` | MSBuild configuration. |
+| `selfDeploy.targetFramework` | `net10.0` | Target framework for `dotnet build -f`. |
+| `selfDeploy.serverDllRelativePath` | `src/Armada.Server/bin/Release/net10.0/Armada.Server.dll` | DLL started by the watchdog. |
+| `selfDeploy.supervisorScriptRelativePath` | `null` | Override watchdog script path; defaults to `scripts/windows/admiral-watchdog.ps1` or the platform `scripts/linux|macos/admiral-watchdog.sh`. |
+
+Recovery notes:
+
+- Build failure: inspect the opened incident, fix compile errors in the synced WorkingDirectory, rebuild manually, then restart via the watchdog script.
+- Unpushed local commits: push or reconcile the WorkingDirectory before enabling another self-deploy attempt.
+- Port still bound after restart: stop orphaned `Armada.Server` / `dotnet` processes before manual restart (see operator gotcha 1).
 
 ### CodeGraph implementation status
 
