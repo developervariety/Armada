@@ -1871,31 +1871,135 @@ namespace Armada.Core.Services
                 return;
             }
 
-            Task<bool>[] assignmentTasks = assignable
-                .Select(p => _Missions.TryAssignAsync(p.mission, p.vessel, token))
-                .ToArray();
+            // Split candidates by tier requirement. Specialist (downstream review /
+            // test / architect) stages dispatch first so they are not perpetually
+            // outbid for scarce high-tier captains by Worker missions. Workers then
+            // dispatch subject to a high-tier capacity reservation so produced work
+            // does not outrun review+landing capacity (the observed starvation symptom).
+            List<(Mission mission, Vessel vessel)> specialistMissions = new List<(Mission, Vessel)>();
+            List<(Mission mission, Vessel vessel)> nonSpecialistMissions = new List<(Mission, Vessel)>();
+            foreach ((Mission mission, Vessel vessel) pair in assignable)
+            {
+                if (_Settings.ModelTier.IsSpecialistPersona(pair.mission.Persona))
+                    specialistMissions.Add(pair);
+                else
+                    nonSpecialistMissions.Add(pair);
+            }
 
-            bool[] results = await Task.WhenAll(assignmentTasks).ConfigureAwait(false);
+            List<(Mission mission, bool result)> dispatchResults = new List<(Mission, bool)>();
+
+            // Phase 1: specialists claim idle high-tier captains before Workers.
+            if (specialistMissions.Count > 0)
+            {
+                Task<bool>[] specialistTasks = specialistMissions
+                    .Select(p => _Missions.TryAssignAsync(p.mission, p.vessel, token))
+                    .ToArray();
+                bool[] specialistResults = await Task.WhenAll(specialistTasks).ConfigureAwait(false);
+                for (int i = 0; i < specialistResults.Length; i++)
+                    dispatchResults.Add((specialistMissions[i].mission, specialistResults[i]));
+            }
+
+            // Phase 2: Workers. When the only idle capacity left after Phase 1 is
+            // high-tier and it is at or below the configured reservation, defer Worker
+            // dispatch for one cycle so the held-back high-tier captain stays free for
+            // the next incoming specialist stage. Workers prefer mid/low captains, so
+            // this gate only engages once mid/low capacity is exhausted -- non-high-tier
+            // capacity is never withheld.
+            bool nonSpecialistDeferred = false;
+            if (nonSpecialistMissions.Count > 0)
+            {
+                bool canDispatchNonSpecialist = true;
+                int reservedHighTierSlots = _Settings.ModelTier.ReservedHighTierSlots;
+                if (reservedHighTierSlots > 0)
+                {
+                    // Re-query idle capacity AFTER Phase 1 so captains claimed by
+                    // specialists are excluded from the reservation accounting.
+                    List<Captain> remainingIdle = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
+                    int idleHighTier = 0;
+                    int idleNonHighTier = 0;
+                    foreach (Captain c in remainingIdle)
+                    {
+                        if (String.Equals(
+                                PreferredModelTierSelector.ClassifyModel(c.Model),
+                                PreferredModelTierSelector.HighTier,
+                                StringComparison.OrdinalIgnoreCase))
+                            idleHighTier++;
+                        else
+                            idleNonHighTier++;
+                    }
+
+                    // Engage the reservation only when (a) the remaining idle pool is
+                    // high-tier-only and within the reserve, AND (b) there is in-flight
+                    // work that could soon produce a downstream specialist stage. The
+                    // second condition is the deadlock guard: with nothing in flight no
+                    // Judge is coming, so holding the last idle high-tier captain would
+                    // starve Workers forever on a high-tier-only fleet. Priming one
+                    // Worker is safe -- once it is in flight the reserve re-engages.
+                    if (idleHighTier <= reservedHighTierSlots
+                        && idleNonHighTier == 0
+                        && await HasInFlightSpecialistDemandAsync(token).ConfigureAwait(false))
+                    {
+                        canDispatchNonSpecialist = false;
+                        nonSpecialistDeferred = true;
+                        _Logging.Info(_Header + "deferring " + nonSpecialistMissions.Count +
+                            " Worker mission(s) to reserve high-tier capacity: idle high-tier=" + idleHighTier +
+                            " reserved=" + reservedHighTierSlots + " idle non-high-tier=" + idleNonHighTier);
+                    }
+                }
+
+                if (canDispatchNonSpecialist)
+                {
+                    Task<bool>[] nonSpecialistTasks = nonSpecialistMissions
+                        .Select(p => _Missions.TryAssignAsync(p.mission, p.vessel, token))
+                        .ToArray();
+                    bool[] nonSpecialistResults = await Task.WhenAll(nonSpecialistTasks).ConfigureAwait(false);
+                    for (int i = 0; i < nonSpecialistResults.Length; i++)
+                        dispatchResults.Add((nonSpecialistMissions[i].mission, nonSpecialistResults[i]));
+                }
+            }
 
             bool anyFailed = false;
-            for (int i = 0; i < results.Length; i++)
+            foreach ((Mission mission, bool result) entry in dispatchResults)
             {
-                if (!results[i])
+                if (!entry.result)
                 {
-                    Mission mission = assignable[i].mission;
-                    if (IsExpectedAssignmentWait(mission.AssignmentState))
+                    if (IsExpectedAssignmentWait(entry.mission.AssignmentState))
                     {
-                        _Logging.Debug(_Header + "pending mission " + mission.Id + " not assigned yet (AssignmentState=" + mission.AssignmentState + ")");
+                        _Logging.Debug(_Header + "pending mission " + entry.mission.Id + " not assigned yet (AssignmentState=" + entry.mission.AssignmentState + ")");
                     }
                     else
                     {
-                        _Logging.Warn(_Header + "could not assign pending mission " + mission.Id + " (AssignmentState=" + mission.AssignmentState + ") - will retry on next health check cycle");
+                        _Logging.Warn(_Header + "could not assign pending mission " + entry.mission.Id + " (AssignmentState=" + entry.mission.AssignmentState + ") - will retry on next health check cycle");
                         anyFailed = true;
                     }
                 }
             }
 
-            _RetryDispatchNeeded = anyFailed;
+            _RetryDispatchNeeded = anyFailed || nonSpecialistDeferred;
+        }
+
+        /// <summary>
+        /// Returns true when at least one mission is in a non-terminal active state
+        /// (Assigned, InProgress, WorkProduced, Testing, Review, or PullRequestOpen) --
+        /// i.e. work is running or awaiting a downstream review/landing stage that will
+        /// soon need a high-tier captain. Used to decide whether reserving high-tier
+        /// capacity is justified; with no such work in flight there is no imminent
+        /// specialist demand and the reservation is suppressed to avoid starving Workers.
+        /// </summary>
+        private async Task<bool> HasInFlightSpecialistDemandAsync(CancellationToken token)
+        {
+            Dictionary<MissionStatusEnum, int> counts = await _Database.Missions.CountByStatusAsync(token).ConfigureAwait(false);
+            return CountForStatus(counts, MissionStatusEnum.Assigned)
+                + CountForStatus(counts, MissionStatusEnum.InProgress)
+                + CountForStatus(counts, MissionStatusEnum.WorkProduced)
+                + CountForStatus(counts, MissionStatusEnum.Testing)
+                + CountForStatus(counts, MissionStatusEnum.Review)
+                + CountForStatus(counts, MissionStatusEnum.PullRequestOpen) > 0;
+        }
+
+        private static int CountForStatus(Dictionary<MissionStatusEnum, int> counts, MissionStatusEnum status)
+        {
+            return counts.TryGetValue(status, out int value) ? value : 0;
         }
 
         private async Task<bool> HasAvailableCapacityAsync(CancellationToken token)

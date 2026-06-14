@@ -26,11 +26,31 @@ namespace Armada.Core.Settings
             set => _SpecialistPersonas = value ?? BuildDefaultSpecialistPersonas();
         }
 
+        /// <summary>
+        /// Number of idle high-tier captain slots to hold in reserve for specialist
+        /// (downstream) missions such as Judge and TestEngineer. When the only idle
+        /// capacity left after specialist dispatch is high-tier and at or below this
+        /// count, non-specialist (Worker) dispatch is deferred for one scheduler cycle
+        /// so the held-back slots stay free for the next incoming review/landing stage.
+        /// Workers always prefer mid/low captains, so this never withholds non-high-tier
+        /// capacity. The reservation is suppressed while no in-flight work could produce
+        /// a downstream specialist stage, so a high-tier-only fleet never deadlocks (a
+        /// Worker primes the pipeline before the reserve engages). Clamped to [0, 10].
+        /// Zero disables the reservation. Default is 1: keeps one opus-class slot free
+        /// for the next Judge or TestEngineer that arrives.
+        /// </summary>
+        public int ReservedHighTierSlots
+        {
+            get => _ReservedHighTierSlots;
+            set => _ReservedHighTierSlots = Math.Max(0, Math.Min(10, value));
+        }
+
         #endregion
 
         #region Private-Members
 
         private List<string> _SpecialistPersonas = BuildDefaultSpecialistPersonas();
+        private int _ReservedHighTierSlots = 1;
 
         #endregion
 
