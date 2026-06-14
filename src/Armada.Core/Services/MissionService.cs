@@ -857,6 +857,12 @@ namespace Armada.Core.Services
                         JudgeVerdict.NeedsRevision => "Judge verdict: NEEDS_REVISION",
                         _ => "Judge mission did not emit an explicit PASS verdict"
                     };
+                    // Persist the Judge's written review as ReviewComment, not only as the one-line
+                    // FailureReason. Autonomous recovery inlines ReviewComment into the Worker rescue
+                    // brief as "Reviewer feedback to address"; if only FailureReason were set, the
+                    // rescue worker would revise with an empty feedback block and risk reproducing
+                    // the rejected work (rescue_produced_no_commits).
+                    mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing with verdict " + verdict);
                 }
@@ -3588,6 +3594,25 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(comment)) return null;
             return comment.Trim();
+        }
+
+        /// <summary>
+        /// Build the ReviewComment stored on a Judge mission that did not pass. The Judge's full
+        /// written review (AgentOutput) is the actionable critique; the one-line FailureReason is
+        /// only a status. Prefer the review body, fall back to the failure reason, and bound the
+        /// length so the downstream rescue brief stays a reasonable size.
+        /// </summary>
+        private static string BuildJudgeReviewComment(string? agentOutput, string? failureReason)
+        {
+            string review = NormalizeReviewComment(agentOutput)
+                ?? NormalizeReviewComment(failureReason)
+                ?? "Judge requested revision but recorded no written review.";
+
+            const int maxChars = 8000;
+            if (review.Length > maxChars)
+                review = review.Substring(0, maxChars) + "\n...(truncated)";
+
+            return review;
         }
 
         private static string BuildReviewDeniedFailureReason(string comment)

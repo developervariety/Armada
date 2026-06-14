@@ -673,6 +673,76 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains(failed.ReviewComment!, rescue.Description ?? "", "Rescue brief must inline the parent's review feedback verbatim.");
             }).ConfigureAwait(false);
 
+            await RunTest("ReviseRetestRejudge_JudgeFailure_ChainsReJudgeOntoWorkerRevisionBeforeLanding", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.ReviewComment = "Add a regression test for the null-branch case before resubmitting.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one Worker revision should be dispatched as the loop root.");
+                Mission worker = admiral.DispatchedMissions[0];
+                AssertEqual("Worker", worker.Persona, "The dispatched root must be a Worker revision.");
+                AssertEqual(failed.Id, worker.ParentMissionId, "The Worker revision should link back to the failed reviewer mission.");
+                AssertTrue(!String.IsNullOrEmpty(worker.VoyageId), "The Worker revision must run inside a dedicated rescue voyage so handoff can chain stages.");
+                AssertEqual(1, worker.RecoveryAttempts, "The Worker revision should carry the recovery budget forward to bound the loop.");
+
+                List<Mission> loopMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                Mission? judge = loopMissions.FirstOrDefault(item =>
+                    String.Equals(item.Persona, "Judge", StringComparison.Ordinal) &&
+                    item.DependsOnMissionId == worker.Id);
+                AssertTrue(judge != null, "A re-Judge stage must be chained onto the Worker revision before it can land.");
+                AssertEqual(MissionStatusEnum.Pending, judge!.Status, "The re-Judge stage should wait on the revision via the pipeline handoff.");
+                AssertContains("ARMADA:AUTO-RESCUE", judge.Description ?? "", "The re-Judge stage should be marked as autonomous rescue work.");
+                AssertEqual(1, judge.RecoveryAttempts, "The re-Judge stage should also carry the recovery budget so a repeat rejection is bounded.");
+                AssertTrue(String.IsNullOrEmpty(judge.ParentMissionId), "The re-Judge stage is a pipeline dependent, not a direct rescue of the original failure.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReviseRetestRejudge_BudgetExhausted_OpensHighIncidentWithoutDispatch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_exhausted", "usr_auto_exhausted").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_exhausted", "usr_auto_exhausted").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.ReviewComment = "Still missing negative-path coverage.";
+                // A re-Judge stage that fails again arrives with the recovery budget already spent
+                // (default MaxMissionRecoveryAttempts = 1). The bounded loop must stop here.
+                failed.RecoveryAttempts = 1;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "An exhausted recovery budget must not dispatch another revision.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_auto_exhausted", "usr_auto_exhausted", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "Exhaustion should leave exactly one incident open.");
+                AssertEqual(IncidentSeverityEnum.High, incidentPage.Objects[0].Severity, "The incident should escalate to High only after the bounded loop is exhausted.");
+            }).ConfigureAwait(false);
+
             await RunTest("FindSuspectNoOpRescues_CompleteRescueAtTargetHead_FlaggedAndAdvancedExcluded", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
