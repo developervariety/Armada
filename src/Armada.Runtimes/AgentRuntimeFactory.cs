@@ -2,6 +2,7 @@ namespace Armada.Runtimes
 {
     using SyslogLogging;
     using Armada.Core.Enums;
+    using Armada.Core.Settings;
     using Armada.Runtimes.Interfaces;
 
     /// <summary>
@@ -17,6 +18,7 @@ namespace Armada.Runtimes
 
         private string _Header = "[AgentRuntimeFactory] ";
         private LoggingModule _Logging;
+        private OpenCodeServerSettings? _OpenCodeConnection;
         private Dictionary<string, Func<IAgentRuntime>> _CustomRuntimes = new Dictionary<string, Func<IAgentRuntime>>();
 
         #endregion
@@ -30,6 +32,20 @@ namespace Armada.Runtimes
         public AgentRuntimeFactory(LoggingModule logging)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+        }
+
+        /// <summary>
+        /// Instantiate with OpenCode connection settings.
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="openCodeConnection">
+        /// Optional OpenCode server settings threaded to <see cref="OpenCodeRuntime"/> so the
+        /// runtime reads the same shared config as the inference client.
+        /// </param>
+        public AgentRuntimeFactory(LoggingModule logging, OpenCodeServerSettings? openCodeConnection)
+        {
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _OpenCodeConnection = openCodeConnection;
         }
 
         #endregion
@@ -53,6 +69,8 @@ namespace Armada.Runtimes
                     return new GeminiRuntime(_Logging);
                 case AgentRuntimeEnum.Cursor:
                     return new CursorRuntime(_Logging);
+                case AgentRuntimeEnum.OpenCode:
+                    return new OpenCodeRuntime(_Logging, _OpenCodeConnection);
                 case AgentRuntimeEnum.Mux:
                     return new MuxRuntime(_Logging);
                 case AgentRuntimeEnum.Custom:

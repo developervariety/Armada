@@ -215,7 +215,7 @@ namespace Armada.Server
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
-            _RuntimeFactory = new AgentRuntimeFactory(_Logging);
+            _RuntimeFactory = new AgentRuntimeFactory(_Logging, _Settings.CodeIndex.OpenCodeServer);
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
