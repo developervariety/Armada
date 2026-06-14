@@ -325,6 +325,80 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(1, page.Objects.Count, "Repeated sweeps must not open duplicate stuck-voyage incidents.");
             }).ConfigureAwait(false);
+
+            await RunTest("TryLoadSafetyNetDiff_WithDockWorktree_DiffsDocWorktreePath", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // Create a dock with a distinct worktree path so DiffCalls can be inspected.
+                Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    WorktreePath = "C:\\tmp\\dock-worktree-diff-test",
+                    BranchName = "armada/worker-dock-diff",
+                    Active = true
+                }).ConfigureAwait(false);
+
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Worker mission",
+                    BranchName = "armada/worker-dock-diff",
+                    DockId = dock.Id,
+                    Status = MissionStatusEnum.WorkProduced,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                StubGitService git = new StubGitService { DiffResult = "+++ b/src/A.cs\n+line1\n" };
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
+                AssertTrue(
+                    git.DiffCalls.Contains("C:\\tmp\\dock-worktree-diff-test"),
+                    "Diff must use the dock worktree path, not the vessel working directory.");
+                AssertFalse(
+                    git.DiffCalls.Contains(vessel.WorkingDirectory ?? String.Empty),
+                    "Diff must not fall back to vessel WorkingDirectory when dock worktree is available.");
+            }).ConfigureAwait(false);
+
+            await RunTest("TryLoadSafetyNetDiff_NoDock_FallsBackToVesselPath", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // Mission has no DockId -- the fallback to vessel.WorkingDirectory must fire.
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-no-dock", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                StubGitService git = new StubGitService { DiffResult = "+++ b/src/A.cs\n+line1\n" };
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
+                AssertTrue(
+                    git.DiffCalls.Contains(vessel.WorkingDirectory!),
+                    "Without a dock worktree, diff must fall back to vessel WorkingDirectory.");
+            }).ConfigureAwait(false);
         }
 
         #region Helpers

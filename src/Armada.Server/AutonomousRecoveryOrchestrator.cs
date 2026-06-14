@@ -467,6 +467,12 @@ namespace Armada.Server
 
         private async Task<bool> IsReviewerChainPassedAsync(List<MissionSummary> summaries, string rootMissionId, CancellationToken token)
         {
+            // An empty queue (no dependents) returns true -- "no reviewers yet" is treated as
+            // passed under the upfront-stage model where all reviewer missions are materialized
+            // before any Worker reaches WorkProduced. A lazily-materialized pipeline that creates
+            // reviewer stages only after the Worker finishes MUST set a sentinel dependency before
+            // the Worker runs, or this method will incorrectly allow the Worker to auto-land before
+            // any review occurs.
             List<MissionSummary> queue = summaries
                 .Where(item => String.Equals(item.DependsOnMissionId, rootMissionId, StringComparison.Ordinal))
                 .ToList();
@@ -506,7 +512,21 @@ namespace Armada.Server
         {
             if (_Git == null) return null;
 
-            string? repoPath = vessel.WorkingDirectory ?? vessel.LocalPath;
+            // Prefer the captain's dock worktree, which is checked out on the mission branch.
+            // The vessel WorkingDirectory/LocalPath is the default-branch checkout and always
+            // produces an empty diff; using it biases the safety net toward flag-for-review for
+            // every candidate branch regardless of actual size.
+            string? repoPath = null;
+            if (!String.IsNullOrWhiteSpace(mission.DockId))
+            {
+                Dock? dock = await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+                if (dock != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+                    repoPath = dock.WorktreePath;
+            }
+
+            if (String.IsNullOrWhiteSpace(repoPath))
+                repoPath = vessel.WorkingDirectory ?? vessel.LocalPath;
+
             if (String.IsNullOrWhiteSpace(repoPath)) return null;
 
             try
