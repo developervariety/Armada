@@ -1982,6 +1982,15 @@ namespace Armada.Core.Services
             string failureReason,
             CancellationToken token)
         {
+            // Transient captain-unavailable / completion-verification failures are recoverable:
+            // requeue the mission for reassignment instead of marking it Failed and halting the
+            // voyage. Only genuine unrecoverable failures fall through to HaltVoyageAsync below.
+            if (mission != null && IsCaptainUnavailableFailureReason(failureReason))
+            {
+                await RequeueTransientMissionFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+                return;
+            }
+
             if (mission != null)
             {
                 mission.Status = MissionStatusEnum.Failed;
@@ -2033,12 +2042,80 @@ namespace Armada.Core.Services
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Requeue a mission whose captain hit a transient (captain-unavailable or completion-verification)
+        /// failure. The mission is reset to Pending and re-dispatched; the voyage is left running and sibling
+        /// missions are untouched. The failing captain is reclaimed and marked Stalled so the immediate retry
+        /// does not select the same broken captain.
+        /// </summary>
+        private async Task RequeueTransientMissionFailureAsync(
+            Captain captain,
+            Mission mission,
+            string missionId,
+            string failureReason,
+            CancellationToken token)
+        {
+            string? vesselId = mission.VesselId;
+            string? voyageId = mission.VoyageId;
+
+            // Reset the mission so it can be re-dispatched. Keep the failure reason recorded for
+            // operator visibility, but clear the captain/dock/process binding and run timestamps.
+            mission.Status = MissionStatusEnum.Pending;
+            mission.AssignmentState = MissionAssignmentStateEnum.Pending;
+            mission.FailureReason = failureReason;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + missionId + " requeued after transient captain failure: " + failureReason);
+
+            // Non-terminal event so the retry is visible without emitting mission.failed.
+            await EmitEventAsync("mission.retry_requeued", "Mission requeued after transient captain failure: " + mission.Title + " (" + failureReason + ")",
+                entityType: "mission", entityId: mission.Id,
+                captainId: captain.Id, missionId: mission.Id,
+                vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+
+            // Reclaim the dock and bench the broken captain so the immediate retry selects a different one.
+            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+            await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "captain " + captain.Id + " marked Stalled after transient failure on requeued mission " + missionId);
+
+            Signal signal = new Signal(SignalTypeEnum.Progress,
+                "Mission " + missionId + " requeued after transient captain failure: " + failureReason + " (captain stalled)");
+            signal.FromCaptainId = captain.Id;
+            await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+
+            // Queue reassignment using the existing helper rather than a new scheduler.
+            if (!String.IsNullOrEmpty(vesselId))
+            {
+                QueueVoyageAssignments(voyageId, vesselId!, new List<string> { mission.Id });
+            }
+            else
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " requeued but has no vessel id; relying on health-check retry sweep");
+                _RetryDispatchNeeded = true;
+            }
+        }
+
         private static bool IsCaptainUnavailableFailureReason(string failureReason)
         {
             if (String.IsNullOrWhiteSpace(failureReason))
                 return false;
 
             string normalized = NormalizeProcessExitFailureReason(failureReason);
+
+            // Completion-verification failures (health check found an active mission with no
+            // recoverable process id). These are transient orchestration faults, not work
+            // failures, so they take the same retry path as captain-unavailable runtime faults.
+            if (normalized.Contains("agent completion cannot be verified", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("no process ID is recorded", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
 
             if (normalized.Contains("hit your limit", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
