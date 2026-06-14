@@ -54,13 +54,15 @@ namespace Armada.Core.Services
         {
             if (!obj.AutoDispatchEnabled) return false;
 
+            if (obj.Status == ObjectiveStatusEnum.Completed || obj.Status == ObjectiveStatusEnum.Cancelled)
+                return false;
+
             if (obj.Status != ObjectiveStatusEnum.Scoped && obj.Status != ObjectiveStatusEnum.Planned)
                 return false;
 
-            // An objective that has linked voyages and whose status has advanced past Planned
-            // is considered already-in-flight. Because we already gate on Scoped/Planned above
-            // this path is a safety net for future callers that relax the status constraint.
-            if (obj.VoyageIds.Count > 0 && (int)obj.Status > (int)ObjectiveStatusEnum.Planned)
+            // Any linked voyage means this objective was already dispatched (or is awaiting
+            // reconcile). Re-dispatch is owned by AutonomousRecoveryOrchestrator, not the scheduler.
+            if (obj.VoyageIds.Count > 0)
                 return false;
 
             foreach (string blockerId in obj.BlockedByObjectiveIds)

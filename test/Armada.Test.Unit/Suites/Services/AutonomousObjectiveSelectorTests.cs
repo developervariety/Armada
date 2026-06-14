@@ -136,27 +136,25 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectEligible_PlannedWithVoyageIds_StillEligible", () =>
+            await RunTest("SelectEligible_PlannedWithVoyageIds_Excluded", () =>
             {
                 Objective obj = MakeObjective(
                     "obj-voyage-planned",
                     status: ObjectiveStatusEnum.Planned,
                     voyageIds: new List<string> { "vyg_existing" });
                 List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
-                AssertEqual(1, result.Count, "Planned objective with linked voyage ids remains eligible at model level");
-                AssertEqual("obj-voyage-planned", result[0].Id, "Planned+voyage objective should be returned");
+                AssertEqual(0, result.Count, "Planned objective with linked voyage ids must not be re-dispatched");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectEligible_ScopedWithVoyageIds_StillEligible", () =>
+            await RunTest("SelectEligible_ScopedWithVoyageIds_Excluded", () =>
             {
                 Objective obj = MakeObjective(
                     "obj-voyage-scoped",
                     status: ObjectiveStatusEnum.Scoped,
                     voyageIds: new List<string> { "vyg_existing" });
                 List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
-                AssertEqual(1, result.Count, "Scoped objective with linked voyage ids remains eligible at model level");
-                AssertEqual("obj-voyage-scoped", result[0].Id, "Scoped+voyage objective should be returned");
+                AssertEqual(0, result.Count, "Scoped objective with linked voyage ids must not be re-dispatched");
                 return Task.CompletedTask;
             });
 
