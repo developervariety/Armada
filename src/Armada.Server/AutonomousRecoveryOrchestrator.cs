@@ -221,7 +221,23 @@ namespace Armada.Server
                     continue;
 
                 processed++;
-                await DrainIdleVoyageAsync(voyage, summaries, token).ConfigureAwait(false);
+
+                // Isolate each voyage: a single failing voyage (e.g. a vessel with an
+                // unreachable working directory or a transient DB error) must not abort
+                // the entire drain pass and starve every voyage that sorts after it.
+                // Cancellation still propagates so the sweep can be torn down cleanly.
+                try
+                {
+                    await DrainIdleVoyageAsync(voyage, summaries, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "landing-drain failed for voyage " + voyage.Id + ": " + ex.Message);
+                }
             }
         }
 
@@ -251,34 +267,49 @@ namespace Armada.Server
                 Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
                 if (vessel == null) continue;
 
-                string? diff = await TryLoadSafetyNetDiffAsync(mission, vessel, token).ConfigureAwait(false);
-                SafetyNetEnqueueResult result = await _MergeQueue!.TrySafetyNetEnqueueAsync(
-                    mission,
-                    vessel,
-                    diff,
-                    _AutoLandEvaluator!,
-                    _ConventionChecker!,
-                    _CriticalTriggerEvaluator!,
-                    token).ConfigureAwait(false);
-
-                if (result.Outcome == SafetyNetEnqueueOutcomeEnum.AlreadyEnqueued)
+                // Isolate each candidate mission: a single failing enqueue (e.g. a transient
+                // merge-queue / DB error) must not abort the rest of this voyage's drain or
+                // skip the downstream completion / stuck-detection steps. Cancellation still
+                // propagates so the sweep can be torn down cleanly.
+                try
                 {
-                    _Logging.Debug(_Header + "landing-drain skipped mission " + mission.Id + ": already enqueued");
-                    continue;
-                }
+                    string? diff = await TryLoadSafetyNetDiffAsync(mission, vessel, token).ConfigureAwait(false);
+                    SafetyNetEnqueueResult result = await _MergeQueue!.TrySafetyNetEnqueueAsync(
+                        mission,
+                        vessel,
+                        diff,
+                        _AutoLandEvaluator!,
+                        _ConventionChecker!,
+                        _CriticalTriggerEvaluator!,
+                        token).ConfigureAwait(false);
 
-                if (result.Outcome == SafetyNetEnqueueOutcomeEnum.SkippedNoBranch)
+                    if (result.Outcome == SafetyNetEnqueueOutcomeEnum.AlreadyEnqueued)
+                    {
+                        _Logging.Debug(_Header + "landing-drain skipped mission " + mission.Id + ": already enqueued");
+                        continue;
+                    }
+
+                    if (result.Outcome == SafetyNetEnqueueOutcomeEnum.SkippedNoBranch)
+                    {
+                        _Logging.Debug(_Header + "landing-drain skipped mission " + mission.Id + ": no branch");
+                        continue;
+                    }
+
+                    string eventType = result.Outcome == SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview
+                        ? "landing_drain.flagged_for_review"
+                        : "landing_drain.enqueued";
+                    string message = "Landing-drain safety net enqueued mission " + mission.Id +
+                        " on voyage " + voyage.Id + (result.Detail != null ? ": " + result.Detail : String.Empty);
+                    await EmitLandingDrainEventAsync(eventType, message, mission, voyage.Id, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
                 {
-                    _Logging.Debug(_Header + "landing-drain skipped mission " + mission.Id + ": no branch");
-                    continue;
+                    throw;
                 }
-
-                string eventType = result.Outcome == SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview
-                    ? "landing_drain.flagged_for_review"
-                    : "landing_drain.enqueued";
-                string message = "Landing-drain safety net enqueued mission " + mission.Id +
-                    " on voyage " + voyage.Id + (result.Detail != null ? ": " + result.Detail : String.Empty);
-                await EmitLandingDrainEventAsync(eventType, message, mission, voyage.Id, token).ConfigureAwait(false);
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "landing-drain enqueue failed for mission " + mission.Id + ": " + ex.Message);
+                }
             }
         }
 

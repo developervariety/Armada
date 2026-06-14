@@ -214,6 +214,117 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, page.Objects.Count, "Stuck open voyage should open an incident.");
                 AssertContains("no live missions", page.Objects[0].Summary ?? "", "Incident summary should describe the stall.");
             }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_LiveMissionPresent_SkipsDrain", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // A judge-passed, land-ready Worker that would normally be enqueued...
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-live", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                // ...but a sibling mission is still live, so the whole voyage must be left alone.
+                await CreateInProgressMissionAsync(testDb, vessel, voyage, "Worker").ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, mergeQueue.EnqueueCalls.Count, "Voyage with a live mission must not be drained.");
+
+                Voyage? updated = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                AssertNotNull(updated);
+                AssertEqual(VoyageStatusEnum.Open, updated!.Status, "Voyage with a live mission must stay Open.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_EnqueueThrows_IsolatesMissionAndContinues", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // Two independent judge-passed land-ready Workers in the same idle voyage.
+                Mission failing = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-throw", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, failing.Id, pass: true).ConfigureAwait(false);
+
+                Mission healthy = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-ok", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, healthy.Id, pass: true).ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService
+                {
+                    ThrowForMissionId = failing.Id
+                };
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                // Must not throw: one mission's enqueue failure is isolated.
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Healthy mission should still enqueue after a sibling throws.");
+                AssertEqual(healthy.Id, mergeQueue.EnqueueCalls[0].MissionId, "Surviving enqueue should be the healthy mission.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_StuckOpenVoyageSweptTwice_OpensSingleIncident", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Stuck voyage", "No progress")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open,
+                    LastUpdateUtc = DateTime.UtcNow.AddHours(-2)
+                }).ConfigureAwait(false);
+
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/stuck-worker-2", "Worker").ConfigureAwait(false);
+                Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    DependsOnMissionId = worker.Id,
+                    Persona = "Judge",
+                    Title = "Stalled judge",
+                    Status = MissionStatusEnum.Pending
+                }).ConfigureAwait(false);
+
+                DateTime staleUtc = DateTime.UtcNow.AddHours(-2);
+                await SetMissionLastUpdateUtcAsync(testDb, worker.Id, staleUtc).ConfigureAwait(false);
+                await SetMissionLastUpdateUtcAsync(testDb, judge.Id, staleUtc).ConfigureAwait(false);
+                await SetVoyageLastUpdateUtcAsync(testDb, voyage.Id, staleUtc).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.AutonomousRecovery.StuckOpenVoyageMinutes = 30;
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
+                    testDb.Driver,
+                    new RecordingMergeQueueService(),
+                    settings: settings,
+                    incidents: incidents);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, page.Objects.Count, "Repeated sweeps must not open duplicate stuck-voyage incidents.");
+            }).ConfigureAwait(false);
         }
 
         #region Helpers
@@ -258,6 +369,9 @@ namespace Armada.Test.Unit.Suites.Services
             public HashSet<string> ActiveMissionIds { get; } = new HashSet<string>(StringComparer.Ordinal);
             public SafetyNetEnqueueOutcomeEnum LastOutcome { get; private set; }
 
+            /// <summary>When set, TrySafetyNetEnqueueAsync throws for this mission id (simulates a transient failure).</summary>
+            public string? ThrowForMissionId { get; set; }
+
             public Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default)
             {
                 EnqueueCalls.Add(entry);
@@ -278,6 +392,11 @@ namespace Armada.Test.Unit.Suites.Services
                 ICriticalTriggerEvaluator criticalTriggerEvaluator,
                 CancellationToken token = default)
             {
+                if (ThrowForMissionId != null && String.Equals(ThrowForMissionId, mission.Id, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("simulated enqueue failure for " + mission.Id);
+                }
+
                 if (HasActiveMergeEntryForMissionAsync(mission.Id, token).Result)
                 {
                     return Task.FromResult(new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.AlreadyEnqueued, null));
@@ -418,6 +537,26 @@ namespace Armada.Test.Unit.Suites.Services
                 Title = persona + " mission",
                 BranchName = branchName,
                 Status = MissionStatusEnum.WorkProduced,
+                LastUpdateUtc = DateTime.UtcNow
+            };
+            return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        private static async Task<Mission> CreateInProgressMissionAsync(
+            TestDatabase testDb,
+            Vessel vessel,
+            Voyage voyage,
+            string persona)
+        {
+            Mission mission = new Mission
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                VesselId = vessel.Id,
+                VoyageId = voyage.Id,
+                Persona = persona,
+                Title = persona + " in-progress mission",
+                Status = MissionStatusEnum.InProgress,
                 LastUpdateUtc = DateTime.UtcNow
             };
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
