@@ -42,6 +42,7 @@ namespace Armada.Test.Unit.TestHelpers
         public bool ShouldThrowOnMergeLocal { get; set; } = false;
         public bool ShouldThrowOnDeleteBranch { get; set; } = false;
         public bool ShouldThrowOnSetHeadSymbolicRef { get; set; } = false;
+        public bool ShouldThrowOnDiff { get; set; } = false;
 
         public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
         {
@@ -167,6 +168,7 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {
+            if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated diff failure");
             DiffCalls.Add(worktreePath);
             return Task.FromResult(DiffResult);
         }
