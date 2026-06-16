@@ -167,6 +167,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MergeRecoveryHandlerRebasePathTests());
             runner.AddSuite(new RecoveryExhaustionFlowTests());
             runner.AddSuite(new AutoRecoveryEndToEndSmokeTests());
+            runner.AddSuite(new RescueVoyageHandoffTests());
             runner.AddSuite(new PlaybookMergeTests());
             runner.AddSuite(new PullRequestServiceTests());
             runner.AddSuite(new VoyageMissionPlaybookPropagationTests());
