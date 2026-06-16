@@ -591,6 +591,526 @@ namespace Armada.Test.Unit.Suites.Recovery
                 AssertEqual(MissionAssignmentStateEnum.WaitingForIdleCaptain, after!.AssignmentState,
                     "Mission must show WaitingForIdleCaptain when handoff is ready but no captain is free.");
             }).ConfigureAwait(false);
+
+            // --- Test 5: Structural stranded-rescue detection (the churn-independent M3 path) ---
+            //
+            // The existing "StalledRescue_*" tests use a dependent with no DependsOnMissionId and a
+            // null-branch dependency, which makes FindStrandedRescueDependent return null -- they only
+            // exercise the GENERIC quiet-clock path. The tests below drive the STRUCTURAL detector:
+            // a Pending dependent whose same-vessel dependency already reached a handoff-eligible
+            // terminal status with a branch that was never propagated. This is the exact 62-minute-
+            // stall-with-no-incident shape M3 fixes, and it must flag without any clock backdating.
+
+            await RunTest("StalledRescue_StructuralShape_FlagsWithoutQuietClockBackdate", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_struct", "usr_struct").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_struct", "usr_struct").ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb, vessel).ConfigureAwait(false);
+
+                // Worker reached WorkProduced WITH a branch.
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Rescue worker structural",
+                    Status = MissionStatusEnum.WorkProduced,
+                    Persona = "Worker",
+                    BranchName = "armada/rescue-worker/msn_struct"
+                }).ConfigureAwait(false);
+
+                // Dependent stranded by the creation-order race: Pending, depends on the same-vessel
+                // Worker, but the branch was never stamped (null) -- the exact stranded shape.
+                Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "TestEngineer stranded structural",
+                    Status = MissionStatusEnum.Pending,
+                    Persona = "TestEngineer",
+                    DependsOnMissionId = worker.Id,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                await CreateIdleCaptainAsync(testDb, "struct-idle-captain").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    new NullAdmiralService(),
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                // No timestamp backdating at all. The structural detector keys on the stranded shape,
+                // not the churn-prone quiet clock, so it must flag immediately. (The no-op admiral
+                // health sweep cannot release it, so escalation fires.)
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_struct", "usr_struct", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, page.Objects.Count,
+                    "Structural stranded-rescue shape must open exactly one incident without any quiet-clock backdating.");
+                AssertEqual(IncidentSeverityEnum.High, page.Objects[0].Severity,
+                    "Structural stranded-rescue incident must be High severity.");
+                AssertContains("stayed stranded after self-heal", page.Objects[0].Summary ?? "",
+                    "Incident must come from the structural stranded-rescue path, not the generic quiet-clock path.");
+            }).ConfigureAwait(false);
+
+            // Self-heal success branch: when the admiral health sweep actually completes the missed
+            // handoff, the post-heal re-check finds the dependent released and NO incident is opened.
+
+            await RunTest("StalledRescue_StructuralShape_SelfHealReleases_NoIncident", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_heal", "usr_heal").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_heal", "usr_heal").ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb, vessel).ConfigureAwait(false);
+
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Rescue worker heal",
+                    Status = MissionStatusEnum.WorkProduced,
+                    Persona = "Worker",
+                    BranchName = "armada/rescue-worker/msn_heal"
+                }).ConfigureAwait(false);
+
+                Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "TestEngineer heal",
+                    Status = MissionStatusEnum.Pending,
+                    Persona = "TestEngineer",
+                    DependsOnMissionId = worker.Id,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                await CreateIdleCaptainAsync(testDb, "heal-idle-captain").ConfigureAwait(false);
+
+                // The self-heal step re-runs the admiral health sweep. Simulate that sweep actually
+                // completing the missed handoff -- stamp the Worker branch onto the stranded dependent
+                // -- so the orchestrator's post-heal re-check sees it released and skips escalation.
+                NullAdmiralService admiral = new NullAdmiralService
+                {
+                    OnHealthCheck = async _ =>
+                    {
+                        Mission? toHeal = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
+                        if (toHeal != null)
+                        {
+                            toHeal.BranchName = worker.BranchName;
+                            await testDb.Driver.Missions.UpdateAsync(toHeal).ConfigureAwait(false);
+                        }
+                    }
+                };
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    admiral,
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_heal", "usr_heal", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(0, page.Objects.Count,
+                    "A self-heal that releases the stranded dependent must NOT escalate to an incident.");
+
+                Mission? released = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
+                AssertEqual(worker.BranchName, released!.BranchName,
+                    "The self-heal must have stamped the upstream Worker branch onto the dependent.");
+            }).ConfigureAwait(false);
+
+            // PullRequestOpen is a handoff-eligible terminal status: a dependent stranded behind a
+            // PullRequestOpen same-vessel dependency must also be flagged by the structural detector.
+
+            await RunTest("StalledRescue_PullRequestOpenDependency_TreatedAsStranded", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_pr", "usr_pr").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_pr", "usr_pr").ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb, vessel).ConfigureAwait(false);
+
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Worker PR open",
+                    Status = MissionStatusEnum.PullRequestOpen,
+                    Persona = "Worker",
+                    BranchName = "armada/rescue-worker/msn_pr"
+                }).ConfigureAwait(false);
+
+                Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "TestEngineer behind PR",
+                    Status = MissionStatusEnum.Pending,
+                    Persona = "TestEngineer",
+                    DependsOnMissionId = worker.Id,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                await CreateIdleCaptainAsync(testDb, "pr-idle-captain").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    new NullAdmiralService(),
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_pr", "usr_pr", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, page.Objects.Count,
+                    "A dependent stranded behind a PullRequestOpen dependency must be flagged as a stranded rescue.");
+                AssertContains("stayed stranded after self-heal", page.Objects[0].Summary ?? "",
+                    "PullRequestOpen dependency must take the structural stranded-rescue path.");
+            }).ConfigureAwait(false);
+
+            // --- Negative: structural detector must EXCLUDE non-stranded shapes ---
+            //
+            // Each of the following sets up an idle captain and a Pending dependent that almost
+            // matches the stranded shape, but a single discriminating attribute makes the finder
+            // skip it. With no quiet-clock backdating the generic path is also dormant, so a clean
+            // 0-incident assertion proves the structural finder declined for that specific reason
+            // (contrast the positive cases above, which fire immediately under identical timing).
+
+            await RunTest("StuckDetector_ArchitectDependency_NotTreatedAsStranded", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_arch", "usr_arch").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_arch", "usr_arch").ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb, vessel).ConfigureAwait(false);
+
+                // Architect handoff is a parse-and-materialize path, NOT a branch stamp, so an
+                // Architect dependency must be excluded from the stranded-rescue shape.
+                Mission architect = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Architect dependency",
+                    Status = MissionStatusEnum.WorkProduced,
+                    Persona = "Architect",
+                    BranchName = "armada/architect/msn_arch"
+                }).ConfigureAwait(false);
+
+                Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Dependent on architect",
+                    Status = MissionStatusEnum.Pending,
+                    Persona = "Worker",
+                    DependsOnMissionId = architect.Id,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                await CreateIdleCaptainAsync(testDb, "arch-idle-captain").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    new NullAdmiralService(),
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_arch", "usr_arch", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(0, page.Objects.Count,
+                    "An Architect dependency must not be treated as a branch-stamp stranded rescue, so no incident is opened.");
+            }).ConfigureAwait(false);
+
+            await RunTest("StuckDetector_DependencyNullBranch_HandoffPrepared_NotStranded", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_nullb", "usr_nullb").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_nullb", "usr_nullb").ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb, vessel).ConfigureAwait(false);
+
+                // Dependency has no branch to propagate -- nothing to stamp, so this is not the
+                // stranded shape (treated as "handoff prepared / no branch handoff needed").
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Worker no branch",
+                    Status = MissionStatusEnum.WorkProduced,
+                    Persona = "Worker",
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Dependent no upstream branch",
+                    Status = MissionStatusEnum.Pending,
+                    Persona = "TestEngineer",
+                    DependsOnMissionId = worker.Id,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                await CreateIdleCaptainAsync(testDb, "nullb-idle-captain").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    new NullAdmiralService(),
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_nullb", "usr_nullb", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(0, page.Objects.Count,
+                    "A dependency with no branch has nothing to stamp and must not be flagged as a stranded rescue.");
+            }).ConfigureAwait(false);
+
+            await RunTest("StuckDetector_DependentAlreadyCarriesBranch_NotStranded", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_carry", "usr_carry").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_carry", "usr_carry").ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb, vessel).ConfigureAwait(false);
+
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Worker carry",
+                    Status = MissionStatusEnum.WorkProduced,
+                    Persona = "Worker",
+                    BranchName = "armada/rescue-worker/msn_carry"
+                }).ConfigureAwait(false);
+
+                // Handoff already completed: the dependent already carries the upstream branch.
+                Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Dependent already stamped",
+                    Status = MissionStatusEnum.Pending,
+                    Persona = "TestEngineer",
+                    DependsOnMissionId = worker.Id,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                    BranchName = "armada/rescue-worker/msn_carry"
+                }).ConfigureAwait(false);
+
+                await CreateIdleCaptainAsync(testDb, "carry-idle-captain").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    new NullAdmiralService(),
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_carry", "usr_carry", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(0, page.Objects.Count,
+                    "A dependent that already carries the upstream branch has a completed handoff and must not be flagged as stranded.");
+            }).ConfigureAwait(false);
+
+            // --- Churn-stable quiet-clock anchor (ComputeChurnStableProgressUtc) ---
+
+            await RunTest("ChurnStableAnchor_RecentMissionProgress_OldVoyageNotFlagged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_anchor", "usr_anchor").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_anchor", "usr_anchor").ConfigureAwait(false);
+
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Old voyage, recent progress")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open
+                }).ConfigureAwait(false);
+
+                // A WorkProduced mission (non-live, non-terminal-for-completion) with a recent
+                // started_utc and no branch (so the landing-drain enqueue loop skips it).
+                Mission progressing = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Recently started mission",
+                    Status = MissionStatusEnum.WorkProduced,
+                    Persona = "Worker",
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                // Voyage was created long ago, but a mission started just now. The churn-stable anchor
+                // keys on the most recent mission start/completion, so the quiet clock must read ~0.
+                await SetUtcColumnsAsync(testDb, "voyages", "id", voyage.Id, 20, "created_utc").ConfigureAwait(false);
+                await SetUtcColumnsAsync(testDb, "missions", "id", progressing.Id, 0, "started_utc").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    new NullAdmiralService(),
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_anchor", "usr_anchor", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(0, page.Objects.Count,
+                    "Recent mission progress must keep the churn-stable quiet clock fresh even when the voyage was created long ago.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ChurnStableAnchor_NeverStartedMissions_FallsBackToVoyageCreated", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_fallback", "usr_fallback").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_fallback", "usr_fallback").ConfigureAwait(false);
+
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Old voyage, never started")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open
+                }).ConfigureAwait(false);
+
+                // A Pending mission that never started: null started_utc and completed_utc. With no
+                // mission progress timestamp at all, the anchor falls back to the voyage created_utc.
+                await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Title = "Never-started mission",
+                    Status = MissionStatusEnum.Pending,
+                    Persona = "Worker",
+                    BranchName = null
+                }).ConfigureAwait(false);
+
+                // Only the voyage creation is aged; the missions carry no progress timestamps.
+                await SetUtcColumnsAsync(testDb, "voyages", "id", voyage.Id, 20, "created_utc").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
+                    testDb.Driver,
+                    new NullAdmiralService(),
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    BuildStuckDetectionSettings());
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_fallback", "usr_fallback", false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, page.Objects.Count,
+                    "A voyage whose missions never started must age off the voyage created_utc fallback and be flagged.");
+                AssertContains("no progress for", page.Objects[0].Summary ?? "",
+                    "The fallback path must report the generic quiet-clock stuck summary.");
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
@@ -743,12 +1263,49 @@ namespace Armada.Test.Unit.Suites.Recovery
             }
         }
 
+        /// <summary>
+        /// Sets the named UTC timestamp columns on a single row to a value <paramref name="minutesAgo"/>
+        /// minutes before now (0 == now) via raw SQL. Raw SQL is required because the database layer
+        /// always overrides last_update_utc to DateTime.UtcNow on Create/Update; it is the only way to
+        /// inject a specific (recent or old) timestamp. Used to drive the churn-stable quiet-clock
+        /// anchor (ComputeChurnStableProgressUtc) independently of voyage creation time so the
+        /// stuck-detector tests can prove the anchor keys on mission progress, not the churning clock.
+        /// </summary>
+        private static async Task SetUtcColumnsAsync(
+            TestDatabase testDb,
+            string table,
+            string idColumn,
+            string id,
+            int minutesAgo,
+            params string[] columns)
+        {
+            string timestamp = DateTime.UtcNow.AddMinutes(-minutesAgo)
+                .ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", System.Globalization.CultureInfo.InvariantCulture);
+            string setClause = String.Join(", ", columns.Select(column => column + " = @ts"));
+
+            using SqliteConnection conn = new SqliteConnection(testDb.ConnectionString);
+            await conn.OpenAsync().ConfigureAwait(false);
+
+            using SqliteCommand cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE " + table + " SET " + setClause + " WHERE " + idColumn + " = @id;";
+            cmd.Parameters.AddWithValue("@ts", timestamp);
+            cmd.Parameters.AddWithValue("@id", id);
+            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Private-Stubs
 
         private sealed class NullAdmiralService : IAdmiralService
         {
+            /// <summary>
+            /// Optional hook invoked by <see cref="HealthCheckAsync"/>. The stuck-rescue self-heal
+            /// step re-runs the admiral health sweep; tests use this to simulate the sweep actually
+            /// completing the missed handoff (or to leave it a no-op so escalation is exercised).
+            /// </summary>
+            public Func<CancellationToken, Task>? OnHealthCheck { get; set; }
+
             /// <inheritdoc />
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
             /// <inheritdoc />
@@ -804,7 +1361,7 @@ namespace Armada.Test.Unit.Suites.Recovery
 
             /// <inheritdoc />
             public Task HealthCheckAsync(CancellationToken token = default)
-                => Task.CompletedTask;
+                => OnHealthCheck != null ? OnHealthCheck(token) : Task.CompletedTask;
 
             /// <inheritdoc />
             public Task CleanupStaleCaptainsAsync(CancellationToken token = default)
