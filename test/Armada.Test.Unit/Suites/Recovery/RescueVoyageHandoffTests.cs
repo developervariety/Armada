@@ -78,33 +78,21 @@ namespace Armada.Test.Unit.Suites.Recovery
                 ArmadaSettings settings = CreateSettings();
                 MissionService missionSvc = CreateMissionService(testDb.Driver, settings, new LoggingModule(), new StubGitService());
 
-                // Before stamp: dependency gate must block with WaitingForDependency.
-                bool beforeResult = await missionSvc.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
-                AssertFalse(beforeResult, "TryAssignAsync must return false before handoff stamp.");
+                // The TestEngineer was created with a null branch after the Worker had already
+                // reached WorkProduced (the creation-order race). The first assignment pass must
+                // self-heal the missed handoff in place -- stamping the Worker branch and clearing
+                // the dependency gate -- rather than parking the dependent at WaitingForDependency
+                // forever. TryAssignAsync returns false only because no OnLaunchAgent handler is
+                // configured in this harness, but the AssignmentState must advance to Provisioning,
+                // proving the dependency gate cleared on the self-heal pass.
+                bool assignResult = await missionSvc.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                AssertFalse(assignResult, "TryAssignAsync returns false in the test harness (no launch handler), which is expected.");
 
-                Mission? blocked = await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false);
-                AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, blocked!.AssignmentState,
-                    "TestEngineer must show WaitingForDependency before the branch is stamped.");
-
-                // Simulate the handoff: stamp the branch from the Worker onto the TestEngineer.
-                testEngineer.BranchName = worker.BranchName;
-                testEngineer.Status = MissionStatusEnum.Pending;
-                testEngineer.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
-
-                // After stamp: dependency gate must be cleared.
-                // TryAssignAsync returns false because no OnLaunchAgent handler is configured in
-                // the unit-test harness, but the AssignmentState advances to Provisioning (not
-                // WaitingForDependency), proving the dependency check passed.
-                bool afterResult = await missionSvc.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
-                AssertFalse(afterResult, "TryAssignAsync returns false in the test harness (no launch handler), which is expected.");
-
-                Mission? afterMission = await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false);
-                AssertEqual(MissionAssignmentStateEnum.Provisioning, afterMission!.AssignmentState,
-                    "AssignmentState must be Provisioning after the handoff stamp clears the dependency gate.");
-                // BranchName is preserved on rollback when preserveInheritedBranch is true.
-                AssertEqual(worker.BranchName, afterMission.BranchName,
-                    "The inherited branch must be preserved when the dependency gate is cleared.");
+                Mission? healed = await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false);
+                AssertEqual(MissionAssignmentStateEnum.Provisioning, healed!.AssignmentState,
+                    "TestEngineer must self-heal to Provisioning on the first pass, not park at WaitingForDependency.");
+                AssertEqual(worker.BranchName, healed.BranchName,
+                    "The self-heal must stamp the upstream Worker branch onto the TestEngineer.");
             }).ConfigureAwait(false);
 
             // Variant: stranded shape -- TestEngineer BranchName is null while Worker has one.
@@ -147,26 +135,17 @@ namespace Armada.Test.Unit.Suites.Recovery
                 await CreateIdleCaptainAsync(testDb, "rescue-idle-captain-strand").ConfigureAwait(false);
                 MissionService missionSvc = CreateMissionService(testDb.Driver, CreateSettings(), new LoggingModule(), new StubGitService());
 
-                // Stranded: must be blocked.
-                bool strandedResult = await missionSvc.TryAssignAsync(dependent, vessel).ConfigureAwait(false);
-                AssertFalse(strandedResult, "Stranded TestEngineer must be blocked when branch is not stamped.");
-
-                Mission? stranded = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
-                AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, stranded!.AssignmentState,
-                    "Stranded shape must show WaitingForDependency.");
-
-                // Self-heal: stamp the correct branch.
-                dependent.BranchName = worker.BranchName;
-                dependent.Status = MissionStatusEnum.Pending;
-                dependent.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                await testDb.Driver.Missions.UpdateAsync(dependent).ConfigureAwait(false);
-
+                // Stranded shape: the dependent carries no branch while its WorkProduced same-vessel
+                // dependency does. The assignment pass must lazily run the missed handoff (stamp the
+                // branch + inject prior-stage context) and clear the dependency gate in the same pass.
                 bool healedResult = await missionSvc.TryAssignAsync(dependent, vessel).ConfigureAwait(false);
                 AssertFalse(healedResult, "TryAssignAsync returns false in the test harness (no launch handler), which is expected.");
 
                 Mission? healed = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
                 AssertEqual(MissionAssignmentStateEnum.Provisioning, healed!.AssignmentState,
-                    "After self-heal the dependency gate must be cleared (AssignmentState=Provisioning).");
+                    "The stranded dependent must self-heal to Provisioning, not stay WaitingForDependency.");
+                AssertEqual(worker.BranchName, healed.BranchName,
+                    "The self-heal must stamp the upstream branch onto the stranded dependent.");
             }).ConfigureAwait(false);
 
             // --- Test 2: TestEngineer WorkProduced -> Judge released ---
@@ -208,28 +187,18 @@ namespace Armada.Test.Unit.Suites.Recovery
                 await CreateIdleCaptainAsync(testDb, "rescue-idle-judge-captain").ConfigureAwait(false);
                 MissionService missionSvc = CreateMissionService(testDb.Driver, CreateSettings(), new LoggingModule(), new StubGitService());
 
-                // Before stamp: blocked.
-                bool blockedResult = await missionSvc.TryAssignAsync(judge, vessel).ConfigureAwait(false);
-                AssertFalse(blockedResult, "Judge must be blocked before handoff stamp.");
-
-                Mission? blocked = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
-                AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, blocked!.AssignmentState,
-                    "Judge must show WaitingForDependency while TestEngineer branch is not stamped.");
-
-                // Stamp the branch.
-                judge.BranchName = testEngineer.BranchName;
-                judge.Status = MissionStatusEnum.Pending;
-                judge.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
-
+                // The Judge depends on a WorkProduced TestEngineer whose branch was never propagated
+                // (null Judge branch). The TestEngineer->Judge handoff self-heals generically on the
+                // first assignment pass: the upstream branch is stamped and the dependency gate
+                // clears (Provisioning), rather than parking the Judge at WaitingForDependency.
                 bool releasedResult = await missionSvc.TryAssignAsync(judge, vessel).ConfigureAwait(false);
                 AssertFalse(releasedResult, "TryAssignAsync returns false in the test harness (no launch handler), which is expected.");
 
                 Mission? released = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
                 AssertEqual(MissionAssignmentStateEnum.Provisioning, released!.AssignmentState,
-                    "Judge must reach Provisioning after the handoff stamp clears the dependency gate.");
+                    "Judge must self-heal to Provisioning on the first pass once its TestEngineer is WorkProduced.");
                 AssertEqual(testEngineer.BranchName, released.BranchName,
-                    "Inherited branch must be preserved on the Judge stage.");
+                    "The self-heal must stamp the upstream TestEngineer branch onto the Judge stage.");
             }).ConfigureAwait(false);
 
             // --- Test 3: Stalled-rescue stuck detection ---
@@ -735,10 +704,13 @@ namespace Armada.Test.Unit.Suites.Recovery
         }
 
         /// <summary>
-        /// Directly updates the last_update_utc columns in SQLite to a past timestamp so the
-        /// quiet-minutes gate in DetectStuckOpenVoyageAsync fires during the test sweep.
-        /// The database layer always overrides LastUpdateUtc to DateTime.UtcNow on Create/Update,
-        /// so this raw-SQL update is the only way to back-date timestamps in unit tests.
+        /// Directly back-dates the churn-stable progress columns in SQLite to a past timestamp so
+        /// the quiet-minutes gate in DetectStuckOpenVoyageAsync fires during the test sweep. The
+        /// detector anchors elapsed time on ComputeChurnStableProgressUtc -- the most recent mission
+        /// started_utc/completed_utc, falling back to the voyage created_utc -- rather than the
+        /// churn-prone last_update_utc, so this raw-SQL update back-dates those stable columns (plus
+        /// last_update_utc, which the database layer always overrides to DateTime.UtcNow on
+        /// Create/Update). Raw SQL is the only way to inject an old timestamp in unit tests.
         /// </summary>
         private static async Task BackdateTimestampsAsync(
             TestDatabase testDb,
@@ -754,7 +726,7 @@ namespace Armada.Test.Unit.Suites.Recovery
 
             using (SqliteCommand cmd = conn.CreateCommand())
             {
-                cmd.CommandText = "UPDATE voyages SET last_update_utc = @ts WHERE id = @id;";
+                cmd.CommandText = "UPDATE voyages SET created_utc = @ts, last_update_utc = @ts WHERE id = @id;";
                 cmd.Parameters.AddWithValue("@ts", oldTimestamp);
                 cmd.Parameters.AddWithValue("@id", voyageId);
                 await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
@@ -763,7 +735,8 @@ namespace Armada.Test.Unit.Suites.Recovery
             foreach (string missionId in missionIds)
             {
                 using SqliteCommand cmd = conn.CreateCommand();
-                cmd.CommandText = "UPDATE missions SET last_update_utc = @ts WHERE id = @id;";
+                cmd.CommandText =
+                    "UPDATE missions SET created_utc = @ts, started_utc = @ts, completed_utc = @ts, last_update_utc = @ts WHERE id = @id;";
                 cmd.Parameters.AddWithValue("@ts", oldTimestamp);
                 cmd.Parameters.AddWithValue("@id", missionId);
                 await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
