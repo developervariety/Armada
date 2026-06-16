@@ -257,19 +257,36 @@ namespace Armada.Core.Services
                     return false;
                 }
 
-                // Same-vessel WorkProduced deps still require the explicit handoff signal so the
-                // downstream stage doesn't launch with the original dispatch prompt before
+                // Same-vessel deps in a handoff-eligible status (WorkProduced/Complete/PullRequestOpen,
+                // per the gate above) still require the explicit handoff (branch + prior-stage context)
+                // so the downstream stage doesn't launch with the original dispatch prompt before
                 // architect/test/judge prep runs.
-                if (!dependencyIsCrossVessel &&
-                    dependency.Status == MissionStatusEnum.WorkProduced &&
-                    !IsPipelineHandoffPrepared(mission, dependency))
+                if (!dependencyIsCrossVessel && !IsPipelineHandoffPrepared(mission, dependency))
                 {
+                    if (String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // The Architect handoff is the special parse-and-materialize path
+                        // (TryHandoffToNextStageAsync turns architect output into downstream mission
+                        // rows); it cannot be reconstructed lazily here. Keep deferring until that
+                        // batch handoff runs.
+                        _Logging.Info(_Header + "mission " + mission.Id + " depends on architect " + dependency.Id +
+                            " whose handoff is not prepared yet -- deferring assignment");
+                        mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                        return false;
+                    }
+
+                    // The upstream reached a handoff-eligible status but the handoff context was never
+                    // propagated onto this dependent -- e.g. a rescue dependent row created after the
+                    // upstream had already transitioned to WorkProduced (the creation-order race).
+                    // Rather than parking at WaitingForDependency forever, lazily run the handoff for
+                    // this single dependent now (stamp the upstream branch + inject the prior-stage
+                    // preamble/context) and continue assignment in the same pass. Idempotent: once the
+                    // branch is stamped, IsPipelineHandoffPrepared returns true on later passes.
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
-                        " which is WorkProduced, but handoff is not prepared yet -- deferring assignment");
-                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
-                    return false;
+                        " (" + dependency.Status + ") but handoff context was not propagated -- self-healing handoff before assignment");
+                    await SelfHealDependentHandoffAsync(dependency, mission, token).ConfigureAwait(false);
                 }
             }
 
@@ -1865,93 +1882,7 @@ namespace Armada.Core.Services
 
             foreach (Mission nextMission in dependentMissions)
             {
-                // Build persona-specific preamble for the next stage
-                string personaPreamble = "";
-                switch (nextMission.Persona)
-                {
-                    case "Worker":
-                        personaPreamble = "## Your Role: Worker (Implement)\n\n" +
-                            "You are implementing code changes based on the Architect's plan. " +
-                            "Review the prior stage output below and implement the described changes.\n\n";
-                        break;
-                    case "TestEngineer":
-                        personaPreamble = "## Your Role: TestEngineer (Write Tests)\n\n" +
-                            "You are writing tests for code changes made by the Worker. " +
-                            "Review the diff below and write unit tests, integration tests, or test harness updates " +
-                            "that cover the changes. Follow existing test patterns in the repository. " +
-                            "Scope yourself only to this mission, not sibling missions in the same voyage. Cover the " +
-                            "happy path, but also add negative or edge-path coverage for validation, timeout, cancellation, " +
-                            "retry, cleanup, and error-handling branches when they are in scope. Include short " +
-                            "`## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. " +
-                            "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
-                        break;
-                    case "Judge":
-                        personaPreamble = "## Your Role: Judge (Review)\n\n" +
-                            "You are reviewing the completed work for correctness, completeness, scope compliance, " +
-                            "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
-                            "description only, not sibling missions in the same voyage. Assume there may be at least " +
-                            "one hidden bug. Your response must include `## Completeness`, `## Correctness`, `## Tests`, " +
-                            "`## Failure Modes`, and `## Verdict` sections. A PASS is only allowed when tests are adequate, " +
-                            "negative-path coverage for validation, timeout, cancellation, retry, cleanup, and error-handling " +
-                            "changes is present or justified, and failure modes were explicitly reviewed. End with a standalone line " +
-                            "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
-                        break;
-                }
-
-                // Inject context from the completed stage into the next stage's description
-                string handoffContext = "\n\n---\n" +
-                    "## Prior Stage Output\n" +
-                    "The previous pipeline stage (" + (completedMission.Persona ?? "Worker") + ") " +
-                    "completed mission \"" + completedMission.Title + "\" (" + completedMission.Id + ").\n" +
-                    "Branch: " + (completedMission.BranchName ?? "unknown") + "\n";
-
-                // Use the canonical persisted AgentOutput for handoff instead of reparsing
-                // the mission log file. AgentOutput is captured from accumulated stdout by
-                // HandleCompletionAsync and is the single source of truth for agent output.
-                if (!String.IsNullOrEmpty(completedMission.AgentOutput))
-                {
-                    string agentOutput = completedMission.AgentOutput.Trim();
-                    int maxOutputChars = 8000;
-                    if (agentOutput.Length > maxOutputChars)
-                    {
-                        // Truncate from the end (keep the beginning which typically contains
-                        // the plan/structure) rather than the beginning
-                        agentOutput = agentOutput.Substring(0, maxOutputChars) + "\n...(truncated)";
-                    }
-                    handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + agentOutput + "\n```\n";
-                }
-
-                // Include the diff snapshot if available
-                if (!String.IsNullOrEmpty(completedMission.DiffSnapshot))
-                {
-                    handoffContext += "\n### Diff from prior stage\n```diff\n" + completedMission.DiffSnapshot + "\n```\n";
-                }
-                else
-                {
-                    handoffContext += "\n*No diff available from prior stage. The work is on the branch above.*\n";
-                }
-
-                string handoffDescription = personaPreamble.Length > 0
-                    ? personaPreamble + (nextMission.Description ?? "") + handoffContext
-                    : (nextMission.Description ?? "") + handoffContext;
-
-                // Drain unread mailbox signals and prepend at the absolute top of the brief
-                List<Signal> applicableSignals = GetApplicableMailboxSignals(unreadMailboxSignals, nextMission.Id, nextMission.VoyageId);
-                if (applicableSignals.Count > 0)
-                {
-                    handoffDescription = BuildMailboxNotesBlock(applicableSignals) + "\n\n" + handoffDescription;
-                    foreach (Signal s in applicableSignals) appliedSignalIds.Add(s.Id);
-                }
-
-                nextMission.Description = handoffDescription;
-                nextMission.BranchName = completedMission.BranchName;
-                nextMission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
-
-                _Logging.Info(_Header + "pipeline handoff: prepared mission " + nextMission.Id +
-                    " (" + nextMission.Persona + ") with context from " + completedMission.Id +
-                    " (" + completedMission.Persona + ")");
-
+                await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
             }
 
             // Mark drained signals as read after all downstream missions are updated
@@ -1959,6 +1890,137 @@ namespace Armada.Core.Services
                 await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
 
             return true;
+        }
+
+        /// <summary>
+        /// Prepare a single downstream pipeline dependent for assignment by stamping it with the
+        /// upstream stage's branch and injecting the persona preamble plus the prior-stage context
+        /// (agent output, diff) into its description. Applicable unread mailbox signals are prepended
+        /// at the top of the brief and their ids accumulated into <paramref name="appliedSignalIds"/>
+        /// for the caller to mark read once the batch (or single lazy handoff) is complete. This is
+        /// the shared core used by both the batch handoff (<see cref="TryHandoffToNextStageAsync"/>)
+        /// and the lazy self-heal path in <see cref="TryAssignAsync"/>, so a handoff missed by the
+        /// creation-order race is reconstructed identically rather than duplicated.
+        /// </summary>
+        /// <param name="completedMission">The upstream stage that produced the work.</param>
+        /// <param name="nextMission">The downstream dependent to prepare; mutated and persisted.</param>
+        /// <param name="unreadMailboxSignals">Unread mailbox signals loaded once by the caller.</param>
+        /// <param name="appliedSignalIds">Accumulator of signal ids applied to a brief.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task PrepareSingleDependentHandoffAsync(
+            Mission completedMission,
+            Mission nextMission,
+            List<Signal> unreadMailboxSignals,
+            HashSet<string> appliedSignalIds,
+            CancellationToken token = default)
+        {
+            // Build persona-specific preamble for the next stage
+            string personaPreamble = "";
+            switch (nextMission.Persona)
+            {
+                case "Worker":
+                    personaPreamble = "## Your Role: Worker (Implement)\n\n" +
+                        "You are implementing code changes based on the Architect's plan. " +
+                        "Review the prior stage output below and implement the described changes.\n\n";
+                    break;
+                case "TestEngineer":
+                    personaPreamble = "## Your Role: TestEngineer (Write Tests)\n\n" +
+                        "You are writing tests for code changes made by the Worker. " +
+                        "Review the diff below and write unit tests, integration tests, or test harness updates " +
+                        "that cover the changes. Follow existing test patterns in the repository. " +
+                        "Scope yourself only to this mission, not sibling missions in the same voyage. Cover the " +
+                        "happy path, but also add negative or edge-path coverage for validation, timeout, cancellation, " +
+                        "retry, cleanup, and error-handling branches when they are in scope. Include short " +
+                        "`## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. " +
+                        "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
+                    break;
+                case "Judge":
+                    personaPreamble = "## Your Role: Judge (Review)\n\n" +
+                        "You are reviewing the completed work for correctness, completeness, scope compliance, " +
+                        "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
+                        "description only, not sibling missions in the same voyage. Assume there may be at least " +
+                        "one hidden bug. Your response must include `## Completeness`, `## Correctness`, `## Tests`, " +
+                        "`## Failure Modes`, and `## Verdict` sections. A PASS is only allowed when tests are adequate, " +
+                        "negative-path coverage for validation, timeout, cancellation, retry, cleanup, and error-handling " +
+                        "changes is present or justified, and failure modes were explicitly reviewed. End with a standalone line " +
+                        "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
+                    break;
+            }
+
+            // Inject context from the completed stage into the next stage's description
+            string handoffContext = "\n\n---\n" +
+                "## Prior Stage Output\n" +
+                "The previous pipeline stage (" + (completedMission.Persona ?? "Worker") + ") " +
+                "completed mission \"" + completedMission.Title + "\" (" + completedMission.Id + ").\n" +
+                "Branch: " + (completedMission.BranchName ?? "unknown") + "\n";
+
+            // Use the canonical persisted AgentOutput for handoff instead of reparsing
+            // the mission log file. AgentOutput is captured from accumulated stdout by
+            // HandleCompletionAsync and is the single source of truth for agent output.
+            if (!String.IsNullOrEmpty(completedMission.AgentOutput))
+            {
+                string agentOutput = completedMission.AgentOutput.Trim();
+                int maxOutputChars = 8000;
+                if (agentOutput.Length > maxOutputChars)
+                {
+                    // Truncate from the end (keep the beginning which typically contains
+                    // the plan/structure) rather than the beginning
+                    agentOutput = agentOutput.Substring(0, maxOutputChars) + "\n...(truncated)";
+                }
+                handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + agentOutput + "\n```\n";
+            }
+
+            // Include the diff snapshot if available
+            if (!String.IsNullOrEmpty(completedMission.DiffSnapshot))
+            {
+                handoffContext += "\n### Diff from prior stage\n```diff\n" + completedMission.DiffSnapshot + "\n```\n";
+            }
+            else
+            {
+                handoffContext += "\n*No diff available from prior stage. The work is on the branch above.*\n";
+            }
+
+            string handoffDescription = personaPreamble.Length > 0
+                ? personaPreamble + (nextMission.Description ?? "") + handoffContext
+                : (nextMission.Description ?? "") + handoffContext;
+
+            // Drain unread mailbox signals and prepend at the absolute top of the brief
+            List<Signal> applicableSignals = GetApplicableMailboxSignals(unreadMailboxSignals, nextMission.Id, nextMission.VoyageId);
+            if (applicableSignals.Count > 0)
+            {
+                handoffDescription = BuildMailboxNotesBlock(applicableSignals) + "\n\n" + handoffDescription;
+                foreach (Signal s in applicableSignals) appliedSignalIds.Add(s.Id);
+            }
+
+            nextMission.Description = handoffDescription;
+            nextMission.BranchName = completedMission.BranchName;
+            nextMission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
+
+            _Logging.Info(_Header + "pipeline handoff: prepared mission " + nextMission.Id +
+                " (" + nextMission.Persona + ") with context from " + completedMission.Id +
+                " (" + completedMission.Persona + ")");
+        }
+
+        /// <summary>
+        /// Lazily run the pipeline handoff for a single dependent whose upstream dependency already
+        /// reached a handoff-eligible status but never had its branch/context propagated (the
+        /// creation-order race where the dependent row was created after the upstream completed).
+        /// Loads unread mailbox signals, prepares the dependent via
+        /// <see cref="PrepareSingleDependentHandoffAsync"/>, and marks the applied signals read.
+        /// Idempotent at the caller: once the branch is stamped, IsPipelineHandoffPrepared returns
+        /// true and this path is not re-entered.
+        /// </summary>
+        /// <param name="dependency">The completed upstream stage.</param>
+        /// <param name="dependent">The stranded downstream mission to prepare; mutated and persisted.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task SelfHealDependentHandoffAsync(Mission dependency, Mission dependent, CancellationToken token = default)
+        {
+            List<Signal> unreadMailboxSignals = await LoadUnreadMailboxSignalsAsync(token).ConfigureAwait(false);
+            HashSet<string> appliedSignalIds = new HashSet<string>(StringComparer.Ordinal);
+            await PrepareSingleDependentHandoffAsync(dependency, dependent, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
+            foreach (string signalId in appliedSignalIds)
+                await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
         }
 
         private static readonly System.Text.Json.JsonSerializerOptions _MailboxJsonOptions = new System.Text.Json.JsonSerializerOptions

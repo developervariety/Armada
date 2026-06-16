@@ -413,23 +413,183 @@ namespace Armada.Server
             if (voyage.Status != VoyageStatusEnum.Open && voyage.Status != VoyageStatusEnum.InProgress) return;
             if (summaries.Any(item => IsLandingDrainLiveMission(item.Status))) return;
 
-            DateTime lastProgress = voyage.LastUpdateUtc;
-            foreach (MissionSummary summary in summaries)
+            // Structural stalled-rescue detection, independent of the LastUpdateUtc quiet clock.
+            // The rescue Worker->TestEngineer->Judge chain stalls when a dependent stays Pending
+            // (WaitingForDependency) while its same-vessel upstream dependency has already reached a
+            // handoff-eligible terminal status but never propagated its branch -- assignment then
+            // parks forever. Every WaitingForDependency re-attempt bumps the dependent and voyage
+            // LastUpdateUtc, so the quiet clock never trips (the 62-minute-stall-with-no-incident
+            // symptom). Detect the shape directly instead.
+            StrandedDependent? stranded = FindStrandedRescueDependent(summaries);
+            if (stranded != null && await HasIdleCaptainAsync(token).ConfigureAwait(false))
             {
-                if (summary.LastUpdateUtc > lastProgress) lastProgress = summary.LastUpdateUtc;
+                // First attempt self-heal: re-trigger assignment through the standard admiral health
+                // sweep, which re-runs the MissionService assignment entry point (TryAssignAsync) for
+                // every Pending mission and now lazily completes a missed handoff before assigning.
+                await TrySelfHealStrandedRescueAsync(voyage, stranded, token).ConfigureAwait(false);
+
+                List<MissionSummary> postHeal = await _Database.Missions
+                    .EnumerateMissionSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+                if (FindStrandedRescueDependent(postHeal) == null) return; // self-heal released it
+
+                // Still stranded after the self-heal attempt -- escalate.
+                if (await HasOpenStuckVoyageIncidentAsync(voyage, token).ConfigureAwait(false)) return;
+                await OpenStuckVoyageIncidentAsync(
+                    voyage,
+                    "Voyage " + voyage.Id + " has no live missions but rescue dependent " + stranded.DependentId +
+                        " stayed stranded after self-heal while its upstream dependency " + stranded.DependencyId +
+                        " (" + stranded.DependencyStatus + ") is handoff-eligible.",
+                    token).ConfigureAwait(false);
+                return;
             }
+
+            // Generic quiet-voyage path. Anchor elapsed time on a churn-stable timestamp (the most
+            // recent mission start/completion) rather than the dependent/voyage LastUpdateUtc, which
+            // WaitingForDependency retry churn bumps every health cycle and would otherwise reset the
+            // quiet clock indefinitely.
+            DateTime lastProgress = ComputeChurnStableProgressUtc(voyage, summaries);
 
             double quietMinutes = (DateTime.UtcNow - lastProgress).TotalMinutes;
             if (quietMinutes < _Settings.AutonomousRecovery.StuckOpenVoyageMinutes) return;
 
             if (await HasOpenStuckVoyageIncidentAsync(voyage, token).ConfigureAwait(false)) return;
 
+            await OpenStuckVoyageIncidentAsync(
+                voyage,
+                "Voyage " + voyage.Id + " has been " + voyage.Status + " with no live missions and no progress for " +
+                    quietMinutes.ToString("F1") + " minutes.",
+                token).ConfigureAwait(false);
+        }
+
+        // Holds the identity of a downstream rescue/pipeline mission stranded at Pending while its
+        // upstream dependency is already handoff-eligible -- the creation-order race shape that the
+        // structural stuck detector keys on. A named type is used in place of a tuple per repo style.
+        private sealed class StrandedDependent
+        {
+            /// <summary>Identifier of the stranded downstream mission.</summary>
+            public string DependentId { get; set; } = String.Empty;
+
+            /// <summary>Identifier of the upstream dependency it is waiting on.</summary>
+            public string DependencyId { get; set; } = String.Empty;
+
+            /// <summary>Current status of the upstream dependency.</summary>
+            public MissionStatusEnum DependencyStatus { get; set; } = MissionStatusEnum.Pending;
+        }
+
+        // Find a downstream dependent stranded by the creation-order race: it is Pending with a
+        // same-vessel, non-Architect dependency that already reached a handoff-eligible terminal
+        // status (WorkProduced/Complete/PullRequestOpen) yet whose branch was never propagated onto
+        // the dependent (dependency has a branch, dependent's differs/empty). Architect dependencies
+        // are excluded because their handoff is a parse-and-materialize path, not a branch stamp.
+        private static StrandedDependent? FindStrandedRescueDependent(List<MissionSummary> summaries)
+        {
+            foreach (MissionSummary dependent in summaries)
+            {
+                if (dependent.Status != MissionStatusEnum.Pending) continue;
+                if (String.IsNullOrEmpty(dependent.DependsOnMissionId)) continue;
+
+                MissionSummary? dependency = summaries.FirstOrDefault(item =>
+                    String.Equals(item.Id, dependent.DependsOnMissionId, StringComparison.Ordinal));
+                if (dependency == null) continue;
+
+                if (dependency.Status != MissionStatusEnum.WorkProduced &&
+                    dependency.Status != MissionStatusEnum.Complete &&
+                    dependency.Status != MissionStatusEnum.PullRequestOpen)
+                {
+                    continue;
+                }
+
+                if (String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Cross-vessel deps share no branch (different repos) and never use the branch-stamp
+                // handoff, so they are not part of this shape.
+                if (String.IsNullOrEmpty(dependency.VesselId) || String.IsNullOrEmpty(dependent.VesselId)) continue;
+                if (!String.Equals(dependency.VesselId, dependent.VesselId, StringComparison.Ordinal)) continue;
+
+                // Handoff prepared = dependency had no branch, or the dependent already carries it.
+                // Only the unprepared case is the stranded shape.
+                if (String.IsNullOrEmpty(dependency.BranchName)) continue;
+                if (String.Equals(dependent.BranchName, dependency.BranchName, StringComparison.Ordinal)) continue;
+
+                return new StrandedDependent
+                {
+                    DependentId = dependent.Id,
+                    DependencyId = dependency.Id,
+                    DependencyStatus = dependency.Status
+                };
+            }
+
+            return null;
+        }
+
+        // True when at least one captain is Idle and therefore able to pick up the stranded
+        // dependent once its handoff is completed.
+        private async Task<bool> HasIdleCaptainAsync(CancellationToken token)
+        {
+            List<Captain> idle = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
+            return idle.Count > 0;
+        }
+
+        // Re-trigger assignment for a stranded rescue dependent via the standard admiral health
+        // sweep (the same path that runs MissionService.TryAssignAsync for every Pending mission and
+        // now self-heals a missed handoff). Best-effort: a failure here must not abort the drain or
+        // suppress the escalation that follows, so it is logged and swallowed.
+        private async Task TrySelfHealStrandedRescueAsync(Voyage voyage, StrandedDependent stranded, CancellationToken token)
+        {
+            try
+            {
+                await EmitLandingDrainEventAsync(
+                    "landing_drain.stuck_rescue_self_heal",
+                    "Landing-drain re-triggering assignment for stranded rescue dependent " + stranded.DependentId +
+                        " on voyage " + voyage.Id,
+                    null,
+                    voyage.Id,
+                    token,
+                    voyage.TenantId,
+                    voyage.UserId).ConfigureAwait(false);
+
+                await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "self-heal of stranded rescue dependent " + stranded.DependentId +
+                    " on voyage " + voyage.Id + " failed: " + ex.Message);
+            }
+        }
+
+        // Compute a churn-stable quiet-clock anchor: the most recent real forward-progress timestamp
+        // (mission start/completion), which WaitingForDependency assignment retries never bump --
+        // unlike LastUpdateUtc, which churns every health cycle. Falls back to voyage creation when
+        // no mission has started so an always-stalled voyage can still age past the threshold.
+        private static DateTime ComputeChurnStableProgressUtc(Voyage voyage, List<MissionSummary> summaries)
+        {
+            DateTime anchor = DateTime.MinValue;
+            foreach (MissionSummary summary in summaries)
+            {
+                if (summary.CompletedUtc.HasValue && summary.CompletedUtc.Value > anchor)
+                    anchor = summary.CompletedUtc.Value;
+                if (summary.StartedUtc.HasValue && summary.StartedUtc.Value > anchor)
+                    anchor = summary.StartedUtc.Value;
+            }
+
+            if (anchor == DateTime.MinValue) anchor = voyage.CreatedUtc;
+            return anchor;
+        }
+
+        // Open a High-severity stuck-open-voyage incident and emit the landing-drain event. The
+        // summary always contains "no live missions" so HasOpenStuckVoyageIncidentAsync de-dups
+        // across both the structural and generic detection paths.
+        private async Task OpenStuckVoyageIncidentAsync(Voyage voyage, string summary, CancellationToken token)
+        {
             AuthContext auth = BuildVoyageAuth(voyage);
             Incident incident = await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Stuck open voyage: " + Truncate(voyage.Title, 96),
-                Summary = "Voyage " + voyage.Id + " has been " + voyage.Status + " with no live missions and no progress for " +
-                    quietMinutes.ToString("F1") + " minutes.",
+                Summary = summary,
                 Status = IncidentStatusEnum.Open,
                 Severity = IncidentSeverityEnum.High,
                 VoyageId = voyage.Id,
@@ -1022,6 +1182,17 @@ namespace Armada.Server
         // checkout-existing-branch support in dock provisioning, which is out of scope here), and
         // the re-Judge inherits that branch through handoff -- so the re-judge always targets the
         // branch the revision actually lands on.
+        //
+        // Creation-order race: the Worker root is dispatched via DispatchMissionQueuedAsync (which
+        // persists the row and DEFERS assignment to the background dispatch queue) instead of
+        // DispatchMissionAsync (which assigns synchronously). This guarantees the TestEngineer and
+        // Judge dependent rows are created (Status=Pending) BEFORE the Worker can be assigned, run,
+        // and transition to WorkProduced. TryHandoffToNextStageAsync only stamps the upstream
+        // branch onto dependents that already exist when the Worker completes; if the Worker
+        // finished before the dependents were created, the branch was never propagated and the
+        // dependents parked at WaitingForDependency forever. Deferring the Worker assignment closes
+        // that window. (MissionService.TryAssignAsync also self-heals a missed handoff lazily, so
+        // this ordering plus that lazy path are belt-and-suspenders.)
         private async Task<Mission> DispatchRescueReviewLoopAsync(Mission failedMission, Mission workerRescue, int attemptNumber, CancellationToken token)
         {
             Voyage rescueVoyage = await _Database.Voyages.CreateAsync(new Voyage(
@@ -1034,7 +1205,7 @@ namespace Armada.Server
             }, token).ConfigureAwait(false);
 
             workerRescue.VoyageId = rescueVoyage.Id;
-            Mission dispatchedWorker = await _Admiral.DispatchMissionAsync(workerRescue, token).ConfigureAwait(false);
+            Mission dispatchedWorker = await _Admiral.DispatchMissionQueuedAsync(workerRescue, token).ConfigureAwait(false);
 
             string upstreamMissionId = dispatchedWorker.Id;
 
