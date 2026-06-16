@@ -110,6 +110,15 @@ namespace Armada.Core.Services
             NeedsRevision
         }
 
+        /// <summary>
+        /// Maximum number of times a Judge mission that exits without an explicit verdict line is
+        /// re-run in place before it is allowed to settle into a terminal failure. Bounds the
+        /// spurious-failure recovery so an operationally dropped verdict (for example a backgrounded
+        /// test run that terminated before the standalone verdict line) is retried rather than
+        /// burning the auto-rescue budget on the first miss.
+        /// </summary>
+        private const int _MaxMissingJudgeVerdictRetries = 2;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -854,6 +863,7 @@ namespace Armada.Core.Services
                 }
             }
 
+            bool retryingMissingVerdict = false;
             if (!failedForScopeViolation && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
@@ -863,7 +873,35 @@ namespace Armada.Core.Services
                     verdict = JudgeVerdict.NeedsRevision;
                 }
 
-                if (verdict != JudgeVerdict.Pass)
+                // A Judge that exits without any parseable verdict is an OPERATIONAL miss, not a
+                // substantive rejection: the review may have reached a conclusion that was never
+                // flushed (for example a backgrounded test run that scheduled a wakeup and then
+                // terminated before the standalone [ARMADA:VERDICT] line). Re-run the Judge in
+                // place a bounded number of times instead of marking it Failed -- a hard failure
+                // opens an incident and burns the auto-rescue budget on verified-good work. The
+                // RecoveryAttempts counter bounds the total automated recovery effort on this one
+                // mission; explicit FAIL / NEEDS_REVISION verdicts skip this path and stay terminal.
+                if (ShouldRetryMissingJudgeVerdict(verdict != JudgeVerdict.None, mission.RecoveryAttempts))
+                {
+                    mission.RecoveryAttempts++;
+                    mission.Status = MissionStatusEnum.Pending;
+                    mission.CaptainId = null;
+                    mission.DockId = null;
+                    mission.ProcessId = null;
+                    mission.AgentOutput = null;
+                    mission.DiffSnapshot = null;
+                    mission.FailureReason = null;
+                    mission.StartedUtc = null;
+                    mission.CompletedUtc = null;
+                    mission.TotalRuntimeMs = null;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    retryingMissingVerdict = true;
+                    _Logging.Warn(_Header + "judge mission " + mission.Id +
+                        " produced no verdict line; re-running in place (recovery attempt " +
+                        mission.RecoveryAttempts + " of " + _MaxMissingJudgeVerdictRetries + ")");
+                }
+                else if (verdict != JudgeVerdict.Pass)
                 {
                     mission.Status = MissionStatusEnum.Failed;
                     mission.CompletedUtc = DateTime.UtcNow;
@@ -893,6 +931,32 @@ namespace Armada.Core.Services
                 {
                     await TryFlagUpstreamMergeEntryForAuditAsync(mission, verdict, followUps, token).ConfigureAwait(false);
                 }
+            }
+
+            if (retryingMissingVerdict)
+            {
+                // Free the dock and captain so the in-place re-run can be dispatched fresh on the
+                // next scheduling tick, then skip handoff / landing / outcome entirely -- this
+                // mission is back to Pending and must not be treated as produced or failed work.
+                if (dock != null)
+                {
+                    try
+                    {
+                        await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                    }
+                    catch (Exception reclaimEx)
+                    {
+                        _Logging.Warn(_Header + "error reclaiming dock " + dock.Id +
+                            " for judge re-run of mission " + mission.Id + ": " + reclaimEx.Message);
+                    }
+                }
+
+                Captain? retryCaptain = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
+                if (retryCaptain != null && retryCaptain.CurrentMissionId == mission.Id)
+                {
+                    await _Captains.ReleaseAsync(retryCaptain, token).ConfigureAwait(false);
+                }
+                return;
             }
 
             bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
@@ -3045,7 +3109,22 @@ namespace Armada.Core.Services
             }
         }
 
-        private JudgeVerdict ParseJudgeVerdict(string? agentOutput)
+        /// <summary>
+        /// Decide whether a Judge mission that produced no parseable verdict should be re-run in
+        /// place. A missing verdict is treated as an operational miss (retryable) and is distinct
+        /// from an explicit FAIL / NEEDS_REVISION verdict, which is terminal and never retried.
+        /// Retries are bounded by <paramref name="priorRetryCount"/>.
+        /// </summary>
+        /// <param name="hasParseableVerdict">True when a PASS / FAIL / NEEDS_REVISION verdict was extracted.</param>
+        /// <param name="priorRetryCount">Number of in-place re-runs already consumed for this mission.</param>
+        /// <returns>True when the mission should be re-dispatched in place.</returns>
+        private static bool ShouldRetryMissingJudgeVerdict(bool hasParseableVerdict, int priorRetryCount)
+        {
+            if (hasParseableVerdict) return false;
+            return priorRetryCount < _MaxMissingJudgeVerdictRetries;
+        }
+
+        private static JudgeVerdict ParseJudgeVerdict(string? agentOutput)
         {
             if (String.IsNullOrEmpty(agentOutput)) return JudgeVerdict.None;
 
@@ -3139,9 +3218,14 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(line)) return null;
 
+            // Accept both the canonical standalone line ([ARMADA:VERDICT] PASS) and the progress-
+            // signal form the runtime echoes for an in-flight verdict ([verdict] PASS). The latter
+            // is the extraction fallback: when the final standalone line is dropped (for example a
+            // mid-review wakeup terminated the mission) but a verdict was reached and surfaced as a
+            // progress signal, honor it rather than failing the mission for a missing verdict.
             System.Text.RegularExpressions.Match signal = System.Text.RegularExpressions.Regex.Match(
                 line.Trim(),
-                @"^\[ARMADA:VERDICT\]\s+(?<verdict>PASS|FAIL|NEEDS_REVISION)\s*$",
+                @"^\[(?:ARMADA:)?VERDICT\]\s+(?<verdict>PASS|FAIL|NEEDS_REVISION)\s*$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (!signal.Success) return null;
 
