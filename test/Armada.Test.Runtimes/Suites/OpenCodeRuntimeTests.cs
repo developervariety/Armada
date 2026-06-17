@@ -50,6 +50,13 @@ namespace Armada.Test.Runtimes.Suites
             /// without needing a running process.
             /// </summary>
             public string TransformLine(string line) => TransformOutputLine(line);
+
+            /// <summary>
+            /// Expose TryExtractAssistantResult() so the assistant-result classifier can
+            /// be tested directly without a running process.
+            /// </summary>
+            public bool ExtractAssistantResult(IReadOnlyList<string> lines, out string text) =>
+                TryExtractAssistantResult(lines, out text);
         }
 
         private InspectableOpenCodeRuntime CreateRuntime(OpenCodeServerSettings? settings = null)
@@ -180,11 +187,43 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(args.Contains("-m"), "-m must be omitted when model is not supplied");
             });
 
-            await RunTest("BuildArguments_ContainsAttachFlag", () =>
+            await RunTest("BuildArguments_OmitsAttachAndCredentialFlags", () =>
+            {
+                // Standalone `opencode run` drops the daemon-attach flags: --attach (and
+                // the -p/-u Basic-auth credentials that only served the attached server).
+                // Attaching returned only a step_start event on opencode 1.17.7; standalone
+                // run returns the assistant result.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
+                AssertFalse(args.Contains("--attach"), "--attach must NOT be present for standalone run");
+                AssertFalse(args.Contains("-p"), "-p must NOT be present for standalone run");
+                AssertFalse(args.Contains("-u"), "-u must NOT be present for standalone run");
+            });
+
+            await RunTest("BuildArguments_StandaloneRunRetainsCoreFlags", () =>
             {
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt");
-                AssertTrue(args.Contains("--attach"), "--attach must always be present");
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
+                AssertTrue(args.Count > 0 && args[0] == "run", "First argument must remain 'run'");
+                int formatIndex = args.IndexOf("--format");
+                AssertTrue(formatIndex >= 0, "--format must remain present");
+                AssertEqual("json", args[formatIndex + 1], "--format value must remain json");
+                int modelIndex = args.IndexOf("-m");
+                AssertTrue(modelIndex >= 0, "-m must remain present when model supplied");
+                AssertEqual("claude-sonnet-4-6", args[modelIndex + 1], "-m value must equal supplied model");
+            });
+
+            await RunTest("TryExtractAssistantResult_StepStartThenAssistant_ReturnsTextAndTrue", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"assistant\",\"content\":\"Hello world\"}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "A step_start-then-assistant stream must yield assistant content");
+                AssertEqual("Hello world", text, "Extracted text must equal the assistant content");
             });
 
             // --- Command resolution ---
@@ -207,7 +246,7 @@ namespace Armada.Test.Runtimes.Suites
 
             // --- Shared connection settings (NO-DUPLICATION test) ---
 
-            await RunTest("BuildArguments_AttachAndUsername_MatchSharedOpenCodeConnection", () =>
+            await RunTest("BuildArguments_Agent_MatchesSharedOpenCodeConnection", () =>
             {
                 // Construct settings with non-default values.
                 OpenCodeServerSettings settings = new OpenCodeServerSettings();
@@ -221,21 +260,20 @@ namespace Armada.Test.Runtimes.Suites
                 InspectableOpenCodeRuntime runtime = CreateRuntime(settings);
                 List<string> args = runtime.Args("test prompt");
 
-                // --attach must equal the connection's resolved BaseUrl.
-                int attachIndex = args.IndexOf("--attach");
-                AssertTrue(attachIndex >= 0, "--attach must be present");
-                AssertEqual(
-                    connection.ResolveBaseUrl(),
-                    args[attachIndex + 1],
-                    "--attach value must equal OpenCodeConnection.ResolveBaseUrl() -- same resolver, no duplicate");
+                // The daemon-attach flags are gone; --agent stays and must use the same resolver.
+                AssertFalse(args.Contains("--attach"), "--attach must be dropped for standalone run");
+                AssertFalse(args.Contains("-u"), "-u must be dropped for standalone run");
 
-                // -u must equal the connection's resolved Username.
-                int userIndex = args.IndexOf("-u");
-                AssertTrue(userIndex >= 0, "-u must be present for non-blank username");
-                AssertEqual(
-                    connection.ResolveUsername(),
-                    args[userIndex + 1],
-                    "-u value must equal OpenCodeConnection.ResolveUsername() -- same resolver, no duplicate");
+                string resolvedAgent = connection.ResolveAgent();
+                if (!String.IsNullOrWhiteSpace(resolvedAgent))
+                {
+                    int agentIndex = args.IndexOf("--agent");
+                    AssertTrue(agentIndex >= 0, "--agent must be present for non-blank agent");
+                    AssertEqual(
+                        resolvedAgent,
+                        args[agentIndex + 1],
+                        "--agent value must equal OpenCodeConnection.ResolveAgent() -- same resolver, no duplicate");
+                }
             });
 
             // --- Variant / reasoning effort ---

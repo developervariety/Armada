@@ -50,6 +50,12 @@ namespace Armada.Runtimes
 
         private readonly OpenCodeConnection _Connection;
 
+        private readonly LoggingModule _Logging;
+
+        private string _Header = "[OpenCodeRuntime] ";
+
+        private bool _SawAssistantOutput;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -65,7 +71,14 @@ namespace Armada.Runtimes
         public OpenCodeRuntime(LoggingModule logging, OpenCodeServerSettings? connectionSettings = null)
             : base(logging)
         {
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Connection = new OpenCodeConnection(connectionSettings ?? new OpenCodeServerSettings());
+
+            // Self-subscribe to the inherited process-exit event so an empty run
+            // (process exited 0 but no assistant content was ever streamed) is
+            // surfaced as a warning instead of being mis-read as WorkProduced.
+            // Subscribing here keeps BaseAgentRuntime untouched.
+            OnProcessExited += HandleProcessExited;
         }
 
         #endregion
@@ -89,7 +102,14 @@ namespace Armada.Runtimes
         /// <summary>
         /// Build OpenCode CLI arguments.
         /// Produces: run -m &lt;model&gt; --format json [--variant &lt;reasoningEffort&gt;]
-        ///           [--agent &lt;agent&gt;] --attach &lt;BaseUrl&gt; [-p &lt;password&gt;] [-u &lt;username&gt;]
+        ///           [--agent &lt;agent&gt;]
+        ///
+        /// Runs <c>opencode run</c> standalone: the captain path no longer attaches to a
+        /// daemon. WHY: on opencode 1.17.7 an <c>--attach &lt;BaseUrl&gt;</c> invocation
+        /// returns only a step_start event and never streams the assistant result, so the
+        /// captain exits 0 with no real output. Standalone run creates its own session and
+        /// returns the assistant result, so the <c>--attach</c> flag and the <c>-p</c>/<c>-u</c>
+        /// Basic-auth credentials that only served the attached server are dropped.
         ///
         /// The prompt is NOT included here; it is written to stdin instead (see UsePromptStdin)
         /// to avoid the Windows cmd.exe ~8KB command-line length limit on long mission briefs.
@@ -98,7 +118,7 @@ namespace Armada.Runtimes
         /// TransformOutputLine parses those events so that [ARMADA:*] protocol markers
         /// remain Contains-detectable by the admiral via plain-text substring matching.
         ///
-        /// Connection values are pulled from the shared OpenCodeConnection (same resolver
+        /// The agent value is pulled from the shared OpenCodeConnection (same resolver
         /// the inference client uses) -- never hardcoded here.
         /// </summary>
         protected override List<string> BuildArguments(
@@ -137,24 +157,6 @@ namespace Armada.Runtimes
             {
                 args.Add("--agent");
                 args.Add(resolvedAgent);
-            }
-
-            string resolvedBaseUrl = _Connection.ResolveBaseUrl();
-            args.Add("--attach");
-            args.Add(resolvedBaseUrl);
-
-            string resolvedPassword = _Connection.ResolvePassword();
-            if (!String.IsNullOrWhiteSpace(resolvedPassword))
-            {
-                args.Add("-p");
-                args.Add(resolvedPassword);
-            }
-
-            string resolvedUsername = _Connection.ResolveUsername();
-            if (!String.IsNullOrWhiteSpace(resolvedUsername))
-            {
-                args.Add("-u");
-                args.Add(resolvedUsername);
             }
 
             return args;
@@ -197,10 +199,78 @@ namespace Armada.Runtimes
                 // Non-JSON line: fall through and return the line as-is.
             }
 
-            if (evt != null && !String.IsNullOrEmpty(evt.Content))
-                return evt.Content;
+            if (evt != null && IsAssistantContentEvent(evt))
+            {
+                _SawAssistantOutput = true;
+                return evt.Content!;
+            }
 
             return line;
+        }
+
+        /// <summary>
+        /// True when the event carries non-empty assistant text content. Tolerant of
+        /// unknown <c>type</c> values: any event with non-empty Content is treated as
+        /// assistant output rather than hard-failing on unrecognized shapes.
+        /// </summary>
+        private static bool IsAssistantContentEvent(OpenCodeEvent evt)
+        {
+            return evt != null && !String.IsNullOrEmpty(evt.Content);
+        }
+
+        /// <summary>
+        /// Scan opencode --format json event lines and concatenate assistant Content in
+        /// order. Returns true with the joined text when any assistant content was seen,
+        /// or false with empty text when the stream is empty or step_start-only. Stateless
+        /// and process-free so it is unit-testable in isolation.
+        /// </summary>
+        /// <param name="lines">The raw JSON event lines from opencode stdout.</param>
+        /// <param name="text">Joined assistant text, or empty when none was found.</param>
+        protected bool TryExtractAssistantResult(IReadOnlyList<string> lines, out string text)
+        {
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            bool sawContent = false;
+
+            if (lines != null)
+            {
+                foreach (string line in lines)
+                {
+                    if (String.IsNullOrEmpty(line))
+                        continue;
+
+                    OpenCodeEvent? evt = null;
+                    try
+                    {
+                        evt = JsonSerializer.Deserialize<OpenCodeEvent>(line, _JsonOptions);
+                    }
+                    catch
+                    {
+                        // Non-JSON noise line: ignore for assistant-result extraction.
+                    }
+
+                    if (evt != null && IsAssistantContentEvent(evt))
+                    {
+                        builder.Append(evt.Content);
+                        sawContent = true;
+                    }
+                }
+            }
+
+            text = sawContent ? builder.ToString() : String.Empty;
+            return sawContent;
+        }
+
+        /// <summary>
+        /// Surface an empty run: when the process exited but no assistant content was ever
+        /// streamed, log a warning with the pid so the empty-output exit is NOT a silent
+        /// success that the admiral mis-reads as WorkProduced.
+        /// </summary>
+        private void HandleProcessExited(int processId, int? exitCode)
+        {
+            if (!_SawAssistantOutput)
+            {
+                _Logging.Warn(_Header + "opencode process " + processId + " exited with no assistant output");
+            }
         }
 
         #endregion
