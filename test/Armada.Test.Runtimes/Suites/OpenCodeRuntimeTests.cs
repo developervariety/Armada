@@ -226,6 +226,135 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("Hello world", text, "Extracted text must equal the assistant content");
             });
 
+            await RunTest("TryExtractAssistantResult_StepStartOnly_ReturnsFalseAndEmpty", () =>
+            {
+                // This is the exact failure mode the standalone-run change fixes: an attached
+                // daemon returned ONLY a step_start event and never streamed assistant content.
+                // The classifier must report false (no real output) so the empty run is not
+                // mis-read as WorkProduced.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string> { "{\"type\":\"step_start\"}" };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertFalse(found, "A step_start-only stream must NOT be treated as assistant output");
+                AssertEqual(String.Empty, text, "No assistant content means empty extracted text");
+            });
+
+            await RunTest("TryExtractAssistantResult_EmptyList_ReturnsFalseAndEmpty", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                bool found = runtime.ExtractAssistantResult(new List<string>(), out string text);
+                AssertFalse(found, "An empty stream yields no assistant content");
+                AssertEqual(String.Empty, text, "Empty stream must produce empty text");
+            });
+
+            await RunTest("TryExtractAssistantResult_NullList_ReturnsFalseAndEmpty", () =>
+            {
+                // Defensive: a null line list (e.g. a process that produced no stdout at all)
+                // must not throw; it is treated as an empty, content-free stream.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                bool found = runtime.ExtractAssistantResult(null!, out string text);
+                AssertFalse(found, "A null stream must not be treated as assistant output");
+                AssertEqual(String.Empty, text, "Null stream must produce empty text");
+            });
+
+            await RunTest("TryExtractAssistantResult_MultipleAssistantEvents_ConcatenatesInOrder", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"assistant\",\"content\":\"Hello \"}",
+                    "{\"type\":\"tool_call\"}",
+                    "{\"type\":\"assistant\",\"content\":\"world\"}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "Multiple assistant events must yield content");
+                AssertEqual("Hello world", text, "Assistant content must be concatenated in stream order");
+            });
+
+            await RunTest("TryExtractAssistantResult_NoiseAndBlankLines_IgnoredButAssistantExtracted", () =>
+            {
+                // Non-JSON progress noise and blank lines must be skipped without aborting the
+                // scan; the embedded [ARMADA:*] marker rides inside the assistant content and
+                // must survive so the admiral can Contains-detect it.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "",
+                    "not-json progress bar 50%",
+                    "{\"type\":\"assistant\",\"content\":\"[ARMADA:RESULT] COMPLETE\"}",
+                    ""
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "Noise lines must not prevent assistant content extraction");
+                AssertEqual("[ARMADA:RESULT] COMPLETE", text, "Only assistant content is collected; noise is dropped");
+            });
+
+            await RunTest("TryExtractAssistantResult_AssistantWithEmptyContent_NotCounted", () =>
+            {
+                // An assistant event with empty/missing content carries no real output and must
+                // not flip the saw-content flag to true.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"assistant\",\"content\":\"\"}",
+                    "{\"type\":\"assistant\"}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertFalse(found, "Assistant events with no text content must not count as output");
+                AssertEqual(String.Empty, text, "No real content means empty extracted text");
+            });
+
+            await RunTest("TryExtractAssistantResult_UnknownTypeWithContent_IsTolerated", () =>
+            {
+                // The classifier is intentionally tolerant: any event carrying non-empty content
+                // is treated as assistant output, even when the type string is unrecognized.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"some-future-event\",\"content\":\"surfaced anyway\"}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "An unknown-type event with content must still be surfaced");
+                AssertEqual("surfaced anyway", text, "Content of an unknown-type event must be extracted");
+            });
+
+            // --- TransformOutputLine event-stream parsing ---
+
+            await RunTest("TransformOutputLine_AssistantEvent_ReturnsInnerContent", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string result = runtime.TransformLine("{\"type\":\"assistant\",\"content\":\"[ARMADA:PROGRESS] 50\"}");
+                AssertEqual("[ARMADA:PROGRESS] 50", result, "Assistant event must reduce to its inner text so markers stay ^-anchored");
+            });
+
+            await RunTest("TransformOutputLine_StepStartEvent_ReturnsLineUnchanged", () =>
+            {
+                // A content-free event (step_start) carries no assistant text; the original line
+                // falls through unchanged rather than being silently dropped.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"step_start\"}";
+                string result = runtime.TransformLine(line);
+                AssertEqual(line, result, "Content-free events must fall through unchanged");
+            });
+
+            await RunTest("TransformOutputLine_NonJsonLine_ReturnsLineUnchanged", () =>
+            {
+                // Non-parseable noise (progress bars, debug output) must not be dropped from the
+                // mission log; it falls through verbatim.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "building... 80%";
+                string result = runtime.TransformLine(line);
+                AssertEqual(line, result, "Non-JSON lines must pass through unchanged");
+            });
+
+            await RunTest("TransformOutputLine_EmptyLine_ReturnsLineUnchanged", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string result = runtime.TransformLine(String.Empty);
+                AssertEqual(String.Empty, result, "Empty input must be returned unchanged");
+            });
+
             // --- Command resolution ---
 
             await RunTest("GetCommand_TestEnvVarOverride_UsesOverridePath", () =>
