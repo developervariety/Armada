@@ -28,7 +28,13 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
-        private static readonly string[] _LowModels = new string[] { "kimi-k2.5" };
+        private static readonly string[] _LowModels = new string[]
+        {
+            "kimi-k2.5",
+            "opencode/kimi-k2.6",
+            "opencode-go/kimi-k2.6",
+            "opencode/deepseek-v4-flash",
+        };
 
         private static readonly string[] _MidModels = new string[]
         {
@@ -39,6 +45,7 @@ namespace Armada.Core.Services
             "claude-4.6-sonnet-medium",
             "claude-4.6-sonnet-medium-thinking",
             "gemini-3.1-pro",
+            "opencode-go/kimi-k2.7-code",
         };
 
         private static readonly string[] _HighModels = new string[]

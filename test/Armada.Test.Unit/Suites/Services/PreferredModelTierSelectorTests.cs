@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -365,6 +366,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6"), "curated sonnet is mid");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.3-codex"), "curated gpt codex is mid");
                 AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "curated kimi is low");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_OpencodeRegisteredModels_MapToCuratedTier", () =>
+            {
+                // The opencode-* model names are slash-prefixed (opencode/, opencode-go/) so
+                // none of them match the bare "kimi-" StartsWith fallback. They only classify
+                // because they were added to the curated tier arrays -- this test fails if a
+                // future edit drops them from _LowModels / _MidModels.
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode/kimi-k2.6"), "opencode/kimi-k2.6 is curated low");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.6"), "opencode-go/kimi-k2.6 is curated low");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash"), "opencode/deepseek-v4-flash is curated low");
+
+                // Critical ordering guard: opencode-go/kimi-k2.7-code contains "kimi" but does
+                // NOT start with "kimi-", so the low-tier StartsWith fallback must not catch it.
+                // The curated _MidModels entry must win and classify it mid, not low.
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.7-code"), "opencode-go/kimi-k2.7-code is curated mid, not low");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_OpencodeUnregisteredVariant_IsNotRecognized", () =>
+            {
+                // A sibling opencode model that was NOT registered must stay null: the slash
+                // prefix keeps it out of the kimi-/composer-/family fallbacks. Proves the
+                // curated registration -- not a pattern -- is what makes the four models count.
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/kimi-k2.9"), "unregistered opencode kimi variant is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v5"), "unregistered opencode deepseek variant is not classified");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("GetTierModels_ContainsRegisteredOpencodeModels", () =>
+            {
+                IReadOnlyList<string> lowModels = PreferredModelTierSelector.GetTierModels("low");
+                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid");
+                AssertTrue(lowModels.Contains("opencode/kimi-k2.6"), "low tier must list opencode/kimi-k2.6");
+                AssertTrue(lowModels.Contains("opencode-go/kimi-k2.6"), "low tier must list opencode-go/kimi-k2.6");
+                AssertTrue(lowModels.Contains("opencode/deepseek-v4-flash"), "low tier must list opencode/deepseek-v4-flash");
+                AssertTrue(midModels.Contains("opencode-go/kimi-k2.7-code"), "mid tier must list opencode-go/kimi-k2.7-code");
+                AssertFalse(midModels.Contains("opencode/kimi-k2.6"), "opencode/kimi-k2.6 must not leak into mid tier");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelMatchesTierOrAbove_OpencodeMidModel_SatisfiesLowPin", () =>
+            {
+                // A mid opencode model must satisfy a low-tier pin (upward fallback) but a low
+                // opencode model must NOT satisfy a mid-tier pin.
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/kimi-k2.7-code", "low"), "mid opencode model satisfies low pin via upward fallback");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode/kimi-k2.6", "mid"), "low opencode model must not satisfy a mid pin");
                 return Task.CompletedTask;
             });
 
