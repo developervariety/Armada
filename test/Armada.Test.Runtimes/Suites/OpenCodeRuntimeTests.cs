@@ -339,6 +339,31 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(String.Empty, result, "Content-free structured events must be suppressed");
             });
 
+            await RunTest("TransformOutputLine_StepFinishAndToolEvents_AreSuppressed", () =>
+            {
+                // The Worker added step_finish / step-finish / tool* to the recognized-noise set
+                // so the live opencode 1.17.7 stream's trailing step_finish and tool events do not
+                // leak raw JSON into the mission log. Only step_start was previously pinned; this
+                // exercises the other recognized-noise branches so they stay suppressed (empty).
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                AssertEqual(
+                    String.Empty,
+                    runtime.TransformLine("{\"type\":\"step_finish\",\"tokens\":{\"input\":10}}"),
+                    "step_finish events must be suppressed so token-usage JSON does not leak");
+                AssertEqual(
+                    String.Empty,
+                    runtime.TransformLine("{\"type\":\"step-finish\"}"),
+                    "hyphenated step-finish must also be suppressed");
+                AssertEqual(
+                    String.Empty,
+                    runtime.TransformLine("{\"type\":\"tool_call\",\"name\":\"bash\"}"),
+                    "tool_call events must be suppressed");
+                AssertEqual(
+                    String.Empty,
+                    runtime.TransformLine("{\"type\":\"tool\"}"),
+                    "any tool-prefixed event must be suppressed");
+            });
+
             await RunTest("TransformOutputLine_NonJsonLine_ReturnsLineUnchanged", () =>
             {
                 // Non-parseable noise (progress bars, debug output) must not be dropped from the
@@ -484,6 +509,50 @@ namespace Armada.Test.Runtimes.Suites
                 int agentIndex = args.IndexOf("--agent");
                 AssertTrue(agentIndex >= 0, "--agent must be present using the shared connection default");
                 AssertEqual("build", args[agentIndex + 1], "--agent must equal OpenCodeConnection.ResolveAgent() default (build)");
+            });
+
+            await RunTest("OpenCodeServerSettings_Defaults_SplitInferenceSummaryFromCaptainBuild", () =>
+            {
+                // Acceptance guard: the captain coding-agent default is "build" while the existing
+                // inference/code-index Agent default MUST remain "summary" (untouched by this fix).
+                // These two defaults are independent and must not collapse onto one value.
+                OpenCodeServerSettings settings = new OpenCodeServerSettings();
+                AssertEqual("summary", settings.Agent, "Inference Agent default must stay 'summary' (code-index summarization path)");
+                AssertEqual("build", settings.CaptainAgent, "Captain coding-agent default must be 'build'");
+            });
+
+            await RunTest("OpenCodeServerSettings_NullSetters_FallBackToOwnDefaults", () =>
+            {
+                // The CaptainAgent setter mirrors the existing Agent setter's null-coalescing
+                // style: a null assignment reverts to the property's own default, never the other
+                // property's default. Proves the two agent settings stay independent.
+                OpenCodeServerSettings settings = new OpenCodeServerSettings();
+                settings.CaptainAgent = null!;
+                AssertEqual("build", settings.CaptainAgent, "Null CaptainAgent must fall back to 'build'");
+                settings.Agent = null!;
+                AssertEqual("summary", settings.Agent, "Null Agent must fall back to 'summary', not 'build'");
+            });
+
+            await RunTest("OpenCodeConnection_ResolveAgent_ConfiguredCaptainAgent_IsForwarded", () =>
+            {
+                // ResolveAgent must be settings-driven (configurable), reading CaptainAgent rather
+                // than hardcoding "build". A non-blank CaptainAgent flows through verbatim.
+                OpenCodeServerSettings settings = new OpenCodeServerSettings();
+                settings.CaptainAgent = "custom-coder";
+                OpenCodeConnection connection = new OpenCodeConnection(settings);
+                AssertEqual("custom-coder", connection.ResolveAgent(), "Configured CaptainAgent must be returned verbatim");
+            });
+
+            await RunTest("OpenCodeConnection_ResolveAgent_BlankCaptainAgent_NeverFallsBackToSummary", () =>
+            {
+                // Regression guard for the captain path: even with the inference Agent explicitly
+                // set to "summary", a blank captain agent must resolve to "build" -- never to the
+                // inference "summary" default. The captain coding path must not run under summary.
+                OpenCodeServerSettings settings = new OpenCodeServerSettings();
+                settings.Agent = "summary";
+                settings.CaptainAgent = "   ";
+                OpenCodeConnection connection = new OpenCodeConnection(settings);
+                AssertEqual("build", connection.ResolveAgent(), "Blank CaptainAgent must resolve to 'build', not the inference 'summary' default");
             });
 
             // --- Code-index decoupling (captain path must not touch the daemon serve path) ---
