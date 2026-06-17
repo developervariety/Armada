@@ -748,6 +748,40 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(String.Empty, stepFinishResult, "step_finish TransformLine must return empty");
             });
 
+            await RunTest("RealJsonl_NoiseAndBlankLinesAroundTextEvent_PartTextExtracted", () =>
+            {
+                // New-schema analogue of the old TryExtractAssistantResult_NoiseAndBlankLines
+                // case: blank lines and non-JSON progress noise must be skipped (the defensive
+                // IsNullOrEmpty + try/catch paths) while a real nested text event still surfaces
+                // its inner part.text. Proves the [ARMADA:*] marker riding inside part.text is
+                // not lost when interleaved with stream noise.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "",
+                    "not-json progress bar 50%",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"[ARMADA:RESULT] COMPLETE\"}}",
+                    ""
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "Noise and blank lines must not prevent part.text extraction under the nested schema");
+                AssertEqual("[ARMADA:RESULT] COMPLETE", text, "Only the inner part.text is collected; surrounding noise is dropped");
+            });
+
+            await RunTest("RealJsonl_TextEventMissingPartText_NotCounted", () =>
+            {
+                // A text event whose part object omits the text field entirely (null, not just
+                // empty string) carries no real output and must not flip the saw-content flag.
+                // This is schema-agnostic -- it yields no content under either the old top-level
+                // content DTO or the new nested part.text shape -- so it pins the missing-field
+                // boundary distinctly from the empty-string case.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"text\",\"part\":{\"id\":\"p1\",\"type\":\"text\"}}";
+                bool found = runtime.ExtractAssistantResult(new List<string> { line }, out string text);
+                AssertFalse(found, "A text event with no part.text field must not count as assistant output");
+                AssertEqual(String.Empty, text, "Missing part.text must produce empty extracted text");
+            });
+
             await Task.CompletedTask;
         }
     }
