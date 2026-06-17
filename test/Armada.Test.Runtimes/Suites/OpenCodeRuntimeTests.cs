@@ -2,6 +2,7 @@ namespace Armada.Test.Runtimes.Suites
 {
     using System.IO;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Runtimes;
@@ -35,10 +36,11 @@ namespace Armada.Test.Runtimes.Suites
             public string Command() => GetCommand();
 
             /// <summary>
-            /// Expose BuildArguments() for testing.
+            /// Expose BuildArguments() for testing. An optional captain lets the
+            /// TestEngineer exercise the per-captain reasoning-effort (--variant) path.
             /// </summary>
-            public List<string> Args(string prompt, string? model = null) =>
-                BuildArguments(Path.GetTempPath(), prompt, model, null, null);
+            public List<string> Args(string prompt, string? model = null, Captain? captain = null) =>
+                BuildArguments(Path.GetTempPath(), prompt, model, null, captain);
 
             /// <summary>
             /// Expose UsePromptStdin for testing.
@@ -412,6 +414,159 @@ namespace Armada.Test.Runtimes.Suites
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt", "some-model");
                 AssertFalse(args.Contains("--variant"), "--variant must be absent when captain has no reasoning effort set");
+            });
+
+            await RunTest("BuildArguments_ReasoningEffortSet_ForwardsVariantWithValue", () =>
+            {
+                // Positive variant path: the existing suite only covered omission. A captain
+                // whose runtime options carry a reasoning effort must forward it as
+                // --variant <value> so the standalone run honors the requested tier.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("opencode", AgentRuntimeEnum.OpenCode);
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "high"
+                });
+
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6", captain);
+
+                int variantIndex = args.IndexOf("--variant");
+                AssertTrue(variantIndex >= 0, "--variant must be present when the captain set a reasoning effort");
+                AssertEqual("high", args[variantIndex + 1], "--variant value must equal the captain's reasoning effort");
+                // The variant flag must not displace the core standalone-run flags.
+                AssertTrue(args.Contains("-m"), "-m must remain present alongside --variant");
+                int formatIndex = args.IndexOf("--format");
+                AssertTrue(formatIndex >= 0, "--format must remain present alongside --variant");
+                AssertEqual("json", args[formatIndex + 1], "--format value must remain json alongside --variant");
+            });
+
+            await RunTest("BuildArguments_ReasoningEffortPadded_VariantValueNormalizedAndForwarded", () =>
+            {
+                // End-to-end normalization guard: a padded reasoning effort must reach the CLI
+                // trimmed, never with stray whitespace that opencode would reject.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("opencode", AgentRuntimeEnum.OpenCode);
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "  xhigh  "
+                });
+
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6", captain);
+
+                int variantIndex = args.IndexOf("--variant");
+                AssertTrue(variantIndex >= 0, "--variant must be present for a padded reasoning effort");
+                AssertEqual("xhigh", args[variantIndex + 1], "--variant value must be trimmed before reaching the CLI");
+            });
+
+            await RunTest("BuildArguments_BlankReasoningEffortOnCaptain_OmitsVariant", () =>
+            {
+                // A captain whose reasoning effort normalizes away (whitespace-only) must NOT
+                // forward an empty --variant flag; the runtime omits it entirely.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("opencode", AgentRuntimeEnum.OpenCode);
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "   "
+                });
+
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6", captain);
+                AssertFalse(args.Contains("--variant"), "--variant must be omitted when the captain's reasoning effort is blank/normalized away");
+            });
+
+            // --- Agent flag (shared resolver default) ---
+
+            await RunTest("BuildArguments_DefaultConnection_EmitsAgentSummary", () =>
+            {
+                // With default (blank) settings the shared OpenCodeConnection resolves the agent
+                // to "summary"; the standalone run must still forward --agent <resolved> so the
+                // captain runs under the same agent the inference-side resolver would pick.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
+                int agentIndex = args.IndexOf("--agent");
+                AssertTrue(agentIndex >= 0, "--agent must be present using the shared connection default");
+                AssertEqual("summary", args[agentIndex + 1], "--agent must equal OpenCodeConnection.ResolveAgent() default (summary)");
+            });
+
+            // --- Code-index decoupling (captain path must not touch the daemon serve path) ---
+
+            await RunTest("BuildArguments_CaptainPath_OmitsDaemonServeFlags", () =>
+            {
+                // Regression guard for the standalone-run change: the captain invocation must
+                // stay decoupled from the OpenCodeServer code-index daemon. None of the daemon
+                // serve/attach flags may bleed into the captain args.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
+                AssertTrue(args.Count > 0 && args[0] == "run", "Captain path must use the 'run' subcommand, not 'serve'");
+                AssertFalse(args.Contains("serve"), "Captain path must NOT emit the daemon 'serve' subcommand");
+                AssertFalse(args.Contains("--port"), "Captain path must NOT emit the daemon --port flag");
+                AssertFalse(args.Contains("--hostname"), "Captain path must NOT emit the daemon --hostname flag");
+                AssertFalse(args.Contains("--attach"), "Captain path must NOT attach to the daemon");
+            });
+
+            await RunTest("BuildArguments_CaptainPath_DoesNotReferenceConfiguredDaemonBaseUrl", () =>
+            {
+                // Even when a distinctive daemon BaseUrl is configured (used by the code-index
+                // inference client), the standalone captain run must never reference it. This
+                // proves the captain output path no longer depends on the attached daemon.
+                OpenCodeServerSettings settings = new OpenCodeServerSettings();
+                settings.BaseUrl = "http://daemon.example.invalid:65000";
+                InspectableOpenCodeRuntime runtime = CreateRuntime(settings);
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
+                foreach (string arg in args)
+                {
+                    AssertFalse(
+                        arg.Contains("daemon.example.invalid"),
+                        "Captain args must not reference the configured code-index daemon BaseUrl");
+                }
+            });
+
+            await RunTest("OpenCodeConnection_ResolveBaseUrl_StillResolvesForInferenceClient", () =>
+            {
+                // The shared resolver the code-index inference client reads from must remain
+                // intact: a configured daemon BaseUrl still resolves (trimmed, no trailing slash),
+                // and a blank one still falls back to the documented localhost default. The
+                // captain-runtime change must not have disturbed this inference-side contract.
+                OpenCodeServerSettings configured = new OpenCodeServerSettings();
+                configured.BaseUrl = "http://daemon.example.invalid:65000/";
+                OpenCodeConnection withUrl = new OpenCodeConnection(configured);
+                AssertEqual("http://daemon.example.invalid:65000", withUrl.ResolveBaseUrl(), "Configured daemon BaseUrl must resolve trimmed for the inference client");
+
+                OpenCodeConnection blank = new OpenCodeConnection(new OpenCodeServerSettings());
+                AssertEqual("http://127.0.0.1:4096", blank.ResolveBaseUrl(), "Blank settings must fall back to the localhost daemon default");
+            });
+
+            // --- Classifier / production guard parity ---
+
+            await RunTest("TransformOutputLine_And_TryExtractAssistantResult_AgreeOnClassification", () =>
+            {
+                // The production empty-run guard runs through TransformOutputLine (it flips the
+                // saw-assistant-output flag that HandleProcessExited checks). TryExtractAssistantResult
+                // is a separate, heavily-tested classifier that is NOT wired into the run path.
+                // This parity test guards against the two drifting: for every line,
+                // TransformOutputLine must extract inner content (return != line) exactly when
+                // TryExtractAssistantResult would count that line as assistant output.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> samples = new List<string>
+                {
+                    "{\"type\":\"assistant\",\"content\":\"[ARMADA:RESULT] COMPLETE\"}",
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"assistant\",\"content\":\"\"}",
+                    "{\"type\":\"assistant\"}",
+                    "{\"type\":\"some-future-event\",\"content\":\"surfaced anyway\"}",
+                    "not-json progress 50%",
+                    ""
+                };
+
+                foreach (string line in samples)
+                {
+                    string transformed = runtime.TransformLine(line);
+                    bool transformExtracted = transformed != line;
+                    bool classifierExtracted = runtime.ExtractAssistantResult(new List<string> { line }, out _);
+                    AssertEqual(
+                        classifierExtracted,
+                        transformExtracted,
+                        "TransformOutputLine and TryExtractAssistantResult must classify '" + line + "' identically (wired guard vs tested classifier must not drift)");
+                }
             });
 
             // --- Factory ---
