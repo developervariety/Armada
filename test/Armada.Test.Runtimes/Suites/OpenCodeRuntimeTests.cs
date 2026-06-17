@@ -221,7 +221,7 @@ namespace Armada.Test.Runtimes.Suites
                 List<string> lines = new List<string>
                 {
                     "{\"type\":\"step_start\"}",
-                    "{\"type\":\"assistant\",\"content\":\"Hello world\"}"
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Hello world\"}}"
                 };
                 bool found = runtime.ExtractAssistantResult(lines, out string text);
                 AssertTrue(found, "A step_start-then-assistant stream must yield assistant content");
@@ -265,9 +265,9 @@ namespace Armada.Test.Runtimes.Suites
                 List<string> lines = new List<string>
                 {
                     "{\"type\":\"step_start\"}",
-                    "{\"type\":\"assistant\",\"content\":\"Hello \"}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Hello \"}}",
                     "{\"type\":\"tool_call\"}",
-                    "{\"type\":\"assistant\",\"content\":\"world\"}"
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"world\"}}"
                 };
                 bool found = runtime.ExtractAssistantResult(lines, out string text);
                 AssertTrue(found, "Multiple assistant events must yield content");
@@ -284,7 +284,7 @@ namespace Armada.Test.Runtimes.Suites
                 {
                     "",
                     "not-json progress bar 50%",
-                    "{\"type\":\"assistant\",\"content\":\"[ARMADA:RESULT] COMPLETE\"}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"[ARMADA:RESULT] COMPLETE\"}}",
                     ""
                 };
                 bool found = runtime.ExtractAssistantResult(lines, out string text);
@@ -299,26 +299,25 @@ namespace Armada.Test.Runtimes.Suites
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 List<string> lines = new List<string>
                 {
-                    "{\"type\":\"assistant\",\"content\":\"\"}",
-                    "{\"type\":\"assistant\"}"
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"\"}}",
+                    "{\"type\":\"text\"}"
                 };
                 bool found = runtime.ExtractAssistantResult(lines, out string text);
                 AssertFalse(found, "Assistant events with no text content must not count as output");
                 AssertEqual(String.Empty, text, "No real content means empty extracted text");
             });
 
-            await RunTest("TryExtractAssistantResult_UnknownTypeWithContent_IsTolerated", () =>
+            await RunTest("TryExtractAssistantResult_UnknownTypeWithTextPart_IsNotCounted", () =>
             {
-                // The classifier is intentionally tolerant: any event carrying non-empty content
-                // is treated as assistant output, even when the type string is unrecognized.
+                // Only top-level text events with a nested text part count as assistant output.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 List<string> lines = new List<string>
                 {
-                    "{\"type\":\"some-future-event\",\"content\":\"surfaced anyway\"}"
+                    "{\"type\":\"some-future-event\",\"part\":{\"type\":\"text\",\"text\":\"not surfaced\"}}"
                 };
                 bool found = runtime.ExtractAssistantResult(lines, out string text);
-                AssertTrue(found, "An unknown-type event with content must still be surfaced");
-                AssertEqual("surfaced anyway", text, "Content of an unknown-type event must be extracted");
+                AssertFalse(found, "An unknown-type event with a text part must not count as assistant output");
+                AssertEqual(String.Empty, text, "No recognized text event means empty extracted text");
             });
 
             // --- TransformOutputLine event-stream parsing ---
@@ -326,18 +325,18 @@ namespace Armada.Test.Runtimes.Suites
             await RunTest("TransformOutputLine_AssistantEvent_ReturnsInnerContent", () =>
             {
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string result = runtime.TransformLine("{\"type\":\"assistant\",\"content\":\"[ARMADA:PROGRESS] 50\"}");
+                string result = runtime.TransformLine("{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"[ARMADA:PROGRESS] 50\"}}");
                 AssertEqual("[ARMADA:PROGRESS] 50", result, "Assistant event must reduce to its inner text so markers stay ^-anchored");
             });
 
-            await RunTest("TransformOutputLine_StepStartEvent_ReturnsLineUnchanged", () =>
+            await RunTest("TransformOutputLine_StepStartEvent_ReturnsEmpty", () =>
             {
-                // A content-free event (step_start) carries no assistant text; the original line
-                // falls through unchanged rather than being silently dropped.
+                // A content-free event (step_start) carries no assistant text and should not
+                // leak raw JSON into the mission log.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string line = "{\"type\":\"step_start\"}";
                 string result = runtime.TransformLine(line);
-                AssertEqual(line, result, "Content-free events must fall through unchanged");
+                AssertEqual(String.Empty, result, "Content-free structured events must be suppressed");
             });
 
             await RunTest("TransformOutputLine_NonJsonLine_ReturnsLineUnchanged", () =>
@@ -384,7 +383,7 @@ namespace Armada.Test.Runtimes.Suites
                 settings.BaseUrl = "http://opencode.example.com:9999";
                 settings.Username = "armada-user";
 
-                // Build the same OpenCodeConnection the inference client uses.
+                // Build the same OpenCodeConnection the captain runtime uses.
                 OpenCodeConnection connection = new OpenCodeConnection(settings);
 
                 // Build the runtime over the same settings object.
@@ -473,18 +472,18 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(args.Contains("--variant"), "--variant must be omitted when the captain's reasoning effort is blank/normalized away");
             });
 
-            // --- Agent flag (shared resolver default) ---
+            // --- Agent flag (captain resolver default) ---
 
-            await RunTest("BuildArguments_DefaultConnection_EmitsAgentSummary", () =>
+            await RunTest("BuildArguments_DefaultConnection_EmitsAgentBuild", () =>
             {
                 // With default (blank) settings the shared OpenCodeConnection resolves the agent
-                // to "summary"; the standalone run must still forward --agent <resolved> so the
-                // captain runs under the same agent the inference-side resolver would pick.
+                // to "build"; the standalone run must still forward --agent <resolved> so the
+                // captain runs under the configured coding agent.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
                 int agentIndex = args.IndexOf("--agent");
                 AssertTrue(agentIndex >= 0, "--agent must be present using the shared connection default");
-                AssertEqual("summary", args[agentIndex + 1], "--agent must equal OpenCodeConnection.ResolveAgent() default (summary)");
+                AssertEqual("build", args[agentIndex + 1], "--agent must equal OpenCodeConnection.ResolveAgent() default (build)");
             });
 
             // --- Code-index decoupling (captain path must not touch the daemon serve path) ---
@@ -520,12 +519,11 @@ namespace Armada.Test.Runtimes.Suites
                 }
             });
 
-            await RunTest("OpenCodeConnection_ResolveBaseUrl_StillResolvesForInferenceClient", () =>
+            await RunTest("OpenCodeConnection_ResolveBaseUrl_StillResolvesDaemonBaseUrl", () =>
             {
-                // The shared resolver the code-index inference client reads from must remain
-                // intact: a configured daemon BaseUrl still resolves (trimmed, no trailing slash),
-                // and a blank one still falls back to the documented localhost default. The
-                // captain-runtime change must not have disturbed this inference-side contract.
+                // BaseUrl resolution remains intact: a configured daemon BaseUrl still resolves
+                // trimmed with no trailing slash, and a blank one still falls back to the
+                // documented localhost default.
                 OpenCodeServerSettings configured = new OpenCodeServerSettings();
                 configured.BaseUrl = "http://daemon.example.invalid:65000/";
                 OpenCodeConnection withUrl = new OpenCodeConnection(configured);
@@ -548,11 +546,11 @@ namespace Armada.Test.Runtimes.Suites
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 List<string> samples = new List<string>
                 {
-                    "{\"type\":\"assistant\",\"content\":\"[ARMADA:RESULT] COMPLETE\"}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"[ARMADA:RESULT] COMPLETE\"}}",
                     "{\"type\":\"step_start\"}",
-                    "{\"type\":\"assistant\",\"content\":\"\"}",
-                    "{\"type\":\"assistant\"}",
-                    "{\"type\":\"some-future-event\",\"content\":\"surfaced anyway\"}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"\"}}",
+                    "{\"type\":\"text\"}",
+                    "{\"type\":\"some-future-event\",\"part\":{\"type\":\"text\",\"text\":\"not surfaced\"}}",
                     "not-json progress 50%",
                     ""
                 };
@@ -560,7 +558,7 @@ namespace Armada.Test.Runtimes.Suites
                 foreach (string line in samples)
                 {
                     string transformed = runtime.TransformLine(line);
-                    bool transformExtracted = transformed != line;
+                    bool transformExtracted = transformed != line && transformed != String.Empty;
                     bool classifierExtracted = runtime.ExtractAssistantResult(new List<string> { line }, out _);
                     AssertEqual(
                         classifierExtracted,

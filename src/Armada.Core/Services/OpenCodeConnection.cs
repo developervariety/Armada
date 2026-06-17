@@ -4,9 +4,8 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// Shared resolver for OpenCode connection parameters.
-    /// Centralizes BaseUrl, Username, Password, and Agent resolution so both the
-    /// inference client and the agent runtime CLI adapter read from the same source
-    /// of truth with consistent fallback defaults -- no duplicated resolution logic.
+    /// Centralizes BaseUrl, Username, Password, and captain coding-agent resolution
+    /// for the agent runtime CLI adapter.
     /// </summary>
     public sealed class OpenCodeConnection
     {
@@ -65,13 +64,13 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Resolve the OpenCode agent name, falling back to "summary" when blank.
+        /// Resolve the OpenCode coding/build agent name, falling back to "build" when blank.
         /// </summary>
         public string ResolveAgent()
         {
-            string agent = _Settings.Agent ?? string.Empty;
+            string agent = _Settings.CaptainAgent ?? string.Empty;
             if (string.IsNullOrWhiteSpace(agent))
-                agent = "summary";
+                agent = "build";
             return agent;
         }
 

@@ -18,9 +18,8 @@ namespace Armada.Runtimes
     /// Prompt is delivered via stdin (not as a CLI argument) to avoid the Windows
     /// cmd.exe ~8KB command-line length limit when long mission briefs are dispatched.
     ///
-    /// Connection parameters (BaseUrl, Username, Password, Agent) are resolved through
-    /// the shared <see cref="OpenCodeConnection"/> so there is exactly one resolver --
-    /// the same type the inference client uses.
+    /// Connection parameters and the captain coding agent are resolved through
+    /// <see cref="OpenCodeConnection"/>.
     ///
     /// Windows install path: resolved via ARMADA_TEST_OPENCODE env override, then
     /// PATH/npm fallback via ResolveExecutable.
@@ -118,8 +117,7 @@ namespace Armada.Runtimes
         /// TransformOutputLine parses those events so that [ARMADA:*] protocol markers
         /// remain Contains-detectable by the admiral via plain-text substring matching.
         ///
-        /// The agent value is pulled from the shared OpenCodeConnection (same resolver
-        /// the inference client uses) -- never hardcoded here.
+        /// The agent value is pulled from OpenCodeConnection -- never hardcoded here.
         /// </summary>
         protected override List<string> BuildArguments(
             string workingDirectory,
@@ -171,18 +169,19 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Parse a single opencode --format json stdout line and return the inner
-        /// assistant text, or the original line when the event carries no text content
-        /// or is not valid JSON.
+        /// assistant text, empty text for recognized non-content events, or the
+        /// original line when the line is not valid JSON.
         ///
         /// WHY: opencode --format json wraps all assistant output in typed JSON event
-        /// objects (e.g. {"type":"assistant","content":"..."}). If raw JSON lines were
+        /// objects with nested text parts. If raw JSON lines were
         /// surfaced to subscribers, the ProgressParser regex anchored at ^ would never
         /// match [ARMADA:*] protocol markers embedded inside a JSON string, breaking
         /// the admiral's mission-status detection. Reducing each event to its text
         /// content restores the plain-text contract subscribers depend on.
         ///
         /// Non-parseable lines (progress bars, debug noise, blank lines) fall through
-        /// unchanged so they are not silently dropped from the mission log.
+        /// unchanged so they are not silently dropped from the mission log. Recognized
+        /// structured noise is suppressed so raw JSON does not leak into the log file.
         /// </summary>
         protected override string TransformOutputLine(string line)
         {
@@ -202,24 +201,48 @@ namespace Armada.Runtimes
             if (evt != null && IsAssistantContentEvent(evt))
             {
                 _SawAssistantOutput = true;
-                return evt.Content!;
+                return evt.Part!.Text!;
+            }
+
+            if (evt != null && IsRecognizedNonContentEvent(evt))
+            {
+                return string.Empty;
             }
 
             return line;
         }
 
         /// <summary>
-        /// True when the event carries non-empty assistant text content. Tolerant of
-        /// unknown <c>type</c> values: any event with non-empty Content is treated as
-        /// assistant output rather than hard-failing on unrecognized shapes.
+        /// True when the event carries non-empty assistant text content.
         /// </summary>
         private static bool IsAssistantContentEvent(OpenCodeEvent evt)
         {
-            return evt != null && !String.IsNullOrEmpty(evt.Content);
+            return evt != null
+                && String.Equals(evt.Type, "text", StringComparison.Ordinal)
+                && evt.Part != null
+                && String.Equals(evt.Part.Type, "text", StringComparison.Ordinal)
+                && !String.IsNullOrEmpty(evt.Part.Text);
         }
 
         /// <summary>
-        /// Scan opencode --format json event lines and concatenate assistant Content in
+        /// True when the event is structured OpenCode noise that should not be logged raw.
+        /// </summary>
+        private static bool IsRecognizedNonContentEvent(OpenCodeEvent evt)
+        {
+            if (evt == null || String.IsNullOrEmpty(evt.Type))
+            {
+                return false;
+            }
+
+            return String.Equals(evt.Type, "step_start", StringComparison.Ordinal)
+                || String.Equals(evt.Type, "step_finish", StringComparison.Ordinal)
+                || String.Equals(evt.Type, "step-start", StringComparison.Ordinal)
+                || String.Equals(evt.Type, "step-finish", StringComparison.Ordinal)
+                || evt.Type.StartsWith("tool", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Scan opencode --format json event lines and concatenate assistant text parts in
         /// order. Returns true with the joined text when any assistant content was seen,
         /// or false with empty text when the stream is empty or step_start-only. Stateless
         /// and process-free so it is unit-testable in isolation.
@@ -250,7 +273,7 @@ namespace Armada.Runtimes
 
                     if (evt != null && IsAssistantContentEvent(evt))
                     {
-                        builder.Append(evt.Content);
+                        builder.Append(evt.Part!.Text);
                         sawContent = true;
                     }
                 }
@@ -279,23 +302,41 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Strongly-typed DTO for a single opencode --format json stdout event.
-        /// opencode emits objects like {"type":"assistant","content":"...text..."}.
+        /// opencode emits text objects with nested part.text assistant content.
         /// Only the fields needed for admiral protocol detection are mapped here;
         /// unknown fields are ignored by the deserializer.
         /// </summary>
         private sealed class OpenCodeEvent
         {
             /// <summary>
-            /// Event type (e.g. "assistant", "tool_call", "done").
+            /// Event type (e.g. "text", "step_start", "tool_call").
             /// </summary>
             [JsonPropertyName("type")]
             public string? Type { get; set; }
 
             /// <summary>
-            /// Text content of the event, present on assistant-role events.
+            /// Nested event part, present on assistant text events.
             /// </summary>
-            [JsonPropertyName("content")]
-            public string? Content { get; set; }
+            [JsonPropertyName("part")]
+            public OpenCodeEventPart? Part { get; set; }
+        }
+
+        /// <summary>
+        /// Nested part payload for OpenCode text events.
+        /// </summary>
+        private sealed class OpenCodeEventPart
+        {
+            /// <summary>
+            /// Part type (e.g. "text").
+            /// </summary>
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            /// <summary>
+            /// Assistant text content.
+            /// </summary>
+            [JsonPropertyName("text")]
+            public string? Text { get; set; }
         }
 
         #endregion
