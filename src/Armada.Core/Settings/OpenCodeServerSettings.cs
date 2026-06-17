@@ -81,6 +81,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Agent name used by captain coding-agent CLI runs.
+        /// </summary>
+        public string CaptainAgent
+        {
+            get => _CaptainAgent;
+            set => _CaptainAgent = value ?? "build";
+        }
+
+        /// <summary>
         /// Username for Basic auth to local server when password is configured.
         /// </summary>
         public string Username
@@ -137,6 +146,7 @@ namespace Armada.Core.Settings
         private string _ProviderId = "opencode";
         private string _ModelId = "deepseek-v4-flash-free";
         private string _Agent = "summary";
+        private string _CaptainAgent = "build";
         private string _Username = "opencode";
         private string _Password = string.Empty;
         private int _StartupTimeoutSeconds = 30;
