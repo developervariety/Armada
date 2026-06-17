@@ -593,6 +593,161 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("OpenCode", runtime.Name);
             });
 
+            // --- Real opencode 1.17.7 nested event-schema coverage ---
+
+            await RunTest("RealJsonl_TextEvent_TransformLineReturnsPartText", () =>
+            {
+                // Verbatim live sample from opencode 1.17.7: assistant text is nested inside
+                // part.text, not in a top-level content field.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"text\",\"timestamp\":1,\"part\":{\"id\":\"p1\",\"messageID\":\"m1\",\"sessionID\":\"s1\",\"type\":\"text\",\"text\":\"I'll read the mission instructions...\"}}";
+                string result = runtime.TransformLine(line);
+                AssertEqual("I'll read the mission instructions...", result, "TransformLine must extract part.text from the real opencode 1.17.7 text event");
+            });
+
+            await RunTest("RealJsonl_StepStartTextStepFinish_ExtractsPartText", () =>
+            {
+                // Full verbatim stream: step_start -> text (with nested part) -> step_finish.
+                // ExtractAssistantResult must return true and join the part.text.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"text\",\"timestamp\":1,\"part\":{\"id\":\"p1\",\"messageID\":\"m1\",\"sessionID\":\"s1\",\"type\":\"text\",\"text\":\"I'll read the mission instructions...\"}}",
+                    "{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45}}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "ExtractAssistantResult must return true when stream contains a real opencode 1.17.7 text event");
+                AssertEqual("I'll read the mission instructions...", text, "Extracted text must equal the inner part.text value");
+            });
+
+            await RunTest("RealJsonl_StepOnlyStream_NoContentExtracted", () =>
+            {
+                // step_start + step_finish with no text event: no assistant content produced.
+                // This pins the empty-run warning path: _SawAssistantOutput stays false and
+                // HandleProcessExited logs a warning instead of silently succeeding.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45}}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertFalse(found, "step-only stream must not yield assistant content");
+                AssertEqual(String.Empty, text, "step-only stream must produce empty extracted text");
+            });
+
+            await RunTest("RealJsonl_StepFinishEvent_TransformLineReturnsEmpty", () =>
+            {
+                // Verbatim step_finish sample: must be suppressed from the log (empty string),
+                // not leaked as raw JSON that would confuse the ProgressParser.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45}}";
+                string result = runtime.TransformLine(line);
+                AssertEqual(String.Empty, result, "step_finish must be suppressed from the mission log");
+            });
+
+            await RunTest("RealJsonl_StepStartEvent_TransformLineReturnsEmpty", () =>
+            {
+                // A step_start event (content-free by design) must be suppressed from the log,
+                // not fall through as raw JSON. Pins the new suppression path in TransformOutputLine.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"step_start\"}";
+                string result = runtime.TransformLine(line);
+                AssertEqual(String.Empty, result, "step_start must be suppressed from the mission log, not returned as raw JSON");
+            });
+
+            await RunTest("RealJsonl_ArmadaResultMarker_InPartText_DetectableAfterTransform", () =>
+            {
+                // [ARMADA:RESULT] COMPLETE embedded in part.text must survive the transform
+                // unchanged so the admiral's ^-anchored regex still fires on the output line.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"text\",\"timestamp\":1,\"part\":{\"id\":\"p1\",\"messageID\":\"m1\",\"sessionID\":\"s1\",\"type\":\"text\",\"text\":\"[ARMADA:RESULT] COMPLETE\"}}";
+                string result = runtime.TransformLine(line);
+                AssertEqual("[ARMADA:RESULT] COMPLETE", result, "Transformed output must equal the marker text exactly");
+                AssertTrue(result.StartsWith("[ARMADA:RESULT]"), "Transformed output must start with [ARMADA:RESULT] so ^-anchored detection fires");
+            });
+
+            await RunTest("RealJsonl_ArmadaVerdictMarker_InPartText_DetectableAfterTransform", () =>
+            {
+                // [ARMADA:VERDICT] PASS embedded in part.text must survive the transform so the
+                // admiral's verdict detection still fires on the output line.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"text\",\"timestamp\":1,\"part\":{\"id\":\"p1\",\"messageID\":\"m1\",\"sessionID\":\"s1\",\"type\":\"text\",\"text\":\"[ARMADA:VERDICT] PASS\"}}";
+                string result = runtime.TransformLine(line);
+                AssertEqual("[ARMADA:VERDICT] PASS", result, "Transformed output must equal the verdict marker text exactly");
+                AssertTrue(result.StartsWith("[ARMADA:VERDICT]"), "Transformed output must start with [ARMADA:VERDICT] so ^-anchored detection fires");
+            });
+
+            await RunTest("RealJsonl_TextEvent_NoRawJsonLeakedInTransformedOutput", () =>
+            {
+                // The transformed output must contain only the extracted text -- none of the
+                // raw JSON wrapper (part, sessionID, messageID) may leak into the log line.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"text\",\"timestamp\":1,\"part\":{\"id\":\"p1\",\"messageID\":\"m1\",\"sessionID\":\"s1\",\"type\":\"text\",\"text\":\"Hello from opencode\"}}";
+                string result = runtime.TransformLine(line);
+                AssertEqual("Hello from opencode", result, "Only the extracted text must appear in the transformed output");
+                AssertFalse(result.Contains("\"part\""), "Transformed output must not contain the raw JSON 'part' key");
+                AssertFalse(result.Contains("sessionID"), "Transformed output must not contain the raw JSON 'sessionID' key");
+            });
+
+            await RunTest("RealJsonl_OldAssistantContentDto_NotExtracted", () =>
+            {
+                // Regression guard: the pre-M1 {type,content} shape must not be extracted under
+                // the new nested schema. A top-level content field carries no part.text, so the
+                // new IsAssistantContentEvent predicate must ignore it.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"assistant\",\"content\":\"x\"}";
+                bool found = runtime.ExtractAssistantResult(new List<string> { line }, out string text);
+                AssertFalse(found, "Old {type,content} DTO shape must not be extracted under the new nested schema");
+                AssertEqual(String.Empty, text, "Old DTO shape must produce empty extracted text");
+            });
+
+            await RunTest("RealJsonl_EmptyPartText_NotCounted", () =>
+            {
+                // A text event whose part.text is empty carries no real output and must not flip
+                // the saw-content flag, matching the behavior for empty content in the old DTO.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"\"}}";
+                bool found = runtime.ExtractAssistantResult(new List<string> { line }, out string text);
+                AssertFalse(found, "A text event with empty part.text must not count as assistant output");
+                AssertEqual(String.Empty, text, "Empty part.text must produce empty extracted text");
+            });
+
+            await RunTest("RealJsonl_MultipleTextEvents_ConcatenateInOrder", () =>
+            {
+                // Multiple text events across two steps must be joined in stream order, exactly
+                // as the old multi-assistant-event concatenation test required.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"First \"}}",
+                    "{\"type\":\"step_finish\",\"tokens\":{\"input\":5,\"output\":10}}",
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"second\"}}",
+                    "{\"type\":\"step_finish\",\"tokens\":{\"input\":5,\"output\":10}}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "Multiple text events must yield content");
+                AssertEqual("First second", text, "Multiple text events must be concatenated in stream order");
+            });
+
+            await RunTest("RealJsonl_StreamWithTextEvent_TransformLineExtractsContentAndSuppressesSteps", () =>
+            {
+                // Simulates a complete opencode 1.17.7 run: step_start -> text -> step_finish.
+                // TransformLine must return empty for the step events and the inner text for the
+                // text event, pinning that _SawAssistantOutput would be true after the text call
+                // while step events leave it unset.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string stepStartResult = runtime.TransformLine("{\"type\":\"step_start\"}");
+                AssertEqual(String.Empty, stepStartResult, "step_start TransformLine must return empty");
+                string textResult = runtime.TransformLine("{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"I'll read the mission instructions...\"}}");
+                AssertEqual("I'll read the mission instructions...", textResult, "text event TransformLine must return inner part.text");
+                string stepFinishResult = runtime.TransformLine("{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45}}");
+                AssertEqual(String.Empty, stepFinishResult, "step_finish TransformLine must return empty");
+            });
+
             await Task.CompletedTask;
         }
     }
