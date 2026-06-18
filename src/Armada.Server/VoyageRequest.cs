@@ -42,6 +42,21 @@ namespace Armada.Server
         public string VesselId { get; set; } = "";
 
         /// <summary>
+        /// Dispatch-level code context mode.
+        /// </summary>
+        public string? CodeContextMode { get; set; } = null;
+
+        /// <summary>
+        /// Optional token budget for generated code context packs.
+        /// </summary>
+        public int? CodeContextTokenBudget { get; set; } = null;
+
+        /// <summary>
+        /// Optional maximum result count for generated code context packs.
+        /// </summary>
+        public int? CodeContextMaxResults { get; set; } = null;
+
+        /// <summary>
         /// Pipeline ID to use for this voyage (overrides vessel/fleet default).
         /// </summary>
         public string? PipelineId { get; set; }

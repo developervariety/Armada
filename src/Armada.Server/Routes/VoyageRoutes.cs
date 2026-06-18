@@ -12,6 +12,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Server.WebSocket;
     using SyslogLogging;
 
@@ -26,6 +27,8 @@ namespace Armada.Server.Routes
         private readonly ArmadaWebSocketHub? _webSocketHub;
         private readonly LoggingModule _logging;
         private readonly ObjectiveService _objectives;
+        private readonly ICodeIndexService? _codeIndexService;
+        private readonly ArmadaSettings? _settings;
         private readonly JsonSerializerOptions _jsonOptions;
 
         /// <summary>
@@ -37,6 +40,8 @@ namespace Armada.Server.Routes
         /// <param name="webSocketHub">WebSocket hub for real-time notifications.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="objectives">Objective linkage service.</param>
+        /// <param name="codeIndexService">Optional code-index service.</param>
+        /// <param name="settings">Optional Armada settings.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         public VoyageRoutes(
             DatabaseDriver database,
@@ -45,6 +50,8 @@ namespace Armada.Server.Routes
             ArmadaWebSocketHub? webSocketHub,
             LoggingModule logging,
             ObjectiveService objectives,
+            ICodeIndexService? codeIndexService,
+            ArmadaSettings? settings,
             JsonSerializerOptions jsonOptions)
         {
             _database = database;
@@ -53,7 +60,68 @@ namespace Armada.Server.Routes
             _webSocketHub = webSocketHub;
             _logging = logging;
             _objectives = objectives;
+            _codeIndexService = codeIndexService;
+            _settings = settings;
             _jsonOptions = jsonOptions;
+        }
+
+        /// <summary>
+        /// Determine whether a voyage request should use the existing bare-voyage creation path.
+        /// </summary>
+        /// <param name="request">Voyage request.</param>
+        /// <returns>True when no dispatch should run.</returns>
+        public static bool ShouldCreateBareVoyage(VoyageRequest request)
+        {
+            if (request == null) return true;
+            return String.IsNullOrEmpty(request.VesselId)
+                || request.Missions == null
+                || request.Missions.Count == 0;
+        }
+
+        /// <summary>
+        /// Convert a REST voyage request into the normalized shared dispatch request.
+        /// </summary>
+        /// <param name="request">REST request.</param>
+        /// <returns>Shared dispatch request.</returns>
+        public static SharedVoyageDispatchRequest CreateDispatchRequest(VoyageRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            List<MissionDescription> missions = new List<MissionDescription>();
+            if (request.Missions != null)
+            {
+                foreach (MissionRequest mission in request.Missions)
+                {
+                    missions.Add(new MissionDescription
+                    {
+                        Title = mission.Title,
+                        Description = mission.Description,
+                        PrestagedFiles = mission.PrestagedFiles,
+                        CodeContextMode = mission.CodeContextMode,
+                        CodeContextQuery = mission.CodeContextQuery,
+                        PreferredModel = mission.PreferredModel,
+                        DependsOnMissionId = mission.DependsOnMissionId,
+                        Alias = mission.Alias,
+                        DependsOnMissionAlias = mission.DependsOnMissionAlias,
+                        SelectedPlaybooks = mission.SelectedPlaybooks
+                    });
+                }
+            }
+
+            return new SharedVoyageDispatchRequest
+            {
+                Title = request.Title,
+                Description = request.Description,
+                VesselId = request.VesselId,
+                Missions = missions,
+                CodeContextMode = request.CodeContextMode,
+                CodeContextTokenBudget = request.CodeContextTokenBudget,
+                CodeContextMaxResults = request.CodeContextMaxResults,
+                PipelineId = request.PipelineId,
+                Pipeline = request.Pipeline,
+                ObjectiveId = request.ObjectiveId,
+                SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>()
+            };
         }
 
         /// <summary>
@@ -142,26 +210,9 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
                     }
                 }
-                List<MissionDescription> missions = new List<MissionDescription>();
-                if (voyageReq.Missions != null)
-                {
-                    foreach (MissionRequest m in voyageReq.Missions)
-                    {
-                        missions.Add(new MissionDescription(m.Title, m.Description));
-                    }
-                }
-
-                // Resolve pipeline: explicit ID > name lookup > null (falls through to vessel/fleet default)
-                string? pipelineId = voyageReq.PipelineId;
-                if (String.IsNullOrEmpty(pipelineId) && !String.IsNullOrEmpty(voyageReq.Pipeline))
-                {
-                    Pipeline? namedPipeline = await _database.Pipelines.ReadByNameAsync(voyageReq.Pipeline).ConfigureAwait(false);
-                    if (namedPipeline != null) pipelineId = namedPipeline.Id;
-                    else { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Pipeline not found: " + voyageReq.Pipeline }; }
-                }
-
+                bool isBareVoyage = ShouldCreateBareVoyage(voyageReq);
                 Voyage voyage;
-                if (String.IsNullOrEmpty(voyageReq.VesselId) || missions.Count == 0)
+                if (isBareVoyage)
                 {
                     // Bare voyage creation (missions added separately)
                     voyage = new Voyage(voyageReq.Title, voyageReq.Description);
@@ -179,16 +230,28 @@ namespace Armada.Server.Routes
                 }
                 else
                 {
-                    voyage = await _admiral.DispatchVoyageAsync(
-                        voyageReq.Title,
-                        voyageReq.Description,
-                        voyageReq.VesselId,
-                        missions,
-                        pipelineId,
-                        voyageReq.SelectedPlaybooks).ConfigureAwait(false);
+                    SharedVoyageDispatchRequest dispatchRequest = CreateDispatchRequest(voyageReq);
+                    dispatchRequest.ObjectiveAuthContext = ctx;
+                    dispatchRequest.Settings = _settings;
+                    VoyageDispatchService dispatchService = new VoyageDispatchService(
+                        _database,
+                        _admiral,
+                        _logging,
+                        _codeIndexService,
+                        _objectives,
+                        _settings);
+                    VoyageDispatchResult dispatchResult = await dispatchService.DispatchAsync(dispatchRequest).ConfigureAwait(false);
+                    if (!dispatchResult.Succeeded)
+                    {
+                        req.Http.Response.StatusCode = dispatchResult.StatusCode;
+                        return dispatchResult.Value;
+                    }
+
+                    voyage = dispatchResult.Voyage
+                        ?? throw new InvalidOperationException("Dispatch succeeded without a voyage response.");
                 }
 
-                if (!String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))
+                if (isBareVoyage && !String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))
                 {
                     await _objectives.LinkVoyageAsync(ctx, voyageReq.ObjectiveId, voyage.Id).ConfigureAwait(false);
                 }
