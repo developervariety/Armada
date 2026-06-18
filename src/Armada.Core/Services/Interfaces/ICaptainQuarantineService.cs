@@ -38,5 +38,14 @@ namespace Armada.Core.Services.Interfaces
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         Task RestoreExpiredQuarantinesAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Probes a quarantined captain's provider quota and restores it early when the probe
+        /// reports recovery. A failed probe leaves the captain quarantined.
+        /// </summary>
+        /// <param name="captain">Quarantined captain to probe.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the probe succeeded and the captain was restored; otherwise false.</returns>
+        Task<bool> TryProbeRestoreAsync(Captain captain, CancellationToken token = default);
     }
 }

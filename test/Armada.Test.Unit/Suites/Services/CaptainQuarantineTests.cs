@@ -72,13 +72,16 @@ namespace Armada.Test.Unit.Suites.Services
                     vessel.DefaultBranch = "main";
                     await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-                    Captain quarantined = new Captain("quota-worker");
+                    // Name the quarantined captain so it sorts FIRST in the SQLite idle enumeration
+                    // (ORDER BY name). If the quarantine filter were removed, selection would land on
+                    // this captain and the assertions below would fail -- this gives the test teeth.
+                    Captain quarantined = new Captain("aaa-quota-worker");
                     quarantined.State = CaptainStateEnum.Idle;
                     quarantined.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
                     quarantined.QuarantineReason = "You've hit your usage limit";
                     await db.Captains.CreateAsync(quarantined).ConfigureAwait(false);
 
-                    Captain healthy = new Captain("healthy-worker");
+                    Captain healthy = new Captain("zzz-healthy-worker");
                     healthy.State = CaptainStateEnum.Idle;
                     await db.Captains.CreateAsync(healthy).ConfigureAwait(false);
 
@@ -391,6 +394,153 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(after.QuarantineReason, "reason should be cleared");
                 }
             });
+
+            await RunTest("TryProbeRestore_SuccessfulProbe_RestoresQuarantinedCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    StubQuotaProbe probe = new StubQuotaProbe(true);
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging, probe);
+
+                    // Bench window is still open: only a positive probe can restore this captain early.
+                    Captain captain = new Captain("probe-recovers");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    captain.QuarantineReason = "You've hit your usage limit";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    bool restored = await quarantine.TryProbeRestoreAsync(captain).ConfigureAwait(false);
+
+                    AssertTrue(restored, "successful probe should report a restore");
+                    AssertEqual(1, probe.CallCount, "probe should be consulted exactly once");
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, after!.State, "probe success should restore captain to Idle before window elapses");
+                    AssertNull(after.QuarantineUntilUtc, "retry deadline should be cleared on probe restore");
+                    AssertNull(after.QuarantineReason, "quarantine reason should be cleared on probe restore");
+                }
+            });
+
+            await RunTest("TryProbeRestore_FailedProbe_LeavesCaptainQuarantined", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    StubQuotaProbe probe = new StubQuotaProbe(false);
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging, probe);
+
+                    Captain captain = new Captain("probe-still-limited");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    captain.QuarantineReason = "You've hit your usage limit";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    bool restored = await quarantine.TryProbeRestoreAsync(captain).ConfigureAwait(false);
+
+                    AssertFalse(restored, "failed probe should not restore the captain");
+                    AssertEqual(1, probe.CallCount, "probe should be consulted exactly once");
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "failed probe must keep captain benched");
+                    AssertNotNull(after.QuarantineUntilUtc, "retry deadline should be retained on failed probe");
+                }
+            });
+
+            await RunTest("RestoreExpiredQuarantines_ProbeEnabledAndSucceeds_RestoresBeforeWindowElapses", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainQuarantine.UseProbeOnRestore = true;
+                    LoggingModule logging = CreateLogging();
+                    StubQuotaProbe probe = new StubQuotaProbe(true);
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging, probe);
+
+                    Captain captain = new Captain("early-restore");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    captain.QuarantineReason = "rate limit reached";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, after!.State, "probe-enabled restore should free the captain before the window elapses");
+                    AssertNull(after.QuarantineUntilUtc, "retry deadline should be cleared after early probe restore");
+                }
+            });
+
+            await RunTest("RestoreExpiredQuarantines_ProbeEnabledAndFails_KeepsCaptainBenched", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainQuarantine.UseProbeOnRestore = true;
+                    LoggingModule logging = CreateLogging();
+                    StubQuotaProbe probe = new StubQuotaProbe(false);
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging, probe);
+
+                    Captain captain = new Captain("still-benched");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    captain.QuarantineReason = "rate limit reached";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "a negative probe must keep the captain quarantined inside its window");
+                    AssertNotNull(after.QuarantineUntilUtc, "retry deadline should be retained while the probe reports no recovery");
+                }
+            });
+
+            await RunTest("ProviderResetQuotaProbe_HonorsPublishedDeadline", async () =>
+            {
+                ProviderResetQuotaProbe probe = new ProviderResetQuotaProbe();
+
+                Captain stillLimited = new Captain("still-limited");
+                stillLimited.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(10);
+                AssertFalse(
+                    await probe.HasRecoveredAsync(stillLimited).ConfigureAwait(false),
+                    "quota should not be reported recovered before the published reset deadline");
+
+                Captain past = new Captain("past-deadline");
+                past.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(-1);
+                AssertTrue(
+                    await probe.HasRecoveredAsync(past).ConfigureAwait(false),
+                    "quota should be reported recovered once the published reset deadline has elapsed");
+
+                Captain noDeadline = new Captain("no-deadline");
+                noDeadline.QuarantineUntilUtc = null;
+                AssertTrue(
+                    await probe.HasRecoveredAsync(noDeadline).ConfigureAwait(false),
+                    "absent a published deadline there is nothing to wait on; treat as recovered");
+            });
+        }
+
+        /// <summary>Hand-rolled quota probe double returning a fixed recovery verdict.</summary>
+        private sealed class StubQuotaProbe : ICaptainQuotaProbe
+        {
+            internal int CallCount { get; private set; }
+
+            private readonly bool _Recovered;
+
+            internal StubQuotaProbe(bool recovered)
+            {
+                _Recovered = recovered;
+            }
+
+            public Task<bool> HasRecoveredAsync(Captain captain, CancellationToken token = default)
+            {
+                if (captain == null) throw new ArgumentNullException(nameof(captain));
+                CallCount++;
+                return Task.FromResult(_Recovered);
+            }
         }
     }
 }

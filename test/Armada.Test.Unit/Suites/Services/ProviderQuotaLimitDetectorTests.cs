@@ -31,6 +31,29 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsQuotaLimitSignal_ChatGptUsageLimitStderr_ReturnsTrue", () =>
+            {
+                // Real-world signature: codex gpt-5.5 captains hitting the ChatGPT usage cap,
+                // exiting code 1 within seconds with this exact stderr.
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal(
+                        "[stderr] You've hit your usage limit. Upgrade to Pro (https://openai.com/chatgpt/pricing) or try again at 11:12 AM."),
+                    "ChatGPT usage-limit stderr should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_ChatGptUsageLimitStderr_ParsesResetTime", () =>
+            {
+                DateTime referenceUtc = new DateTime(2026, 6, 18, 14, 0, 0, DateTimeKind.Utc);
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(
+                    "[stderr] You've hit your usage limit. Upgrade to Pro or try again at 11:12 AM.",
+                    referenceUtc);
+                AssertNotNull(retryAfterUtc, "published reset time should parse from the ChatGPT stderr");
+                AssertEqual(11, retryAfterUtc!.Value.Hour, "retry hour should be preserved");
+                AssertEqual(12, retryAfterUtc.Value.Minute, "retry minute should be preserved");
+                return Task.CompletedTask;
+            });
+
             await RunTest("IsQuotaLimitSignal_UnrelatedError_ReturnsFalse", () =>
             {
                 AssertFalse(

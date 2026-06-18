@@ -73,21 +73,58 @@ namespace Armada.Core.Services
                 return;
             }
 
+            bool probeEnabled = _Settings.CaptainQuarantine.UseProbeOnRestore && _Probe != null;
             DateTime nowUtc = DateTime.UtcNow;
+
             foreach (Captain captain in quarantinedCaptains)
             {
+                if (probeEnabled)
+                {
+                    // Probe-driven restore: a successful probe can return the captain to service
+                    // early, before its bench window elapses; a failed probe keeps it quarantined.
+                    await TryProbeRestoreAsync(captain, token).ConfigureAwait(false);
+                    continue;
+                }
+
                 if (captain.QuarantineUntilUtc.HasValue && captain.QuarantineUntilUtc.Value > nowUtc)
                 {
                     continue;
                 }
 
-                if (_Settings.CaptainQuarantine.UseProbeOnRestore)
-                {
-                    _Logging.Info(_Header + "probe-on-restore enabled; clearing quarantine for captainId=" + captain.Id);
-                }
-
                 await ClearQuarantineAsync(captain, token).ConfigureAwait(false);
             }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TryProbeRestoreAsync(Captain captain, CancellationToken token = default)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+
+            if (_Probe == null)
+            {
+                return false;
+            }
+
+            bool recovered;
+            try
+            {
+                recovered = await _Probe.HasRecoveredAsync(captain, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "quota probe threw for captainId=" + captain.Id + "; leaving quarantined: " + ex.Message);
+                return false;
+            }
+
+            if (!recovered)
+            {
+                _Logging.Debug(_Header + "quota probe negative; captain stays quarantined captainId=" + captain.Id);
+                return false;
+            }
+
+            _Logging.Info(_Header + "quota probe positive; restoring captain early captainId=" + captain.Id);
+            await ClearQuarantineAsync(captain, token).ConfigureAwait(false);
+            return true;
         }
 
         #endregion
@@ -100,11 +137,13 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="settings">Application settings.</param>
         /// <param name="logging">Logging module.</param>
-        public CaptainQuarantineService(DatabaseDriver database, ArmadaSettings settings, LoggingModule logging)
+        /// <param name="probe">Optional quota probe used for early restore; null disables probe-driven restore.</param>
+        public CaptainQuarantineService(DatabaseDriver database, ArmadaSettings settings, LoggingModule logging, ICaptainQuotaProbe? probe = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Probe = probe;
         }
 
         #endregion
@@ -129,6 +168,7 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
+        private readonly ICaptainQuotaProbe? _Probe;
         private const string _Header = "[CaptainQuarantineService] ";
 
         #endregion

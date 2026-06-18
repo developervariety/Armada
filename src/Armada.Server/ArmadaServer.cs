@@ -189,7 +189,7 @@ namespace Armada.Server
             ScheduleStartupBaselineCacheWarmup(_CodeIndex);
             await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
 
-            CaptainQuarantineService captainQuarantineService = new CaptainQuarantineService(_Database, _Settings, _Logging);
+            CaptainQuarantineService captainQuarantineService = new CaptainQuarantineService(_Database, _Settings, _Logging, new ProviderResetQuotaProbe());
             MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService);
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
