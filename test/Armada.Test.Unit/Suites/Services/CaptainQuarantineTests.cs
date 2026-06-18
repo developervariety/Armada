@@ -100,6 +100,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_OnlyCaptainQuarantined_DoesNotAssign", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Vessel vessel = new Vessel("quarantine-only-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/quarantine.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.DefaultBranch = "main";
+                    await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // The ONLY idle captain is quarantined. This is the strongest regression teeth:
+                    // if the IsQuarantined filter in FindAvailableCaptainAsync were removed, this captain
+                    // would be selected and the mission would assign -- failing the assertions below.
+                    Captain quarantined = new Captain("lonely-quota-worker");
+                    quarantined.State = CaptainStateEnum.Idle;
+                    quarantined.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    quarantined.QuarantineReason = "You've hit your usage limit";
+                    await db.Captains.CreateAsync(quarantined).ConfigureAwait(false);
+
+                    Mission mission = new Mission("No healthy captain", "Quarantined captain must be skipped.");
+                    mission.VesselId = vessel.Id;
+                    mission.Status = MissionStatusEnum.Pending;
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "no assignment is possible when the only idle captain is quarantined");
+                    Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNull(updated!.CaptainId, "quarantined captain must not be assigned even when it is the only candidate");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForIdleCaptain, updated.AssignmentState, "mission should wait for an idle captain");
+                }
+            });
+
             await RunTest("HandleProcessExitAsync_QuotaFailureOnSecondCaptain_DoesNotCancelUnrelatedVoyage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -160,6 +198,54 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.InProgress, unrelatedMissionAfter!.Status, "unrelated mission must not be cancelled");
                     AssertEqual(CaptainStateEnum.Quarantined, quotaCaptainAfter!.State, "quota captain should be quarantined");
                     AssertNotNull(quotaCaptainAfter.QuarantineUntilUtc, "quota captain should have retry deadline");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync_CodexUsageLimitStderr_QuarantinesAndHonorsResetDeadline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+                    AdmiralService service = CreateAdmiralService(db, settings, quarantine);
+
+                    Voyage voyage = new Voyage("Codex Quota Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Codex Worker");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    mission.ProcessId = 7373;
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain codexCaptain = new Captain("codex-captain");
+                    codexCaptain.State = CaptainStateEnum.Working;
+                    codexCaptain.CurrentMissionId = mission.Id;
+                    codexCaptain.ProcessId = 7373;
+                    await db.Captains.CreateAsync(codexCaptain).ConfigureAwait(false);
+
+                    // Real codex signature: process exits code 1 within seconds, leaving the ChatGPT
+                    // usage-limit stderr (with a published reset time) as the last meaningful log line.
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, mission.Id + ".log"),
+                        "[stderr] You've hit your usage limit. Upgrade to Pro or try again at 11:57 PM.\nAgent exited with code 1").ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(7373, 1, codexCaptain.Id, mission.Id).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(codexCaptain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "codex usage-limit exit-code-1 should quarantine the captain");
+                    AssertNotNull(after.QuarantineUntilUtc, "quarantine should carry a retry deadline");
+                    // The provider-published reset time (11:57 PM) must drive the deadline -- not the
+                    // configured default backoff. Hour/Minute prove TryParseRetryAfterUtc was wired through.
+                    AssertEqual(23, after.QuarantineUntilUtc!.Value.Hour, "published reset hour should drive the deadline");
+                    AssertEqual(57, after.QuarantineUntilUtc.Value.Minute, "published reset minute should drive the deadline");
+                    AssertNull(after.CurrentMissionId, "quarantine should clear the current mission assignment");
                 }
             });
 
@@ -449,6 +535,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryProbeRestore_ProbeThrows_LeavesCaptainQuarantined", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    ThrowingQuotaProbe probe = new ThrowingQuotaProbe();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging, probe);
+
+                    Captain captain = new Captain("probe-throws");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    captain.QuarantineReason = "You've hit your usage limit";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    bool restored = await quarantine.TryProbeRestoreAsync(captain).ConfigureAwait(false);
+
+                    AssertFalse(restored, "a probe that throws must not restore the captain");
+                    AssertEqual(1, probe.CallCount, "probe should be consulted exactly once even when it throws");
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "probe failure must leave the captain benched, not crash the restore loop");
+                    AssertNotNull(after.QuarantineUntilUtc, "retry deadline should be retained when the probe throws");
+                }
+            });
+
+            await RunTest("RestoreExpiredQuarantines_ProbeEnabledButNoProbeWired_UsesDeadlineFallback", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainQuarantine.UseProbeOnRestore = true;
+                    LoggingModule logging = CreateLogging();
+                    // UseProbeOnRestore is on, but no probe instance is wired -- the service must fall back
+                    // to the deadline path rather than dereference a null probe.
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging, probe: null);
+
+                    Captain expired = new Captain("expired-no-probe");
+                    expired.State = CaptainStateEnum.Quarantined;
+                    expired.QuarantineUntilUtc = DateTime.UtcNow.AddSeconds(-5);
+                    expired.QuarantineReason = "quota";
+                    await db.Captains.CreateAsync(expired).ConfigureAwait(false);
+
+                    Captain stillOpen = new Captain("open-no-probe");
+                    stillOpen.State = CaptainStateEnum.Quarantined;
+                    stillOpen.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    stillOpen.QuarantineReason = "quota";
+                    await db.Captains.CreateAsync(stillOpen).ConfigureAwait(false);
+
+                    await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
+
+                    Captain? expiredAfter = await db.Captains.ReadAsync(expired.Id).ConfigureAwait(false);
+                    Captain? stillOpenAfter = await db.Captains.ReadAsync(stillOpen.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, expiredAfter!.State, "expired window should restore via the deadline fallback when no probe is wired");
+                    AssertEqual(CaptainStateEnum.Quarantined, stillOpenAfter!.State, "open window must stay quarantined under the deadline fallback");
+                }
+            });
+
             await RunTest("RestoreExpiredQuarantines_ProbeEnabledAndSucceeds_RestoresBeforeWindowElapses", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -540,6 +685,19 @@ namespace Armada.Test.Unit.Suites.Services
                 if (captain == null) throw new ArgumentNullException(nameof(captain));
                 CallCount++;
                 return Task.FromResult(_Recovered);
+            }
+        }
+
+        /// <summary>Hand-rolled quota probe double that always throws to exercise the restore catch path.</summary>
+        private sealed class ThrowingQuotaProbe : ICaptainQuotaProbe
+        {
+            internal int CallCount { get; private set; }
+
+            public Task<bool> HasRecoveredAsync(Captain captain, CancellationToken token = default)
+            {
+                if (captain == null) throw new ArgumentNullException(nameof(captain));
+                CallCount++;
+                throw new InvalidOperationException("probe backend unavailable");
             }
         }
     }

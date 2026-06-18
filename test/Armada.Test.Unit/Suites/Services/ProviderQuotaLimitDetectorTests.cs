@@ -54,6 +54,17 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsQuotaLimitSignal_CodexStreamErrorUsageLimit_ReturnsTrue", () =>
+            {
+                // Codex CLI surfaces the cap as a raw stream-error line (no [stderr] prefix) when the
+                // process exits code 1 within seconds; the "usage limit" substring must still trip the detector.
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal(
+                        "stream error: stream disconnected before completion: You've reached your usage limit."),
+                    "codex stream-error usage-limit line should be detected");
+                return Task.CompletedTask;
+            });
+
             await RunTest("IsQuotaLimitSignal_UnrelatedError_ReturnsFalse", () =>
             {
                 AssertFalse(
