@@ -38,6 +38,84 @@ namespace Armada.Test.Unit.Suites.Services
                     "generic exit should not be treated as quota");
                 return Task.CompletedTask;
             });
+
+            await RunTest("IsQuotaLimitSignal_QuotaKeyword_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("Error: monthly quota exceeded for this org"),
+                    "quota keyword should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsQuotaLimitSignal_RateLimitKeyword_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("HTTP 429: rate limit reached, slow down"),
+                    "rate limit keyword should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsQuotaLimitSignal_InsufficientQuotaToken_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("{\"error\":{\"code\":\"insufficient_quota\"}}"),
+                    "insufficient_quota token should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsQuotaLimitSignal_StderrPrefixStripped_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("[stderr] You've hit your limit. try again later."),
+                    "stderr-prefixed quota signal should be detected after normalization");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsQuotaLimitSignal_NullOrWhitespace_ReturnsFalse", () =>
+            {
+                AssertFalse(ProviderQuotaLimitDetector.IsQuotaLimitSignal(null), "null should not be a quota signal");
+                AssertFalse(ProviderQuotaLimitDetector.IsQuotaLimitSignal(""), "empty should not be a quota signal");
+                AssertFalse(ProviderQuotaLimitDetector.IsQuotaLimitSignal("   \t  "), "whitespace should not be a quota signal");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_RetryEarlierThanReference_RollsToNextDay", () =>
+            {
+                DateTime referenceUtc = new DateTime(2026, 6, 18, 23, 0, 0, DateTimeKind.Utc);
+                string text = "You've hit your limit. try again at 10:00 AM";
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(text, referenceUtc);
+                AssertNotNull(retryAfterUtc, "retry time should parse");
+                AssertTrue(retryAfterUtc!.Value > referenceUtc, "earlier clock time must roll forward past reference");
+                AssertEqual(19, retryAfterUtc.Value.Day, "retry should land on the next calendar day");
+                AssertEqual(10, retryAfterUtc.Value.Hour, "retry hour should be preserved");
+                AssertEqual(DateTimeKind.Utc, retryAfterUtc.Value.Kind, "parsed retry time should be UTC");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_NoRetryPhrase_ReturnsNull", () =>
+            {
+                DateTime referenceUtc = new DateTime(2026, 6, 18, 22, 0, 0, DateTimeKind.Utc);
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(
+                    "You've hit your usage limit for Codex", referenceUtc);
+                AssertNull(retryAfterUtc, "no try-again phrase should yield null");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_NullText_ReturnsNull", () =>
+            {
+                DateTime referenceUtc = new DateTime(2026, 6, 18, 22, 0, 0, DateTimeKind.Utc);
+                AssertNull(ProviderQuotaLimitDetector.TryParseRetryAfterUtc(null, referenceUtc), "null text should yield null");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_MalformedTimeToken_ReturnsNull", () =>
+            {
+                DateTime referenceUtc = new DateTime(2026, 6, 18, 22, 0, 0, DateTimeKind.Utc);
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(
+                    "try again at 99:99 PM", referenceUtc);
+                AssertNull(retryAfterUtc, "unparseable clock token should yield null");
+                return Task.CompletedTask;
+            });
         }
     }
 }

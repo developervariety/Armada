@@ -183,6 +183,214 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(restored.QuarantineReason, "quarantine reason should be cleared");
                 }
             });
+
+            await RunTest("RestoreExpiredQuarantines_WindowStillOpen_LeavesCaptainQuarantined", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain captain = new Captain("still-cooling-down");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    captain.QuarantineReason = "rate limit reached";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "captain inside the retry window must stay quarantined");
+                    AssertNotNull(after.QuarantineUntilUtc, "retry deadline should be retained while window is open");
+                }
+            });
+
+            await RunTest("RestoreExpiredQuarantines_NullDeadline_RestoresImmediately", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain captain = new Captain("no-deadline");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = null;
+                    captain.QuarantineReason = "quota";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, after!.State, "quarantine with no deadline should be treated as expired");
+                    AssertNull(after.QuarantineReason, "quarantine reason should be cleared");
+                }
+            });
+
+            await RunTest("IsQuarantined_StateAndDeadlineVariants_ReportsCorrectly", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain stateQuarantined = new Captain("state-flag");
+                    stateQuarantined.State = CaptainStateEnum.Quarantined;
+                    AssertTrue(quarantine.IsQuarantined(stateQuarantined), "Quarantined state alone should report quarantined");
+
+                    Captain futureDeadline = new Captain("future-window");
+                    futureDeadline.State = CaptainStateEnum.Idle;
+                    futureDeadline.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(10);
+                    AssertTrue(quarantine.IsQuarantined(futureDeadline), "future deadline should report quarantined even when Idle");
+
+                    Captain expiredDeadline = new Captain("expired-window");
+                    expiredDeadline.State = CaptainStateEnum.Idle;
+                    expiredDeadline.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(-10);
+                    AssertFalse(quarantine.IsQuarantined(expiredDeadline), "past deadline on an Idle captain should not report quarantined");
+
+                    Captain clean = new Captain("clean");
+                    clean.State = CaptainStateEnum.Idle;
+                    AssertFalse(quarantine.IsQuarantined(clean), "idle captain with no deadline should not report quarantined");
+
+                    AssertThrows<ArgumentNullException>(() => quarantine.IsQuarantined(null!), "null captain should throw");
+                    await Task.CompletedTask;
+                }
+            });
+
+            await RunTest("QuarantineAsync_UsesProviderDeadlineAndClearsAssignment", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain captain = new Captain("busy-worker");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = "msn_test";
+                    captain.CurrentDockId = "dck_test";
+                    captain.ProcessId = 4242;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    DateTime retryAfterUtc = DateTime.UtcNow.AddMinutes(45);
+                    await quarantine.QuarantineAsync(captain, "  You've hit your usage limit  ", retryAfterUtc).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "captain should be persisted as Quarantined");
+                    AssertNotNull(after.QuarantineUntilUtc, "provider deadline should be persisted");
+                    AssertTrue(
+                        Math.Abs((after.QuarantineUntilUtc!.Value - retryAfterUtc).TotalSeconds) < 2,
+                        "provider-published retry deadline should be honored");
+                    AssertEqual("You've hit your usage limit", after.QuarantineReason, "reason should be trimmed and persisted");
+                    AssertNull(after.CurrentMissionId, "current mission should be cleared on quarantine");
+                    AssertNull(after.CurrentDockId, "current dock should be cleared on quarantine");
+                    AssertNull(after.ProcessId, "process id should be cleared on quarantine");
+                }
+            });
+
+            await RunTest("QuarantineAsync_NoDeadline_FallsBackToConfiguredBackoff", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainQuarantine.DefaultBackoffSeconds = 120;
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain captain = new Captain("no-provider-deadline");
+                    captain.State = CaptainStateEnum.Working;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    DateTime before = DateTime.UtcNow;
+                    await quarantine.QuarantineAsync(captain, "quota exceeded", null).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotNull(after!.QuarantineUntilUtc, "default backoff deadline should be set");
+                    double seconds = (after.QuarantineUntilUtc!.Value - before).TotalSeconds;
+                    AssertTrue(seconds >= 110 && seconds <= 140, "deadline should fall ~DefaultBackoffSeconds in the future (was " + seconds + "s)");
+                }
+            });
+
+            await RunTest("QuarantineAsync_PastDeadline_FallsBackToConfiguredBackoff", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainQuarantine.DefaultBackoffSeconds = 120;
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain captain = new Captain("stale-deadline");
+                    captain.State = CaptainStateEnum.Working;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    DateTime before = DateTime.UtcNow;
+                    await quarantine.QuarantineAsync(captain, "rate limit", DateTime.UtcNow.AddMinutes(-5)).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotNull(after!.QuarantineUntilUtc, "deadline should be set");
+                    AssertTrue(after.QuarantineUntilUtc!.Value > before, "a past provider deadline must not be persisted as-is");
+                    double seconds = (after.QuarantineUntilUtc.Value - before).TotalSeconds;
+                    AssertTrue(seconds >= 110 && seconds <= 140, "past deadline should fall back to default backoff (was " + seconds + "s)");
+                }
+            });
+
+            await RunTest("QuarantineAsync_InvalidArguments_Throw", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain captain = new Captain("arg-check");
+                    captain.State = CaptainStateEnum.Working;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await AssertThrowsAsync<ArgumentNullException>(
+                        () => quarantine.QuarantineAsync(null!, "quota", null),
+                        "null captain should throw");
+                    await AssertThrowsAsync<ArgumentException>(
+                        () => quarantine.QuarantineAsync(captain, "   ", null),
+                        "whitespace reason should throw");
+                    await AssertThrowsAsync<ArgumentNullException>(
+                        () => quarantine.ClearQuarantineAsync(null!),
+                        "null captain should throw on clear");
+                }
+            });
+
+            await RunTest("ClearQuarantineAsync_ResetsStateAndFields", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain captain = new Captain("clear-me");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(15);
+                    captain.QuarantineReason = "insufficient_quota";
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await quarantine.ClearQuarantineAsync(captain).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, after!.State, "cleared captain should return to Idle");
+                    AssertNull(after.QuarantineUntilUtc, "deadline should be cleared");
+                    AssertNull(after.QuarantineReason, "reason should be cleared");
+                }
+            });
         }
     }
 }
