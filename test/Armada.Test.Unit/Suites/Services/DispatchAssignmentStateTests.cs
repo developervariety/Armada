@@ -1076,6 +1076,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task HandleCompletionAsync(Captain captain, string missionId, CancellationToken token = default)
                 => throw new NotImplementedException();
 
+            public Task ReapTerminalMissionBranchAsync(Mission mission, CancellationToken token = default)
+                => throw new NotImplementedException();
+
             public Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
                 => throw new NotImplementedException();
 
