@@ -144,6 +144,105 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("RemoveWorktreeAsync NonExistentPath IsNoOp", async () =>
+            {
+                // The guard must short-circuit before resolving the owning repo, so a path
+                // that never existed (no bare repo, no registration) is a silent success
+                // rather than a shell-out failure.
+                GitService service = CreateService();
+                string missingPath = Path.Combine(Path.GetTempPath(), "armada-gitservice-missing-" + Guid.NewGuid().ToString("N"), "worktree");
+                AssertFalse(Directory.Exists(missingPath), "Synthetic worktree path should not exist");
+
+                await service.RemoveWorktreeAsync(missingPath).ConfigureAwait(false);
+            });
+
+            await RunTest("RemoveWorktreeAsync Twice Is Idempotent", async () =>
+            {
+                // Models a partially-completed prior cleanup: the first removal deletes the
+                // directory, the retry observes it already gone. The second call must be a
+                // no-op rather than throwing on the now-missing directory.
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string worktreeDir = Path.Combine(rootDir, "worktree");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/remove-twice", "main").ConfigureAwait(false);
+
+                    await service.RemoveWorktreeAsync(worktreeDir).ConfigureAwait(false);
+                    AssertFalse(Directory.Exists(worktreeDir), "First removal should delete the worktree directory");
+
+                    // Second removal sees the directory already gone — must not throw.
+                    await service.RemoveWorktreeAsync(worktreeDir).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("RemoveWorktreeAsync MissingDir LeavesRegistrationForPrune", async () =>
+            {
+                // Pins the documented contract: when the directory has vanished out-of-band,
+                // removal is a no-op and the stale registration is intentionally left intact
+                // to be reclaimed separately by PruneWorktreesAsync.
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string worktreeDir = Path.Combine(rootDir, "worktree");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/stale-reg", "main").ConfigureAwait(false);
+
+                    Directory.Delete(worktreeDir, true);
+                    AssertFalse(Directory.Exists(worktreeDir), "Worktree directory should be gone before removal");
+
+                    await service.RemoveWorktreeAsync(worktreeDir).ConfigureAwait(false);
+
+                    bool stillRegistered = await service.IsWorktreeRegisteredAsync(bareDir, worktreeDir).ConfigureAwait(false);
+                    AssertTrue(stillRegistered, "Missing-dir removal must leave the stale registration for prune to reclaim");
+
+                    await service.PruneWorktreesAsync(bareDir).ConfigureAwait(false);
+
+                    bool afterPrune = await service.IsWorktreeRegisteredAsync(bareDir, worktreeDir).ConfigureAwait(false);
+                    AssertFalse(afterPrune, "PruneWorktreesAsync should reclaim the stale registration left by the no-op removal");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("FetchAsync NullRepoPath Throws", async () =>
             {
                 GitService service = CreateService();
