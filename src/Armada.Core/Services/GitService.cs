@@ -171,6 +171,19 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
 
             _Logging.Info(_Header + "removing worktree: " + worktreePath);
+
+            if (!Directory.Exists(worktreePath))
+            {
+                // The worktree directory is already gone from disk (removed out-of-band, or a
+                // prior cleanup that partially completed). There is nothing to remove, and the
+                // owning repo cannot be resolved from a missing directory because
+                // ResolveWorktreeRepoPathAsync shells out with the worktree as its working
+                // directory. Treat this as a successful no-op; any stale worktree registration
+                // is reclaimed separately via PruneWorktreesAsync / FetchAsync.
+                _Logging.Warn(_Header + "worktree directory missing, skipping removal: " + worktreePath);
+                return;
+            }
+
             string repoPath = await ResolveWorktreeRepoPathAsync(worktreePath).ConfigureAwait(false);
             await RunGitAsync(repoPath, token, "worktree", "remove", "--force", worktreePath).ConfigureAwait(false);
         }
