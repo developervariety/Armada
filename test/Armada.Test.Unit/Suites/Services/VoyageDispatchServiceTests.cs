@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -169,6 +170,388 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, admiral.CreatedMissions.Count, "MCP standard dispatch should create one mission through the shared path");
                 }
             });
+
+            await RunTest("Parity_RestMappingAndMcpHandler_CreateFieldIdenticalMissions", async () =>
+            {
+                // Drive the SAME logical voyage through both real entry points -- the REST
+                // mapping (VoyageRoutes.CreateDispatchRequest -> VoyageDispatchService) and the
+                // registered MCP armada_dispatch handler -- against isolated databases, then
+                // assert every per-mission dispatch field lands identically. This is the core
+                // parity guarantee: REST and MCP must produce the same missions.
+                using (TestDatabase restDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (TestDatabase mcpDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel restVessel = await restDb.Driver.Vessels.CreateAsync(
+                        new Vessel("parity-rest-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+                    Vessel mcpVessel = await mcpDb.Driver.Vessels.CreateAsync(
+                        new Vessel("parity-mcp-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    string prestagedSource = Path.Combine(Path.GetTempPath(), "parity-input.txt");
+
+                    // --- REST entry point ---
+                    VoyageRequest restRequest = new VoyageRequest
+                    {
+                        Title = "Parity voyage",
+                        Description = "same logical request through both paths",
+                        VesselId = restVessel.Id,
+                        CodeContextMode = "off",
+                        SelectedPlaybooks = new List<SelectedPlaybook>
+                        {
+                            new SelectedPlaybook { PlaybookId = "pbk_voyage", DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference }
+                        },
+                        Missions = new List<MissionRequest>
+                        {
+                            new MissionRequest
+                            {
+                                Title = "alpha",
+                                Description = "first task",
+                                PreferredModel = "high",
+                                PrestagedFiles = new List<PrestagedFile> { new PrestagedFile(prestagedSource, "notes/alpha.txt") },
+                                SelectedPlaybooks = new List<SelectedPlaybook>
+                                {
+                                    new SelectedPlaybook { PlaybookId = "pbk_alpha", DeliveryMode = PlaybookDeliveryModeEnum.AttachIntoWorktree }
+                                }
+                            },
+                            new MissionRequest
+                            {
+                                Title = "beta",
+                                Description = "second task",
+                                PreferredModel = "low",
+                                DependsOnMissionId = "msn_existing_0001"
+                            }
+                        }
+                    };
+
+                    RecordingAdmiralService restAdmiral = new RecordingAdmiralService(restDb.Driver);
+                    VoyageDispatchService restService = new VoyageDispatchService(restDb.Driver, restAdmiral, null, null, null, null);
+                    VoyageDispatchResult restResult = await restService
+                        .DispatchAsync(VoyageRoutes.CreateDispatchRequest(restRequest)).ConfigureAwait(false);
+                    AssertTrue(restResult.Succeeded, "REST parity dispatch should succeed");
+
+                    // --- MCP entry point ---
+                    RecordingAdmiralService mcpAdmiral = new RecordingAdmiralService(mcpDb.Driver);
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        mcpDb.Driver,
+                        mcpAdmiral);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    JsonElement mcpArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "Parity voyage",
+                        description = "same logical request through both paths",
+                        vesselId = mcpVessel.Id,
+                        codeContextMode = "off",
+                        selectedPlaybooks = new object[]
+                        {
+                            new { playbookId = "pbk_voyage", deliveryMode = "InstructionWithReference" }
+                        },
+                        missions = new object[]
+                        {
+                            new
+                            {
+                                title = "alpha",
+                                description = "first task",
+                                preferredModel = "high",
+                                prestagedFiles = new object[]
+                                {
+                                    new { sourcePath = prestagedSource, destPath = "notes/alpha.txt" }
+                                },
+                                selectedPlaybooks = new object[]
+                                {
+                                    new { playbookId = "pbk_alpha", deliveryMode = "AttachIntoWorktree" }
+                                }
+                            },
+                            new
+                            {
+                                title = "beta",
+                                description = "second task",
+                                preferredModel = "low",
+                                dependsOnMissionId = "msn_existing_0001"
+                            }
+                        }
+                    });
+
+                    object mcpResponse = await dispatchHandler!(mcpArgs).ConfigureAwait(false);
+                    AssertFalse(JsonSerializer.Serialize(mcpResponse).Contains("\"Error\""), "MCP parity dispatch should not error");
+
+                    AssertMissionParity(restAdmiral.CreatedMissions, mcpAdmiral.CreatedMissions);
+                }
+            });
+
+            await RunTest("Parity_InvalidVessel_RestMappingAndMcpHandler_ReturnIdenticalErrorPayload", async () =>
+            {
+                // A request both entry points reject (missing vessel) must yield the byte-identical
+                // error payload, since both serialize the same shared-service result value.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    VoyageRequest restRequest = new VoyageRequest
+                    {
+                        Title = "missing vessel voyage",
+                        Description = "no such vessel",
+                        VesselId = "vsl_does_not_exist",
+                        Missions = new List<MissionRequest> { new MissionRequest { Title = "t", Description = "d" } }
+                    };
+
+                    RecordingAdmiralService restAdmiral = new RecordingAdmiralService(testDb.Driver);
+                    VoyageDispatchService restService = new VoyageDispatchService(testDb.Driver, restAdmiral, null, null, null, null);
+                    VoyageDispatchResult restResult = await restService
+                        .DispatchAsync(VoyageRoutes.CreateDispatchRequest(restRequest)).ConfigureAwait(false);
+                    AssertFalse(restResult.Succeeded, "REST dispatch to a missing vessel should fail");
+                    AssertEqual(404, restResult.StatusCode, "missing vessel should map to 404");
+
+                    RecordingAdmiralService mcpAdmiral = new RecordingAdmiralService(testDb.Driver);
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        mcpAdmiral);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    JsonElement mcpArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "missing vessel voyage",
+                        description = "no such vessel",
+                        vesselId = "vsl_does_not_exist",
+                        missions = new object[] { new { title = "t", description = "d" } }
+                    });
+                    object mcpResponse = await dispatchHandler!(mcpArgs).ConfigureAwait(false);
+
+                    AssertEqual(
+                        JsonSerializer.Serialize(restResult.Value),
+                        JsonSerializer.Serialize(mcpResponse),
+                        "REST and MCP must return identical error payloads for a missing vessel");
+                    AssertEqual(0, mcpAdmiral.CreatedMissions.Count, "no missions should be created on a rejected dispatch");
+                }
+            });
+
+            await RunTest("Validation_MissingTitle_Returns400BeforeTouchingDatabase", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "   ",
+                        VesselId = "vsl_unread",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    };
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "whitespace title must be rejected");
+                    AssertEqual(400, result.StatusCode);
+                    AssertContains("missing_title", JsonSerializer.Serialize(result.Value));
+                }
+            });
+
+            await RunTest("Validation_MissionMissingDescription_Returns400", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = "vsl_unread",
+                        Missions = new List<MissionDescription> { new MissionDescription("has title", "  ") }
+                    };
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "mission without a description must be rejected");
+                    AssertEqual(400, result.StatusCode);
+                    AssertContains("missing_mission_description", JsonSerializer.Serialize(result.Value));
+                }
+            });
+
+            await RunTest("Validation_VesselNotFound_Returns404", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = "vsl_ghost",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    };
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertEqual(404, result.StatusCode);
+                    AssertContains("vessel_not_found", JsonSerializer.Serialize(result.Value));
+                }
+            });
+
+            await RunTest("Validation_InvalidCodeContextMode_Returns400", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("ctx-mode-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "banana",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    };
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertEqual(400, result.StatusCode);
+                    AssertContains("invalid codeContextMode", JsonSerializer.Serialize(result.Value));
+                }
+            });
+
+            await RunTest("Validation_ForceCodeContext_WithoutIndexService_Returns400", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("force-ctx-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "force",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    };
+                    // No code index service supplied -> force cannot be satisfied.
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertEqual(400, result.StatusCode);
+                    AssertContains("code index service is unavailable", JsonSerializer.Serialize(result.Value));
+                }
+            });
+
+            await RunTest("Validation_PipelineNameNotFound_Returns400", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("pipeline-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Pipeline = "no-such-pipeline",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    };
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertEqual(400, result.StatusCode);
+                    AssertContains("pipeline_not_found", JsonSerializer.Serialize(result.Value));
+                }
+            });
+
+            await RunTest("Validation_ObjectiveIdWithoutObjectiveService_Returns400", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("objective-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        ObjectiveId = "obj_orphan",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    };
+                    // Service constructed without an ObjectiveService -> link cannot be honored.
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertEqual(400, result.StatusCode);
+                    AssertContains("Objective service unavailable", JsonSerializer.Serialize(result.Value));
+                }
+            });
+
+            await RunTest("AliasDependency_ResolvesToConcreteMissionId_ThroughSharedPath", async () =>
+            {
+                // The alias-aware branch is shared by REST and MCP. A dependsOnMissionAlias must be
+                // rewritten to the concrete msn_* id of the dependency once it is created.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("alias-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "alias voyage",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("dependency", "runs first") { Alias = "dep" },
+                            new MissionDescription("dependent", "waits on dep") { DependsOnMissionAlias = "dep" }
+                        }
+                    };
+                    VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, null, null, null);
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "alias dispatch should succeed");
+                    AssertEqual(2, admiral.CreatedMissions.Count, "both missions should be created");
+
+                    Mission dependency = admiral.CreatedMissions.Single(m => m.Title == "dependency");
+                    Mission dependent = admiral.CreatedMissions.Single(m => m.Title == "dependent");
+                    AssertNull(dependency.DependsOnMissionId, "the dependency mission has no upstream dependency");
+                    AssertEqual(dependency.Id, dependent.DependsOnMissionId,
+                        "dependsOnMissionAlias must resolve to the concrete dependency mission id");
+                }
+            });
+        }
+
+        private static VoyageDispatchService NewService(TestDatabase testDb)
+        {
+            return new VoyageDispatchService(
+                testDb.Driver,
+                new RecordingAdmiralService(testDb.Driver),
+                null,
+                null,
+                null,
+                null);
+        }
+
+        private void AssertMissionParity(List<Mission> rest, List<Mission> mcp)
+        {
+            AssertEqual(rest.Count, mcp.Count, "mission count parity");
+            for (int i = 0; i < rest.Count; i++)
+            {
+                Mission r = rest[i];
+                Mission m = mcp[i];
+                AssertEqual(r.Title, m.Title, "title parity #" + i);
+                AssertEqual(r.Description, m.Description, "description parity #" + i);
+                AssertEqual(r.PreferredModel, m.PreferredModel, "preferredModel parity #" + i);
+                AssertEqual(r.DependsOnMissionId, m.DependsOnMissionId, "dependsOnMissionId parity #" + i);
+
+                int restPrestaged = r.PrestagedFiles?.Count ?? 0;
+                int mcpPrestaged = m.PrestagedFiles?.Count ?? 0;
+                AssertEqual(restPrestaged, mcpPrestaged, "prestaged count parity #" + i);
+                for (int j = 0; j < restPrestaged; j++)
+                {
+                    AssertEqual(r.PrestagedFiles![j].DestPath, m.PrestagedFiles![j].DestPath, "prestaged destPath parity #" + i + "." + j);
+                    AssertEqual(r.PrestagedFiles![j].SourcePath, m.PrestagedFiles![j].SourcePath, "prestaged sourcePath parity #" + i + "." + j);
+                }
+
+                int restPlaybooks = r.SelectedPlaybooks?.Count ?? 0;
+                int mcpPlaybooks = m.SelectedPlaybooks?.Count ?? 0;
+                AssertEqual(restPlaybooks, mcpPlaybooks, "playbook count parity #" + i);
+                for (int j = 0; j < restPlaybooks; j++)
+                {
+                    AssertEqual(r.SelectedPlaybooks![j].PlaybookId, m.SelectedPlaybooks![j].PlaybookId, "playbook id parity #" + i + "." + j);
+                    AssertEqual(r.SelectedPlaybooks![j].DeliveryMode, m.SelectedPlaybooks![j].DeliveryMode, "playbook deliveryMode parity #" + i + "." + j);
+                }
+            }
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService
