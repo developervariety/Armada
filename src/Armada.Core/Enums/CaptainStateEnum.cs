@@ -49,6 +49,12 @@ namespace Armada.Core.Enums
         /// Captain auto-disabled after a detected runtime crash-loop; ineligible for assignment until restored.
         /// </summary>
         [EnumMember(Value = "Benched")]
-        Benched
+        Benched,
+
+        /// <summary>
+        /// Captain auto-quarantined after a provider usage or quota limit; ineligible until the retry window passes.
+        /// </summary>
+        [EnumMember(Value = "Quarantined")]
+        Quarantined
     }
 }

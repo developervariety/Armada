@@ -136,6 +136,16 @@ namespace Armada.Core.Models
         public DateTime? LastHeartbeatUtc { get; set; } = null;
 
         /// <summary>
+        /// UTC instant after which a quarantined captain may be restored to Idle.
+        /// </summary>
+        public DateTime? QuarantineUntilUtc { get; set; } = null;
+
+        /// <summary>
+        /// Operator-visible reason the captain was quarantined.
+        /// </summary>
+        public string? QuarantineReason { get; set; } = null;
+
+        /// <summary>
         /// JSON-serialized list of <see cref="Models.SelectedPlaybook"/> entries automatically
         /// merged into every mission this captain runs (Reflections v2-F2). Layered last in the
         /// three-way merge (vessel -&gt; persona -&gt; captain), so captain content wins on collision.

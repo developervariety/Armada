@@ -586,6 +586,11 @@ namespace Armada.Core.Database.Mysql
                     54,
                     "Add architect_max_missions_per_voyage column to vessels",
                     TableQueries.MigrationV54Statements
+                ),
+                new SchemaMigration(
+                    55,
+                    "Add captain quarantine columns",
+                    TableQueries.MigrationV55Statements
                 )
             };
         }
@@ -731,6 +736,8 @@ namespace Armada.Core.Database.Mysql
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
+            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
+            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return captain;

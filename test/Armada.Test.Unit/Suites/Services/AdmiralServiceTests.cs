@@ -537,7 +537,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("hit your limit", updatedMission.FailureReason ?? String.Empty, "Requeued mission should preserve the failure reason for operator visibility");
                     AssertNull(updatedMission.CaptainId, "Requeued mission should clear the captain binding");
                     AssertNull(updatedMission.ProcessId, "Requeued mission should clear the stale process id");
-                    AssertEqual(CaptainStateEnum.Stalled, updatedCaptain!.State, "Failing captain should be benched (Stalled) so the retry selects a different captain");
+                    AssertEqual(CaptainStateEnum.Quarantined, updatedCaptain!.State, "Failing captain should be quarantined so the retry selects a different captain");
                     AssertNull(updatedCaptain.CurrentMissionId, "Stalled captain should release its mission assignment");
                     AssertEqual(VoyageStatusEnum.InProgress, updatedVoyage!.Status, "Transient captain failure must NOT halt the voyage");
                     AssertTrue(GetRetryDispatchNeeded(service), "Requeue without a vessel id should flag the retry dispatch sweep");

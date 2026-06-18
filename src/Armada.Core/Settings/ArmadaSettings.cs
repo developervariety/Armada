@@ -899,6 +899,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Provider usage/quota limit quarantine and auto-restore policy.
+        /// </summary>
+        public CaptainQuarantineSettings CaptainQuarantine
+        {
+            get => _CaptainQuarantine;
+            set => _CaptainQuarantine = value ?? new CaptainQuarantineSettings();
+        }
+
+        /// <summary>
         /// Armada-native incident mitigation and closure policy.
         /// </summary>
         public IncidentLifecycleSettings IncidentLifecycle
@@ -1025,6 +1034,7 @@ namespace Armada.Core.Settings
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
+        private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
         private bool _DatabasePathConfigured = false;

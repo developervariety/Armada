@@ -1278,6 +1278,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(54, "Add architect_max_missions_per_voyage column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN architect_max_missions_per_voyage INTEGER;"
+                ),
+                new SchemaMigration(55, "Add captain quarantine columns",
+                    @"ALTER TABLE captains ADD COLUMN quarantine_until_utc TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN quarantine_reason TEXT;"
                 )
             };
         }
