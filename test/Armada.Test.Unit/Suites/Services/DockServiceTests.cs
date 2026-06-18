@@ -359,6 +359,186 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync grants OpenCode access to every declared sibling checkout", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibA.git",
+                            RelativePath = "../SibA",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        },
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibB.git",
+                            RelativePath = "../nested/SibB",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "develop"
+                        }
+                    };
+
+                    string missionId = "msn_opencode_multi";
+                    Vessel vessel = new Vessel("opencode-multi-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("opencode-multi-sibling-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/msn_multi", missionId).ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned with multiple sibling repos");
+
+                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
+                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
+                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
+
+                    string sibAPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../SibA"));
+                    string sibBPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../nested/SibB"));
+
+                    // Worktree + two sibling checkouts + playbooks = four roots -> eight entries.
+                    AssertEqual(8, grants.Count, "OpenCode config should grant worktree, both siblings, and playbooks roots");
+                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
+                    AssertOpenCodeGrant(grants, sibAPath, "First sibling checkout should be granted");
+                    AssertOpenCodeGrant(grants, sibBPath, "Second (nested) sibling checkout should be granted");
+                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
+                    AssertNoBlanketOpenCodeGrants(grants, "Multi-sibling grants must never widen to a blanket or whole-drive root");
+
+                    string excludePath = Path.Combine(dock.WorktreePath!, ".git", "info", "exclude");
+                    string exclude = await File.ReadAllTextAsync(excludePath).ConfigureAwait(false);
+                    AssertContains("opencode.json", exclude, "Git exclude should ignore the dock-local OpenCode config even with siblings");
+                }
+            });
+
+            await RunTest("ProvisionAsync omits OpenCode grant for a sibling with a blank relative path", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    // A sibling whose RelativePath is whitespace must be skipped by the grant
+                    // builder (same guard the sibling provisioner uses), so it never resolves
+                    // to the worktree itself and produces a spurious / duplicate grant.
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/blank.git",
+                            RelativePath = "   ",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    string missionId = "msn_opencode_blank";
+                    Vessel vessel = new Vessel("opencode-blank-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("opencode-blank-sibling-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/msn_blank", missionId).ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned even with a blank-relative-path sibling");
+
+                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
+                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
+                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
+
+                    // Only the worktree + playbooks roots survive: the blank sibling contributes nothing.
+                    AssertEqual(4, grants.Count, "Blank-relative-path sibling must not add a grant");
+                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should still be granted");
+                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should still be granted");
+                    AssertNoBlanketOpenCodeGrants(grants, "A blank sibling path must never collapse onto a blanket grant");
+                }
+            });
+
+            await RunTest("ProvisionAsync collapses duplicate sibling relative paths to a single OpenCode grant", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    // Two siblings spelling the same checkout differently ("../Shared" and
+                    // "../nested/../Shared") must resolve to one canonical root and grant once.
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/shared.git",
+                            RelativePath = "../Shared",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        },
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/shared.git",
+                            RelativePath = "../nested/../Shared",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    string missionId = "msn_opencode_dupe";
+                    Vessel vessel = new Vessel("opencode-dupe-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("opencode-dupe-sibling-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/msn_dupe", missionId).ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned with duplicate sibling paths");
+
+                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
+                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
+                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
+
+                    string sharedPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../Shared"));
+
+                    // Worktree + one (deduped) shared sibling + playbooks = three roots -> six entries.
+                    AssertEqual(6, grants.Count, "Duplicate sibling paths must collapse to a single OpenCode grant");
+                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
+                    AssertOpenCodeGrant(grants, sharedPath, "Shared sibling checkout should be granted exactly once");
+                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
+                }
+            });
+
             await RunTest("ReclaimAsync does not delete worktree path owned by newer active dock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -990,6 +1170,24 @@ namespace Armada.Test.Unit.Suites.Services
 
             AssertTrue(grants.TryGetValue(normalized + "/**", out string? globPermission), label + " (subtree glob)");
             AssertEqual("allow", globPermission, label + " (subtree glob)");
+        }
+
+        private void AssertNoBlanketOpenCodeGrants(Dictionary<string, string> grants, string label)
+        {
+            foreach (string key in grants.Keys)
+            {
+                // Compare against the de-globbed form so "<root>/**" subtree keys are
+                // judged on their underlying root, not the glob suffix.
+                string root = key.EndsWith("/**", StringComparison.Ordinal)
+                    ? key.Substring(0, key.Length - "/**".Length)
+                    : key;
+
+                AssertFalse(root.Length == 0, label + " (empty root key '" + key + "')");
+                AssertFalse(root == "*" || root == "**" || root == "/", label + " (filesystem-wide root key '" + key + "')");
+
+                bool isBareDriveRoot = root.Length == 2 && root[1] == ':' && Char.IsLetter(root[0]);
+                AssertFalse(isBareDriveRoot, label + " (whole-drive root key '" + key + "')");
+            }
         }
 
         private static string NormalizeOpenCodeRoot(string root)
