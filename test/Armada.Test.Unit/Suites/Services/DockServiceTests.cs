@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Diagnostics;
     using System.Linq;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -181,6 +182,180 @@ namespace Armada.Test.Unit.Suites.Services
 
                     await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
                     AssertFalse(File.Exists(metadataPath), "Dock reclaim should remove the start commit metadata");
+                }
+            });
+
+            await RunTest("ProvisionAsync seeds OpenCode permissions for worktree and mission playbooks roots", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string missionId = "msn_opencode";
+                    Vessel vessel = new Vessel("opencode-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("opencode-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/msn_one", missionId).ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned");
+
+                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
+                    AssertTrue(File.Exists(openCodePath), "Dock provisioning should seed OpenCode permissions");
+
+                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
+                    AssertNotNull(config.Permission, "OpenCode config should include a permission block");
+                    AssertNotNull(config.Permission!.ExternalDirectory, "OpenCode config should grant external directories");
+
+                    Dictionary<string, string> grants = config.Permission.ExternalDirectory!;
+
+                    // A single-repo vessel grants exactly the dock worktree and the mission playbooks
+                    // dir; the landed builder emits both the literal directory and a "/**" subtree glob
+                    // per root, so two roots produce four entries (no-widening invariant).
+                    AssertEqual(4, grants.Count, "OpenCode config should grant only the worktree and playbooks roots");
+                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
+                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
+                    AssertFalse(grants.ContainsKey("/**"), "OpenCode config must not grant the whole filesystem");
+                    AssertFalse(grants.ContainsKey("*"), "OpenCode config must not grant all paths");
+
+                    string excludePath = Path.Combine(dock.WorktreePath!, ".git", "info", "exclude");
+                    string exclude = await File.ReadAllTextAsync(excludePath).ConfigureAwait(false);
+                    AssertContains("opencode.json", exclude, "Git exclude should ignore the dock-local OpenCode config");
+                }
+            });
+
+            await RunTest("ProvisionAsync grants OpenCode access to declared sibling repository checkouts", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibling.git",
+                            RelativePath = "../SiblingRepo",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    string missionId = "msn_opencode_sibling";
+                    Vessel vessel = new Vessel("opencode-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("opencode-sibling-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/msn_sibling", missionId).ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned with a sibling repo");
+
+                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
+                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
+                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
+
+                    string siblingPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../SiblingRepo"));
+
+                    // Worktree + sibling checkout + playbooks = three roots -> six entries.
+                    AssertEqual(6, grants.Count, "OpenCode config should grant worktree, sibling, and playbooks roots");
+                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
+                    AssertOpenCodeGrant(grants, siblingPath, "Sibling repository checkout should be granted for cross-repo build probes");
+                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
+                }
+            });
+
+            await RunTest("ProvisionAsync with null missionId omits the OpenCode playbooks root", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("opencode-null-mission-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("opencode-null-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/no_mission", null).ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned without a mission id");
+
+                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
+                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
+                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
+
+                    // Only the worktree root remains: two entries (literal + glob), no playbooks root.
+                    AssertEqual(2, grants.Count, "OpenCode config should omit the mission playbooks root when mission id is null");
+                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should still be granted");
+                    AssertFalse(grants.Keys.Any(k => k.Contains("playbooks", StringComparison.OrdinalIgnoreCase)), "Null mission id must not fabricate a playbooks root");
+                }
+            });
+
+            await RunTest("ProvisionAsync does not overwrite a pre-existing OpenCode config", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    string sentinel = "{\"custom\":true}\n";
+                    PreseedOpenCodeGitService git = new PreseedOpenCodeGitService(sentinel);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("opencode-preexisting-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("opencode-preexisting-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/preexisting", "msn_preexisting").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned");
+
+                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
+                    string actual = await File.ReadAllTextAsync(openCodePath).ConfigureAwait(false);
+                    AssertEqual(sentinel, actual, "Existing OpenCode config should not be overwritten");
+
+                    string excludePath = Path.Combine(dock.WorktreePath!, ".git", "info", "exclude");
+                    string exclude = await File.ReadAllTextAsync(excludePath).ConfigureAwait(false);
+                    AssertContains("opencode.json", exclude, "Pre-existing OpenCode config should still be git-excluded");
                 }
             });
 
@@ -748,7 +923,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }
 
-            public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            public virtual async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
             {
                 int current = Interlocked.Increment(ref _CurrentCreateCalls);
                 if (current > MaxConcurrentCreateCalls)
@@ -792,6 +967,77 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
             public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => Task.CompletedTask;
+        }
+
+        private static async Task<OpenCodeTestConfig> ReadOpenCodeConfigAsync(string path)
+        {
+            string json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+            OpenCodeTestConfig? config = JsonSerializer.Deserialize<OpenCodeTestConfig>(json);
+            if (config == null)
+            {
+                throw new InvalidOperationException("Unable to deserialize OpenCode config at " + path);
+            }
+
+            return config;
+        }
+
+        private void AssertOpenCodeGrant(Dictionary<string, string> grants, string root, string label)
+        {
+            string normalized = NormalizeOpenCodeRoot(root);
+
+            AssertTrue(grants.TryGetValue(normalized, out string? dirPermission), label + " (literal directory)");
+            AssertEqual("allow", dirPermission, label + " (literal directory)");
+
+            AssertTrue(grants.TryGetValue(normalized + "/**", out string? globPermission), label + " (subtree glob)");
+            AssertEqual("allow", globPermission, label + " (subtree glob)");
+        }
+
+        private static string NormalizeOpenCodeRoot(string root)
+        {
+            string normalized = Path.GetFullPath(root).Replace('\\', '/');
+            while (normalized.Length > 1 && normalized.EndsWith("/", StringComparison.Ordinal))
+            {
+                normalized = normalized.Substring(0, normalized.Length - 1);
+            }
+
+            return normalized;
+        }
+
+        private sealed class OpenCodeTestConfig
+        {
+            [JsonPropertyName("permission")]
+            public OpenCodePermissionBlock? Permission { get; set; }
+        }
+
+        private sealed class OpenCodePermissionBlock
+        {
+            [JsonPropertyName("external_directory")]
+            public Dictionary<string, string>? ExternalDirectory { get; set; }
+        }
+
+        private class GitInfoGitService : LockingGitService
+        {
+            public override Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            {
+                Directory.CreateDirectory(Path.Combine(worktreePath, ".git", "info"));
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class PreseedOpenCodeGitService : GitInfoGitService
+        {
+            private readonly string _OpenCodeConfig;
+
+            public PreseedOpenCodeGitService(string openCodeConfig)
+            {
+                _OpenCodeConfig = openCodeConfig ?? throw new ArgumentNullException(nameof(openCodeConfig));
+            }
+
+            public override async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            {
+                await base.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, token).ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(worktreePath, "opencode.json"), _OpenCodeConfig, token).ConfigureAwait(false);
+            }
         }
 
         private class WorktreeCreation
