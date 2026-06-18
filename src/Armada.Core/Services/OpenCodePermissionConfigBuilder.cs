@@ -1,34 +1,44 @@
 namespace Armada.Core.Services
 {
-    using System;
     using System.Collections.Generic;
     using System.Text.Json;
     using System.Text.Json.Serialization;
 
     /// <summary>
-    /// Pure, filesystem-free builder that turns a set of granted directory roots
-    /// into the OpenCode <c>opencode.json</c> permission document. The emitted
-    /// document expresses reasonable-trust access (read plus build/execute) to
-    /// exactly the supplied roots and no broader scope.
+    /// Pure, filesystem-free builder that produces the OpenCode
+    /// <c>opencode.json</c> permission document granting the captain
+    /// external-directory access. The emitted document sets
+    /// <c>permission.external_directory</c> to the bare string <c>"allow"</c>.
     /// </summary>
     /// <remarks>
     /// OpenCode (1.17.x non-interactive <c>opencode run</c>) auto-loads an
     /// <c>opencode.json</c> from the project root. When an agent touches a path
     /// outside the project directory it logs
     /// <c>! permission requested: external_directory (&lt;path&gt;); auto-rejecting</c>
-    /// and refuses the access. The permission document grants that access ahead of
-    /// time: under the <c>permission.external_directory</c> map, a directory entry
-    /// set to <c>allow</c> tells OpenCode the agent may read and operate within that
-    /// subtree without prompting. The exact key name could not be confirmed against
-    /// a bundled OpenCode binary or docs in this worktree, so this encodes the
-    /// best-supported schema observed from the rejection message
-    /// (<c>external_directory</c>) and the standard <c>ask|allow|deny</c> value set.
-    /// Each granted root is emitted both as the literal directory and as a
-    /// <c>&lt;root&gt;/**</c> subtree glob so OpenCode matches both the directory
-    /// itself and any path beneath it. A blanket whole-filesystem grant (a bare
-    /// <c>*</c>, <c>**</c>, the filesystem root, or a drive root such as
-    /// <c>C:</c>) is deliberately never emitted -- access is limited to the
-    /// supplied roots.
+    /// and, with no TTY, refuses the access.
+    ///
+    /// The earlier shape emitted a PATH-KEYED glob map
+    /// (<c>{"&lt;root&gt;":"allow","&lt;root&gt;/**":"allow"}</c>). That shape is
+    /// broken on Windows: opencode's glob/path matcher for
+    /// <c>external_directory</c> mismatches backslash vs forward-slash,
+    /// drive-letter, and absolute-vs-relative forms (sst/opencode issues #11042,
+    /// #7279, #20045), so the glob never matched the dock's Windows path,
+    /// <c>external_directory</c> stayed at its <c>"ask"</c> default, and the
+    /// captain was auto-rejected.
+    ///
+    /// The fix emits the BARE-STRING form. In opencode's permission schema a rule
+    /// value is <c>Union[Action, Record&lt;string, Action&gt;]</c>; a bare action
+    /// string is normalized internally to <c>{"*": action}</c>
+    /// (packages/core/src/v1/config/permission.ts <c>normalizeInput</c>). The bare
+    /// string has NO per-path glob to mis-match, so it is robust on Windows.
+    ///
+    /// Per-path scoping is NOT achievable on opencode 1.17.x Windows given the
+    /// upstream glob bug. This REPLACES the prior 'reasonable-trust path scoping'
+    /// intent (unachievable) with a deliberate, documented trade-off: confinement
+    /// rests on opencode's CWD-confinement (the dock worktree is the captain's
+    /// cwd) plus these being Armada-provisioned docks on our own trusted host.
+    /// <c>grantedRoots</c> is retained on the signature for the call site in
+    /// <c>DockService</c> but no longer drives a path map.
     /// </remarks>
     public sealed class OpenCodePermissionConfigBuilder
     {
@@ -36,7 +46,6 @@ namespace Armada.Core.Services
 
         private const string _SchemaUrl = "https://opencode.ai/config.json";
         private const string _AllowValue = "allow";
-        private const string _SubtreeGlobSuffix = "/**";
 
         #endregion
 
@@ -44,37 +53,17 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Builds the serialized <c>opencode.json</c> permission document granting
-        /// reasonable-trust (read plus build/execute) access to the supplied roots
-        /// and no broader scope. The method is pure: it performs no filesystem or
-        /// process access. Null, empty, and whitespace roots are skipped; roots are
-        /// normalized (separators unified, trailing separators trimmed) and
-        /// deduplicated; blanket whole-filesystem or drive-root entries are dropped.
-        /// Output ordering is deterministic and the result is valid JSON with LF
-        /// line endings.
+        /// external-directory access via the bare-string <c>"allow"</c> form
+        /// (normalized by opencode to <c>{"*":"allow"}</c>). The method is pure: it
+        /// performs no filesystem or process access. The output is valid JSON with
+        /// LF line endings and always carries the <c>$schema</c> reference.
         /// </summary>
-        /// <param name="grantedRoots">Directory roots to grant access to. A null
-        /// list (or one with no usable entries) yields a valid document with no
-        /// extra grants rather than throwing.</param>
+        /// <param name="grantedRoots">Retained for call-site compatibility; no
+        /// longer drives a path map (see remarks). May be null.</param>
         /// <returns>The serialized <c>opencode.json</c> content as a JSON string.</returns>
         public static string Build(IReadOnlyList<string> grantedRoots)
         {
             OpenCodeConfigDocument document = new OpenCodeConfigDocument();
-
-            if (grantedRoots is not null)
-            {
-                SortedSet<string> normalizedRoots = new SortedSet<string>(StringComparer.Ordinal);
-                foreach (string rawRoot in grantedRoots)
-                {
-                    string? normalized = NormalizeRoot(rawRoot);
-                    if (normalized is not null) normalizedRoots.Add(normalized);
-                }
-
-                foreach (string root in normalizedRoots)
-                {
-                    document.Permission.ExternalDirectory[root] = _AllowValue;
-                    document.Permission.ExternalDirectory[root + _SubtreeGlobSuffix] = _AllowValue;
-                }
-            }
 
             JsonSerializerOptions options = new JsonSerializerOptions
             {
@@ -90,48 +79,6 @@ namespace Armada.Core.Services
 
         #endregion
 
-        #region Private-Methods
-
-        /// <summary>
-        /// Normalizes a raw root into a canonical comparable form, or null when the
-        /// root is empty or would amount to a blanket whole-filesystem grant.
-        /// </summary>
-        private static string? NormalizeRoot(string rawRoot)
-        {
-            if (String.IsNullOrWhiteSpace(rawRoot)) return null;
-
-            string trimmed = rawRoot.Trim().Replace('\\', '/');
-
-            // Strip trailing separators so the subtree glob appends cleanly and so
-            // "C:/foo/" and "C:/foo" collapse to a single deduplicated root.
-            while (trimmed.Length > 1 && trimmed.EndsWith("/", StringComparison.Ordinal))
-            {
-                trimmed = trimmed.Substring(0, trimmed.Length - 1);
-            }
-
-            if (IsBlanketRoot(trimmed)) return null;
-
-            return trimmed;
-        }
-
-        /// <summary>
-        /// Returns true when the normalized root would grant access to the entire
-        /// filesystem or a whole drive, which must never be emitted.
-        /// </summary>
-        private static bool IsBlanketRoot(string root)
-        {
-            if (root.Length == 0) return true;
-            if (root == "*" || root == "**" || root == "/" || root == "/**") return true;
-
-            // Drive root only (e.g. "C:") -- after trailing-separator stripping a
-            // bare drive specifier grants the whole drive, which is too broad.
-            if (root.Length == 2 && root[1] == ':' && Char.IsLetter(root[0])) return true;
-
-            return false;
-        }
-
-        #endregion
-
         #region Private-Types
 
         /// <summary>
@@ -143,23 +90,24 @@ namespace Armada.Core.Services
             [JsonPropertyName("$schema")]
             public string Schema { get; set; } = _SchemaUrl;
 
-            /// <summary>Permission section carrying the external-directory grants.</summary>
+            /// <summary>Permission section carrying the external-directory grant.</summary>
             [JsonPropertyName("permission")]
             public OpenCodePermissionSection Permission { get; set; } = new OpenCodePermissionSection();
         }
 
         /// <summary>
-        /// Permission section of the OpenCode document. Holds the external-directory
-        /// allow map keyed by directory or subtree glob.
+        /// Permission section of the OpenCode document. Carries the bare-string
+        /// external-directory grant.
         /// </summary>
         private sealed class OpenCodePermissionSection
         {
             /// <summary>
-            /// Map of granted directory (or subtree glob) to permission value. A
-            /// value of <c>allow</c> grants reasonable-trust access to that path.
+            /// External-directory permission as a bare action string. <c>"allow"</c>
+            /// is normalized by opencode to <c>{"*":"allow"}</c>, dodging the broken
+            /// Windows path-glob matcher.
             /// </summary>
             [JsonPropertyName("external_directory")]
-            public Dictionary<string, string> ExternalDirectory { get; set; } = new Dictionary<string, string>();
+            public string ExternalDirectory { get; set; } = _AllowValue;
         }
 
         #endregion

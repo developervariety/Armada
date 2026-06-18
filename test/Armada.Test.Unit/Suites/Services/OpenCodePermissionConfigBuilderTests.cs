@@ -8,8 +8,10 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Tests for OpenCodePermissionConfigBuilder: scoped external-directory grants,
-    /// blanket-grant rejection, normalization/dedup/ordering, and valid JSON output.
+    /// Tests for OpenCodePermissionConfigBuilder: the bare-string
+    /// external_directory grant, schema presence, LF line endings, valid JSON,
+    /// and regression guards that the broken path-keyed map / subtree glob shape
+    /// is never re-emitted.
     /// </summary>
     public class OpenCodePermissionConfigBuilderTests : TestSuite
     {
@@ -19,74 +21,51 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Build_EachSuppliedRoot_AppearsInPermissionJson", () =>
+            await RunTest("Build_ExternalDirectory_IsBareStringAllow", () =>
             {
                 List<string> roots = new List<string> { "/work/repo-a", "/work/repo-b" };
                 string json = OpenCodePermissionConfigBuilder.Build(roots);
 
-                AssertContains("external_directory", json, "Output should carry the external_directory permission map");
-                AssertContains("/work/repo-a", json, "First root should appear in the emitted JSON");
-                AssertContains("/work/repo-b", json, "Second root should appear in the emitted JSON");
-                AssertContains("\"allow\"", json, "Granted roots should map to the allow value");
+                AssertContains("external_directory", json, "Output should carry the external_directory permission");
+                AssertContains("\"external_directory\": \"allow\"", json, "external_directory must be a bare STRING set to allow");
                 return Task.CompletedTask;
             });
 
-            await RunTest("Build_NoBlanketWholeFilesystemAllowToken", () =>
+            await RunTest("Build_ExternalDirectory_DeserializesAsString", () =>
             {
-                // Even when callers pass blanket tokens, the builder must never emit
-                // a whole-filesystem or whole-drive grant.
-                List<string> roots = new List<string> { "*", "**", "/", "C:\\", "/work/repo" };
+                // Structural guard: external_directory must deserialize as a JSON
+                // string, never as an object/map. A path-keyed map would fail to bind
+                // to a string property.
+                OpenCodeDocument document = Deserialize(OpenCodePermissionConfigBuilder.Build(new List<string> { "/work/repo" }));
+
+                AssertNotNull(document.Permission, "permission section should be present");
+                AssertEqual("allow", document.Permission!.ExternalDirectory, "external_directory must be the bare string 'allow'");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Build_DoesNotEmitPathKeyedMapOrSubtreeGlob", () =>
+            {
+                // Regression guard against the prior broken shape: the output must
+                // NOT contain a path-keyed external_directory object nor any '/**'
+                // subtree glob, both of which mis-matched on Windows.
+                List<string> roots = new List<string> { "/work/repo", "C:\\Users\\dev\\proj" };
                 string json = OpenCodePermissionConfigBuilder.Build(roots);
 
-                AssertFalse(json.Contains("\"*\""), "Output must not contain a bare * allow token");
-                AssertFalse(json.Contains("\"**\""), "Output must not contain a bare ** allow token");
-                AssertFalse(json.Contains("\"/\""), "Output must not contain a filesystem-root allow token");
-                AssertFalse(json.Contains("\"/**\""), "Output must not contain a filesystem-root subtree allow token");
-                AssertFalse(json.Contains("\"C:\""), "Output must not contain a whole-drive allow token");
-                AssertContains("/work/repo", json, "The genuine scoped root should still be granted");
+                AssertFalse(json.Contains("/**"), "Output must not contain a subtree glob ('/**')");
+                AssertFalse(json.Contains("\"external_directory\": {"), "external_directory must not be a path-keyed object/map");
+                AssertFalse(json.Contains("/work/repo"), "Supplied roots must not leak into the document as path keys");
                 return Task.CompletedTask;
             });
 
-            await RunTest("Build_NullEmptyDuplicateRoots_DroppedAndOrderingDeterministic", () =>
+            await RunTest("Build_NullOrEmptyRoots_StillEmitsBareStringGrant", () =>
             {
-                List<string> roots = new List<string>
-                {
-                    "/work/zeta",
-                    null!,
-                    "   ",
-                    "/work/alpha",
-                    "/work/zeta",
-                    "/work/alpha/"
-                };
-
-                string first = OpenCodePermissionConfigBuilder.Build(roots);
-                string second = OpenCodePermissionConfigBuilder.Build(roots);
-
-                AssertEqual(first, second, "Build output must be deterministic for identical input");
-
-                // alpha sorts before zeta (Ordinal); the trailing-slash duplicate of
-                // alpha must collapse onto the same normalized root.
-                int alphaIndex = first.IndexOf("/work/alpha", System.StringComparison.Ordinal);
-                int zetaIndex = first.IndexOf("/work/zeta", System.StringComparison.Ordinal);
-                AssertTrue(alphaIndex >= 0 && zetaIndex >= 0, "Both surviving roots should appear");
-                AssertTrue(alphaIndex < zetaIndex, "Roots should be emitted in deterministic sorted order");
-
-                // /work/alpha appears once as the literal root and once as the subtree
-                // glob -- the duplicate "/work/alpha/" input must not add more.
-                int literalCount = CountOccurrences(first, "\"/work/alpha\":");
-                AssertEqual(1, literalCount, "Duplicate roots should collapse to a single literal entry");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("Build_EmptyInput_YieldsValidNoExtraGrantConfig", () =>
-            {
+                // The grant no longer depends on the supplied roots: a null or empty
+                // list still yields the bare-string allow grant.
                 string fromEmpty = OpenCodePermissionConfigBuilder.Build(new List<string>());
                 string fromNull = OpenCodePermissionConfigBuilder.Build(null!);
 
-                AssertContains("external_directory", fromEmpty, "Empty input should still emit the permission scaffold");
-                AssertFalse(fromEmpty.Contains("\"allow\""), "Empty input should grant nothing");
-                AssertContains("external_directory", fromNull, "Null input should still emit the permission scaffold");
-                AssertFalse(fromNull.Contains("\"allow\""), "Null input should grant nothing");
+                AssertContains("\"external_directory\": \"allow\"", fromEmpty, "Empty input must still emit the bare-string grant");
+                AssertContains("\"external_directory\": \"allow\"", fromNull, "Null input must still emit the bare-string grant");
                 return Task.CompletedTask;
             });
 
@@ -110,86 +89,37 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Build_GenuineRoot_EmitsLiteralAndSubtreeGlobGrants", () =>
+            await RunTest("Build_Output_IsDeterministic", () =>
             {
-                // Reasonable-trust scope means each root must grant both the literal
-                // directory AND its subtree (<root>/**) -- read+build access to the
-                // directory and everything beneath it, but nothing broader.
-                List<string> roots = new List<string> { "/work/repo" };
-                OpenCodeDocument document = Deserialize(OpenCodePermissionConfigBuilder.Build(roots));
+                List<string> roots = new List<string> { "/work/zeta", "/work/alpha" };
+                string first = OpenCodePermissionConfigBuilder.Build(roots);
+                string second = OpenCodePermissionConfigBuilder.Build(roots);
 
-                AssertNotNull(document.Permission, "permission section should be present");
-                AssertNotNull(document.Permission!.ExternalDirectory, "external_directory map should be present");
-                AssertTrue(document.Permission.ExternalDirectory!.ContainsKey("/work/repo"), "literal root must be granted");
-                AssertTrue(document.Permission.ExternalDirectory.ContainsKey("/work/repo/**"), "subtree glob must be granted");
-                AssertEqual(2, document.Permission.ExternalDirectory.Count, "exactly the literal + subtree entries should be emitted for one root");
+                AssertEqual(first, second, "Build output must be deterministic for identical input");
                 return Task.CompletedTask;
             });
 
-            await RunTest("Build_AllGrantValues_AreAllow_NoDenyOrAsk", () =>
+            await RunTest("Build_EmitsExactBareStringDocument", () =>
             {
-                // Every emitted grant must be "allow"; the builder must never leak a
-                // "deny"/"ask" value or any other permission token.
-                List<string> roots = new List<string> { "/work/a", "/work/b", "/work/c" };
-                OpenCodeDocument document = Deserialize(OpenCodePermissionConfigBuilder.Build(roots));
+                // Golden-document guard: the mission requires the emitted opencode.json to be
+                // EXACTLY the two-key bare-string document (LF endings, 2-space indent, $schema
+                // then a permission section whose only member is the bare string
+                // external_directory = "allow"). A single literal pins shape + ordering + value +
+                // line endings so any drift back toward a path-keyed map, an added key, a changed
+                // indent, or CRLF fails loudly. roots are intentionally varied (incl. a Windows
+                // path) to prove they never influence the output.
+                List<string> roots = new List<string> { "/work/repo", "C:\\Users\\dev\\proj" };
+                string expected =
+                    "{\n" +
+                    "  \"$schema\": \"https://opencode.ai/config.json\",\n" +
+                    "  \"permission\": {\n" +
+                    "    \"external_directory\": \"allow\"\n" +
+                    "  }\n" +
+                    "}";
 
-                AssertEqual(6, document.Permission!.ExternalDirectory!.Count, "three roots should yield six entries (literal + glob each)");
-                foreach (KeyValuePair<string, string> entry in document.Permission.ExternalDirectory)
-                {
-                    AssertEqual("allow", entry.Value, "every grant value must be allow for key " + entry.Key);
-                }
-                return Task.CompletedTask;
-            });
-
-            await RunTest("Build_WindowsBackslashRoot_NormalizedToForwardSlashes", () =>
-            {
-                // A Windows-style path must be normalized to forward slashes so the
-                // emitted keys are byte-stable across operating systems.
-                List<string> roots = new List<string> { "C:\\Users\\dev\\proj" };
                 string json = OpenCodePermissionConfigBuilder.Build(roots);
-                OpenCodeDocument document = Deserialize(json);
 
-                AssertFalse(json.Contains("\\\\"), "emitted JSON must not contain backslash path separators");
-                AssertTrue(document.Permission!.ExternalDirectory!.ContainsKey("C:/Users/dev/proj"), "backslashes should be normalized to forward slashes");
-                AssertTrue(document.Permission.ExternalDirectory.ContainsKey("C:/Users/dev/proj/**"), "normalized subtree glob should be granted");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("Build_MixedSeparatorDuplicates_CollapseToSingleRoot", () =>
-            {
-                // The same directory expressed with back- and forward-slashes must
-                // dedupe to a single normalized root rather than two distinct grants.
-                List<string> roots = new List<string> { "C:\\foo", "C:/foo" };
-                OpenCodeDocument document = Deserialize(OpenCodePermissionConfigBuilder.Build(roots));
-
-                AssertEqual(2, document.Permission!.ExternalDirectory!.Count, "mixed-separator duplicates must collapse to one root (literal + glob)");
-                AssertTrue(document.Permission.ExternalDirectory.ContainsKey("C:/foo"), "collapsed literal root should be present");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("Build_SurroundingWhitespace_TrimmedFromRoot", () =>
-            {
-                // Leading/trailing whitespace must be trimmed; the inner path is kept.
-                List<string> roots = new List<string> { "  /work/repo  " };
-                OpenCodeDocument document = Deserialize(OpenCodePermissionConfigBuilder.Build(roots));
-
-                AssertTrue(document.Permission!.ExternalDirectory!.ContainsKey("/work/repo"), "surrounding whitespace should be trimmed");
-                AssertFalse(document.Permission.ExternalDirectory.ContainsKey("  /work/repo  "), "untrimmed key must not appear");
-                AssertEqual(2, document.Permission.ExternalDirectory.Count, "trimmed root should yield exactly two entries");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("Build_DriveRootVariants_Dropped_ButSubdirKept", () =>
-            {
-                // A bare drive root (with or without a trailing separator) grants the
-                // whole drive and must be dropped; a real subdirectory survives.
-                List<string> roots = new List<string> { "C:\\", "C:/", "C:", "C:/foo" };
-                OpenCodeDocument document = Deserialize(OpenCodePermissionConfigBuilder.Build(roots));
-
-                AssertFalse(document.Permission!.ExternalDirectory!.ContainsKey("C:"), "bare drive root must not be granted");
-                AssertFalse(document.Permission.ExternalDirectory.ContainsKey("C:/**"), "whole-drive subtree must not be granted");
-                AssertTrue(document.Permission.ExternalDirectory.ContainsKey("C:/foo"), "a genuine subdirectory should still be granted");
-                AssertEqual(2, document.Permission.ExternalDirectory.Count, "only the genuine subdirectory survives (literal + glob)");
+                AssertEqual(expected, json, "Emitted document must match the exact bare-string opencode.json byte-for-byte");
                 return Task.CompletedTask;
             });
 
@@ -201,19 +131,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("https://opencode.ai/config.json", document.Schema, "$schema must point at the OpenCode config schema");
                 return Task.CompletedTask;
             });
-
-            await RunTest("Build_OnlyBlanketRoots_YieldEmptyGrantMap", () =>
-            {
-                // When every supplied root is a blanket token, the structural result
-                // must be an empty grant map -- not merely free of the literal tokens.
-                List<string> roots = new List<string> { "*", "**", "/", "/**", "C:\\", "  ", null! };
-                OpenCodeDocument document = Deserialize(OpenCodePermissionConfigBuilder.Build(roots));
-
-                AssertNotNull(document.Permission, "permission scaffold should still be emitted");
-                AssertNotNull(document.Permission!.ExternalDirectory, "external_directory map should still be emitted");
-                AssertEqual(0, document.Permission.ExternalDirectory!.Count, "no grants should survive when all roots are blanket");
-                return Task.CompletedTask;
-            });
         }
 
         private static OpenCodeDocument Deserialize(string json)
@@ -221,20 +138,6 @@ namespace Armada.Test.Unit.Suites.Services
             OpenCodeDocument? document = JsonSerializer.Deserialize<OpenCodeDocument>(json);
             if (document == null) throw new System.Exception("Emitted opencode.json deserialized to null");
             return document;
-        }
-
-        private static int CountOccurrences(string haystack, string needle)
-        {
-            int count = 0;
-            int index = 0;
-            while (true)
-            {
-                int found = haystack.IndexOf(needle, index, System.StringComparison.Ordinal);
-                if (found < 0) break;
-                count++;
-                index = found + needle.Length;
-            }
-            return count;
         }
 
         /// <summary>
@@ -248,7 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
             [JsonPropertyName("$schema")]
             public string? Schema { get; set; }
 
-            /// <summary>Permission section carrying the external-directory grants.</summary>
+            /// <summary>Permission section carrying the external-directory grant.</summary>
             [JsonPropertyName("permission")]
             public OpenCodePermission? Permission { get; set; }
         }
@@ -258,9 +161,9 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         private sealed class OpenCodePermission
         {
-            /// <summary>Map of granted directory (or subtree glob) to permission value.</summary>
+            /// <summary>Bare-string external-directory grant ('allow').</summary>
             [JsonPropertyName("external_directory")]
-            public Dictionary<string, string>? ExternalDirectory { get; set; }
+            public string? ExternalDirectory { get; set; }
         }
     }
 }

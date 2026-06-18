@@ -215,19 +215,12 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(File.Exists(openCodePath), "Dock provisioning should seed OpenCode permissions");
 
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-                    AssertNotNull(config.Permission, "OpenCode config should include a permission block");
-                    AssertNotNull(config.Permission!.ExternalDirectory, "OpenCode config should grant external directories");
 
-                    Dictionary<string, string> grants = config.Permission.ExternalDirectory!;
-
-                    // A single-repo vessel grants exactly the dock worktree and the mission playbooks
-                    // dir; the landed builder emits both the literal directory and a "/**" subtree glob
-                    // per root, so two roots produce four entries (no-widening invariant).
-                    AssertEqual(4, grants.Count, "OpenCode config should grant only the worktree and playbooks roots");
-                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
-                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
-                    AssertFalse(grants.ContainsKey("/**"), "OpenCode config must not grant the whole filesystem");
-                    AssertFalse(grants.ContainsKey("*"), "OpenCode config must not grant all paths");
+                    // The seeded document grants external_directory via the bare-string "allow"
+                    // form. The worktree/playbooks roots no longer drive a per-path grant map
+                    // (that shape was broken on Windows), so the document is the same regardless
+                    // of which roots provisioning computes.
+                    AssertOpenCodeBareStringGrant(config, "Single-repo vessel OpenCode config");
 
                     string excludePath = Path.Combine(dock.WorktreePath!, ".git", "info", "exclude");
                     string exclude = await File.ReadAllTextAsync(excludePath).ConfigureAwait(false);
@@ -275,15 +268,13 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
 
-                    string siblingPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../SiblingRepo"));
-
-                    // Worktree + sibling checkout + playbooks = three roots -> six entries.
-                    AssertEqual(6, grants.Count, "OpenCode config should grant worktree, sibling, and playbooks roots");
-                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
-                    AssertOpenCodeGrant(grants, siblingPath, "Sibling repository checkout should be granted for cross-repo build probes");
-                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
+                    // Provisioning a vessel with a declared sibling still seeds the bare-string
+                    // grant. The sibling checkout no longer adds a per-path grant entry (the
+                    // path-keyed map shape was broken on Windows); cross-repo access now rests
+                    // on the bare-string allow plus the runtime --dangerously-skip-permissions
+                    // override rather than enumerated roots.
+                    AssertOpenCodeBareStringGrant(config, "Sibling-vessel OpenCode config");
                 }
             });
 
@@ -314,12 +305,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
 
-                    // Only the worktree root remains: two entries (literal + glob), no playbooks root.
-                    AssertEqual(2, grants.Count, "OpenCode config should omit the mission playbooks root when mission id is null");
-                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should still be granted");
-                    AssertFalse(grants.Keys.Any(k => k.Contains("playbooks", StringComparison.OrdinalIgnoreCase)), "Null mission id must not fabricate a playbooks root");
+                    // Provisioning with a null mission id still succeeds and seeds the bare-string
+                    // grant. The playbooks root no longer appears as a per-path grant entry (the
+                    // document carries only the bare string "allow"), so a missing mission id can
+                    // no longer fabricate or omit a path key.
+                    AssertOpenCodeBareStringGrant(config, "Null-mission OpenCode config");
                 }
             });
 
@@ -406,18 +397,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
 
-                    string sibAPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../SibA"));
-                    string sibBPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../nested/SibB"));
-
-                    // Worktree + two sibling checkouts + playbooks = four roots -> eight entries.
-                    AssertEqual(8, grants.Count, "OpenCode config should grant worktree, both siblings, and playbooks roots");
-                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
-                    AssertOpenCodeGrant(grants, sibAPath, "First sibling checkout should be granted");
-                    AssertOpenCodeGrant(grants, sibBPath, "Second (nested) sibling checkout should be granted");
-                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
-                    AssertNoBlanketOpenCodeGrants(grants, "Multi-sibling grants must never widen to a blanket or whole-drive root");
+                    // Multiple declared siblings still seed a single bare-string grant. The
+                    // siblings no longer multiply into per-path grant entries, so there is no
+                    // per-root count to assert and no risk of a path key widening to a blanket
+                    // or whole-drive grant -- the document is exactly the bare string "allow".
+                    AssertOpenCodeBareStringGrant(config, "Multi-sibling OpenCode config");
 
                     string excludePath = Path.Combine(dock.WorktreePath!, ".git", "info", "exclude");
                     string exclude = await File.ReadAllTextAsync(excludePath).ConfigureAwait(false);
@@ -468,13 +453,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
 
-                    // Only the worktree + playbooks roots survive: the blank sibling contributes nothing.
-                    AssertEqual(4, grants.Count, "Blank-relative-path sibling must not add a grant");
-                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should still be granted");
-                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should still be granted");
-                    AssertNoBlanketOpenCodeGrants(grants, "A blank sibling path must never collapse onto a blanket grant");
+                    // A blank-relative-path sibling cannot perturb the seeded document: the grant
+                    // is the bare string "allow" regardless of roots, so there is no path key for
+                    // a blank sibling to collapse onto a blanket grant.
+                    AssertOpenCodeBareStringGrant(config, "Blank-sibling OpenCode config");
                 }
             });
 
@@ -527,15 +510,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-                    Dictionary<string, string> grants = config.Permission!.ExternalDirectory!;
 
-                    string sharedPath = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../Shared"));
-
-                    // Worktree + one (deduped) shared sibling + playbooks = three roots -> six entries.
-                    AssertEqual(6, grants.Count, "Duplicate sibling paths must collapse to a single OpenCode grant");
-                    AssertOpenCodeGrant(grants, dock.WorktreePath!, "Worktree root should be granted");
-                    AssertOpenCodeGrant(grants, sharedPath, "Shared sibling checkout should be granted exactly once");
-                    AssertOpenCodeGrant(grants, Path.Combine(settings.LogDirectory, "playbooks", missionId), "Mission playbooks root should be granted");
+                    // Duplicate sibling relative paths cannot produce duplicate grants: the
+                    // document carries a single bare-string "allow" grant irrespective of how
+                    // many (or how few) roots provisioning resolves.
+                    AssertOpenCodeBareStringGrant(config, "Duplicate-sibling OpenCode config");
                 }
             });
 
@@ -1161,44 +1140,15 @@ namespace Armada.Test.Unit.Suites.Services
             return config;
         }
 
-        private void AssertOpenCodeGrant(Dictionary<string, string> grants, string root, string label)
+        private void AssertOpenCodeBareStringGrant(OpenCodeTestConfig config, string label)
         {
-            string normalized = NormalizeOpenCodeRoot(root);
-
-            AssertTrue(grants.TryGetValue(normalized, out string? dirPermission), label + " (literal directory)");
-            AssertEqual("allow", dirPermission, label + " (literal directory)");
-
-            AssertTrue(grants.TryGetValue(normalized + "/**", out string? globPermission), label + " (subtree glob)");
-            AssertEqual("allow", globPermission, label + " (subtree glob)");
-        }
-
-        private void AssertNoBlanketOpenCodeGrants(Dictionary<string, string> grants, string label)
-        {
-            foreach (string key in grants.Keys)
-            {
-                // Compare against the de-globbed form so "<root>/**" subtree keys are
-                // judged on their underlying root, not the glob suffix.
-                string root = key.EndsWith("/**", StringComparison.Ordinal)
-                    ? key.Substring(0, key.Length - "/**".Length)
-                    : key;
-
-                AssertFalse(root.Length == 0, label + " (empty root key '" + key + "')");
-                AssertFalse(root == "*" || root == "**" || root == "/", label + " (filesystem-wide root key '" + key + "')");
-
-                bool isBareDriveRoot = root.Length == 2 && root[1] == ':' && Char.IsLetter(root[0]);
-                AssertFalse(isBareDriveRoot, label + " (whole-drive root key '" + key + "')");
-            }
-        }
-
-        private static string NormalizeOpenCodeRoot(string root)
-        {
-            string normalized = Path.GetFullPath(root).Replace('\\', '/');
-            while (normalized.Length > 1 && normalized.EndsWith("/", StringComparison.Ordinal))
-            {
-                normalized = normalized.Substring(0, normalized.Length - 1);
-            }
-
-            return normalized;
+            // The builder now emits external_directory as the bare string "allow"
+            // (opencode normalizes it to {"*":"allow"}), which dodges the broken
+            // Windows path-glob matcher. The supplied roots no longer drive a path
+            // map, so the seeded document is identical regardless of worktree,
+            // sibling, or playbooks roots.
+            AssertNotNull(config.Permission, label + " (permission block present)");
+            AssertEqual("allow", config.Permission!.ExternalDirectory, label + " (external_directory bare string 'allow')");
         }
 
         private sealed class OpenCodeTestConfig
@@ -1209,8 +1159,12 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class OpenCodePermissionBlock
         {
+            // external_directory is emitted as a BARE STRING ("allow"), normalized by
+            // opencode to {"*":"allow"}. The prior path-keyed map shape was broken on
+            // Windows (sst/opencode #11042/#7279/#20045), so the builder no longer emits
+            // per-root grants; the supplied roots no longer influence this document.
             [JsonPropertyName("external_directory")]
-            public Dictionary<string, string>? ExternalDirectory { get; set; }
+            public string? ExternalDirectory { get; set; }
         }
 
         private class GitInfoGitService : LockingGitService
