@@ -219,6 +219,36 @@ namespace Armada.Test.Unit.Suites.Services
                         "A non-terminal mission must never trigger any branch deletion.");
                 }
             });
+
+            // Regression: drive a REAL terminal transition (not a direct ReapTerminalMissionBranchAsync
+            // call) and prove the branch is reaped. A FailPipeline review denial transitions the mission
+            // to Failed via DenyReviewAsync, which must route through the reap path. Removing the reap hook
+            // from DenyReviewAsync makes this fail -- it has teeth against the lifecycle integration, which
+            // the direct-call tests above cannot prove.
+            await RunTest("DenyReviewFailPipeline_RealTransition_ReapsBranch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings, git);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings, BranchCleanupPolicyEnum.LocalAndRemote).ConfigureAwait(false);
+
+                    Mission review = await CreateMissionAsync(testDb.Driver, vessel, MissionStatusEnum.Review, "armada/worker/reap-deny").ConfigureAwait(false);
+                    review.RequiresReview = true;
+                    review.ReviewDenyAction = ReviewDenyActionEnum.FailPipeline;
+                    await testDb.Driver.Missions.UpdateAsync(review).ConfigureAwait(false);
+
+                    Mission denied = await missions.DenyReviewAsync(review.Id, null, "Rework required.").ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Failed, denied.Status,
+                        "A FailPipeline review denial must transition the mission to terminal Failed.");
+                    AssertTrue(git.OperationCalls.Contains("delete-local-branch:armada/worker/reap-deny"),
+                        "A FailPipeline review denial is a real terminal transition and must reap the local captain branch.");
+                    AssertTrue(git.OperationCalls.Contains("delete-remote-branch:armada/worker/reap-deny"),
+                        "Under LocalAndRemote the remote captain branch must be reaped on a FailPipeline denial.");
+                }
+            });
         }
     }
 }

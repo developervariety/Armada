@@ -2105,6 +2105,11 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + missionId + " marked failed after process exit");
 
+                // A non-zero process exit is a terminal transition that never flows through
+                // MissionService.HandleCompletionCoreAsync, so route through the single reap
+                // implementation to clean up the captain branch (honoring policy + rescue guard).
+                await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
+
                 await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (" + failureReason + ")",
                     entityType: "mission", entityId: mission.Id,
                     captainId: captain.Id, missionId: mission.Id,

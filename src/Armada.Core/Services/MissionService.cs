@@ -739,6 +739,10 @@ namespace Armada.Core.Services
 
                 await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+
+                // A FailPipeline review denial is a real terminal transition that never flows through
+                // the HandleCompletionCoreAsync reap block, so reap its captain branch here too.
+                await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
                 return mission;
             }
 
@@ -798,6 +802,12 @@ namespace Armada.Core.Services
                 mission.Status == MissionStatusEnum.PullRequestOpen)
             {
                 _Logging.Debug(_Header + "mission " + missionId + " already in post-work state " + mission.Status + " -- skipping completion handler");
+
+                // A caller may have persisted terminal Failed/Cancelled state BEFORE invoking the
+                // completion handler (e.g. a process-exit failure path), so the earlier reap block
+                // below never runs for it. Reap here as well -- the helper no-ops for any non-terminal
+                // or non-Failed/Cancelled status (WorkProduced, Complete, LandingFailed, PullRequestOpen).
+                await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
                 return;
             }
 
@@ -1046,6 +1056,17 @@ namespace Armada.Core.Services
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error in mission complete handler for " + mission.Id + ": " + ex.Message);
+                }
+
+                // The landing handoff itself can drive a mission terminal AFTER the earlier reap block
+                // already ran on the WorkProduced status -- a protected-path violation or an auto-rescue
+                // that produced no commits both mark the mission Failed inside MissionLandingHandler.
+                // Re-read and reap so those branches don't leak. The helper no-ops for any non-Failed/
+                // Cancelled status (Complete on a clean land, LandingFailed on a retryable land failure).
+                Mission? afterLanding = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (afterLanding != null)
+                {
+                    await ReapTerminalMissionBranchAsync(afterLanding, token).ConfigureAwait(false);
                 }
             }
 

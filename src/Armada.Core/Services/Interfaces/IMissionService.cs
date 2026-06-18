@@ -60,6 +60,17 @@ namespace Armada.Core.Services.Interfaces
         Task HandleCompletionAsync(Captain captain, string missionId, CancellationToken token = default);
 
         /// <summary>
+        /// Reap (delete) the captain branch for a mission that has reached a terminal Failed or
+        /// Cancelled state and has no active rescue or retry depending on that branch. Honors the
+        /// resolved BranchCleanupPolicy and swallows git failures. No-ops for any non-terminal or
+        /// non-Failed/Cancelled status. Exposed so terminal-status writers outside MissionService
+        /// (e.g. AdmiralService process-exit failures) can route through the single reap implementation.
+        /// </summary>
+        /// <param name="mission">The mission whose captain branch should be reaped.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task ReapTerminalMissionBranchAsync(Mission mission, CancellationToken token = default);
+
+        /// <summary>
         /// Approve a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>
