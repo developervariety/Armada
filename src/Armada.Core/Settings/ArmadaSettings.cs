@@ -182,9 +182,9 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// Global branch cleanup policy after successful landing.
-        /// Can be overridden per-vessel. Default: LocalOnly.
+        /// Can be overridden per-vessel. Default: LocalAndRemote.
         /// </summary>
-        public BranchCleanupPolicyEnum BranchCleanupPolicy { get; set; } = BranchCleanupPolicyEnum.LocalOnly;
+        public BranchCleanupPolicyEnum BranchCleanupPolicy { get; set; } = BranchCleanupPolicyEnum.LocalAndRemote;
 
         /// <summary>
         /// Whether to automatically push changes to the remote on mission completion.

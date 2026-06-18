@@ -996,6 +996,14 @@ namespace Armada.Core.Services
             {
                 await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+
+                // A mission that ends terminal Failed/Cancelled never runs the successful-land
+                // cleanup (MergeQueueService.CleanupLandedBranchesAsync), so its captain branch
+                // would otherwise pile up forever. Reap it here, honoring BranchCleanupPolicy and
+                // the don't-reap-while-rescuing guard. The method guards its own status precondition,
+                // so the LandingFailed branch (still needed by the landing-retry / rebase path) is
+                // left untouched.
+                await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
             }
 
             await EmitMissionOutcomeTelemetryAsync(mission, captain, token).ConfigureAwait(false);
@@ -1842,6 +1850,131 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "failed to delete remote architect branch " + branchName + ": " + remoteBranchEx.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// Reap (delete) the captain branch for a mission that has reached a terminal Failed or
+        /// Cancelled state and has no active rescue or retry depending on that branch. A successful
+        /// land runs <c>MergeQueueService.CleanupLandedBranchesAsync</c>, but terminally failed or
+        /// cancelled missions never reach that path, so their branches accumulate. This mirrors that
+        /// cleanup: it honors the resolved BranchCleanupPolicy (None = retain; LocalOnly = bare repo
+        /// only; LocalAndRemote = bare repo + remote) and swallows git failures, because a stale
+        /// branch is better than a stuck mission. Missions in any non-terminal status are ignored.
+        /// </summary>
+        /// <param name="mission">The mission whose captain branch should be reaped.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task ReapTerminalMissionBranchAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+
+            if (_Git == null)
+            {
+                _Logging.Debug(_Header + "git service unavailable -- skipping terminal branch reap for mission " + mission.Id);
+                return;
+            }
+
+            if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
+            {
+                return;
+            }
+
+            string? branchName = mission.BranchName;
+            if (String.IsNullOrEmpty(branchName) || String.IsNullOrEmpty(mission.VesselId))
+            {
+                return;
+            }
+
+            // CRITICAL GUARD: never reap while an autonomous rescue / retry for this mission is still
+            // active. A rescue reuses or branches from the same captain branch, so deleting it would
+            // strand the recovery. Only reap a genuinely terminal mission with no pending recovery.
+            if (await HasActiveRecoveryForBranchAsync(mission, branchName, token).ConfigureAwait(false))
+            {
+                _Logging.Info(_Header + "skipping terminal branch reap for mission " + mission.Id +
+                    " because an active rescue/retry still depends on branch " + branchName);
+                return;
+            }
+
+            Vessel? vessel = !String.IsNullOrEmpty(mission.TenantId)
+                ? await _Database.Vessels.ReadAsync(mission.TenantId, mission.VesselId, token).ConfigureAwait(false)
+                : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+
+            if (vessel == null || String.IsNullOrEmpty(vessel.LocalPath))
+            {
+                _Logging.Warn(_Header + "unable to reap terminal branch " + branchName +
+                    " for mission " + mission.Id + " because vessel metadata is incomplete");
+                return;
+            }
+
+            BranchCleanupPolicyEnum cleanupPolicy = vessel.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
+            if (cleanupPolicy == BranchCleanupPolicyEnum.None)
+            {
+                _Logging.Info(_Header + "branch cleanup policy is None - retaining terminal mission branch " + branchName);
+                return;
+            }
+
+            try
+            {
+                await _Git.DeleteLocalBranchAsync(vessel.LocalPath, branchName, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "reaped captain branch " + branchName + " from bare repo after terminal " + mission.Status + " for mission " + mission.Id);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not reap captain branch " + branchName + " from bare repo: " + ex.Message);
+            }
+
+            if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote && !String.IsNullOrEmpty(vessel.WorkingDirectory))
+            {
+                try
+                {
+                    await _Git.DeleteRemoteBranchAsync(vessel.WorkingDirectory, branchName, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "reaped remote captain branch " + branchName + " after terminal " + mission.Status + " for mission " + mission.Id);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not reap remote captain branch " + branchName + ": " + ex.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Determine whether any active (non-terminal) mission still depends on the given captain
+        /// branch -- either an autonomous rescue child (ParentMissionId links back to this mission)
+        /// or a sibling stage stamped with the same branch. Used to guard terminal branch reaping so
+        /// an in-flight recovery is never stranded. Scoped to the vessel so cross-voyage rescues are
+        /// caught.
+        /// </summary>
+        private async Task<bool> HasActiveRecoveryForBranchAsync(Mission mission, string branchName, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VesselId)) return false;
+
+            List<Mission> vesselMissions = !String.IsNullOrEmpty(mission.TenantId)
+                ? await _Database.Missions.EnumerateByVesselAsync(mission.TenantId, mission.VesselId, token).ConfigureAwait(false)
+                : await _Database.Missions.EnumerateByVesselAsync(mission.VesselId, token).ConfigureAwait(false);
+
+            foreach (Mission other in vesselMissions)
+            {
+                if (String.Equals(other.Id, mission.Id, StringComparison.Ordinal)) continue;
+
+                // A mission still capable of using the branch is anything not yet terminal.
+                if (other.Status == MissionStatusEnum.Complete ||
+                    other.Status == MissionStatusEnum.Failed ||
+                    other.Status == MissionStatusEnum.Cancelled)
+                {
+                    continue;
+                }
+
+                bool isRescueChild = !String.IsNullOrEmpty(other.ParentMissionId) &&
+                    String.Equals(other.ParentMissionId, mission.Id, StringComparison.Ordinal);
+                bool sharesBranch = !String.IsNullOrEmpty(other.BranchName) &&
+                    String.Equals(other.BranchName, branchName, StringComparison.Ordinal);
+
+                if (isRescueChild || sharesBranch)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
