@@ -633,6 +633,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     54,
                     "Add architect_max_missions_per_voyage column to vessels",
                     @"IF COL_LENGTH('vessels', 'architect_max_missions_per_voyage') IS NULL ALTER TABLE vessels ADD architect_max_missions_per_voyage INT;"
+                ),
+                new SchemaMigration(
+                    55,
+                    "Add captain quarantine columns",
+                    @"IF COL_LENGTH('captains', 'quarantine_until_utc') IS NULL ALTER TABLE captains ADD quarantine_until_utc NVARCHAR(450);",
+                    @"IF COL_LENGTH('captains', 'quarantine_reason') IS NULL ALTER TABLE captains ADD quarantine_reason NVARCHAR(MAX);"
                 )
             };
         }

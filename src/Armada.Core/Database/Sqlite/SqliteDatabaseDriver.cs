@@ -547,6 +547,8 @@ namespace Armada.Core.Database.Sqlite
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
+            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
+            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }

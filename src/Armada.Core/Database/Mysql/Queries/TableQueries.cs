@@ -914,6 +914,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v55 statements for captain quarantine columns.
+        /// </summary>
+        public static readonly string[] MigrationV55Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN quarantine_until_utc VARCHAR(450);",
+            @"ALTER TABLE captains ADD COLUMN quarantine_reason LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

@@ -216,8 +216,33 @@ namespace Armada.Server
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (captain.Runtime == AgentRuntimeEnum.Mux)
-                return ValidateMuxCaptainAsync(captain, token);
-            return ValidateModelAsync(captain.Runtime, captain.Model, token);
+            {
+                return ValidateMuxCaptainBypassingQuotaAsync(captain, token);
+            }
+
+            return ValidateModelBypassingQuotaAsync(captain.Runtime, captain.Model, token);
+        }
+
+        private async Task<string?> ValidateMuxCaptainBypassingQuotaAsync(Captain captain, CancellationToken token)
+        {
+            string? error = await ValidateMuxCaptainAsync(captain, token).ConfigureAwait(false);
+            if (error != null && ProviderQuotaLimitDetector.IsQuotaLimitSignal(error))
+            {
+                return null;
+            }
+
+            return error;
+        }
+
+        private async Task<string?> ValidateModelBypassingQuotaAsync(AgentRuntimeEnum runtimeType, string? model, CancellationToken token)
+        {
+            string? error = await ValidateModelAsync(runtimeType, model, token).ConfigureAwait(false);
+            if (error != null && ProviderQuotaLimitDetector.IsQuotaLimitSignal(error))
+            {
+                return null;
+            }
+
+            return error;
         }
 
         /// <summary>

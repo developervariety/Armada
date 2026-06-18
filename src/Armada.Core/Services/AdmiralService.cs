@@ -88,6 +88,7 @@ namespace Armada.Core.Services
         private IPlaybookService _Playbooks;
         private IEscalationService? _Escalation;
         private IBuildDriftService? _BuildDrift;
+        private ICaptainQuarantineService _CaptainQuarantine;
         private bool _RetryDispatchNeeded = false;
         private DateTime? _LastAuditNotifyUtc = null;
         private readonly object _AuditNotifyLock = new object();
@@ -108,6 +109,7 @@ namespace Armada.Core.Services
         /// <param name="docks">Dock service.</param>
         /// <param name="escalation">Optional escalation service.</param>
         /// <param name="buildDrift">Optional build drift service.</param>
+        /// <param name="captainQuarantine">Optional captain quarantine service.</param>
         public AdmiralService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -117,7 +119,8 @@ namespace Armada.Core.Services
             IVoyageService voyages,
             IDockService docks,
             IEscalationService? escalation = null,
-            IBuildDriftService? buildDrift = null)
+            IBuildDriftService? buildDrift = null,
+            ICaptainQuarantineService? captainQuarantine = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -129,6 +132,7 @@ namespace Armada.Core.Services
             _Playbooks = new PlaybookService(_Database, _Logging);
             _Escalation = escalation;
             _BuildDrift = buildDrift;
+            _CaptainQuarantine = captainQuarantine ?? new CaptainQuarantineService(_Database, _Settings, _Logging);
         }
 
         #endregion
@@ -1019,6 +1023,8 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task HealthCheckAsync(CancellationToken token = default)
         {
+            await _CaptainQuarantine.RestoreExpiredQuarantinesAsync(token).ConfigureAwait(false);
+
             List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
 
             if (workingCaptains.Count > 0)
@@ -2122,15 +2128,22 @@ namespace Armada.Core.Services
             }
 
             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
-            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
-            if (IsCaptainUnavailableFailureReason(failureReason))
+            if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason))
             {
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(failureReason, DateTime.UtcNow);
+                await _CaptainQuarantine.QuarantineAsync(captain, failureReason, retryAfterUtc, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after non-retryable quota failure on mission " + missionId);
+            }
+            else if (IsCaptainUnavailableFailureReason(failureReason))
+            {
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                 await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "captain " + captain.Id + " marked Stalled after non-retryable runtime failure on mission " + missionId);
             }
             else
             {
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "captain " + captain.Id + " released to Idle after mission failure " + missionId);
             }
 
@@ -2141,7 +2154,11 @@ namespace Armada.Core.Services
             }
 
             string signalMessage = "Mission " + missionId + " failed: " + failureReason;
-            if (IsCaptainUnavailableFailureReason(failureReason))
+            if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason))
+            {
+                signalMessage += " (captain quarantined)";
+            }
+            else if (IsCaptainUnavailableFailureReason(failureReason))
             {
                 signalMessage += " (captain stalled)";
             }
@@ -2187,14 +2204,24 @@ namespace Armada.Core.Services
                 captainId: captain.Id, missionId: mission.Id,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
-            // Reclaim the dock and bench the broken captain so the immediate retry selects a different one.
+            // Reclaim the dock before changing captain availability.
             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
-            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
-            await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
-            _Logging.Warn(_Header + "captain " + captain.Id + " marked Stalled after transient failure on requeued mission " + missionId);
+            if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason))
+            {
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(failureReason, DateTime.UtcNow);
+                await _CaptainQuarantine.QuarantineAsync(captain, failureReason, retryAfterUtc, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after quota failure on requeued mission " + missionId);
+            }
+            else
+            {
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "captain " + captain.Id + " marked Stalled after transient failure on requeued mission " + missionId);
+            }
 
             Signal signal = new Signal(SignalTypeEnum.Progress,
-                "Mission " + missionId + " requeued after transient captain failure: " + failureReason + " (captain stalled)");
+                "Mission " + missionId + " requeued after transient captain failure: " + failureReason +
+                (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ? " (captain quarantined)" : " (captain stalled)"));
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
@@ -2226,11 +2253,12 @@ namespace Armada.Core.Services
                 return true;
             }
 
-            if (normalized.Contains("hit your limit", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("invalid api key", StringComparison.OrdinalIgnoreCase) ||
+            if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(normalized))
+            {
+                return true;
+            }
+
+            if (normalized.Contains("invalid api key", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("authentication failed", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("forbidden", StringComparison.OrdinalIgnoreCase) ||

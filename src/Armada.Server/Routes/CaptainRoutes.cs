@@ -261,6 +261,8 @@ namespace Armada.Server.Routes
                 updated.ProcessId = existing.ProcessId;
                 updated.RecoveryAttempts = existing.RecoveryAttempts;
                 updated.LastHeartbeatUtc = existing.LastHeartbeatUtc;
+                updated.QuarantineUntilUtc = existing.QuarantineUntilUtc;
+                updated.QuarantineReason = existing.QuarantineReason;
                 updated.CreatedUtc = existing.CreatedUtc;
                 updated.LastUpdateUtc = DateTime.UtcNow;
                 NormalizeCaptainRuntimeOptions(updated, existing);

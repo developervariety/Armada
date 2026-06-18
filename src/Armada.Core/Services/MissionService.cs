@@ -44,6 +44,7 @@ namespace Armada.Core.Services
         private IGitService? _Git;
         private IDockService _Docks;
         private ICaptainService _Captains;
+        private ICaptainQuarantineService _CaptainQuarantine;
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
@@ -133,6 +134,7 @@ namespace Armada.Core.Services
         /// <param name="captains">Captain service.</param>
         /// <param name="promptTemplates">Prompt template service (optional for backward compatibility).</param>
         /// <param name="git">Git service used for branch cleanup on non-landed intermediate stages.</param>
+        /// <param name="captainQuarantine">Optional captain quarantine service.</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -140,7 +142,8 @@ namespace Armada.Core.Services
             IDockService docks,
             ICaptainService captains,
             IPromptTemplateService? promptTemplates = null,
-            IGitService? git = null)
+            IGitService? git = null,
+            ICaptainQuarantineService? captainQuarantine = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -148,6 +151,7 @@ namespace Armada.Core.Services
             _Git = git;
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
+            _CaptainQuarantine = captainQuarantine ?? new CaptainQuarantineService(_Database, _Settings, _Logging);
             _PromptTemplates = promptTemplates;
             _Prestaging = new PrestagedFileCopier(_Logging);
         }
@@ -3654,6 +3658,19 @@ namespace Armada.Core.Services
 
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
+            if (idleCaptains.Count == 0)
+                return null;
+
+            List<Captain> assignableCaptains = new List<Captain>();
+            foreach (Captain idleCaptain in idleCaptains)
+            {
+                if (!_CaptainQuarantine.IsQuarantined(idleCaptain))
+                {
+                    assignableCaptains.Add(idleCaptain);
+                }
+            }
+
+            idleCaptains = assignableCaptains;
             if (idleCaptains.Count == 0)
                 return null;
 
