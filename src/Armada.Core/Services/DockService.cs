@@ -211,7 +211,7 @@ namespace Armada.Core.Services
                 // Create worktree. If the branch already exists, GitService will attach to it
                 // instead of recreating it so downstream pipeline stages and retries preserve work.
                 await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
-                await SeedDockMcpConfigAsync(worktreePath, token).ConfigureAwait(false);
+                await SeedDockMcpConfigAsync(vessel, worktreePath, missionId, token).ConfigureAwait(false);
 
                 // Provision declared sibling repositories alongside this dock so consumer repos
                 // that resolve cross-repo sources via parent-probe paths can build inside the dock.
@@ -885,7 +885,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task SeedDockMcpConfigAsync(string worktreePath, CancellationToken token)
+        private async Task SeedDockMcpConfigAsync(Vessel vessel, string worktreePath, string? missionId, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(worktreePath) || !Directory.Exists(worktreePath)) return;
 
@@ -952,6 +952,19 @@ namespace Armada.Core.Services
                     await File.WriteAllTextAsync(geminiMcpPath, geminiConfig, token).ConfigureAwait(false);
                 }
 
+                // Seed the OpenCode reasonable-trust permission document so OpenCode captains
+                // are not auto-rejected on external_directory access. Written for every dock
+                // (like the per-runtime MCP configs above): runtimes other than OpenCode ignore
+                // opencode.json, so this is inert for them. No-clobber: a pre-existing
+                // opencode.json (operator- or captain-authored) is never overwritten.
+                List<string> openCodeRoots = BuildOpenCodeGrantedRoots(vessel, worktreePath, missionId);
+                string openCodeConfig = OpenCodePermissionConfigBuilder.Build(openCodeRoots);
+                string openCodePath = Path.Combine(worktreePath, "opencode.json");
+                if (!File.Exists(openCodePath))
+                {
+                    await File.WriteAllTextAsync(openCodePath, openCodeConfig, token).ConfigureAwait(false);
+                }
+
                 string? excludePath = ResolveGitInfoExcludePath(worktreePath);
                 if (!String.IsNullOrWhiteSpace(excludePath))
                 {
@@ -959,12 +972,49 @@ namespace Armada.Core.Services
                     await EnsureGitExcludeEntryAsync(excludePath, ".cursor/mcp.json", token).ConfigureAwait(false);
                     await EnsureGitExcludeEntryAsync(excludePath, ".codex/config.toml", token).ConfigureAwait(false);
                     await EnsureGitExcludeEntryAsync(excludePath, ".gemini/settings.json", token).ConfigureAwait(false);
+                    await EnsureGitExcludeEntryAsync(excludePath, "opencode.json", token).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not seed dock MCP config for " + worktreePath + ": " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Derive the reasonable-trust directory roots granted to an OpenCode captain in this dock,
+        /// all from settings/vessel state (never hardcoded). The roots are, in order:
+        /// the dock worktree (the OpenCode project root, which also covers the in-dock _briefing/
+        /// context pack and .armada/playbooks/ materializations); each declared sibling vessel
+        /// repository checkout (so cross-repo csproj build probes resolve); and the Admiral-staged
+        /// playbooks directory for this mission (outside the dock). Whitespace/blanket roots are
+        /// dropped downstream by <see cref="OpenCodePermissionConfigBuilder"/>, so a single-repo
+        /// vessel with no mission id simply yields the worktree root.
+        /// </summary>
+        private List<string> BuildOpenCodeGrantedRoots(Vessel vessel, string worktreePath, string? missionId)
+        {
+            List<string> roots = new List<string>();
+
+            if (!String.IsNullOrWhiteSpace(worktreePath))
+            {
+                roots.Add(Path.GetFullPath(worktreePath));
+            }
+
+            if (vessel != null)
+            {
+                foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+                {
+                    if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath)) continue;
+                    roots.Add(Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath)));
+                }
+            }
+
+            if (!String.IsNullOrWhiteSpace(missionId) && !String.IsNullOrWhiteSpace(_Settings.LogDirectory))
+            {
+                roots.Add(Path.GetFullPath(Path.Combine(_Settings.LogDirectory, "playbooks", missionId)));
+            }
+
+            return roots;
         }
 
         private static string? ResolveGitInfoExcludePath(string worktreePath)
