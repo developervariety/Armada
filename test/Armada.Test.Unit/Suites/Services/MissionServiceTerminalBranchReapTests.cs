@@ -119,6 +119,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Reap_TerminallyFailed_NullVesselPolicy_DefaultLocalAndRemote_DeletesLocalAndRemote", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings, git);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings, null).ConfigureAwait(false);
+
+                    Mission failed = await CreateMissionAsync(testDb.Driver, vessel, MissionStatusEnum.Failed, "armada/worker/reap-default").ConfigureAwait(false);
+
+                    await missions.ReapTerminalMissionBranchAsync(failed).ConfigureAwait(false);
+
+                    AssertTrue(git.OperationCalls.Contains("delete-local-branch:armada/worker/reap-default"),
+                        "A null vessel policy must fall back to the global default and reap the local branch.");
+                    AssertTrue(git.OperationCalls.Contains("delete-remote-branch:armada/worker/reap-default"),
+                        "The default BranchCleanupPolicy is LocalAndRemote, so the remote branch must also be reaped.");
+                }
+            });
+
             await RunTest("Reap_FailedWithActiveRescue_RetainsBranch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -138,6 +158,27 @@ namespace Armada.Test.Unit.Suites.Services
                         "The don't-reap-while-rescuing guard must retain the branch while an active rescue depends on the mission.");
                     AssertFalse(git.OperationCalls.Contains("delete-remote-branch:armada/worker/reap-3"),
                         "No remote delete may fire while an active rescue is in flight.");
+                }
+            });
+
+            await RunTest("Reap_FailedWithActiveSameBranchSibling_RetainsBranch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings, git);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings, BranchCleanupPolicyEnum.LocalAndRemote).ConfigureAwait(false);
+
+                    Mission failed = await CreateMissionAsync(testDb.Driver, vessel, MissionStatusEnum.Failed, "armada/worker/reap-sibling").ConfigureAwait(false);
+                    await CreateMissionAsync(testDb.Driver, vessel, MissionStatusEnum.Pending, "armada/worker/reap-sibling").ConfigureAwait(false);
+
+                    await missions.ReapTerminalMissionBranchAsync(failed).ConfigureAwait(false);
+
+                    AssertFalse(git.OperationCalls.Contains("delete-local-branch:armada/worker/reap-sibling"),
+                        "The same-branch guard must retain the branch while another non-terminal mission still references it.");
+                    AssertFalse(git.OperationCalls.Contains("delete-remote-branch:armada/worker/reap-sibling"),
+                        "No remote delete may fire while a same-branch sibling is still active.");
                 }
             });
 
