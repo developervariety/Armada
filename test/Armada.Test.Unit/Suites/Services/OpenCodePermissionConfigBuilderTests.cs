@@ -99,6 +99,28 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Build_DifferentRootSets_ProduceIdenticalDocument", () =>
+            {
+                // Roots-invariance guard: the contract change is that grantedRoots no
+                // longer drives a path map. Determinism (same roots twice) is necessary
+                // but not sufficient -- it would still pass if a future regression made
+                // the output depend on the roots in a stable way. This pins the stronger
+                // property: completely DIFFERENT non-empty root sets (different count,
+                // different paths, mixed separators, a Windows drive path) must yield a
+                // byte-identical document, because the roots are ignored entirely.
+                string single = OpenCodePermissionConfigBuilder.Build(new List<string> { "/work/repo" });
+                string many = OpenCodePermissionConfigBuilder.Build(new List<string>
+                {
+                    "/srv/other",
+                    "C:\\Users\\dev\\proj",
+                    "/srv/other/nested",
+                    "D:/build/sandbox"
+                });
+
+                AssertEqual(single, many, "Different non-empty root sets must produce a byte-identical document (roots no longer influence output)");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Build_EmitsExactBareStringDocument", () =>
             {
                 // Golden-document guard: the mission requires the emitted opencode.json to be
