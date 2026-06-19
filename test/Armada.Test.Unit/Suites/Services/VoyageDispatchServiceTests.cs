@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -509,6 +510,150 @@ namespace Armada.Test.Unit.Suites.Services
                         "dependsOnMissionAlias must resolve to the concrete dependency mission id");
                 }
             });
+
+            await RunTest("AutoMode_CacheMiss_BuildsAndAttachesContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("auto-ctx-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    string packSource = Path.Combine(Path.GetTempPath(), "auto-ctx-pack-" + Guid.NewGuid().ToString("N") + ".md");
+                    File.WriteAllText(packSource, "# context pack");
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = null,
+                        BuildResponse = new ContextPackResponse()
+                    };
+                    codeIndex.BuildResponse.PrestagedFiles.Add(new PrestagedFile(packSource, "_briefing/context-pack.md"));
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "auto context voyage",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription> { new MissionDescription("auto worker", "fix something") }
+                    };
+
+                    VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, codeIndex, null, null);
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "auto dispatch should succeed");
+                    AssertEqual(1, codeIndex.BuildRequests.Count, "auto mode with cache miss must build a context pack");
+                    AssertEqual(1, admiral.CreatedMissions.Count, "one mission should be created");
+                    Mission mission = admiral.CreatedMissions[0];
+                    AssertNotNull(mission.PrestagedFiles, "mission should carry the generated context pack");
+                    AssertEqual(1, mission.PrestagedFiles!.Count);
+                    AssertEqual("_briefing/context-pack.md", mission.PrestagedFiles[0].DestPath);
+                    AssertEqual(packSource, mission.PrestagedFiles[0].SourcePath);
+                }
+            });
+
+            await RunTest("AutoMode_BuildReturnsEmpty_LogsWarning", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("auto-ctx-warn-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    string logPath = Path.Combine(Path.GetTempPath(), "auto-ctx-warn-" + Guid.NewGuid().ToString("N") + ".log");
+                    using (LoggingModule logging = new LoggingModule(logPath, FileLoggingMode.SingleLogFile, false))
+                    {
+                        RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                        RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                        {
+                            CachedResponse = null,
+                            BuildResponse = new ContextPackResponse()
+                        };
+
+                        SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                        {
+                            Title = "auto context warning voyage",
+                            VesselId = vessel.Id,
+                            CodeContextMode = "auto",
+                            Missions = new List<MissionDescription> { new MissionDescription("auto worker", "fix something") }
+                        };
+
+                        VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, logging, codeIndex, null, null);
+                        VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                        AssertTrue(result.Succeeded, "auto dispatch with empty pack should still succeed");
+                        await logging.FlushAsync().ConfigureAwait(false);
+                    }
+
+                    string logContent = File.ReadAllText(logPath);
+                    AssertTrue(logContent.Contains("yielded no pack"), "expected structured warning when auto context pack is empty; log was: " + logContent);
+                }
+            });
+
+            await RunTest("AutoMode_PipelineWorkerStage_AttachesContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("auto-pipeline-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("Reviewed");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    string packSource = Path.Combine(Path.GetTempPath(), "auto-pipeline-pack-" + Guid.NewGuid().ToString("N") + ".md");
+                    File.WriteAllText(packSource, "# context pack");
+
+                    PipelinePersistingAdmiralService admiral = new PipelinePersistingAdmiralService(testDb.Driver, pipeline);
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = null,
+                        BuildResponse = new ContextPackResponse()
+                    };
+                    codeIndex.BuildResponse.PrestagedFiles.Add(new PrestagedFile(packSource, "_briefing/context-pack.md"));
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "auto pipeline context voyage",
+                        VesselId = vessel.Id,
+                        PipelineId = pipeline.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("pipeline feature", "fix it") { Alias = "M1" }
+                        }
+                    };
+
+                    VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, codeIndex, null, null);
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "alias+pipeline dispatch should succeed");
+                    AssertEqual(1, codeIndex.BuildRequests.Count, "auto mode with cache miss must build a context pack");
+
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
+                    AssertEqual(2, all.Count, "one MD with two pipeline stages should produce two missions");
+
+                    Mission worker = all.Single(m => m.Persona == "Worker");
+                    Mission judge = all.Single(m => m.Persona == "Judge");
+                    AssertNotNull(worker.PrestagedFiles, "Worker stage should carry the context pack");
+                    AssertTrue(worker.PrestagedFiles!.Any(p => p.DestPath == "_briefing/context-pack.md"), "Worker stage should have the context pack staged");
+                    AssertNull(judge.PrestagedFiles, "Judge stage should not inherit the full prestaged set");
+                }
+            });
         }
 
         private static VoyageDispatchService NewService(TestDatabase testDb)
@@ -673,11 +818,64 @@ namespace Armada.Test.Unit.Suites.Services
                 => throw new NotImplementedException();
         }
 
+        private sealed class PipelinePersistingAdmiralService : IAdmiralService
+        {
+            private readonly DatabaseDriver _Database;
+            private readonly Pipeline? _Pipeline;
+
+            public PipelinePersistingAdmiralService(DatabaseDriver database, Pipeline? pipeline)
+            {
+                _Database = database;
+                _Pipeline = pipeline;
+            }
+
+            public List<Mission> CreatedMissions { get; } = new List<Mission>();
+
+            public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
+            public Func<Captain, Task>? OnStopAgent { get; set; }
+            public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
+            public Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
+            public Func<Voyage, Task>? OnVoyageComplete { get; set; }
+            public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
+            public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
+            public Func<int, bool>? OnIsProcessExitHandled { get; set; }
+
+            public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
+            {
+                mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                CreatedMissions.Add(mission);
+                return mission;
+            }
+
+            public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
+            {
+                return Task.FromResult<Pipeline?>(_Pipeline);
+            }
+
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, CancellationToken token = default)
+                => throw new NotImplementedException();
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, List<SelectedPlaybook>? selectedPlaybooks, CancellationToken token = default)
+                => throw new NotImplementedException();
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, CancellationToken token = default)
+                => throw new NotImplementedException();
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, CancellationToken token = default)
+                => throw new NotImplementedException();
+            public Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default) => throw new NotImplementedException();
+            public Task RecallCaptainAsync(string captainId, CancellationToken token = default) => throw new NotImplementedException();
+            public Task RecallAllAsync(CancellationToken token = default) => throw new NotImplementedException();
+            public Task HealthCheckAsync(CancellationToken token = default) => throw new NotImplementedException();
+            public Task CleanupStaleCaptainsAsync(CancellationToken token = default) => throw new NotImplementedException();
+            public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
+                => throw new NotImplementedException();
+        }
+
         private sealed class RecordingCodeIndexService : ICodeIndexService
         {
             public List<ContextPackRequest> CacheRequests { get; } = new List<ContextPackRequest>();
+            public List<ContextPackRequest> BuildRequests { get; } = new List<ContextPackRequest>();
 
             public ContextPackResponse? CachedResponse { get; set; }
+            public ContextPackResponse BuildResponse { get; set; } = new ContextPackResponse();
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
                 => Task.FromResult(new CodeIndexStatus { VesselId = vesselId });
@@ -689,7 +887,10 @@ namespace Armada.Test.Unit.Suites.Services
                 => throw new NotImplementedException();
 
             public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
-                => throw new NotImplementedException();
+            {
+                BuildRequests.Add(request);
+                return Task.FromResult(BuildResponse);
+            }
 
             public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
                 => throw new NotImplementedException();
