@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Core.Memory;
     using Microsoft.Extensions.FileSystemGlobbing;
 
     /// <summary>
@@ -21,6 +22,8 @@ namespace Armada.Core.Services
         public static readonly IReadOnlyList<string> BuiltInProtectedPaths = new List<string>
         {
             "**/CLAUDE.md",
+            LearnedFactsFile.RelativePath,
+            "**/" + LearnedFactsFile.RelativePath,
             ".armada/instructions/**",
             "_briefing/**",
             "**/_briefing/**"
@@ -88,9 +91,13 @@ namespace Armada.Core.Services
         /// <returns>Failure-reason string suitable for Mission.FailureReason.</returns>
         public static string FormatFailureReason(string matchedPath, string vesselName)
         {
+            string proposalMarker = IsLearnedFactsPath(matchedPath)
+                ? LearnedFactsFile.ProposalMarker
+                : "[CLAUDE.MD-PROPOSAL]";
+
             return "Captain modified protected path '" + (matchedPath ?? "") +
                 "' on vessel '" + (vesselName ?? "") +
-                "'. Use a [CLAUDE.MD-PROPOSAL] block in your final response to propose changes (target / action / text / why) -- the orchestrator decides what lands.";
+                "'. Use a " + proposalMarker + " block in your final response to propose changes (target / action / text / why) -- the orchestrator decides what lands.";
         }
 
         /// <summary>
@@ -138,6 +145,12 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static bool IsLearnedFactsPath(string? matchedPath)
+        {
+            if (String.IsNullOrEmpty(matchedPath)) return false;
+            return matchedPath.Trim().EndsWith(LearnedFactsFile.RelativePath, StringComparison.OrdinalIgnoreCase);
+        }
 
         private static List<string> BuildEffectiveProtectedPaths(IList<string>? protectedPaths)
         {

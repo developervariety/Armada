@@ -17,6 +17,12 @@ namespace Armada.Core.Memory
         public const string RelativePath = ".armada/LEARNED.md";
 
         /// <summary>
+        /// Marker captains must emit to propose a change to the protected learned-facts file
+        /// instead of editing it directly.
+        /// </summary>
+        public const string ProposalMarker = "[LEARNED-FACT-PROPOSAL]";
+
+        /// <summary>
         /// Legacy empty-state content used before the in-dock discovery pointer was introduced.
         /// </summary>
         public const string LegacyTemplateContent = "# Vessel Learned Facts\n\nNo accepted reflection facts yet.";

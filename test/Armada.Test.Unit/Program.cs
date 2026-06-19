@@ -143,6 +143,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AutoLandCalibrationTests());
             runner.AddSuite(new PrestagedFilesTests());
             runner.AddSuite(new ProtectedPathsTests());
+            runner.AddSuite(new ProtectedPathsLearnedFileTests());
             runner.AddSuite(new VesselAutoLandPredicateRoutesTests());
             runner.AddSuite(new VesselDefaultPlaybooksTests());
             runner.AddSuite(new VesselSiblingReposRoutesTests());
