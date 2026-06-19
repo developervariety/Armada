@@ -690,6 +690,379 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(IncidentStatusEnum.Closed, closed!.Status, "Open stuck-voyage incident must close when voyage completes.");
             }).ConfigureAwait(false);
 
+            // The quiet clock must anchor on real forward progress (mission start/completion), NOT on
+            // LastUpdateUtc, which WaitingForDependency assignment retries churn every health cycle.
+            // Here every last_update_utc is fresh ("now") but the only real progress is stale, so the
+            // churn-stable anchor must still age past the threshold and open the incident. If the
+            // detector regressed to keying on last_update_utc, the quiet clock would read ~0 and no
+            // incident would open.
+            await RunTest("SweepAsync_StalledVoyageWithChurnedLastUpdate_OpensIncidentAnchoredOnProgress", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Churned but stalled", "Fresh last_update, stale progress")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                // Assigned with a dead process: terminal/stalled with no forward path.
+                Mission assignedDead = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Assigned worker with dead process",
+                    Status = MissionStatusEnum.Assigned,
+                    ProcessId = 999997,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                // Real progress is two hours stale, but every last_update_utc stays fresh ("now") to
+                // simulate the per-cycle churn the fix must ignore.
+                DateTime staleUtc = DateTime.UtcNow.AddHours(-2);
+                assignedDead.StartedUtc = staleUtc;
+                await testDb.Driver.Missions.UpdateAsync(assignedDead).ConfigureAwait(false);
+                await SetMissionLastUpdateUtcAsync(testDb, assignedDead.Id, DateTime.UtcNow).ConfigureAwait(false);
+                await SetVoyageLastUpdateUtcAsync(testDb, voyage.Id, DateTime.UtcNow).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.AutonomousRecovery.StuckOpenVoyageMinutes = 30;
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
+                    testDb.Driver,
+                    new RecordingMergeQueueService(),
+                    settings: settings,
+                    incidents: incidents);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, page.Objects.Count, "Stale real progress must open an incident even when last_update_utc is freshly churned.");
+                AssertContains("no live missions", page.Objects[0].Summary ?? "", "Incident summary should describe the stall.");
+            }).ConfigureAwait(false);
+
+            // Boundary guard: a terminal/stalled voyage whose most recent real progress is still
+            // within StuckOpenVoyageMinutes must NOT open an incident yet -- the quiet clock has not
+            // elapsed. This pins the `quietMinutes < threshold` early return.
+            await RunTest("SweepAsync_StalledVoyageWithinQuietThreshold_DoesNotOpenIncident", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Recently stalled", "Just stopped progressing")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                Mission assignedDead = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Assigned worker with dead process",
+                    Status = MissionStatusEnum.Assigned,
+                    ProcessId = 999996,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                // Most recent real progress is five minutes ago -- well under the 30-minute threshold.
+                DateTime recentUtc = DateTime.UtcNow.AddMinutes(-5);
+                assignedDead.StartedUtc = recentUtc;
+                await testDb.Driver.Missions.UpdateAsync(assignedDead).ConfigureAwait(false);
+                // Make last_update_utc old to prove the clock does NOT key on it (otherwise the old
+                // last_update would falsely trip the threshold).
+                await SetMissionLastUpdateUtcAsync(testDb, assignedDead.Id, DateTime.UtcNow.AddHours(-2)).ConfigureAwait(false);
+                await SetVoyageLastUpdateUtcAsync(testDb, voyage.Id, DateTime.UtcNow.AddHours(-2)).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.AutonomousRecovery.StuckOpenVoyageMinutes = 30;
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
+                    testDb.Driver,
+                    new RecordingMergeQueueService(),
+                    settings: settings,
+                    incidents: incidents);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(0, page.Objects.Count, "A stall still within the quiet threshold must not open an incident yet.");
+            }).ConfigureAwait(false);
+
+            // An Assigned mission whose tracked process id is null has no live captain -- the
+            // null-process branch of the liveness check must classify it as stalled (not running),
+            // so a genuinely quiet voyage opens the incident.
+            await RunTest("SweepAsync_AssignedWithNullProcess_OpensIncident", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Assigned no process", "Assigned but no tracked pid")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open,
+                    LastUpdateUtc = DateTime.UtcNow.AddHours(-2)
+                }).ConfigureAwait(false);
+
+                // Assigned but ProcessId is null (captain never spawned, or pid cleared on exit).
+                Mission assignedNoPid = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Assigned worker with no process id",
+                    Status = MissionStatusEnum.Assigned,
+                    ProcessId = null,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                DateTime staleUtc = DateTime.UtcNow.AddHours(-2);
+                assignedNoPid.StartedUtc = staleUtc;
+                await testDb.Driver.Missions.UpdateAsync(assignedNoPid).ConfigureAwait(false);
+                await SetMissionLastUpdateUtcAsync(testDb, assignedNoPid.Id, staleUtc).ConfigureAwait(false);
+                await SetVoyageLastUpdateUtcAsync(testDb, voyage.Id, staleUtc).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.AutonomousRecovery.StuckOpenVoyageMinutes = 30;
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
+                    testDb.Driver,
+                    new RecordingMergeQueueService(),
+                    settings: settings,
+                    incidents: incidents);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, page.Objects.Count, "An Assigned mission with no live process must be treated as stalled and open an incident.");
+            }).ConfigureAwait(false);
+
+            // A Pending mission whose assignment pipeline FAILED has no forward path (it is not one of
+            // the expected wait states), so a quiet voyage holding only such a mission must open an
+            // incident. This pins the negative branch of the waiting-for-assignment shield.
+            await RunTest("SweepAsync_PendingAssignmentFailed_OpensIncident", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Pending assignment failed", "No forward path")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open,
+                    LastUpdateUtc = DateTime.UtcNow.AddHours(-2)
+                }).ConfigureAwait(false);
+
+                Mission stuckPending = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Pending mission whose assignment failed",
+                    Status = MissionStatusEnum.Pending,
+                    AssignmentState = MissionAssignmentStateEnum.Failed,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                DateTime staleUtc = DateTime.UtcNow.AddHours(-2);
+                stuckPending.StartedUtc = staleUtc;
+                await testDb.Driver.Missions.UpdateAsync(stuckPending).ConfigureAwait(false);
+                await SetMissionLastUpdateUtcAsync(testDb, stuckPending.Id, staleUtc).ConfigureAwait(false);
+                await SetVoyageLastUpdateUtcAsync(testDb, voyage.Id, staleUtc).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.AutonomousRecovery.StuckOpenVoyageMinutes = 30;
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
+                    testDb.Driver,
+                    new RecordingMergeQueueService(),
+                    settings: settings,
+                    incidents: incidents);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    VoyageId = voyage.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, page.Objects.Count, "A Pending mission with a Failed assignment state has no forward path and must open an incident.");
+            }).ConfigureAwait(false);
+
+            // The auto-close only mitigates stuck-voyage incidents (those carrying the "no live
+            // missions" marker). An unrelated open incident on the same completing voyage must be
+            // left untouched.
+            await RunTest("SweepAsync_CompletedVoyage_LeavesUnrelatedIncidentOpen", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Completing with side incident", "Will complete")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Completed worker",
+                    Status = MissionStatusEnum.Complete,
+                    CompletedUtc = DateTime.UtcNow,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+
+                // An open incident on the voyage that is NOT a stuck-voyage incident (no marker).
+                Incident unrelated = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Operator review needed",
+                    Summary = "Voyage " + voyage.Id + " flagged for manual operator review.",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium,
+                    VoyageId = voyage.Id
+                }).ConfigureAwait(false);
+
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
+                    testDb.Driver,
+                    new RecordingMergeQueueService(),
+                    incidents: incidents);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                Voyage? updated = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                AssertNotNull(updated);
+                AssertEqual(VoyageStatusEnum.Complete, updated!.Status, "Voyage with all terminal missions should complete.");
+
+                Incident? stillOpen = await incidents.ReadAsync(auth, unrelated.Id).ConfigureAwait(false);
+                AssertNotNull(stillOpen);
+                AssertEqual(IncidentStatusEnum.Open, stillOpen!.Status, "An incident without the stuck-voyage marker must not be auto-closed on completion.");
+            }).ConfigureAwait(false);
+
+            // Auto-close is scoped to voyages that reach Complete. A voyage that drains to Failed
+            // (a terminal mission failed) must leave any pre-existing stuck-voyage incident open for
+            // human review rather than silently self-mitigating.
+            await RunTest("SweepAsync_VoyageDrainsToFailed_DoesNotCloseStuckIncident", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Draining to failed", "One mission failed")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Open,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                // All terminal, but one is Failed -> the voyage drains to Failed, not Complete.
+                await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Persona = "Worker",
+                    Title = "Failed worker",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "needs human review",
+                    CompletedUtc = DateTime.UtcNow,
+                    LastUpdateUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                // Block rescue dispatch so the failed mission cannot spawn a fresh live rescue that
+                // would keep the voyage non-terminal; the drain must still settle it to Failed.
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.AutonomousRecovery.DispatchRescueMissions = false;
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+
+                // Pre-seed an open stuck-voyage incident (carries the marker).
+                Incident stuck = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Stuck open voyage: " + voyage.Title,
+                    Summary = "Voyage " + voyage.Id + " has no live missions and no progress.",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    VoyageId = voyage.Id
+                }).ConfigureAwait(false);
+
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
+                    testDb.Driver,
+                    new RecordingMergeQueueService(),
+                    settings: settings,
+                    incidents: incidents);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                Voyage? updated = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                AssertNotNull(updated);
+                AssertEqual(VoyageStatusEnum.Failed, updated!.Status, "A voyage with a failed terminal mission should drain to Failed.");
+
+                Incident? stillOpen = await incidents.ReadAsync(auth, stuck.Id).ConfigureAwait(false);
+                AssertNotNull(stillOpen);
+                AssertEqual(IncidentStatusEnum.Open, stillOpen!.Status, "A voyage that drains to Failed must not auto-close its stuck-voyage incident.");
+            }).ConfigureAwait(false);
+
             await RunTest("TryLoadSafetyNetDiff_WithDockWorktree_DiffsDocWorktreePath", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
