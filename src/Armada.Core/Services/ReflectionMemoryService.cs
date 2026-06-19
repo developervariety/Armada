@@ -214,6 +214,17 @@ namespace Armada.Core.Services
             IReflectionOutputParser parser,
             CancellationToken token = default)
         {
+            return await AcceptMemoryProposalAsync(missionId, editsMarkdown, parser, null, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<ReflectionAcceptProposalResult> AcceptMemoryProposalAsync(
+            string missionId,
+            string? editsMarkdown,
+            IReflectionOutputParser parser,
+            LearnedFactsPruneOptions? pruneOptions,
+            CancellationToken token = default)
+        {
             ReflectionAcceptProposalResult outcome = new ReflectionAcceptProposalResult();
             if (parser == null) throw new ArgumentNullException(nameof(parser));
 
@@ -374,12 +385,15 @@ namespace Armada.Core.Services
             string? repoRoot = !String.IsNullOrEmpty(vessel.WorkingDirectory) ? vessel.WorkingDirectory : vessel.LocalPath;
             if (!String.IsNullOrEmpty(repoRoot))
             {
-                LearnedFactsFileApplyResult landResult = await LearnedFactsFile.ApplyAsync(repoRoot!, contentToApply).ConfigureAwait(false);
+                LearnedFactsFileApplyResult landResult = await LearnedFactsFile.ApplyAsync(repoRoot!, contentToApply, pruneOptions).ConfigureAwait(false);
                 if (!landResult.Success)
                 {
                     outcome.Error = landResult.Error ?? "learned_file_land_failed";
                     return outcome;
                 }
+
+                outcome.PrunedRemovedCount = landResult.PrunedRemovedCount;
+                outcome.PrunedMergedCount = landResult.PrunedMergedCount;
             }
 
             ReflectionMetrics metrics = ComputeReflectionMetrics(
@@ -414,6 +428,8 @@ namespace Armada.Core.Services
                 anchorSourceMissionCount = anchors.SourceMissionIds.Count,
                 anchorFilePathCount = anchors.FilePaths.Count,
                 anchorSymbolCount = anchors.SymbolNames.Count,
+                prunedRemoved = outcome.PrunedRemovedCount,
+                prunedMerged = outcome.PrunedMergedCount,
                 anchors = new
                 {
                     sourceMissionIds = anchors.SourceMissionIds,

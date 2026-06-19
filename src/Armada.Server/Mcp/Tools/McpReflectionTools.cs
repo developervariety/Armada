@@ -224,7 +224,8 @@ namespace Armada.Server.Mcp.Tools
                     ReflectionAcceptProposalResult result = await memoryService.AcceptMemoryProposalAsync(
                         request.MissionId,
                         request.EditsMarkdown,
-                        parser).ConfigureAwait(false);
+                        parser,
+                        settings.LearnedFactsPrune).ConfigureAwait(false);
                     if (!String.IsNullOrEmpty(result.Error))
                     {
                         return (object)new
@@ -244,6 +245,8 @@ namespace Armada.Server.Mcp.Tools
                         appliedHintIds = result.AppliedHintIds,
                         pathWarnings = result.PathWarnings,
                         conflictWarnings = result.ConflictWarnings,
+                        prunedRemoved = result.PrunedRemovedCount,
+                        prunedMerged = result.PrunedMergedCount,
                         anchors = result.Anchors == null ? null : (object)new
                         {
                             sourceMissionIds = result.Anchors.SourceMissionIds,
