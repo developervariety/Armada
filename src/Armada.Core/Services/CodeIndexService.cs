@@ -338,6 +338,11 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
+                    // Intentionally swallow ALL embedding failures -- including OperationCanceledException
+                    // from a context-pack budget token -- so a slow/timed-out query embedding degrades to
+                    // lexical scoring and the top lexical result is still produced. Genuine CALLER
+                    // cancellation is re-asserted by BuildContextPackAsync's post-search
+                    // token.ThrowIfCancellationRequested() check, so it is never silently lost.
                     _Logging.Warn(_Header + "query embedding failed for vessel " + request.VesselId + ": " + ex.Message);
                 }
             }
@@ -512,6 +517,16 @@ namespace Armada.Core.Services
             int maxResults = request.MaxResults ?? _Settings.CodeIndex.MaxContextPackResults;
             maxResults = ClampLimit(maxResults, _Settings.CodeIndex.MaxContextPackResults);
 
+            // Hard server-side time budget for the WHOLE build, including the initial search/embedding
+            // phase. The budget token is linked to the caller token: caller cancellation still surfaces
+            // as OperationCanceledException, but a budget overrun degrades gracefully -- we stage the best
+            // (search-only / partial) pack assembled so far instead of timing out and staging nothing.
+            // A relevant partial pack beats no pack on a large vessel.
+            int budgetMs = _Settings.CodeIndex.ContextPackBudgetMs;
+            using CancellationTokenSource budgetCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            budgetCts.CancelAfter(TimeSpan.FromMilliseconds(budgetMs));
+            CancellationToken budgetToken = budgetCts.Token;
+
             // v2-F1 pre-selection pass: load vessel_pack_hints, filter by goal regex, compute hard-include / hard-exclude.
             List<VesselPackHint> matchedHints = new List<VesselPackHint>();
             List<string> warnings = new List<string>();
@@ -519,7 +534,7 @@ namespace Armada.Core.Services
             try
             {
                 List<VesselPackHint> activeHints = await _Database.VesselPackHints
-                    .EnumerateActiveByVesselAsync(request.VesselId, token).ConfigureAwait(false);
+                    .EnumerateActiveByVesselAsync(request.VesselId, budgetToken).ConfigureAwait(false);
                 foreach (VesselPackHint h in activeHints)
                 {
                     if (TryMatchGoalPattern(h.GoalPattern, request.Goal))
@@ -547,9 +562,27 @@ namespace Armada.Core.Services
             };
 
             Stopwatch searchStopwatch = Stopwatch.StartNew();
-            CodeSearchResponse search = await SearchAsync(searchRequest, token).ConfigureAwait(false);
+            CodeSearchResponse search = await SearchAsync(searchRequest, budgetToken).ConfigureAwait(false);
             searchStopwatch.Stop();
             long searchElapsedMs = searchStopwatch.ElapsedMilliseconds;
+
+            // Caller cancellation always wins over budget degradation: a genuinely cancelled caller token
+            // must surface as OperationCanceledException, never a silently degraded pack. The query
+            // embedding catch inside SearchAsync swallows OperationCanceledException so a budget-expired
+            // embedding can fall back to lexical scoring (the top lexical result is still produced); this
+            // post-search check restores caller-cancel propagation while leaving budget-expiry to degrade.
+            token.ThrowIfCancellationRequested();
+
+            // If only the budget (not the caller) expired during search, the lexical results scored before
+            // expiry are still in hand. Skip the heavy graph/impact expansion and summarizer and stage that
+            // search-only pack rather than blowing through the dispatch/client timeout.
+            bool budgetExpiredDuringSearch = budgetToken.IsCancellationRequested;
+            if (budgetExpiredDuringSearch)
+            {
+                warnings.Add("context_pack_budget_expired: search exceeded " + budgetMs + "ms budget; returning search-only pack");
+                _Logging.Warn(_Header + "context pack budget expired during search for vessel " + request.VesselId + "; returning search-only pack");
+            }
+
             if (hardExcludePatterns.Count > 0)
             {
                 Matcher excludeMatcher = new Matcher();
@@ -570,12 +603,36 @@ namespace Armada.Core.Services
                 }
             }
 
-            // When the caller requests a search-only fast pack, skip graph/impact expansion
-            // entirely (no BuildGraphContextPackExpansionAsync call). GraphIncludedFiles stays
-            // empty and GraphExpansionUsed stays false; everything else is unchanged.
-            GraphContextPackExpansion graphExpansion = request.FastPackOnly
-                ? new GraphContextPackExpansion()
-                : await BuildGraphContextPackExpansionAsync(request.VesselId, request.Goal, search, token).ConfigureAwait(false);
+            // Large vessels skip graph/impact expansion automatically. The indexed document count is a
+            // cheap proxy for repo size; the fast-pack threshold lets operators tune when the search-only
+            // path is preferred. A vessel over the threshold still gets the top lexical/semantic search
+            // results, preserving relevance while avoiding the heavy symbol-graph traversal (ComputeImpact
+            // over many seeds plus per-symbol source reads) that times out on big repositories.
+            bool fastPackFallbackUsed = request.FastPackOnly || budgetExpiredDuringSearch;
+            if (!fastPackFallbackUsed && search.Status.DocumentCount > _Settings.CodeIndex.FastPackFileThreshold)
+            {
+                fastPackFallbackUsed = true;
+                warnings.Add("fast_pack_threshold: vessel has " + search.Status.DocumentCount + " indexed document(s) exceeding threshold " + _Settings.CodeIndex.FastPackFileThreshold + "; using search-only pack");
+            }
+
+            // When the caller requests a search-only fast pack, the vessel is large, or the budget already
+            // expired during search, skip graph/impact expansion entirely. GraphIncludedFiles stays empty
+            // and GraphExpansionUsed stays false. Otherwise run the expansion under the budget token so a
+            // slow traversal degrades to the search-only pack instead of overrunning the hard ceiling.
+            GraphContextPackExpansion graphExpansion = new GraphContextPackExpansion();
+            if (!fastPackFallbackUsed)
+            {
+                try
+                {
+                    graphExpansion = await BuildGraphContextPackExpansionAsync(request.VesselId, request.Goal, search, budgetToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && budgetToken.IsCancellationRequested)
+                {
+                    fastPackFallbackUsed = true;
+                    warnings.Add("context_pack_budget_expired: graph expansion exceeded " + budgetMs + "ms budget; returning search-only pack");
+                    _Logging.Warn(_Header + "context pack budget expired for vessel " + request.VesselId + " during graph expansion; returning search-only pack");
+                }
+            }
             foreach (string warning in graphExpansion.Warnings)
             {
                 warnings.Add(warning);
@@ -591,7 +648,7 @@ namespace Armada.Core.Services
             bool isSummarized = false;
             long summarizerElapsedMs = 0;
 
-            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && search.Results.Count > 0)
+            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && search.Results.Count > 0 && !budgetToken.IsCancellationRequested)
             {
                 string systemPrompt = "You are a codebase analyst. Given code chunks from a repository, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains. Then a bulleted file-by-file list of key types and their roles. Be concise. No introductory text. Output only the summary markdown.";
                 string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
@@ -599,12 +656,14 @@ namespace Armada.Core.Services
                 Stopwatch summarizerStopwatch = Stopwatch.StartNew();
                 try
                 {
-                    // Time-box only the summarizer completion. A slow or hung summarizer must not
-                    // consume the whole context-pack operation; on timeout we abandon the call and
-                    // fall back to the raw markdown evidence. The caller token is passed through
-                    // unchanged so cancellation still flows to the inference client.
+                    // Time-box the summarizer completion. A slow or hung summarizer must not consume the
+                    // whole context-pack operation; on timeout we abandon the call and fall back to the raw
+                    // markdown evidence. The caller token is passed through unchanged so cancellation still
+                    // flows to the inference client. The delay task additionally observes the overall
+                    // context-pack budget so a late-stage summarization cannot blow through the hard ceiling.
                     Task<string> completeTask = _InferenceClient.CompleteAsync(systemPrompt, userMessage, token);
-                    Task delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), token);
+                    using CancellationTokenSource delayCts = CancellationTokenSource.CreateLinkedTokenSource(token, budgetToken);
+                    Task delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), delayCts.Token);
                     Task winner = await Task.WhenAny(completeTask, delayTask).ConfigureAwait(false);
                     if (ReferenceEquals(winner, completeTask))
                     {
@@ -615,6 +674,13 @@ namespace Armada.Core.Services
                             isSummarized = true;
                         }
                     }
+                    else if (budgetToken.IsCancellationRequested)
+                    {
+                        // The delay task observes the overall budget too; if the budget (not the per-call
+                        // timeout) ended the wait, label it as a budget expiry rather than a summarizer timeout.
+                        _Logging.Warn(_Header + "summarizer exceeded context-pack budget; falling back to raw context pack");
+                        warnings.Add("context_pack_budget_expired: summarization exceeded " + budgetMs + "ms budget; using raw context pack");
+                    }
                     else
                     {
                         _Logging.Warn(_Header + "summarizer exceeded " + timeoutSeconds + "s budget; falling back to raw context pack");
@@ -624,6 +690,11 @@ namespace Armada.Core.Services
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
                     throw;
+                }
+                catch (OperationCanceledException) when (budgetToken.IsCancellationRequested)
+                {
+                    _Logging.Warn(_Header + "summarizer exceeded context-pack budget; falling back to raw context pack");
+                    warnings.Add("context_pack_budget_expired: summarization exceeded " + budgetMs + "ms budget; using raw context pack");
                 }
                 catch (Exception ex)
                 {
@@ -661,7 +732,7 @@ namespace Armada.Core.Services
                 response,
                 graphExpansionUsed: graphExpansion.Used,
                 vesselCount: 1,
-                fastPackFallbackUsed: request.FastPackOnly,
+                fastPackFallbackUsed: fastPackFallbackUsed,
                 searchElapsedMs: searchElapsedMs,
                 summarizerElapsedMs: summarizerElapsedMs,
                 totalElapsedMs: totalStopwatch.ElapsedMilliseconds);
@@ -881,7 +952,7 @@ namespace Armada.Core.Services
             GraphQueryContext context = await LoadGraphQueryContextAsync(request.VesselId, token).ConfigureAwait(false);
             int maxDepth = ClampGraphDepth(request.MaxDepth, _DefaultImpactDepth);
             int maxResults = ClampGraphLimit(request.MaxResults, _DefaultImpactResultLimit, _MaxGraphResults);
-            return ComputeImpact(context, request.Symbol, request.Direction, maxDepth, maxResults);
+            return ComputeImpact(context, request.Symbol, request.Direction, maxDepth, maxResults, token);
         }
 
         /// <inheritdoc />
@@ -900,7 +971,8 @@ namespace Armada.Core.Services
                 request.Symbol,
                 CodeGraphTraversalDirectionEnum.Both,
                 maxDepth,
-                _MaxGraphResults);
+                _MaxGraphResults,
+                token);
 
             Dictionary<string, AffectedTestAccumulator> explicitCandidates = new Dictionary<string, AffectedTestAccumulator>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, AffectedTestAccumulator> conventionCandidates = new Dictionary<string, AffectedTestAccumulator>(StringComparer.OrdinalIgnoreCase);
@@ -1115,7 +1187,7 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrWhiteSpace(key)) included[key] = (seed, 500);
             }
 
-            CodeGraphImpactResponse impact = ComputeImpact(context, request.Query, CodeGraphTraversalDirectionEnum.Both, maxDepth, maxResults);
+            CodeGraphImpactResponse impact = ComputeImpact(context, request.Query, CodeGraphTraversalDirectionEnum.Both, maxDepth, maxResults, token);
             foreach (CodeGraphImpactResult result in impact.Results)
             {
                 string key = BuildSymbolKey(result.Symbol);
@@ -1368,7 +1440,8 @@ namespace Armada.Core.Services
             string symbol,
             CodeGraphTraversalDirectionEnum direction,
             int maxDepth,
-            int maxResults)
+            int maxResults,
+            CancellationToken token = default)
         {
             List<CodeGraphSymbolRecord> seeds = ResolveSeedSymbols(context, symbol, _DefaultGraphNeighborLimit);
 
@@ -1389,6 +1462,10 @@ namespace Armada.Core.Services
 
             while (queue.Count > 0)
             {
+                // Cooperative cancellation so a budget-expired (or caller-cancelled) context-pack build
+                // can abort a deep graph traversal instead of running the full expansion budget.
+                token.ThrowIfCancellationRequested();
+
                 GraphTraversalStep current = queue.Dequeue();
                 if (current.Depth >= maxDepth) continue;
 
@@ -2988,6 +3065,12 @@ namespace Armada.Core.Services
             {
                 context = await LoadGraphQueryContextAsync(vesselId, token).ConfigureAwait(false);
             }
+            catch (OperationCanceledException)
+            {
+                // Budget/caller cancellation must surface so BuildContextPackAsync can degrade to the
+                // search-only pack rather than being swallowed as a generic graph_expansion_failed.
+                throw;
+            }
             catch (Exception ex)
             {
                 expansion.Warnings.Add("graph_expansion_failed: " + ex.Message);
@@ -2996,12 +3079,15 @@ namespace Armada.Core.Services
 
             if (context.Symbols.Count == 0 || context.Edges.Count == 0)
             {
+                token.ThrowIfCancellationRequested();
                 foreach (string warning in context.Warnings)
                 {
                     expansion.Warnings.Add("graph_expansion: " + warning);
                 }
                 return expansion;
             }
+
+            token.ThrowIfCancellationRequested();
 
             Dictionary<string, CodeGraphSymbolRecord> seedsByKey = new Dictionary<string, CodeGraphSymbolRecord>(StringComparer.OrdinalIgnoreCase);
             foreach (CodeGraphSymbolRecord seed in ResolveSeedSymbols(context, goal, 5))
@@ -3031,12 +3117,14 @@ namespace Armada.Core.Services
             Dictionary<string, CodeGraphImpactResult> impactByKey = new Dictionary<string, CodeGraphImpactResult>(StringComparer.OrdinalIgnoreCase);
             foreach (CodeGraphSymbolRecord seed in seedsByKey.Values.Take(8))
             {
+                token.ThrowIfCancellationRequested();
                 CodeGraphImpactResponse impact = ComputeImpact(
                     context,
                     SelectSymbolName(seed),
                     CodeGraphTraversalDirectionEnum.Both,
                     2,
-                    20);
+                    20,
+                    token);
 
                 foreach (CodeGraphImpactResult result in impact.Results)
                 {
@@ -3082,7 +3170,9 @@ namespace Armada.Core.Services
                 expansion.IncludedFiles.Add(impact.Symbol.Path);
             }
 
-            List<CodeGraphAffectedTestCandidate> affectedTests = BuildAffectedTestCandidates(context, goal, 2, 8);
+            token.ThrowIfCancellationRequested();
+
+            List<CodeGraphAffectedTestCandidate> affectedTests = BuildAffectedTestCandidates(context, goal, 2, 8, token);
             if (affectedTests.Count > 0)
             {
                 builder.AppendLine();
@@ -3098,6 +3188,7 @@ namespace Armada.Core.Services
             builder.AppendLine("### Graph source excerpts");
             foreach (CodeGraphImpactResult impact in impacts.Take(4))
             {
+                token.ThrowIfCancellationRequested();
                 CodeGraphSourceSection? section = await TryBuildSourceSectionAsync(vesselId, impact.Symbol, 1, token).ConfigureAwait(false);
                 if (section == null || String.IsNullOrWhiteSpace(section.Content)) continue;
 
@@ -3127,18 +3218,21 @@ namespace Armada.Core.Services
             GraphQueryContext context,
             string symbol,
             int maxDepth,
-            int maxResults)
+            int maxResults,
+            CancellationToken token = default)
         {
             CodeGraphImpactResponse impact = ComputeImpact(
                 context,
                 symbol,
                 CodeGraphTraversalDirectionEnum.Both,
                 maxDepth,
-                _MaxGraphResults);
+                _MaxGraphResults,
+                token);
 
             Dictionary<string, AffectedTestAccumulator> candidates = new Dictionary<string, AffectedTestAccumulator>(StringComparer.OrdinalIgnoreCase);
             foreach (CodeGraphImpactResult hit in impact.Results)
             {
+                token.ThrowIfCancellationRequested();
                 ClassifyTestSignal(hit.Symbol, out bool explicitSignal, out bool conventionSignal, out string signalReason);
                 if (!explicitSignal && !conventionSignal) continue;
 
