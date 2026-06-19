@@ -186,6 +186,180 @@ namespace Armada.Test.Unit.Suites.Services
                     DeleteTempRepoRoot(repoRoot);
                 }
             });
+
+            await RunTest("ReadLearnedPlaybookContentAsync_NullVessel_Throws", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                    await AssertThrowsAsync<ArgumentNullException>(
+                        () => svc.ReadLearnedPlaybookContentAsync(null!),
+                        "Null vessel must throw ArgumentNullException").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("ReadLearnedPlaybookContentAsync_NoRepoRootNoTenant_ReturnsDefaultEmptyState", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // No WorkingDirectory, no LocalPath, no TenantId: file path is skipped and the
+                    // DB fallback short-circuits to the default empty-state string before any DB read.
+                    Vessel vessel = new Vessel("lfrp-vessel-no-root", "https://github.com/test/lfrp-no-root.git");
+                    vessel.WorkingDirectory = null;
+                    vessel.LocalPath = null;
+                    vessel.TenantId = "";
+
+                    ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                    string result = await svc.ReadLearnedPlaybookContentAsync(vessel).ConfigureAwait(false);
+
+                    AssertContains("No accepted reflection facts yet", result, "Should return the default empty-state string");
+                }
+            });
+
+            await RunTest("ReadLearnedPlaybookContentAsync_LocalPathFallback_ReadsFile", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repoRoot = CreateTempRepoRoot();
+                    try
+                    {
+                        // WorkingDirectory empty -> repo root resolves from LocalPath.
+                        WriteLearnedFile(repoRoot, "# Vessel Learned Facts\n\nLOCALPATH-FILE-CONTENT");
+
+                        Vessel vessel = new Vessel("lfrp-vessel-localpath", "https://github.com/test/lfrp-lp.git");
+                        vessel.TenantId = Constants.DefaultTenantId;
+                        vessel.WorkingDirectory = null;
+                        vessel.LocalPath = repoRoot;
+
+                        string fileName = "vessel-" + SanitizeName(vessel.Name) + "-learned.md";
+                        Playbook dbPlaybook = new Playbook(fileName, "# Vessel Learned Facts\n\nDB-SHOULD-NOT-WIN");
+                        dbPlaybook.TenantId = Constants.DefaultTenantId;
+                        dbPlaybook.UserId = Constants.DefaultUserId;
+                        await testDb.Driver.Playbooks.CreateAsync(dbPlaybook).ConfigureAwait(false);
+
+                        ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                        string result = await svc.ReadLearnedPlaybookContentAsync(vessel).ConfigureAwait(false);
+
+                        AssertContains("LOCALPATH-FILE-CONTENT", result, "File reached via LocalPath should win");
+                        AssertFalse(result.Contains("DB-SHOULD-NOT-WIN"), "DB content must not appear when LocalPath file is present");
+                    }
+                    finally
+                    {
+                        DeleteTempRepoRoot(repoRoot);
+                    }
+                }
+            });
+
+            await RunTest("ReadLearnedPlaybookContentAsync_WorkingDirectoryPreferredOverLocalPath", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string workingDir = CreateTempRepoRoot();
+                    string localPath = CreateTempRepoRoot();
+                    try
+                    {
+                        // Both repo roots have a learned file; WorkingDirectory must take precedence.
+                        WriteLearnedFile(workingDir, "# Vessel Learned Facts\n\nFROM-WORKING-DIRECTORY");
+                        WriteLearnedFile(localPath, "# Vessel Learned Facts\n\nFROM-LOCAL-PATH");
+
+                        Vessel vessel = new Vessel("lfrp-vessel-precedence", "https://github.com/test/lfrp-prec.git");
+                        vessel.TenantId = Constants.DefaultTenantId;
+                        vessel.WorkingDirectory = workingDir;
+                        vessel.LocalPath = localPath;
+
+                        ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                        string result = await svc.ReadLearnedPlaybookContentAsync(vessel).ConfigureAwait(false);
+
+                        AssertContains("FROM-WORKING-DIRECTORY", result, "WorkingDirectory should be preferred over LocalPath");
+                        AssertFalse(result.Contains("FROM-LOCAL-PATH"), "LocalPath file must not win when WorkingDirectory file is present");
+                    }
+                    finally
+                    {
+                        DeleteTempRepoRoot(workingDir);
+                        DeleteTempRepoRoot(localPath);
+                    }
+                }
+            });
+
+            await RunTest("ReadLearnedPlaybookContentAsync_LegacyTemplateFile_FallsBackToDbPlaybook", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repoRoot = CreateTempRepoRoot();
+                    try
+                    {
+                        // The pre-pointer legacy empty-state template must also be treated as template-only.
+                        WriteLearnedFile(repoRoot, LearnedFactsFile.LegacyTemplateContent);
+
+                        Vessel vessel = new Vessel("lfrp-vessel-legacy", "https://github.com/test/lfrp-legacy.git");
+                        vessel.TenantId = Constants.DefaultTenantId;
+                        vessel.WorkingDirectory = repoRoot;
+
+                        string fileName = "vessel-" + SanitizeName(vessel.Name) + "-learned.md";
+                        Playbook dbPlaybook = new Playbook(fileName, "# Vessel Learned Facts\n\nDB-LEGACY-FALLBACK");
+                        dbPlaybook.TenantId = Constants.DefaultTenantId;
+                        dbPlaybook.UserId = Constants.DefaultUserId;
+                        await testDb.Driver.Playbooks.CreateAsync(dbPlaybook).ConfigureAwait(false);
+
+                        ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                        string result = await svc.ReadLearnedPlaybookContentAsync(vessel).ConfigureAwait(false);
+
+                        AssertContains("DB-LEGACY-FALLBACK", result, "Legacy-template file should trigger DB fallback");
+                    }
+                    finally
+                    {
+                        DeleteTempRepoRoot(repoRoot);
+                    }
+                }
+            });
+
+            await RunTest("LearnedFactsFile_ReadAsync_NullOrWhitespaceRepoRoot_ReturnsNull", async () =>
+            {
+                AssertNull(await LearnedFactsFile.ReadAsync(null!).ConfigureAwait(false), "Null repo root returns null");
+                AssertNull(await LearnedFactsFile.ReadAsync("").ConfigureAwait(false), "Empty repo root returns null");
+                AssertNull(await LearnedFactsFile.ReadAsync("   ").ConfigureAwait(false), "Whitespace repo root returns null");
+            });
+
+            await RunTest("LearnedFactsFile_ReadAsync_NonexistentRepoRoot_ReturnsNull", async () =>
+            {
+                string repoRoot = CreateTempRepoRoot(); // never created on disk
+                string? result = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                AssertNull(result, "Missing file returns null");
+            });
+
+            await RunTest("LearnedFactsFile_ReadAsync_TemplateWithSurroundingWhitespace_ReturnsNull", async () =>
+            {
+                string repoRoot = CreateTempRepoRoot();
+                try
+                {
+                    // Trim-normalization: leading/trailing whitespace around the template is still template-only.
+                    WriteLearnedFile(repoRoot, "  \n" + LearnedFactsFile.DefaultTemplateContent + "\n  ");
+                    string? result = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                    AssertNull(result, "Whitespace-padded template should normalize to null");
+                }
+                finally
+                {
+                    DeleteTempRepoRoot(repoRoot);
+                }
+            });
+
+            await RunTest("LearnedFactsFile_ReadAsync_RealContentPrefixedByTemplate_ReturnsContent", async () =>
+            {
+                string repoRoot = CreateTempRepoRoot();
+                try
+                {
+                    // Content that begins with the template but carries real facts is NOT template-only.
+                    string content = LearnedFactsFile.DefaultTemplateContent + "\n\n[high] A real accepted fact.";
+                    WriteLearnedFile(repoRoot, content);
+                    string? result = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                    AssertNotNull(result, "Template-plus-real-facts must not be suppressed");
+                    AssertContains("A real accepted fact", result!, "Real fact content should be returned verbatim");
+                }
+                finally
+                {
+                    DeleteTempRepoRoot(repoRoot);
+                }
+            });
         }
 
         #region Private-Methods
