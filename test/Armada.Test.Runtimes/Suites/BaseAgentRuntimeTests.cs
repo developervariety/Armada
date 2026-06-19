@@ -353,6 +353,56 @@ namespace Armada.Test.Runtimes.Suites
 
                 await Task.Delay(1000);
             });
+
+            await RunTest("UsePromptStdin_LogsPromptContentWithRolePreamble", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.UsePromptStdinOverride = true;
+                string tempDir = Path.GetTempPath();
+                string rolePreamble = "Role: You are an Armada worker agent.";
+                string prompt = rolePreamble + " Mission: test objective. Branch: main. Read CLAUDE.md.";
+
+                string logFilePath = Path.Combine(Path.GetTempPath(), "armada_stdin_prompt_" + Guid.NewGuid().ToString("N") + ".log");
+
+                try
+                {
+                    await runtime.StartAsync(tempDir, prompt, logFilePath: logFilePath);
+                    await Task.Delay(2500);
+
+                    string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
+                    AssertTrue(logContent.Contains(rolePreamble), "Log file must contain the role preamble when the prompt is delivered via stdin");
+                    AssertTrue(logContent.Contains("Mission: test objective"), "Log file must contain the mission instructions when the prompt is delivered via stdin");
+                    AssertTrue(logContent.Contains("Read CLAUDE.md"), "Log file must contain the read-instruction when the prompt is delivered via stdin");
+                }
+                finally
+                {
+                    try { if (File.Exists(logFilePath)) File.Delete(logFilePath); } catch { }
+                }
+            });
+
+            await RunTest("WriteStderrToLogFile False Preserves Standalone Reset Time Line", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.WriteStderrToLogFileOverride = false;
+                string tempDir = Path.GetTempPath();
+                string resetLine = "try again at 11:12 AM";
+                ConfigureStderrEmitter(runtime, resetLine);
+
+                string logFilePath = Path.Combine(Path.GetTempPath(), "armada_stderr_reset_" + Guid.NewGuid().ToString("N") + ".log");
+
+                try
+                {
+                    await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
+                    await Task.Delay(2500);
+
+                    string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
+                    AssertTrue(logContent.Contains("[stderr] " + resetLine), "Standalone reset-time stderr line must be preserved in log file even when WriteStderrToLogFile is false");
+                }
+                finally
+                {
+                    try { if (File.Exists(logFilePath)) File.Delete(logFilePath); } catch { }
+                }
+            });
         }
     }
 }
