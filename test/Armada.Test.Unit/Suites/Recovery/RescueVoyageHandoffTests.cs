@@ -201,9 +201,9 @@ namespace Armada.Test.Unit.Suites.Recovery
                     "The self-heal must stamp the upstream TestEngineer branch onto the Judge stage.");
             }).ConfigureAwait(false);
 
-            // --- Test 3: Stalled-rescue stuck detection ---
+            // --- Test 3: Stalled-rescue stuck detection no longer fires on WaitingForDependency ---
 
-            await RunTest("StalledRescue_OpenVoyageNoLiveMissions_OpensHighIncident", async () =>
+            await RunTest("StalledRescue_OpenVoyageNoLiveMissions_WaitingForDependency_DoesNotOpenIncident", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_rescue_stuck", "usr_rescue_stuck").ConfigureAwait(false);
@@ -230,7 +230,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                // TestEngineer stuck in WaitingForDependency -- not a live status.
+                // TestEngineer in WaitingForDependency -- a normal handoff gap, not a stuck voyage.
                 Mission waitingTE = await testDb.Driver.Missions.CreateAsync(new Mission
                 {
                     TenantId = vessel.TenantId,
@@ -243,9 +243,6 @@ namespace Armada.Test.Unit.Suites.Recovery
                     AssignmentState = MissionAssignmentStateEnum.WaitingForDependency
                 }).ConfigureAwait(false);
 
-                // Backdate all timestamps to 10 minutes ago so the quiet-minutes gate fires.
-                // The DB layer always overrides LastUpdateUtc to DateTime.UtcNow on Create/Update,
-                // so raw SQL is the only way to inject an old timestamp.
                 await BackdateTimestampsAsync(testDb, voyage.Id, new List<string> { worker.Id, waitingTE.Id }, 10).ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
@@ -266,15 +263,12 @@ namespace Armada.Test.Unit.Suites.Recovery
                     PageSize = 10
                 }).ConfigureAwait(false);
 
-                AssertEqual(1, page.Objects.Count, "Exactly one stuck-voyage incident must be opened.");
-                AssertEqual(IncidentSeverityEnum.High, page.Objects[0].Severity, "Stuck-voyage incident must be High severity.");
-                AssertContains("no live missions", page.Objects[0].Summary ?? "", "Incident summary must note no live missions.");
+                AssertEqual(0, page.Objects.Count, "A WaitingForDependency dependent during a handoff gap must not open a stuck-voyage incident.");
             }).ConfigureAwait(false);
 
-            // Prove churned LastUpdateUtc does not suppress de-dup: a second sweep on the same
-            // stuck shape must NOT open a duplicate incident (HasOpenStuckVoyageIncidentAsync guard).
+            // Repeated sweeps on the same false-positive shape must still not open any incident.
 
-            await RunTest("StalledRescue_RepeatedSweep_NoDuplicateIncident", async () =>
+            await RunTest("StalledRescue_RepeatedSweep_WaitingForDependency_DoesNotOpenIncident", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_rescue_dedup", "usr_rescue_dedup").ConfigureAwait(false);
@@ -322,10 +316,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     new RunbookService(testDb.Driver, new LoggingModule()),
                     BuildStuckDetectionSettings());
 
-                // First sweep: should open one incident.
                 await orchestrator.SweepAsync().ConfigureAwait(false);
-
-                // Second sweep on the same shape: must NOT open a duplicate.
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AuthContext auth = AuthContext.Authenticated("ten_rescue_dedup", "usr_rescue_dedup", false, true, "UnitTest");
@@ -336,8 +327,8 @@ namespace Armada.Test.Unit.Suites.Recovery
                     PageSize = 10
                 }).ConfigureAwait(false);
 
-                AssertEqual(1, page.Objects.Count,
-                    "Repeated sweeps on the same stuck shape must not open duplicate incidents.");
+                AssertEqual(0, page.Objects.Count,
+                    "Repeated sweeps of a WaitingForDependency handoff gap must not open any incident.");
             }).ConfigureAwait(false);
 
             // --- Test 4: Non-rescue regression guard ---
@@ -592,16 +583,10 @@ namespace Armada.Test.Unit.Suites.Recovery
                     "Mission must show WaitingForIdleCaptain when handoff is ready but no captain is free.");
             }).ConfigureAwait(false);
 
-            // --- Test 5: Structural stranded-rescue detection (the churn-independent M3 path) ---
-            //
-            // The existing "StalledRescue_*" tests use a dependent with no DependsOnMissionId and a
-            // null-branch dependency, which makes FindStrandedRescueDependent return null -- they only
-            // exercise the GENERIC quiet-clock path. The tests below drive the STRUCTURAL detector:
-            // a Pending dependent whose same-vessel dependency already reached a handoff-eligible
-            // terminal status with a branch that was never propagated. This is the exact 62-minute-
-            // stall-with-no-incident shape M3 fixes, and it must flag without any clock backdating.
+            // Structural stranded-rescue shapes are now treated as normal handoff gaps because the
+            // dependent is WaitingForDependency. No stuck-voyage incident should open.
 
-            await RunTest("StalledRescue_StructuralShape_FlagsWithoutQuietClockBackdate", async () =>
+            await RunTest("StalledRescue_StructuralShape_WaitingForDependency_DoesNotOpenIncident", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_struct", "usr_struct").ConfigureAwait(false);
@@ -622,15 +607,15 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = "armada/rescue-worker/msn_struct"
                 }).ConfigureAwait(false);
 
-                // Dependent stranded by the creation-order race: Pending, depends on the same-vessel
-                // Worker, but the branch was never stamped (null) -- the exact stranded shape.
+                // Dependent in the old structural stranded shape: Pending, depends on the same-vessel
+                // Worker, branch not stamped. This is now a normal handoff gap, not a stuck voyage.
                 Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
                 {
                     TenantId = vessel.TenantId,
                     UserId = vessel.UserId,
                     VesselId = vessel.Id,
                     VoyageId = voyage.Id,
-                    Title = "TestEngineer stranded structural",
+                    Title = "TestEngineer waiting structural",
                     Status = MissionStatusEnum.Pending,
                     Persona = "TestEngineer",
                     DependsOnMissionId = worker.Id,
@@ -648,9 +633,6 @@ namespace Armada.Test.Unit.Suites.Recovery
                     new RunbookService(testDb.Driver, new LoggingModule()),
                     BuildStuckDetectionSettings());
 
-                // No timestamp backdating at all. The structural detector keys on the stranded shape,
-                // not the churn-prone quiet clock, so it must flag immediately. (The no-op admiral
-                // health sweep cannot release it, so escalation fires.)
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AuthContext auth = AuthContext.Authenticated("ten_struct", "usr_struct", false, true, "UnitTest");
@@ -661,99 +643,18 @@ namespace Armada.Test.Unit.Suites.Recovery
                     PageSize = 10
                 }).ConfigureAwait(false);
 
-                AssertEqual(1, page.Objects.Count,
-                    "Structural stranded-rescue shape must open exactly one incident without any quiet-clock backdating.");
-                AssertEqual(IncidentSeverityEnum.High, page.Objects[0].Severity,
-                    "Structural stranded-rescue incident must be High severity.");
-                AssertContains("stayed stranded after self-heal", page.Objects[0].Summary ?? "",
-                    "Incident must come from the structural stranded-rescue path, not the generic quiet-clock path.");
-            }).ConfigureAwait(false);
-
-            // Self-heal success branch: when the admiral health sweep actually completes the missed
-            // handoff, the post-heal re-check finds the dependent released and NO incident is opened.
-
-            await RunTest("StalledRescue_StructuralShape_SelfHealReleases_NoIncident", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                await EnsureTenantAndUserAsync(testDb, "ten_heal", "usr_heal").ConfigureAwait(false);
-
-                Vessel vessel = await CreateVesselAsync(testDb, "ten_heal", "usr_heal").ConfigureAwait(false);
-                Voyage voyage = await CreateOpenVoyageAsync(testDb, vessel).ConfigureAwait(false);
-
-                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
-                {
-                    TenantId = vessel.TenantId,
-                    UserId = vessel.UserId,
-                    VesselId = vessel.Id,
-                    VoyageId = voyage.Id,
-                    Title = "Rescue worker heal",
-                    Status = MissionStatusEnum.WorkProduced,
-                    Persona = "Worker",
-                    BranchName = "armada/rescue-worker/msn_heal"
-                }).ConfigureAwait(false);
-
-                Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission
-                {
-                    TenantId = vessel.TenantId,
-                    UserId = vessel.UserId,
-                    VesselId = vessel.Id,
-                    VoyageId = voyage.Id,
-                    Title = "TestEngineer heal",
-                    Status = MissionStatusEnum.Pending,
-                    Persona = "TestEngineer",
-                    DependsOnMissionId = worker.Id,
-                    AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
-                    BranchName = null
-                }).ConfigureAwait(false);
-
-                await CreateIdleCaptainAsync(testDb, "heal-idle-captain").ConfigureAwait(false);
-
-                // The self-heal step re-runs the admiral health sweep. Simulate that sweep actually
-                // completing the missed handoff -- stamp the Worker branch onto the stranded dependent
-                // -- so the orchestrator's post-heal re-check sees it released and skips escalation.
-                NullAdmiralService admiral = new NullAdmiralService
-                {
-                    OnHealthCheck = async _ =>
-                    {
-                        Mission? toHeal = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
-                        if (toHeal != null)
-                        {
-                            toHeal.BranchName = worker.BranchName;
-                            await testDb.Driver.Missions.UpdateAsync(toHeal).ConfigureAwait(false);
-                        }
-                    }
-                };
-
-                IncidentService incidents = new IncidentService(testDb.Driver);
-                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
-                    testDb.Driver,
-                    admiral,
-                    incidents,
-                    new RunbookService(testDb.Driver, new LoggingModule()),
-                    BuildStuckDetectionSettings());
-
-                await orchestrator.SweepAsync().ConfigureAwait(false);
-
-                AuthContext auth = AuthContext.Authenticated("ten_heal", "usr_heal", false, true, "UnitTest");
-                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
-                {
-                    VoyageId = voyage.Id,
-                    PageNumber = 1,
-                    PageSize = 10
-                }).ConfigureAwait(false);
-
                 AssertEqual(0, page.Objects.Count,
-                    "A self-heal that releases the stranded dependent must NOT escalate to an incident.");
+                    "Structural stranded-rescue shape with a WaitingForDependency dependent must not open a stuck-voyage incident.");
 
-                Mission? released = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
-                AssertEqual(worker.BranchName, released!.BranchName,
-                    "The self-heal must have stamped the upstream Worker branch onto the dependent.");
+                Mission? unchanged = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
+                AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, unchanged!.AssignmentState,
+                    "Dependent must remain WaitingForDependency; the orchestrator does not mutate it.");
             }).ConfigureAwait(false);
 
-            // PullRequestOpen is a handoff-eligible terminal status: a dependent stranded behind a
-            // PullRequestOpen same-vessel dependency must also be flagged by the structural detector.
+            // PullRequestOpen upstream with a WaitingForDependency dependent is also a normal handoff
+            // gap (waiting for the PR to land), not a stuck voyage.
 
-            await RunTest("StalledRescue_PullRequestOpenDependency_TreatedAsStranded", async () =>
+            await RunTest("StalledRescue_PullRequestOpenDependency_WaitingForDependency_DoesNotOpenIncident", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_pr", "usr_pr").ConfigureAwait(false);
@@ -807,19 +708,17 @@ namespace Armada.Test.Unit.Suites.Recovery
                     PageSize = 10
                 }).ConfigureAwait(false);
 
-                AssertEqual(1, page.Objects.Count,
-                    "A dependent stranded behind a PullRequestOpen dependency must be flagged as a stranded rescue.");
-                AssertContains("stayed stranded after self-heal", page.Objects[0].Summary ?? "",
-                    "PullRequestOpen dependency must take the structural stranded-rescue path.");
+                AssertEqual(0, page.Objects.Count,
+                    "A WaitingForDependency dependent behind a PullRequestOpen dependency must not open a stuck-voyage incident.");
             }).ConfigureAwait(false);
 
-            // --- Negative: structural detector must EXCLUDE non-stranded shapes ---
+            // --- Negative: WaitingForDependency dependents never open stuck-voyage incidents ---
             //
-            // Each of the following sets up an idle captain and a Pending dependent that almost
-            // matches the stranded shape, but a single discriminating attribute makes the finder
-            // skip it. With no quiet-clock backdating the generic path is also dormant, so a clean
-            // 0-incident assertion proves the structural finder declined for that specific reason
-            // (contrast the positive cases above, which fire immediately under identical timing).
+            // Each of the following sets up a shape that previously might have been flagged by the
+            // structural stranded-rescue detector. Under the current health rules any Pending mission
+            // in an expected wait state (WaitingForDependency, WaitingForVesselMutex,
+            // WaitingForIdleCaptain, Provisioning, or plain Pending) has a forward path and must not
+            // trigger a stuck-voyage incident, regardless of dependency details.
 
             await RunTest("StuckDetector_ArchitectDependency_NotTreatedAsStranded", async () =>
             {
@@ -1071,8 +970,9 @@ namespace Armada.Test.Unit.Suites.Recovery
                     Status = VoyageStatusEnum.Open
                 }).ConfigureAwait(false);
 
-                // A Pending mission that never started: null started_utc and completed_utc. With no
-                // mission progress timestamp at all, the anchor falls back to the voyage created_utc.
+                // A Pending mission whose assignment failed: it never started and has no forward
+                // path. With no mission progress timestamp at all, the anchor falls back to the
+                // voyage created_utc and the quiet clock can fire.
                 await testDb.Driver.Missions.CreateAsync(new Mission
                 {
                     TenantId = vessel.TenantId,
@@ -1081,6 +981,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     VoyageId = voyage.Id,
                     Title = "Never-started mission",
                     Status = MissionStatusEnum.Pending,
+                    AssignmentState = MissionAssignmentStateEnum.Failed,
                     Persona = "Worker",
                     BranchName = null
                 }).ConfigureAwait(false);

@@ -94,7 +94,7 @@ namespace Armada.Core.Settings
         private int _FailedMissionLookbackHours = 24;
         private int _StallMailNudgeCooldownMinutes = 15;
         private double _StallMailNudgeThresholdRatio = 0.5;
-        private int _StuckOpenVoyageMinutes = 30;
+        private int _StuckOpenVoyageMinutes = 60;
         private int _LandingDrainMaxVoyagesPerSweep = 10;
         private int _RecoverySweepMaxFailedMissionAgeHours = 6;
     }
