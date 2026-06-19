@@ -321,16 +321,6 @@ namespace Armada.Server
                         continue;
                     }
 
-                    if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal))
-                    {
-                        mission.CodeContextMode = mode;
-                        mission.CodeContextQuery = query;
-                        LogCodeContextInfo(
-                            "code context for mission '" + mission.Title + "': auto_deferred"
-                            + " vesselId=" + vesselId);
-                        continue;
-                    }
-
                     LogCodeContextInfo(
                         "code context for mission '" + mission.Title + "': cache_miss; warming baseline cache for vessel " + vesselId);
                     await _CodeIndexService.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
@@ -363,7 +353,14 @@ namespace Armada.Server
                         if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
                             return "code context generation returned no prestaged files for mission '" + mission.Title + "'";
 
-                        LogCodeContextWarning("code context generation returned no prestaged files for mission '" + mission.Title + "'");
+                        if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal))
+                        {
+                            LogCodeContextAutoMissingWarning(mode, mission.Title, vesselId, "code context generation returned no prestaged files");
+                        }
+                        else
+                        {
+                            LogCodeContextWarning("code context generation returned no prestaged files for mission '" + mission.Title + "'");
+                        }
                         continue;
                     }
 
@@ -374,7 +371,14 @@ namespace Armada.Server
                     if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
                         return "code context generation failed for mission '" + mission.Title + "': " + ex.Message;
 
-                    LogCodeContextWarning("code context generation failed for mission '" + mission.Title + "': " + ex.Message);
+                    if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal))
+                    {
+                        LogCodeContextAutoMissingWarning(mode, mission.Title, vesselId, ex.Message);
+                    }
+                    else
+                    {
+                        LogCodeContextWarning("code context generation failed for mission '" + mission.Title + "': " + ex.Message);
+                    }
                 }
             }
 
@@ -509,6 +513,19 @@ namespace Armada.Server
         {
             if (_Logging == null) return;
             _Logging.Info("[VoyageDispatchService] " + message);
+        }
+
+        private void LogCodeContextAutoMissingWarning(string mode, string? missionTitle, string vesselId, string reason)
+        {
+            if (_Logging == null) return;
+            _Logging.BeginStructuredLog(
+                Severity.Warn,
+                "code context mode {CodeContextMode} yielded no pack for mission {MissionTitle} on vessel {VesselId}: {Reason}; dispatch continues without context pack")
+                .WithProperty("CodeContextMode", mode ?? _CodeContextModeAuto)
+                .WithProperty("MissionTitle", missionTitle ?? "")
+                .WithProperty("VesselId", vesselId)
+                .WithProperty("Reason", reason)
+                .Write();
         }
 
         private static string? NormalizeEmpty(string? value)
