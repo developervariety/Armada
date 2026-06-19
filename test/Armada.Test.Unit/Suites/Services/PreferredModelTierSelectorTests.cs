@@ -222,16 +222,16 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_High_SelectsCaptainWithClaude46OpusHighThinking", () =>
+            await RunTest("SelectModel_High_SelectsCaptainWithClaude46OpusHigh", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-4.6-opus-high-thinking")
+                    MakeCaptain("claude-4.6-opus-high")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
-                AssertNotNull(selected, "High tier should match Claude 4.6 opus high-thinking alias");
-                AssertEqual("claude-4.6-opus-high-thinking", selected, "Exact model string should round-trip");
+                AssertNotNull(selected, "High tier should match Claude 4.6 opus high alias");
+                AssertEqual("claude-4.6-opus-high", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
             });
 
@@ -351,7 +351,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "curated opus is high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "curated gpt-5.5 is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high-thinking"), "curated cursor opus alias is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high"), "curated cursor opus alias is high");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6"), "curated sonnet is mid");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.3-codex"), "curated gpt codex is mid");
                 AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "curated kimi is low");
@@ -714,6 +714,87 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Worker", _ => 0);
                 AssertEqual("claude-opus-4-7", selected, "An explicit high request by a non-specialist resolves to the high captain, not the idle mid one");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_ConfigDrivenTierMembership_FollowsModelTierSettings", () =>
+            {
+                // Tier membership is sourced from ModelTierSettings, not hard-coded arrays.
+                // The configured lists win over canonical family patterns and over default
+                // tier assignments, so moving a model between tiers is a settings change.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.LowTierModels = new List<string> { "custom-low", "claude-opus-4-7" };
+                custom.MidTierModels = new List<string> { "custom-mid", "kimi-k2.5" };
+                custom.HighTierModels = new List<string> { "custom-high" };
+
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("custom-low", custom), "custom low-tier model classifies low");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("custom-mid", custom), "custom mid-tier model classifies mid");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("custom-high", custom), "custom high-tier model classifies high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.5", custom), "a default low model moved to mid config classifies mid");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "configured low-tier membership overrides the canonical opus high pattern");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("not-in-any-list-and-no-pattern-match", custom), "model not in custom lists and not matching a family pattern is not classified");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_Gpt55_ExplicitEntryOnlyClassifiesHigh", () =>
+            {
+                // gpt-5.5 must classify high through its explicit curated entry, not a fragile
+                // regex or prefix fallback. Nearby gpt variants that are not explicitly listed
+                // must remain unclassified.
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "gpt-5.5 is explicitly high");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.5-turbo"), "no gpt prefix fallback absorbs variants");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6"), "no gpt prefix fallback absorbs version bumps");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_KimiK27_HardensToMid", () =>
+            {
+                // Kimi K2.7 must reliably resolve to the mid tier, both bare and under opencode
+                // prefixes, while earlier Kimi releases stay low.
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7"), "bare k2.7 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7-code"), "k2.7-code variant is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.7-code"), "opencode-go k2.7 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode/kimi-k2.7"), "opencode k2.7 is mid");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "k2.5 stays low");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.6"), "k2.6 stays low");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_SpecialistPersona_MidDispatch_ForcedHigh", () =>
+            {
+                // A mid-tier dispatch for a specialist persona must resolve to the high tier
+                // even when an idle mid-tier captain is available.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "TestEngineer", _ => 0);
+                AssertEqual("claude-opus-4-7", selected, "Specialist mid dispatch is forced to high-tier captain");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_K2_7FirstPreserved", () =>
+            {
+                // The default mid preference order must keep K2.7 first, then sonnet, then
+                // composer, and must be overridable through settings.
+                ModelTierSettings defaults = new ModelTierSettings();
+                AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default contains mid preference order");
+                List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
+                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[0], "default mid order starts with K2.7");
+                AssertEqual("claude-sonnet-4-6", midOrder[1], "default mid order second is sonnet");
+                AssertEqual("composer-2.5", midOrder[2], "default mid order third is composer");
+
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("opencode-go/kimi-k2.7-code")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults);
+                AssertEqual("opencode-go/kimi-k2.7-code", selected, "K2.7-first preference is preserved when all mid captains are idle");
                 return Task.CompletedTask;
             });
         }

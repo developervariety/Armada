@@ -3619,8 +3619,13 @@ namespace Armada.Core.Services
         /// <param name="captain">Captain row to evaluate.</param>
         /// <param name="missionPersona">Mission persona, if any.</param>
         /// <param name="preferredModel">Preferred model or tier selector, if any.</param>
+        /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
         /// <returns>True when the captain may run the mission under the given pins.</returns>
-        public static bool CaptainSatisfiesPreferredRouting(Captain captain, string? missionPersona, string? preferredModel)
+        public static bool CaptainSatisfiesPreferredRouting(
+            Captain captain,
+            string? missionPersona,
+            string? preferredModel,
+            ModelTierSettings? modelTierSettings = null)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
@@ -3628,7 +3633,7 @@ namespace Armada.Core.Services
             {
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
-                    if (!PreferredModelTierSelector.ModelMatchesTierOrAbove(captain.Model, preferredModel))
+                    if (!PreferredModelTierSelector.ModelMatchesTierOrAbove(captain.Model, preferredModel, modelTierSettings))
                         return false;
                 }
                 else if (!String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
@@ -3682,7 +3687,7 @@ namespace Armada.Core.Services
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
                     string? selectedModel = PreferredModelTierSelector.SelectModel(
-                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder);
+                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier);
                     if (selectedModel == null) return null;
                     List<Captain> filtered = new List<Captain>();
                     foreach (Captain captain in idleCaptains)
@@ -3715,11 +3720,11 @@ namespace Armada.Core.Services
                     else
                     {
                         // No exact match: classify the pinned model into a tier and re-resolve.
-                        string? classifiedTier = PreferredModelTierSelector.ClassifyModel(preferredModel);
+                        string? classifiedTier = PreferredModelTierSelector.ClassifyModel(preferredModel, _Settings.ModelTier);
                         if (classifiedTier != null)
                         {
                             string? fallbackModel = PreferredModelTierSelector.SelectModel(
-                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder);
+                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier);
                             if (fallbackModel == null) return null;
                             List<Captain> tierFiltered = new List<Captain>();
                             foreach (Captain captain in idleCaptains)
@@ -3747,7 +3752,7 @@ namespace Armada.Core.Services
                 // captains carrying custom/unclassified models still receive work.
                 string defaultTier = isSpecialist ? PreferredModelTierSelector.HighTier : PreferredModelTierSelector.MidTier;
                 string? defaultedModel = PreferredModelTierSelector.SelectModel(
-                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder);
+                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier);
                 if (defaultedModel != null)
                 {
                     List<Captain> filtered = new List<Captain>();

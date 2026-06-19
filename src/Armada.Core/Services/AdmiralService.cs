@@ -1925,11 +1925,12 @@ namespace Armada.Core.Services
                     int idleNonHighTier = 0;
                     foreach (Captain c in remainingIdle)
                     {
-                        if (String.Equals(
-                                PreferredModelTierSelector.ClassifyModel(c.Model),
-                                PreferredModelTierSelector.HighTier,
-                                StringComparison.OrdinalIgnoreCase))
-                            idleHighTier++;
+                    if (String.Equals(
+                            PreferredModelTierSelector.ClassifyModel(c.Model, _Settings.ModelTier),
+                            PreferredModelTierSelector.HighTier,
+                            StringComparison.OrdinalIgnoreCase))
+                        idleHighTier++;
+
                         else
                             idleNonHighTier++;
                     }
