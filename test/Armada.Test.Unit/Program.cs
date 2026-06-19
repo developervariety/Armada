@@ -215,6 +215,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SchedulerCapacityTests());
             runner.AddSuite(new ReflectionMemoryBootstrapServiceTests());
             runner.AddSuite(new LearnedFactsReadPreferenceTests());
+            runner.AddSuite(new LearnedFactsApplyTests());
             runner.AddSuite(new ReflectionConsolidateToolsTests());
             runner.AddSuite(new ReflectionAcceptRejectToolsTests());
             runner.AddSuite(new ReflectionAnchorTests());
