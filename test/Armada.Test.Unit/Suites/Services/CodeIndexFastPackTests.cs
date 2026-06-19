@@ -531,6 +531,66 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             });
+
+            await RunTest("BuildContextPackAsync_SummarizerExceedsBudget_LabelsBudgetExpiryNotSummarizerTimeout", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-fast-pack-summarizer-budget-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+
+                        // The whole-build budget must also bound the LATE summarizer stage, not just the
+                        // initial search. Give the summarizer a generous per-call timeout (600s) but a tiny
+                        // overall budget (1000ms): the search/markdown phase clears the budget, then a slow
+                        // summarizer outlives it. The diff links the summarizer delay task to the budget token
+                        // and labels a budget-driven abort `context_pack_budget_expired` -- distinct from the
+                        // per-call `summarizer_timeout`. FastPackOnly removes graph timing from the equation so
+                        // only the fast lexical search precedes the summarizer.
+                        DelayingInferenceClient inference = new DelayingInferenceClient(delayMs: 6000, summary: "summary that arrives after the budget");
+                        CodeIndexService service = CreateService(testDb, dataRoot, s =>
+                        {
+                            s.UseSemanticSearch = false;
+                            s.UseSummarizer = true;
+                            s.SummarizerTimeoutSeconds = 600;
+                            s.ContextPackBudgetMs = 1000;
+                        }, inferenceClient: inference);
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        Stopwatch stopwatch = Stopwatch.StartNew();
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "SearchKeyword",
+                            TokenBudget = 1200,
+                            MaxResults = 4,
+                            FastPackOnly = true
+                        }).ConfigureAwait(false);
+                        stopwatch.Stop();
+
+                        AssertEqual(1, inference.CallCount, "Summarizer must have been entered exactly once (budget alive at the gate)");
+                        AssertFalse(response.IsSummarized, "A budget-aborted summarizer must not mark the pack as summarized");
+                        AssertTrue(response.SummarizedMarkdown == null, "SummarizedMarkdown must be null when the summarizer is cut by the budget");
+                        AssertTrue(response.Warnings.Any(w => w.Contains("context_pack_budget_expired", StringComparison.OrdinalIgnoreCase) && w.Contains("summariz", StringComparison.OrdinalIgnoreCase)),
+                            "Budget-driven summarizer abort must record a context_pack_budget_expired summarization warning (warnings: " + String.Join(" | ", response.Warnings) + ")");
+                        AssertFalse(response.Warnings.Any(w => w.Contains("summarizer_timeout", StringComparison.OrdinalIgnoreCase)),
+                            "A budget expiry must NOT be mislabeled as the per-call summarizer_timeout");
+
+                        string materialized = await File.ReadAllTextAsync(response.MaterializedPath).ConfigureAwait(false);
+                        AssertEqual(response.Markdown, materialized, "Budget-aborted summarizer must materialize the raw markdown fallback");
+                        AssertTrue(stopwatch.ElapsedMilliseconds < 5000, "Budget must cut the slow summarizer short, not wait the full delay (elapsed " + stopwatch.ElapsedMilliseconds + "ms)");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
         }
 
         #region Helpers
@@ -845,6 +905,30 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 await Task.Delay(_DelayMs, token).ConfigureAwait(false);
                 return _Vector;
+            }
+        }
+
+        private sealed class DelayingInferenceClient : IInferenceClient
+        {
+            private readonly int _DelayMs;
+            private readonly string _Summary;
+
+            public int CallCount { get; private set; }
+
+            public DelayingInferenceClient(int delayMs, string summary)
+            {
+                _DelayMs = delayMs;
+                _Summary = summary ?? throw new ArgumentNullException(nameof(summary));
+            }
+
+            public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken token = default)
+            {
+                CallCount++;
+                // Honor only the caller token: the production summarizer passes the caller token here while
+                // bounding completion via a budget-linked delay race, so a budget expiry must cut the wait
+                // without this completion ever returning or faulting.
+                await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                return _Summary;
             }
         }
 
