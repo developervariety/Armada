@@ -100,8 +100,8 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Build OpenCode CLI arguments.
-        /// Produces: run -m &lt;model&gt; --format json [--variant &lt;reasoningEffort&gt;]
-        ///           [--agent &lt;agent&gt;]
+        /// Produces: run -m &lt;model&gt; --format json --dangerously-skip-permissions
+        ///           [--variant &lt;reasoningEffort&gt;] [--agent &lt;agent&gt;]
         ///
         /// Runs <c>opencode run</c> standalone: the captain path no longer attaches to a
         /// daemon. WHY: on opencode 1.17.7 an <c>--attach &lt;BaseUrl&gt;</c> invocation
@@ -138,6 +138,14 @@ namespace Armada.Runtimes
 
             args.Add("--format");
             args.Add("json");
+
+            // Auto-approve any permission not explicitly denied so the dock's
+            // external_directory access is not auto-rejected. This is the runtime
+            // override that beats both opencode's broken Windows path-glob matcher
+            // for external_directory and the non-interactive run-mode permission
+            // preset (which a permissive config file has been reported not to
+            // override). Added unconditionally for the standalone run path.
+            args.Add("--dangerously-skip-permissions");
 
             // Forward per-captain reasoning effort as --variant when set.
             // Null/blank means the captain has no runtime options or the option

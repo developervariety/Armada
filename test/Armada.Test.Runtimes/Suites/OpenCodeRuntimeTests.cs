@@ -173,6 +173,68 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("json", args[formatIndex + 1]);
             });
 
+            await RunTest("BuildArguments_IncludesDangerouslySkipPermissions", () =>
+            {
+                // Runtime override for the dock external_directory permission: the flag
+                // auto-approves non-denied permissions, beating opencode's broken Windows
+                // path-glob matcher and the non-interactive run-mode permission preset.
+                // It must be present for every standard run.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt");
+                AssertTrue(args.Contains("--dangerously-skip-permissions"), "--dangerously-skip-permissions must be present so dock external_directory access is not auto-rejected");
+            });
+
+            await RunTest("BuildArguments_DangerouslySkipPermissions_AppearsExactlyOnce", () =>
+            {
+                // Idempotency guard: the override must be added exactly once. A duplicate flag
+                // (e.g. a future edit that re-adds it on another code path) would still satisfy
+                // a Contains check, so count occurrences explicitly.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
+                int count = 0;
+                foreach (string arg in args)
+                {
+                    if (arg == "--dangerously-skip-permissions") count++;
+                }
+                AssertEqual(1, count, "--dangerously-skip-permissions must appear exactly once, never duplicated");
+            });
+
+            await RunTest("BuildArguments_DangerouslySkipPermissions_FollowsFormatJson", () =>
+            {
+                // Placement guard: the documented position is right after the `--format json`
+                // flags. opencode treats --dangerously-skip-permissions as a `run` flag, so it
+                // must sit after the run subcommand and after the --format/json pair, never
+                // before the `run` subcommand where opencode would not parse it.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6");
+                int runIndex = args.IndexOf("run");
+                int formatValueIndex = args.IndexOf("json");
+                int skipIndex = args.IndexOf("--dangerously-skip-permissions");
+                AssertTrue(skipIndex > runIndex, "--dangerously-skip-permissions must come after the 'run' subcommand");
+                AssertTrue(skipIndex > formatValueIndex, "--dangerously-skip-permissions must come after the --format json pair");
+            });
+
+            await RunTest("BuildArguments_DangerouslySkipPermissions_PresentWithModelVariantAndAgent", () =>
+            {
+                // Combination guard: the existing presence test exercised the bare no-model path.
+                // The flag must also survive the fullest arg set -- model (-m), reasoning effort
+                // (--variant) and the resolved --agent all present -- so a future reorder around
+                // those flags cannot drop the permission override.
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("opencode", AgentRuntimeEnum.OpenCode);
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "high"
+                });
+
+                List<string> args = runtime.Args("test prompt", "claude-sonnet-4-6", captain);
+
+                AssertTrue(args.Contains("--dangerously-skip-permissions"), "--dangerously-skip-permissions must remain present alongside -m, --variant and --agent");
+                AssertTrue(args.Contains("-m"), "-m must remain present in the full arg set");
+                AssertTrue(args.Contains("--variant"), "--variant must remain present in the full arg set");
+                AssertTrue(args.Contains("--agent"), "--agent must remain present in the full arg set");
+            });
+
             await RunTest("BuildArguments_IncludesModelWhenSupplied", () =>
             {
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
