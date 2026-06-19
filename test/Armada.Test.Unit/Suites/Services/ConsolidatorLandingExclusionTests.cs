@@ -224,6 +224,60 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MemoryConsolidator_MergeQueueMode_NoDiffCompletesWithoutEnqueue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "consolidator merge queue no diff vessel").ConfigureAwait(false);
+                    vessel.LandingMode = LandingModeEnum.MergeQueue;
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Consolidate learned facts");
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "MemoryConsolidator";
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.AgentOutput = ReflectionTestHelpers.BuildReflectionProposalAgentOutput("# Vessel Learned Facts\n\nDB-applied fact.");
+                    mission.DiffSnapshot = "";
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain captain = new Captain("test-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = "armada/consolidator/msn_test";
+                    dock.Active = true;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    git.ExistingBranches.Add(dock.BranchName);
+                    git.DiffResult = "";
+
+                    RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                    MissionLandingHandler handler = CreateHandler(logging, testDb.Driver, settings, git, mergeQueue);
+
+                    await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "mission row must exist");
+                    AssertEqual(MissionStatusEnum.Complete, updated!.Status, "MergeQueue MemoryConsolidator with no diff must complete");
+                    AssertTrue(updated.CompletedUtc.HasValue, "CompletedUtc must be set");
+
+                    AssertEqual(0, mergeQueue.EnqueuedEntryIds.Count, "MergeQueue MemoryConsolidator with no diff must not enqueue");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 10).ConfigureAwait(false);
+                    AssertEqual(0, events.Count(e => String.Equals(e.EventType, "merge_queue.enqueued", StringComparison.Ordinal)), "no merge queue event must be emitted");
+                    AssertEqual(1, events.Count(e => String.Equals(e.EventType, "reflection.candidate_emitted", StringComparison.Ordinal)), "candidate event must still be emitted");
+                }
+            });
+
             await RunTest("WorkerMission_NotShortCircuited_NoReflectionCandidateEvent", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
