@@ -50,6 +50,15 @@ namespace Armada.Core.Services
         public async Task<string> ReadLearnedPlaybookContentAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+
+            string? repoRoot = !String.IsNullOrEmpty(vessel.WorkingDirectory) ? vessel.WorkingDirectory : vessel.LocalPath;
+            if (!String.IsNullOrEmpty(repoRoot))
+            {
+                string? fileContent = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(fileContent))
+                    return fileContent;
+            }
+
             if (String.IsNullOrEmpty(vessel.TenantId))
                 return "# Vessel Learned Facts\n\nNo accepted reflection facts yet.";
 
