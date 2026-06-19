@@ -45,6 +45,42 @@ namespace Armada.Server
 
         #endregion
 
+        #region Private-Types
+
+        /// <summary>
+        /// Captures a code-context build that must run after the voyage has been created
+        /// so that dispatch returns promptly even when the pack build is slow.
+        /// </summary>
+        private class DeferredCodeContext
+        {
+            /// <summary>
+            /// Original mission index in the dispatch request (used for best-effort matching).
+            /// </summary>
+            public int MissionIndex { get; set; }
+
+            /// <summary>
+            /// Mission title from the dispatch request.
+            /// </summary>
+            public string MissionTitle { get; set; } = "";
+
+            /// <summary>
+            /// Mission description from the dispatch request.
+            /// </summary>
+            public string MissionDescription { get; set; } = "";
+
+            /// <summary>
+            /// Resolved code context mode (auto or force).
+            /// </summary>
+            public string Mode { get; set; } = "";
+
+            /// <summary>
+            /// Query used to build the context pack.
+            /// </summary>
+            public string Query { get; set; } = "";
+        }
+
+        #endregion
+
         #region Constructors-and-Factories
 
         /// <summary>
@@ -130,12 +166,14 @@ namespace Armada.Server
                 });
             }
 
-            string? codeContextError = await ApplyDispatchCodeContextAsync(
+            List<DeferredCodeContext> deferredBuilds = new List<DeferredCodeContext>();
+            string? codeContextError = await PrepareDispatchCodeContextAsync(
                 vesselId,
                 request.CodeContextMode,
                 request.CodeContextTokenBudget,
                 request.CodeContextMaxResults,
-                missions).ConfigureAwait(false);
+                missions,
+                deferredBuilds).ConfigureAwait(false);
             if (codeContextError != null) return VoyageDispatchResult.BadRequest(new { Error = codeContextError });
 
             bool hasAliases = missions.Any(m =>
@@ -169,6 +207,13 @@ namespace Armada.Server
             {
                 return VoyageDispatchResult.BadRequest(dispatchResult);
             }
+
+            ApplyDeferredCodeContextAsync(
+                vesselId,
+                voyage.Id,
+                deferredBuilds,
+                request.CodeContextTokenBudget,
+                request.CodeContextMaxResults);
 
             await LinkObjectiveToVoyageAsync(objectiveId, request.ObjectiveAuthContext, voyage).ConfigureAwait(false);
             return VoyageDispatchResult.Success(voyage);
@@ -248,12 +293,13 @@ namespace Armada.Server
             return pipelineId;
         }
 
-        private async Task<string?> ApplyDispatchCodeContextAsync(
+        private async Task<string?> PrepareDispatchCodeContextAsync(
             string vesselId,
             string? topLevelMode,
             int? tokenBudget,
             int? maxResults,
-            List<MissionDescription> missions)
+            List<MissionDescription> missions,
+            List<DeferredCodeContext> deferredBuilds)
         {
             if (missions == null || missions.Count == 0) return null;
 
@@ -321,6 +367,22 @@ namespace Armada.Server
                         continue;
                     }
 
+                    if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal))
+                    {
+                        mission.CodeContextMode = mode;
+                        mission.CodeContextQuery = query;
+                        deferredBuilds.Add(new DeferredCodeContext
+                        {
+                            MissionIndex = i,
+                            MissionTitle = mission.Title ?? "",
+                            MissionDescription = mission.Description ?? "",
+                            Mode = mode,
+                            Query = query
+                        });
+                        LogCodeContextAsyncStarted(mode, mission.Title, vesselId);
+                        continue;
+                    }
+
                     LogCodeContextInfo(
                         "code context for mission '" + mission.Title + "': cache_miss; warming baseline cache for vessel " + vesselId);
                     await _CodeIndexService.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
@@ -353,14 +415,7 @@ namespace Armada.Server
                         if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
                             return "code context generation returned no prestaged files for mission '" + mission.Title + "'";
 
-                        if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal))
-                        {
-                            LogCodeContextAutoMissingWarning(mode, mission.Title, vesselId, "code context generation returned no prestaged files");
-                        }
-                        else
-                        {
-                            LogCodeContextWarning("code context generation returned no prestaged files for mission '" + mission.Title + "'");
-                        }
+                        LogCodeContextWarning("code context generation returned no prestaged files for mission '" + mission.Title + "'");
                         continue;
                     }
 
@@ -371,18 +426,151 @@ namespace Armada.Server
                     if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
                         return "code context generation failed for mission '" + mission.Title + "': " + ex.Message;
 
-                    if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal))
-                    {
-                        LogCodeContextAutoMissingWarning(mode, mission.Title, vesselId, ex.Message);
-                    }
-                    else
-                    {
-                        LogCodeContextWarning("code context generation failed for mission '" + mission.Title + "': " + ex.Message);
-                    }
+                    LogCodeContextWarning("code context generation failed for mission '" + mission.Title + "': " + ex.Message);
                 }
             }
 
             return null;
+        }
+
+        private void ApplyDeferredCodeContextAsync(
+            string vesselId,
+            string voyageId,
+            List<DeferredCodeContext> deferredBuilds,
+            int? tokenBudget,
+            int? maxResults)
+        {
+            if (deferredBuilds == null || deferredBuilds.Count == 0) return;
+            if (_CodeIndexService == null) return;
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    List<Mission> missions;
+                    try
+                    {
+                        missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogCodeContextWarning("failed to enumerate missions for deferred code context on voyage " + voyageId + ": " + ex.Message);
+                        return;
+                    }
+
+                    foreach (DeferredCodeContext deferred in deferredBuilds)
+                    {
+                        try
+                        {
+                            await BuildAndApplyDeferredContextPackAsync(
+                                vesselId,
+                                voyageId,
+                                deferred,
+                                missions,
+                                tokenBudget,
+                                maxResults).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogCodeContextWarning("deferred code context build failed for mission '" + deferred.MissionTitle + "' on voyage " + voyageId + ": " + ex.Message);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogCodeContextWarning("deferred code context handler failed for voyage " + voyageId + ": " + ex.Message);
+                }
+            });
+        }
+
+        private async Task BuildAndApplyDeferredContextPackAsync(
+            string vesselId,
+            string voyageId,
+            DeferredCodeContext deferred,
+            List<Mission> missions,
+            int? tokenBudget,
+            int? maxResults)
+        {
+            ContextPackRequest contextRequest = new ContextPackRequest
+            {
+                VesselId = vesselId,
+                Goal = deferred.Query,
+                TokenBudget = tokenBudget ?? _DefaultCodeContextTokenBudget,
+                MaxResults = maxResults
+            };
+
+            LogCodeContextInfo(
+                "code context for mission '" + deferred.MissionTitle + "': async_build_running on vessel " + vesselId);
+
+            ContextPackResponse contextPack;
+            try
+            {
+                contextPack = await BuildContextPackWithTimeoutAsync(_CodeIndexService!, contextRequest).ConfigureAwait(false);
+            }
+            catch (TimeoutException tex)
+            {
+                LogCodeContextAutoMissingWarning(deferred.Mode, deferred.MissionTitle, vesselId, "deferred build timed out: " + tex.Message);
+                return;
+            }
+
+            if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
+            {
+                LogCodeContextAutoMissingWarning(deferred.Mode, deferred.MissionTitle, vesselId, "deferred build returned no prestaged files");
+                return;
+            }
+
+            List<PrestagedFile> generatedFiles = contextPack.PrestagedFiles;
+            bool anyApplied = false;
+
+            foreach (Mission mission in missions)
+            {
+                if (mission == null) continue;
+                if (!IsDeferredContextRecipient(mission, deferred)) continue;
+
+                try
+                {
+                    Mission? current = await _Database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    if (current == null) continue;
+
+                    if (current.Status != MissionStatusEnum.Pending)
+                    {
+                        LogCodeContextAsyncTooLate(deferred.MissionTitle, vesselId, current.Id, current.Status.ToString());
+                        continue;
+                    }
+
+                    MergeGeneratedPrestagedFiles(current, generatedFiles);
+                    await _Database.Missions.UpdateAsync(current).ConfigureAwait(false);
+                    anyApplied = true;
+                    LogCodeContextAsyncApplied(deferred.MissionTitle, vesselId, current.Id);
+                }
+                catch (Exception ex)
+                {
+                    LogCodeContextWarning("failed to apply deferred code context to mission " + mission.Id + " on voyage " + voyageId + ": " + ex.Message);
+                }
+            }
+
+            if (!anyApplied)
+            {
+                LogCodeContextAutoMissingWarning(
+                    deferred.Mode,
+                    deferred.MissionTitle,
+                    vesselId,
+                    "deferred build completed but no pending mission could be updated");
+            }
+        }
+
+        private static bool IsDeferredContextRecipient(Mission mission, DeferredCodeContext deferred)
+        {
+            if (String.IsNullOrEmpty(mission.Persona))
+            {
+                return String.Equals(mission.Title, deferred.MissionTitle, StringComparison.Ordinal)
+                    && String.Equals(mission.Description, deferred.MissionDescription, StringComparison.Ordinal);
+            }
+
+            if (!_ImplementingPersonas.Contains(mission.Persona))
+                return false;
+
+            return String.Equals(mission.Description, deferred.MissionDescription, StringComparison.Ordinal);
         }
 
         private static async Task<ContextPackResponse> BuildContextPackWithTimeoutAsync(
@@ -503,6 +691,38 @@ namespace Armada.Server
             mission.PrestagedFiles = merged.Count > 0 ? merged : null;
         }
 
+        private void MergeGeneratedPrestagedFiles(Mission mission, List<PrestagedFile> generatedFiles)
+        {
+            if (generatedFiles == null || generatedFiles.Count == 0) return;
+
+            List<PrestagedFile> merged = mission.PrestagedFiles ?? new List<PrestagedFile>();
+            foreach (PrestagedFile generated in generatedFiles)
+            {
+                if (generated == null) continue;
+
+                bool duplicateDest = false;
+                foreach (PrestagedFile existing in merged)
+                {
+                    if (existing == null) continue;
+                    if (String.Equals(existing.DestPath, generated.DestPath, StringComparison.Ordinal))
+                    {
+                        duplicateDest = true;
+                        break;
+                    }
+                }
+
+                if (duplicateDest)
+                {
+                    LogCodeContextWarning("skipping generated code context prestaged file because destPath already exists: " + generated.DestPath);
+                    continue;
+                }
+
+                merged.Add(new PrestagedFile(generated.SourcePath ?? "", generated.DestPath ?? _CodeContextDestPath));
+            }
+
+            mission.PrestagedFiles = merged.Count > 0 ? merged : null;
+        }
+
         private void LogCodeContextWarning(string message)
         {
             if (_Logging == null) return;
@@ -525,6 +745,43 @@ namespace Armada.Server
                 .WithProperty("MissionTitle", missionTitle ?? "")
                 .WithProperty("VesselId", vesselId)
                 .WithProperty("Reason", reason)
+                .Write();
+        }
+
+        private void LogCodeContextAsyncStarted(string mode, string? missionTitle, string vesselId)
+        {
+            if (_Logging == null) return;
+            _Logging.BeginStructuredLog(
+                Severity.Warn,
+                "code context mode {CodeContextMode} for mission {MissionTitle} on vessel {VesselId} will be built asynchronously after voyage creation")
+                .WithProperty("CodeContextMode", mode ?? _CodeContextModeAuto)
+                .WithProperty("MissionTitle", missionTitle ?? "")
+                .WithProperty("VesselId", vesselId)
+                .Write();
+        }
+
+        private void LogCodeContextAsyncApplied(string? missionTitle, string vesselId, string missionId)
+        {
+            if (_Logging == null) return;
+            _Logging.BeginStructuredLog(
+                Severity.Info,
+                "deferred code context pack applied to mission {MissionId} ({MissionTitle}) on vessel {VesselId}")
+                .WithProperty("MissionId", missionId)
+                .WithProperty("MissionTitle", missionTitle ?? "")
+                .WithProperty("VesselId", vesselId)
+                .Write();
+        }
+
+        private void LogCodeContextAsyncTooLate(string? missionTitle, string vesselId, string missionId, string status)
+        {
+            if (_Logging == null) return;
+            _Logging.BeginStructuredLog(
+                Severity.Warn,
+                "deferred code context pack for mission {MissionId} ({MissionTitle}) on vessel {VesselId} completed too late; mission status is {MissionStatus}")
+                .WithProperty("MissionId", missionId)
+                .WithProperty("MissionTitle", missionTitle ?? "")
+                .WithProperty("VesselId", vesselId)
+                .WithProperty("MissionStatus", status)
                 .Write();
         }
 
