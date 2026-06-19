@@ -274,16 +274,24 @@ namespace Armada.Core.Services
         /// high-tier captains. Non-specialist personas prefer their requested tier, then the
         /// other non-high tier, and fall up to high only as a last resort -- so a high-tier
         /// captain is never handed to non-specialist work while a mid/low captain sits idle.
+        /// Within a tier, models are tried in the configured preference order; the first
+        /// model with at least one idle, persona-eligible captain is selected. Tiers without
+        /// a configured preference order fall back to random selection across eligible models.
         /// </summary>
         /// <param name="tierValue">Tier selector value (low, mid, high, or alias).</param>
         /// <param name="idleCaptains">All currently idle captains.</param>
         /// <param name="persona">Optional persona name the mission requires.</param>
         /// <param name="randomPick">
         /// Delegate that accepts an exclusive upper bound and returns a random index in
-        /// [0, upperBound). Inject a deterministic function in tests.
+        /// [0, upperBound). Inject a deterministic function in tests. Used only for tiers
+        /// that do not have a configured within-tier preference order.
         /// </param>
         /// <param name="specialistPersonas">
         /// Optional override set of specialist persona names; null uses the built-in default.
+        /// </param>
+        /// <param name="withinTierPreferenceOrder">
+        /// Optional per-tier model preference order. The first listed model with an idle,
+        /// persona-eligible captain is chosen. Null or missing entries use random selection.
         /// </param>
         /// <returns>
         /// A model name string if an eligible model was found, or null if no idle captain
@@ -294,7 +302,8 @@ namespace Armada.Core.Services
             IReadOnlyList<Captain> idleCaptains,
             string? persona,
             Func<int, int> randomPick,
-            IReadOnlyCollection<string>? specialistPersonas = null)
+            IReadOnlyCollection<string>? specialistPersonas = null,
+            IReadOnlyDictionary<string, List<string>>? withinTierPreferenceOrder = null)
         {
             if (randomPick == null)
                 throw new ArgumentNullException(nameof(randomPick));
@@ -319,24 +328,26 @@ namespace Armada.Core.Services
                     if (!IsPersonaEligible(captain, persona))
                         continue;
 
-                    bool alreadyListed = false;
-                    foreach (string existing in eligibleModels)
-                    {
-                        if (String.Equals(existing, captain.Model, StringComparison.OrdinalIgnoreCase))
-                        {
-                            alreadyListed = true;
-                            break;
-                        }
-                    }
-                    if (!alreadyListed)
+                    if (!ContainsModel(eligibleModels, captain.Model))
                         eligibleModels.Add(captain.Model);
                 }
 
-                if (eligibleModels.Count > 0)
+                if (eligibleModels.Count == 0)
+                    continue;
+
+                if (TryGetWithinTierPreferenceOrder(tier, withinTierPreferenceOrder, out IReadOnlyList<string>? preferenceOrder)
+                    && preferenceOrder != null
+                    && preferenceOrder.Count > 0)
                 {
-                    int idx = randomPick(eligibleModels.Count);
-                    return eligibleModels[idx];
+                    List<string> ordered = OrderModelsByPreference(eligibleModels, preferenceOrder);
+                    if (ordered.Count > 0)
+                        return ordered[0];
+
+                    continue;
                 }
+
+                int idx = randomPick(eligibleModels.Count);
+                return eligibleModels[idx];
             }
 
             return null;
@@ -354,6 +365,77 @@ namespace Armada.Core.Services
                     return true;
             }
             return false;
+        }
+
+        private static bool ContainsModel(IReadOnlyList<string> models, string model)
+        {
+            foreach (string m in models)
+            {
+                if (String.Equals(m, model, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool TryGetWithinTierPreferenceOrder(
+            string tier,
+            IReadOnlyDictionary<string, List<string>>? withinTierPreferenceOrder,
+            out IReadOnlyList<string>? order)
+        {
+            order = null;
+            if (withinTierPreferenceOrder == null)
+                return false;
+
+            if (withinTierPreferenceOrder.TryGetValue(tier, out List<string>? direct))
+            {
+                order = direct;
+                return true;
+            }
+
+            foreach (KeyValuePair<string, List<string>> kvp in withinTierPreferenceOrder)
+            {
+                if (String.Equals(kvp.Key, tier, StringComparison.OrdinalIgnoreCase))
+                {
+                    order = kvp.Value;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static List<string> OrderModelsByPreference(List<string> eligibleModels, IReadOnlyList<string> preferenceOrder)
+        {
+            List<string> ordered = new List<string>();
+            HashSet<string> added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string preferred in preferenceOrder)
+            {
+                if (String.IsNullOrWhiteSpace(preferred))
+                    continue;
+
+                foreach (string eligible in eligibleModels)
+                {
+                    if (!String.Equals(eligible, preferred, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (added.Contains(eligible))
+                        continue;
+
+                    ordered.Add(eligible);
+                    added.Add(eligible);
+                }
+            }
+
+            foreach (string eligible in eligibleModels)
+            {
+                if (added.Contains(eligible))
+                    continue;
+
+                ordered.Add(eligible);
+                added.Add(eligible);
+            }
+
+            return ordered;
         }
 
         private static bool IsSpecialistPersona(string? persona, IReadOnlyCollection<string>? specialistPersonas)

@@ -45,12 +45,27 @@ namespace Armada.Core.Settings
             set => _ReservedHighTierSlots = Math.Max(0, Math.Min(10, value));
         }
 
+        /// <summary>
+        /// Per-tier within-tier model preference order. When a tier has idle captains
+        /// across multiple models, the selector tries each listed model in order and
+        /// picks the first one with at least one idle, persona-eligible captain. Models
+        /// not listed are considered only after all listed models are exhausted. Setting
+        /// this to null restores the built-in default order (mid tier prefers
+        /// opencode-go/kimi-k2.7-code, then claude-sonnet-4-6, then composer-2.5).
+        /// </summary>
+        public Dictionary<string, List<string>> WithinTierPreferenceOrder
+        {
+            get => _WithinTierPreferenceOrder;
+            set => _WithinTierPreferenceOrder = value ?? BuildDefaultWithinTierPreferenceOrder();
+        }
+
         #endregion
 
         #region Private-Members
 
         private List<string> _SpecialistPersonas = BuildDefaultSpecialistPersonas();
         private int _ReservedHighTierSlots = 1;
+        private Dictionary<string, List<string>> _WithinTierPreferenceOrder = BuildDefaultWithinTierPreferenceOrder();
 
         #endregion
 
@@ -101,6 +116,22 @@ namespace Armada.Core.Settings
                 "PortingReferenceAnalyst",
                 "FrontendWorkflowReviewer",
                 "MemoryConsolidator"
+            };
+        }
+
+        private static Dictionary<string, List<string>> BuildDefaultWithinTierPreferenceOrder()
+        {
+            return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                {
+                    "mid",
+                    new List<string>
+                    {
+                        "opencode-go/kimi-k2.7-code",
+                        "claude-sonnet-4-6",
+                        "composer-2.5"
+                    }
+                }
             };
         }
 

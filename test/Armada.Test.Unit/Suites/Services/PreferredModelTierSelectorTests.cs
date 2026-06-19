@@ -116,35 +116,29 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_RandomAcrossEligibleModels", () =>
+            await RunTest("SelectModel_MidTier_PreferenceOrderSelectsFirstListed", () =>
             {
-                // Three mid-tier models, one captain each. Seeded random verifies uniform selection.
+                // The default mid-tier preference order is K2.7, sonnet, composer. With all
+                // three models idle, the selector must pick the first listed preference.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("claude-sonnet-4-6"),
-                    MakeCaptain("gemini-3.5-pro")
+                    MakeCaptain("opencode-go/kimi-k2.7-code")
                 };
 
-                // With deterministic picker always returning 0, should pick first eligible
-                string? m0 = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
-                AssertNotNull(m0, "Should select a model when mid-tier captains are available");
-
-                // With picker returning 1, should pick second eligible
-                string? m1 = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 1);
-                AssertNotNull(m1, "Should select second model");
-                AssertFalse(m0 == m1, "Different picker indices should yield different models");
-
-                // With picker returning 2, should pick third eligible
-                string? m2 = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 2);
-                AssertNotNull(m2, "Should select third model");
-                AssertFalse(m0 == m2, "Different picker indices should yield different models");
-                AssertFalse(m1 == m2, "Different picker indices should yield different models");
+                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
+                AssertNotNull(selected, "Should select a model when mid-tier captains are available");
+                AssertEqual("opencode-go/kimi-k2.7-code", selected, "Should prefer the first listed mid-tier model");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_DuplicatedCaptains_DoNotDuplicateModelCandidates", () =>
+            await RunTest("SelectModel_MidTier_DuplicatedCaptains_PreferenceOrderWins", () =>
             {
+                // Many composer captains and one sonnet captain. The default mid preference
+                // order lists sonnet before composer, so sonnet wins even though it has
+                // fewer idle instances -- preference is not a popularity contest.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
@@ -153,16 +147,11 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-sonnet-4-6"),
                     MakeCaptain("gemini-3.5-pro")
                 };
-                int observedUpperBound = 0;
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, upperBound =>
-                {
-                    observedUpperBound = upperBound;
-                    return 1;
-                });
+                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
 
-                AssertEqual(3, observedUpperBound, "Random picker should see one entry per eligible model name");
-                AssertEqual("claude-sonnet-4-6", selected, "Picker index should select the second model, not the second captain");
+                AssertEqual("claude-sonnet-4-6", selected, "Preference order should select sonnet ahead of the duplicated composer models");
                 return Task.CompletedTask;
             });
 
@@ -518,6 +507,119 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Judge", _ => 0);
                 AssertEqual("claude-opus-4-7", selected, "Specialist persona must resolve to the high-tier captain only");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_MidTier_K2_7First_WhenIdle", () =>
+            {
+                // Default mid preference order lists K2.7 first. When a K2.7 captain is idle it
+                // must win over other mid-tier captains.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("opencode-go/kimi-k2.7-code")
+                };
+
+                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
+                AssertEqual("opencode-go/kimi-k2.7-code", selected, "Idle K2.7 captain should be selected first for Worker mid work");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_MidTier_FallsBackToSonnet_WhenK2_7Busy", () =>
+            {
+                // Only sonnet and composer are idle; K2.7 captains are busy and not in the
+                // idle list. The selector should fall back to sonnet, the next preferred mid model.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("gemini-3.5-pro")
+                };
+
+                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
+                AssertEqual("claude-sonnet-4-6", selected, "Should fall back to sonnet when all K2.7 captains are busy");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_MidTier_FallsBackToComposer_WhenK2_7AndSonnetBusy", () =>
+            {
+                // Only composer and gemini are idle. Preference order lists composer before
+                // unlisted models, so composer wins even though gemini appears first in the
+                // idle captain list.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("gemini-3.5-pro"),
+                    MakeCaptain("composer-2.5")
+                };
+
+                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
+                AssertEqual("composer-2.5", selected, "Should fall back to composer when K2.7 and sonnet are busy");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_MidTier_ConfigurablePreferenceOrder_OverridesDefault", () =>
+            {
+                // Operator-configurable preference order flips the default so composer is first.
+                Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
+                {
+                    { "mid", new List<string> { "composer-2.5", "claude-sonnet-4-6", "opencode-go/kimi-k2.7-code" } }
+                };
+
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("opencode-go/kimi-k2.7-code"),
+                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("composer-2.5")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder);
+                AssertEqual("composer-2.5", selected, "Custom preference order should place composer ahead of K2.7 and sonnet");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_MidTier_UnknownPreferenceModel_SkipsToNext", () =>
+            {
+                // A preference list can contain models that are not currently idle. Those are
+                // skipped and the first idle preferred model is selected.
+                Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
+                {
+                    { "mid", new List<string> { "opencode-go/kimi-k2.7-code", "claude-sonnet-4-6", "composer-2.5" } }
+                };
+
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder);
+                AssertEqual("composer-2.5", selected, "Should skip missing K2.7 and sonnet captains and land on composer");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_DefaultsAndRestores", () =>
+            {
+                ModelTierSettings defaults = new ModelTierSettings();
+                AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default preference order contains mid tier");
+                List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
+                AssertEqual(3, midOrder.Count, "default mid preference order has three entries");
+                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[0], "default mid preference order starts with K2.7");
+                AssertEqual("claude-sonnet-4-6", midOrder[1], "default mid preference order second is sonnet");
+                AssertEqual("composer-2.5", midOrder[2], "default mid preference order third is composer");
+
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
+                {
+                    { "low", new List<string> { "kimi-k2.5" } }
+                };
+                AssertFalse(custom.WithinTierPreferenceOrder.ContainsKey("mid"), "custom preference order replaces the default mid entry");
+                AssertTrue(custom.WithinTierPreferenceOrder.ContainsKey("low"), "custom preference order contains the operator-supplied low entry");
+
+                custom.WithinTierPreferenceOrder = null!;
+                AssertTrue(custom.WithinTierPreferenceOrder.ContainsKey("mid"), "null setter restores the built-in default preference order");
                 return Task.CompletedTask;
             });
 

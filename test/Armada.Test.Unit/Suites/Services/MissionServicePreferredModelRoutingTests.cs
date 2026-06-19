@@ -327,6 +327,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_MidTier_K2_7FirstPreference_AssignsK2_7Captain", async () =>
+            {
+                // The default ModelTierSettings.WithinTierPreferenceOrder lists K2.7 first for
+                // the mid tier. An idle K2.7 captain should win over other idle mid captains.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "sonnet-captain", "claude-sonnet-4-6").ConfigureAwait(false);
+                    Captain k2Captain = await CreateCaptainAsync(testDb.Driver, "k2.7-captain", "opencode-go/kimi-k2.7-code").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "k2.7 preferred worker", "mid", "Worker").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Mid-tier Worker mission should assign when an idle K2.7 captain exists");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
+                    AssertEqual(k2Captain.Id, readBack.CaptainId, "K2.7 captain should be chosen first for mid-tier Worker work");
+                }
+            });
+
+            await RunTest("TryAssign_MidTier_K2_7Busy_FallsBackToSonnet", async () =>
+            {
+                // When no K2.7 captain is idle, the configured mid preference falls back to
+                // sonnet before composer or other mid models.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain sonnetCaptain = await CreateCaptainAsync(testDb.Driver, "sonnet-captain", "claude-sonnet-4-6").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "composer-captain", "composer-2.5").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "k2.7 busy fallback", "mid", "Worker").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Mid-tier Worker mission should fall back to sonnet when K2.7 is busy");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
+                    AssertEqual(sonnetCaptain.Id, readBack.CaptainId, "Sonnet captain should be chosen as the K2.7 fallback");
+                }
+            });
+
             await RunTest("TryAssign_NonSpecialistOnlyHighIdle_FallsUpToHighLastResort", async () =>
             {
                 // End-to-end last-resort fall-up: no idle mid/low captain exists, so a non-specialist
