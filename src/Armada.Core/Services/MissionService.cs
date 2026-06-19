@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Collections.Generic;
     using System.Text.Json;
     using SyslogLogging;
     using Armada.Core.Database;
@@ -3654,6 +3655,7 @@ namespace Armada.Core.Services
             string? preferredModel = mission?.PreferredModel;
 
             List<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
+            IReadOnlyDictionary<string, List<string>> withinTierPreferenceOrder = _Settings.ModelTier.WithinTierPreferenceOrder;
             bool isSpecialist = _Settings.ModelTier.IsSpecialistPersona(persona);
 
             // Only idle captains are eligible for assignment
@@ -3680,7 +3682,7 @@ namespace Armada.Core.Services
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
                     string? selectedModel = PreferredModelTierSelector.SelectModel(
-                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas);
+                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder);
                     if (selectedModel == null) return null;
                     List<Captain> filtered = new List<Captain>();
                     foreach (Captain captain in idleCaptains)
@@ -3717,7 +3719,7 @@ namespace Armada.Core.Services
                         if (classifiedTier != null)
                         {
                             string? fallbackModel = PreferredModelTierSelector.SelectModel(
-                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas);
+                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder);
                             if (fallbackModel == null) return null;
                             List<Captain> tierFiltered = new List<Captain>();
                             foreach (Captain captain in idleCaptains)
@@ -3745,7 +3747,7 @@ namespace Armada.Core.Services
                 // captains carrying custom/unclassified models still receive work.
                 string defaultTier = isSpecialist ? PreferredModelTierSelector.HighTier : PreferredModelTierSelector.MidTier;
                 string? defaultedModel = PreferredModelTierSelector.SelectModel(
-                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas);
+                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder);
                 if (defaultedModel != null)
                 {
                     List<Captain> filtered = new List<Captain>();
