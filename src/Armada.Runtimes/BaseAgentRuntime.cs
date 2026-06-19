@@ -168,14 +168,29 @@ namespace Armada.Runtimes
 
                 string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
                 string argsJoined = String.Join(" ", args);
-                // Write command on first line, then prompt content preserving newlines
+                // Write command on first line, then prompt content preserving newlines.
+                // Runtimes that deliver the prompt via stdin (UsePromptStdin) do not include the
+                // prompt text in their CLI arguments, so the header would otherwise lose the
+                // role/persona preamble and mission instructions. Echo the prompt parameter for
+                // those runtimes so the mission log always shows which role the captain is
+                // running as, matching what Claude/Codex expose through their positional prompt
+                // argument.
                 string firstFlag = "";
-                string promptContent = argsJoined;
-                int promptStart = argsJoined.IndexOf("Mission:");
-                if (promptStart > 0)
+                string promptContent;
+                if (UsePromptStdin)
                 {
-                    firstFlag = argsJoined.Substring(0, promptStart).Trim();
-                    promptContent = argsJoined.Substring(promptStart);
+                    firstFlag = argsJoined;
+                    promptContent = prompt;
+                }
+                else
+                {
+                    promptContent = argsJoined;
+                    int promptStart = argsJoined.IndexOf("Mission:");
+                    if (promptStart > 0)
+                    {
+                        firstFlag = argsJoined.Substring(0, promptStart).Trim();
+                        promptContent = argsJoined.Substring(promptStart);
+                    }
                 }
                 await logWriter.WriteLineAsync("[" + timestamp + "] Agent starting: " + command + " " + firstFlag).ConfigureAwait(false);
                 await logWriter.WriteLineAsync(promptContent).ConfigureAwait(false);
@@ -215,8 +230,17 @@ namespace Armada.Runtimes
                     // Provider usage/quota-limit signals are always preserved in the log
                     // file so the admiral's failure-lifecycle detector can route them into
                     // captain quarantine even when the full stderr transcript is suppressed.
+                    // Standalone reset-time lines ("try again at HH:MM") are also preserved so
+                    // the retry parser can compute an accurate quarantine deadline when a
+                    // provider splits its usage-limit message across multiple stderr lines.
                     bool quotaSignal = ProviderQuotaLimitDetector.IsQuotaLimitSignal(e.Data);
-                    if (WriteStderrToLogFile || quotaSignal)
+                    // Preserve standalone reset-time lines so the admiral's failure-lifecycle
+                    // code can later call TryParseRetryAfterUtc on the full stderr text and
+                    // compute an accurate quarantine deadline. The gate uses a lightweight
+                    // substring check rather than the full parser to avoid doing expensive
+                    // regex/DateTime work inside the process stderr event handler.
+                    bool resetTimeLine = e.Data.Contains("try again at", StringComparison.OrdinalIgnoreCase);
+                    if (WriteStderrToLogFile || quotaSignal || resetTimeLine)
                     {
                         try { logWriter?.WriteLine("[stderr] " + e.Data); }
                         catch (ObjectDisposedException) { }

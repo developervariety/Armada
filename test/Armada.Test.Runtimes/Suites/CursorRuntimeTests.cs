@@ -122,6 +122,17 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(args.Contains(longPrompt), "Long prompt must not appear as a CLI argument");
             });
 
+            await RunTest("UsePromptStdin_DeliversRolePreambleViaStdin", () =>
+            {
+                string rolePreamble = "Role: You are an Armada worker agent.";
+                string prompt = rolePreamble + " Mission: test objective. Branch: main.";
+                InspectableCursorRuntime runtime = CreateRuntime();
+                AssertTrue(runtime.StdinEnabled(), "Cursor runtime must deliver the prompt via stdin");
+                List<string> args = runtime.Args(prompt);
+                AssertFalse(args.Contains(prompt), "Cursor prompt must not appear in CLI arguments; it is delivered via stdin");
+                AssertFalse(args.Any(arg => arg.Contains(rolePreamble)), "Cursor CLI arguments must not contain the role preamble; it is delivered via stdin");
+            });
+
             // Pinning tests for Cursor reasoningEffort validation.
             // cursor-agent CLI v2026.04.29-c83a488 does not expose a --thinking-effort /
             // --reasoning-effort flag; these tests pin accept/reject behavior so that wiring

@@ -53,7 +53,7 @@ namespace Armada.Runtimes
 
         private string _Header = "[OpenCodeRuntime] ";
 
-        private bool _SawAssistantOutput;
+        private bool _SawContent;
 
         #endregion
 
@@ -74,8 +74,8 @@ namespace Armada.Runtimes
             _Connection = new OpenCodeConnection(connectionSettings ?? new OpenCodeServerSettings());
 
             // Self-subscribe to the inherited process-exit event so an empty run
-            // (process exited 0 but no assistant content was ever streamed) is
-            // surfaced as a warning instead of being mis-read as WorkProduced.
+            // (process exited 0 but no assistant content or tool calls were streamed)
+            // is surfaced as a warning instead of being mis-read as WorkProduced.
             // Subscribing here keeps BaseAgentRuntime untouched.
             OnProcessExited += HandleProcessExited;
         }
@@ -177,8 +177,8 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Parse a single opencode --format json stdout line and return the inner
-        /// assistant text, empty text for recognized non-content events, or the
-        /// original line when the line is not valid JSON.
+        /// assistant text, a concise tool-call narration, empty text for recognized
+        /// non-content events, or the original line when the line is not valid JSON.
         ///
         /// WHY: opencode --format json wraps all assistant output in typed JSON event
         /// objects with nested text parts. If raw JSON lines were
@@ -186,6 +186,11 @@ namespace Armada.Runtimes
         /// match [ARMADA:*] protocol markers embedded inside a JSON string, breaking
         /// the admiral's mission-status detection. Reducing each event to its text
         /// content restores the plain-text contract subscribers depend on.
+        ///
+        /// The build agent frequently emits <c>tool_use</c> events before (or instead of)
+        /// assistant text. Those events are reduced to a concise <c>[tool: name]</c> line
+        /// so an operator can follow what the captain did without leaking raw JSON or full
+        /// tool output into the mission log.
         ///
         /// Non-parseable lines (progress bars, debug noise, blank lines) fall through
         /// unchanged so they are not silently dropped from the mission log. Recognized
@@ -208,8 +213,14 @@ namespace Armada.Runtimes
 
             if (evt != null && IsAssistantContentEvent(evt))
             {
-                _SawAssistantOutput = true;
+                _SawContent = true;
                 return evt.Part!.Text!;
+            }
+
+            if (evt != null && IsToolUseEvent(evt))
+            {
+                _SawContent = true;
+                return BuildToolNarration(evt);
             }
 
             if (evt != null && IsRecognizedNonContentEvent(evt))
@@ -233,7 +244,29 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// True when the event is a tool_use event with a usable tool name.
+        /// </summary>
+        private static bool IsToolUseEvent(OpenCodeEvent evt)
+        {
+            return evt != null
+                && String.Equals(evt.Type, "tool_use", StringComparison.Ordinal)
+                && evt.Part != null
+                && String.Equals(evt.Part.Type, "tool", StringComparison.Ordinal)
+                && !String.IsNullOrEmpty(evt.Part.Tool);
+        }
+
+        /// <summary>
+        /// Build a concise, plaintext narration of a tool_use event for the mission log.
+        /// </summary>
+        private static string BuildToolNarration(OpenCodeEvent evt)
+        {
+            return "[tool: " + evt.Part!.Tool + "]";
+        }
+
+        /// <summary>
         /// True when the event is structured OpenCode noise that should not be logged raw.
+        /// tool_use is NOT noise: it is narrated by <see cref="BuildToolNarration"/>. Other
+        /// tool-prefixed events (tool_call, etc.) remain suppressed as structured noise.
         /// </summary>
         private static bool IsRecognizedNonContentEvent(OpenCodeEvent evt)
         {
@@ -246,17 +279,17 @@ namespace Armada.Runtimes
                 || String.Equals(evt.Type, "step_finish", StringComparison.Ordinal)
                 || String.Equals(evt.Type, "step-start", StringComparison.Ordinal)
                 || String.Equals(evt.Type, "step-finish", StringComparison.Ordinal)
-                || evt.Type.StartsWith("tool", StringComparison.Ordinal);
+                || (evt.Type.StartsWith("tool", StringComparison.Ordinal) && !String.Equals(evt.Type, "tool_use", StringComparison.Ordinal));
         }
 
         /// <summary>
-        /// Scan opencode --format json event lines and concatenate assistant text parts in
-        /// order. Returns true with the joined text when any assistant content was seen,
-        /// or false with empty text when the stream is empty or step_start-only. Stateless
-        /// and process-free so it is unit-testable in isolation.
+        /// Scan opencode --format json event lines and concatenate assistant text parts and
+        /// tool-call narrations in order. Returns true with the joined text when any content
+        /// was seen, or false with empty text when the stream is empty or step_start-only.
+        /// Stateless and process-free so it is unit-testable in isolation.
         /// </summary>
         /// <param name="lines">The raw JSON event lines from opencode stdout.</param>
-        /// <param name="text">Joined assistant text, or empty when none was found.</param>
+        /// <param name="text">Joined assistant text and tool narrations, or empty when none was found.</param>
         protected bool TryExtractAssistantResult(IReadOnlyList<string> lines, out string text)
         {
             System.Text.StringBuilder builder = new System.Text.StringBuilder();
@@ -284,6 +317,11 @@ namespace Armada.Runtimes
                         builder.Append(evt.Part!.Text);
                         sawContent = true;
                     }
+                    else if (evt != null && IsToolUseEvent(evt))
+                    {
+                        builder.Append(BuildToolNarration(evt));
+                        sawContent = true;
+                    }
                 }
             }
 
@@ -292,15 +330,15 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Surface an empty run: when the process exited but no assistant content was ever
-        /// streamed, log a warning with the pid so the empty-output exit is NOT a silent
-        /// success that the admiral mis-reads as WorkProduced.
+        /// Surface an empty run: when the process exited but no assistant content or tool
+        /// calls were ever streamed, log a warning with the pid so the empty-output exit is
+        /// NOT a silent success that the admiral mis-reads as WorkProduced.
         /// </summary>
         private void HandleProcessExited(int processId, int? exitCode)
         {
-            if (!_SawAssistantOutput)
+            if (!_SawContent)
             {
-                _Logging.Warn(_Header + "opencode process " + processId + " exited with no assistant output");
+                _Logging.Warn(_Header + "opencode process " + processId + " exited with no streamed content");
             }
         }
 
@@ -330,12 +368,12 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Nested part payload for OpenCode text events.
+        /// Nested part payload for OpenCode text and tool_use events.
         /// </summary>
         private sealed class OpenCodeEventPart
         {
             /// <summary>
-            /// Part type (e.g. "text").
+            /// Part type (e.g. "text", "tool").
             /// </summary>
             [JsonPropertyName("type")]
             public string? Type { get; set; }
@@ -345,6 +383,36 @@ namespace Armada.Runtimes
             /// </summary>
             [JsonPropertyName("text")]
             public string? Text { get; set; }
+
+            /// <summary>
+            /// Tool name for tool_use events (e.g. "read", "bash").
+            /// </summary>
+            [JsonPropertyName("tool")]
+            public string? Tool { get; set; }
+
+            /// <summary>
+            /// Tool call identifier for tool_use events.
+            /// </summary>
+            [JsonPropertyName("callID")]
+            public string? CallId { get; set; }
+
+            /// <summary>
+            /// Tool execution state for tool_use events.
+            /// </summary>
+            [JsonPropertyName("state")]
+            public OpenCodeToolState? State { get; set; }
+        }
+
+        /// <summary>
+        /// Tool execution state carried on tool_use event parts.
+        /// </summary>
+        private sealed class OpenCodeToolState
+        {
+            /// <summary>
+            /// Execution status (e.g. "completed", "failed").
+            /// </summary>
+            [JsonPropertyName("status")]
+            public string? Status { get; set; }
         }
 
         #endregion

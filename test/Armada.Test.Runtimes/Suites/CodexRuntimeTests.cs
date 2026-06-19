@@ -126,6 +126,17 @@ namespace Armada.Test.Runtimes.Suites
                 AssertNull(error, "high must be accepted for Codex");
             });
 
+            await RunTest("BuildArguments_PromptContainsRolePreamble", () =>
+            {
+                string rolePreamble = "Role: You are an Armada worker agent.";
+                string prompt = rolePreamble + " Mission: test objective. Branch: main.";
+                InspectableCodexRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args(prompt);
+                string lastArg = args[args.Count - 1];
+                AssertTrue(lastArg.Contains(rolePreamble), "Codex prompt argument must contain the role preamble so the captain knows its role");
+                AssertTrue(lastArg.Contains("Mission: test objective"), "Codex prompt argument must contain the mission instructions");
+            });
+
             await RunTest("ValidateReasoningEffort_Xhigh_ReturnsError", () =>
             {
                 string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Codex, "xhigh");

@@ -18,6 +18,7 @@ namespace Armada.Test.Runtimes.Suites
         public string CommandOverride { get; set; } = "dotnet";
         public List<string> ArgsOverride { get; set; } = new List<string> { "--version" };
         public bool RedirectStdinOverride { get; set; } = true;
+        public bool UsePromptStdinOverride { get; set; } = false;
         public bool WriteStderrToLogFileOverride { get; set; } = true;
         public bool CaptureStartInfoAndThrow { get; set; } = false;
         public ProcessStartInfo? CapturedStartInfo { get; private set; }
@@ -29,6 +30,8 @@ namespace Armada.Test.Runtimes.Suites
         protected override string GetCommand() => CommandOverride;
 
         protected override bool RedirectStdin => RedirectStdinOverride;
+
+        protected override bool UsePromptStdin => UsePromptStdinOverride;
 
         protected override bool WriteStderrToLogFile => WriteStderrToLogFileOverride;
 
