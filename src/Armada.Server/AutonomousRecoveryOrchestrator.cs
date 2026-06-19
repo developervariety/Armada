@@ -3,6 +3,7 @@ namespace Armada.Server
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Linq;
     using System.Text;
     using System.Text.RegularExpressions;
@@ -244,7 +245,7 @@ namespace Armada.Server
                     .EnumerateMissionSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
                 if (summaries.Count == 0) continue;
 
-                if (summaries.Any(item => IsLandingDrainLiveMission(item.Status)))
+                if (summaries.Any(item => IsMissionActivelyRunning(item)))
                     continue;
 
                 processed++;
@@ -391,6 +392,11 @@ namespace Armada.Server
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 
+            if (voyage.Status == VoyageStatusEnum.Complete)
+            {
+                await CloseOpenStuckVoyageIncidentsAsync(voyage, token).ConfigureAwait(false);
+            }
+
             await EmitLandingDrainEventAsync(
                 "landing_drain.voyage_completed",
                 "Landing-drain marked voyage " + voyage.Id + " " + voyage.Status,
@@ -416,37 +422,14 @@ namespace Armada.Server
         private async Task DetectStuckOpenVoyageAsync(Voyage voyage, List<MissionSummary> summaries, CancellationToken token)
         {
             if (voyage.Status != VoyageStatusEnum.Open && voyage.Status != VoyageStatusEnum.InProgress) return;
-            if (summaries.Any(item => IsLandingDrainLiveMission(item.Status))) return;
+            if (summaries.Any(item => IsMissionActivelyRunning(item))) return;
 
-            // Structural stalled-rescue detection, independent of the LastUpdateUtc quiet clock.
-            // The rescue Worker->TestEngineer->Judge chain stalls when a dependent stays Pending
-            // (WaitingForDependency) while its same-vessel upstream dependency has already reached a
-            // handoff-eligible terminal status but never propagated its branch -- assignment then
-            // parks forever. Every WaitingForDependency re-attempt bumps the dependent and voyage
-            // LastUpdateUtc, so the quiet clock never trips (the 62-minute-stall-with-no-incident
-            // symptom). Detect the shape directly instead.
-            StrandedDependent? stranded = FindStrandedRescueDependent(summaries);
-            if (stranded != null && await HasIdleCaptainAsync(token).ConfigureAwait(false))
-            {
-                // First attempt self-heal: re-trigger assignment through the standard admiral health
-                // sweep, which re-runs the MissionService assignment entry point (TryAssignAsync) for
-                // every Pending mission and now lazily completes a missed handoff before assigning.
-                await TrySelfHealStrandedRescueAsync(voyage, stranded, token).ConfigureAwait(false);
-
-                List<MissionSummary> postHeal = await _Database.Missions
-                    .EnumerateMissionSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
-                if (FindStrandedRescueDependent(postHeal) == null) return; // self-heal released it
-
-                // Still stranded after the self-heal attempt -- escalate.
-                if (await HasOpenStuckVoyageIncidentAsync(voyage, token).ConfigureAwait(false)) return;
-                await OpenStuckVoyageIncidentAsync(
-                    voyage,
-                    "Voyage " + voyage.Id + " has no live missions but rescue dependent " + stranded.DependentId +
-                        " stayed stranded after self-heal while its upstream dependency " + stranded.DependencyId +
-                        " (" + stranded.DependencyStatus + ") is handoff-eligible.",
-                    token).ConfigureAwait(false);
-                return;
-            }
+            // Do not open a stuck-voyage incident while any mission still has a forward path.
+            // WorkProduced missions are awaiting the next stage, Pending missions are queued for
+            // assignment, and Assigned missions with a live captain process are actively running.
+            if (summaries.Any(item => item.Status == MissionStatusEnum.WorkProduced)) return;
+            if (summaries.Any(item => IsMissionWaitingForAssignment(item))) return;
+            if (summaries.Any(item => item.Status == MissionStatusEnum.Assigned && IsMissionProcessAlive(item.ProcessId))) return;
 
             // Generic quiet-voyage path. Anchor elapsed time on a churn-stable timestamp (the most
             // recent mission start/completion) rather than the dependent/voyage LastUpdateUtc, which
@@ -464,106 +447,6 @@ namespace Armada.Server
                 "Voyage " + voyage.Id + " has been " + voyage.Status + " with no live missions and no progress for " +
                     quietMinutes.ToString("F1") + " minutes.",
                 token).ConfigureAwait(false);
-        }
-
-        // Holds the identity of a downstream rescue/pipeline mission stranded at Pending while its
-        // upstream dependency is already handoff-eligible -- the creation-order race shape that the
-        // structural stuck detector keys on. A named type is used in place of a tuple per repo style.
-        private sealed class StrandedDependent
-        {
-            /// <summary>Identifier of the stranded downstream mission.</summary>
-            public string DependentId { get; set; } = String.Empty;
-
-            /// <summary>Identifier of the upstream dependency it is waiting on.</summary>
-            public string DependencyId { get; set; } = String.Empty;
-
-            /// <summary>Current status of the upstream dependency.</summary>
-            public MissionStatusEnum DependencyStatus { get; set; } = MissionStatusEnum.Pending;
-        }
-
-        // Find a downstream dependent stranded by the creation-order race: it is Pending with a
-        // same-vessel, non-Architect dependency that already reached a handoff-eligible terminal
-        // status (WorkProduced/Complete/PullRequestOpen) yet whose branch was never propagated onto
-        // the dependent (dependency has a branch, dependent's differs/empty). Architect dependencies
-        // are excluded because their handoff is a parse-and-materialize path, not a branch stamp.
-        private static StrandedDependent? FindStrandedRescueDependent(List<MissionSummary> summaries)
-        {
-            foreach (MissionSummary dependent in summaries)
-            {
-                if (dependent.Status != MissionStatusEnum.Pending) continue;
-                if (String.IsNullOrEmpty(dependent.DependsOnMissionId)) continue;
-
-                MissionSummary? dependency = summaries.FirstOrDefault(item =>
-                    String.Equals(item.Id, dependent.DependsOnMissionId, StringComparison.Ordinal));
-                if (dependency == null) continue;
-
-                if (dependency.Status != MissionStatusEnum.WorkProduced &&
-                    dependency.Status != MissionStatusEnum.Complete &&
-                    dependency.Status != MissionStatusEnum.PullRequestOpen)
-                {
-                    continue;
-                }
-
-                if (String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
-
-                // Cross-vessel deps share no branch (different repos) and never use the branch-stamp
-                // handoff, so they are not part of this shape.
-                if (String.IsNullOrEmpty(dependency.VesselId) || String.IsNullOrEmpty(dependent.VesselId)) continue;
-                if (!String.Equals(dependency.VesselId, dependent.VesselId, StringComparison.Ordinal)) continue;
-
-                // Handoff prepared = dependency had no branch, or the dependent already carries it.
-                // Only the unprepared case is the stranded shape.
-                if (String.IsNullOrEmpty(dependency.BranchName)) continue;
-                if (String.Equals(dependent.BranchName, dependency.BranchName, StringComparison.Ordinal)) continue;
-
-                return new StrandedDependent
-                {
-                    DependentId = dependent.Id,
-                    DependencyId = dependency.Id,
-                    DependencyStatus = dependency.Status
-                };
-            }
-
-            return null;
-        }
-
-        // True when at least one captain is Idle and therefore able to pick up the stranded
-        // dependent once its handoff is completed.
-        private async Task<bool> HasIdleCaptainAsync(CancellationToken token)
-        {
-            List<Captain> idle = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
-            return idle.Count > 0;
-        }
-
-        // Re-trigger assignment for a stranded rescue dependent via the standard admiral health
-        // sweep (the same path that runs MissionService.TryAssignAsync for every Pending mission and
-        // now self-heals a missed handoff). Best-effort: a failure here must not abort the drain or
-        // suppress the escalation that follows, so it is logged and swallowed.
-        private async Task TrySelfHealStrandedRescueAsync(Voyage voyage, StrandedDependent stranded, CancellationToken token)
-        {
-            try
-            {
-                await EmitLandingDrainEventAsync(
-                    "landing_drain.stuck_rescue_self_heal",
-                    "Landing-drain re-triggering assignment for stranded rescue dependent " + stranded.DependentId +
-                        " on voyage " + voyage.Id,
-                    null,
-                    voyage.Id,
-                    token,
-                    voyage.TenantId,
-                    voyage.UserId).ConfigureAwait(false);
-
-                await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "self-heal of stranded rescue dependent " + stranded.DependentId +
-                    " on voyage " + voyage.Id + " failed: " + ex.Message);
-            }
         }
 
         // Compute a churn-stable quiet-clock anchor: the most recent real forward-progress timestamp
@@ -628,6 +511,41 @@ namespace Armada.Server
                 item.Status != IncidentStatusEnum.Closed &&
                 item.Status != IncidentStatusEnum.RolledBack &&
                 (item.Summary ?? String.Empty).Contains("no live missions", StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Close any open stuck-open-voyage incidents when the voyage later reaches Complete.
+        // This auto-mitigates false-positive incidents that opened before the health fixes landed.
+        private async Task CloseOpenStuckVoyageIncidentsAsync(Voyage voyage, CancellationToken token)
+        {
+            AuthContext auth = BuildVoyageAuth(voyage);
+            EnumerationResult<Incident> page = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            {
+                VoyageId = voyage.Id,
+                PageNumber = 1,
+                PageSize = 25
+            }, token).ConfigureAwait(false);
+
+            foreach (Incident incident in page.Objects.Where(item =>
+                item.Status != IncidentStatusEnum.Closed &&
+                item.Status != IncidentStatusEnum.RolledBack &&
+                (item.Summary ?? String.Empty).Contains("no live missions", StringComparison.OrdinalIgnoreCase)))
+            {
+                await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Closed,
+                    ClosedUtc = DateTime.UtcNow
+                }, token).ConfigureAwait(false);
+
+                await EmitLandingDrainEventAsync(
+                    "landing_drain.stuck_voyage_incident_closed",
+                    "Landing-drain closed stuck-voyage incident " + incident.Id + " because voyage " + voyage.Id + " completed.",
+                    null,
+                    voyage.Id,
+                    token,
+                    voyage.TenantId,
+                    voyage.UserId,
+                    incident.Id).ConfigureAwait(false);
+            }
         }
 
         private async Task<bool> IsReviewerChainPassedAsync(List<MissionSummary> summaries, string rootMissionId, CancellationToken token)
@@ -745,6 +663,49 @@ namespace Armada.Server
                 status == MissionStatusEnum.Cancelled ||
                 status == MissionStatusEnum.LandingFailed ||
                 status == MissionStatusEnum.PullRequestOpen;
+        }
+
+        // A mission is waiting for assignment when it is Pending and its assignment pipeline state
+        // is an expected wait state. These missions have a forward path and must not cause a
+        // stuck-voyage incident.
+        private static bool IsMissionWaitingForAssignment(MissionSummary summary)
+        {
+            if (summary.Status != MissionStatusEnum.Pending) return false;
+
+            return summary.AssignmentState == MissionAssignmentStateEnum.Pending ||
+                summary.AssignmentState == MissionAssignmentStateEnum.WaitingForDependency ||
+                summary.AssignmentState == MissionAssignmentStateEnum.WaitingForVesselMutex ||
+                summary.AssignmentState == MissionAssignmentStateEnum.WaitingForIdleCaptain ||
+                summary.AssignmentState == MissionAssignmentStateEnum.Provisioning;
+        }
+
+        // True when the mission's tracked OS process is still running. A null or dead process id
+        // means the captain is no longer live.
+        private static bool IsMissionProcessAlive(int? processId)
+        {
+            if (!processId.HasValue) return false;
+
+            try
+            {
+                using Process process = Process.GetProcessById(processId.Value);
+                return !process.HasExited;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // True when a mission is actively executing: InProgress/Testing/Review/WaitingForInput,
+        // or Assigned with a live captain process. Assigned with a dead process is NOT actively
+        // running and may be a stuck-voyage candidate.
+        private static bool IsMissionActivelyRunning(MissionSummary summary)
+        {
+            return summary.Status == MissionStatusEnum.InProgress ||
+                summary.Status == MissionStatusEnum.Testing ||
+                summary.Status == MissionStatusEnum.Review ||
+                summary.Status == MissionStatusEnum.WaitingForInput ||
+                (summary.Status == MissionStatusEnum.Assigned && IsMissionProcessAlive(summary.ProcessId));
         }
 
         private static bool IsJudgePassMission(Mission mission)

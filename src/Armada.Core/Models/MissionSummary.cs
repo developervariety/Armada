@@ -51,6 +51,11 @@ namespace Armada.Core.Models
         public MissionStatusEnum Status { get; set; } = MissionStatusEnum.Pending;
 
         /// <summary>
+        /// Assignment pipeline state for this mission.
+        /// </summary>
+        public MissionAssignmentStateEnum AssignmentState { get; set; } = MissionAssignmentStateEnum.Pending;
+
+        /// <summary>
         /// Mission priority.
         /// </summary>
         public int Priority { get; set; } = 100;

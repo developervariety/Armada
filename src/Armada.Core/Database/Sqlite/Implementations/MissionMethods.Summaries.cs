@@ -11,7 +11,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
     public partial class MissionMethods
     {
         private const string MissionSummarySelectColumns = @"
-id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, status, priority,
+id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, status, mission_assignment_state, priority,
 parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash,
 persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action,
 review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc,
@@ -497,6 +497,13 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
             {
                 summary.ReviewDenyAction = parsed;
+            }
+
+            string? assignmentState = SqliteDatabaseDriver.NullableString(reader["mission_assignment_state"]);
+            if (!String.IsNullOrEmpty(assignmentState) &&
+                Enum.TryParse(assignmentState, true, out MissionAssignmentStateEnum assignmentParsed))
+            {
+                summary.AssignmentState = assignmentParsed;
             }
 
             return summary;
