@@ -545,9 +545,10 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
 
                     AssertTrue(result.Succeeded, "auto dispatch should succeed");
-                    AssertEqual(1, codeIndex.BuildRequests.Count, "auto mode with cache miss must build a context pack");
                     AssertEqual(1, admiral.CreatedMissions.Count, "one mission should be created");
-                    Mission mission = admiral.CreatedMissions[0];
+
+                    Mission mission = await WaitForMissionPrestagedAsync(testDb.Driver, admiral.CreatedMissions[0].Id).ConfigureAwait(false);
+                    AssertEqual(1, codeIndex.BuildRequests.Count, "auto mode with cache miss must build a context pack");
                     AssertNotNull(mission.PrestagedFiles, "mission should carry the generated context pack");
                     AssertEqual(1, mission.PrestagedFiles!.Count);
                     AssertEqual("_briefing/context-pack.md", mission.PrestagedFiles[0].DestPath);
@@ -588,6 +589,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
 
                         AssertTrue(result.Succeeded, "auto dispatch with empty pack should still succeed");
+                        await Task.Delay(200).ConfigureAwait(false);
                         await logging.FlushAsync().ConfigureAwait(false);
                     }
 
@@ -642,16 +644,62 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
 
                     AssertTrue(result.Succeeded, "alias+pipeline dispatch should succeed");
-                    AssertEqual(1, codeIndex.BuildRequests.Count, "auto mode with cache miss must build a context pack");
 
-                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
-                    AssertEqual(2, all.Count, "one MD with two pipeline stages should produce two missions");
-
+                    List<Mission> all = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 2).ConfigureAwait(false);
                     Mission worker = all.Single(m => m.Persona == "Worker");
                     Mission judge = all.Single(m => m.Persona == "Judge");
+
+                    worker = await WaitForMissionPrestagedAsync(testDb.Driver, worker.Id).ConfigureAwait(false);
+                    AssertEqual(1, codeIndex.BuildRequests.Count, "auto mode with cache miss must build a context pack");
                     AssertNotNull(worker.PrestagedFiles, "Worker stage should carry the context pack");
                     AssertTrue(worker.PrestagedFiles!.Any(p => p.DestPath == "_briefing/context-pack.md"), "Worker stage should have the context pack staged");
                     AssertNull(judge.PrestagedFiles, "Judge stage should not inherit the full prestaged set");
+                }
+            });
+
+            await RunTest("AutoDispatch_SlowPackBuild_CreatesVoyageBeforePackCompletes", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("slow-pack-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    SlowCodeIndexService codeIndex = new SlowCodeIndexService();
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, codeIndex, null, null);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "slow pack voyage",
+                        Description = "auto dispatch should return before pack build finishes",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("slow mission", "build me a pack")
+                        }
+                    };
+
+                    Task<VoyageDispatchResult> dispatchTask = service.DispatchAsync(request);
+                    await codeIndex.BuildStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+                    VoyageDispatchResult result = await dispatchTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "dispatch should succeed while pack build is still running: " + JsonSerializer.Serialize(result.Value));
+
+                    Voyage? voyage = await testDb.Driver.Voyages.ReadAsync(result.Voyage!.Id).ConfigureAwait(false);
+                    AssertNotNull(voyage, "voyage should be persisted before the pack build completes");
+
+                    codeIndex.ReleaseBuild.SetResult(true);
+                    await codeIndex.BuildCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+                    Mission mission = await WaitForMissionPrestagedAsync(testDb.Driver, admiral.CreatedMissions[0].Id).ConfigureAwait(false);
+                    AssertNotNull(mission.PrestagedFiles, "deferred pack should be attached to the pending mission");
+                    AssertEqual(1, mission.PrestagedFiles!.Count);
+                    AssertEqual("_briefing/context-pack.md", mission.PrestagedFiles[0].DestPath);
                 }
             });
         }
@@ -665,6 +713,37 @@ namespace Armada.Test.Unit.Suites.Services
                 null,
                 null,
                 null);
+        }
+
+        private static async Task<Mission> WaitForMissionPrestagedAsync(DatabaseDriver database, string missionId)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                if (mission != null && mission.PrestagedFiles != null && mission.PrestagedFiles.Count > 0)
+                    return mission;
+
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+
+            Mission? final = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+            return final ?? throw new TimeoutException("Mission " + missionId + " was not prestaged in time");
+        }
+
+        private static async Task<List<Mission>> WaitForVoyageMissionsAsync(DatabaseDriver database, string voyageId, int expectedCount)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
+                if (missions.Count >= expectedCount)
+                    return missions;
+
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+
+            return await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
         }
 
         private void AssertMissionParity(List<Mission> rest, List<Mission> mcp)
@@ -921,6 +1000,65 @@ namespace Armada.Test.Unit.Suites.Services
                 CacheRequests.Add(request);
                 return Task.FromResult(CachedResponse);
             }
+        }
+
+        private sealed class SlowCodeIndexService : ICodeIndexService
+        {
+            public TaskCompletionSource<bool> BuildStarted { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource<bool> ReleaseBuild { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource<bool> BuildCompleted { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public List<ContextPackRequest> BuildRequests { get; } = new List<ContextPackRequest>();
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(new CodeIndexStatus { VesselId = vesselId });
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public async Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+            {
+                BuildRequests.Add(request);
+                BuildStarted.TrySetResult(true);
+                await ReleaseBuild.Task.ConfigureAwait(false);
+                BuildCompleted.TrySetResult(true);
+                return new ContextPackResponse
+                {
+                    PrestagedFiles = new List<PrestagedFile>
+                    {
+                        new PrestagedFile(Path.Combine(Path.GetTempPath(), "deferred-context-pack.md"), "_briefing/context-pack.md")
+                    }
+                };
+            }
+
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
+                => Task.CompletedTask;
+
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult<ContextPackResponse?>(null);
         }
     }
 }
