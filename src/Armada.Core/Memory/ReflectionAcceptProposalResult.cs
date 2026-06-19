@@ -37,6 +37,12 @@ namespace Armada.Core.Memory
 
         /// <summary>Structured anchors extracted from the accepted content: source mission IDs, file paths, confidence, and evidence kind.</summary>
         public MemoryAnchor? Anchors { get; set; }
+
+        /// <summary>Number of entries removed by post-accept pruning of the canonical learned-facts file.</summary>
+        public int PrunedRemovedCount { get; set; }
+
+        /// <summary>Number of entries merged by post-accept deduplication of the canonical learned-facts file.</summary>
+        public int PrunedMergedCount { get; set; }
     }
 
     /// <summary>One Judge sibling's verdict observation when dual-Judge was enabled on a reflection dispatch.</summary>

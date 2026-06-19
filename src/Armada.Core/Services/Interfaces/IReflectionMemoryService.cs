@@ -71,6 +71,23 @@ namespace Armada.Core.Services.Interfaces
             CancellationToken token = default);
 
         /// <summary>
+        /// Accept a MemoryConsolidator proposal and optionally prune the canonical learned-facts file
+        /// so it stays bounded. Other behavior is identical to <see cref="AcceptMemoryProposalAsync(string, string?, IReflectionOutputParser, CancellationToken)"/>.
+        /// </summary>
+        /// <param name="missionId">MemoryConsolidator mission id.</param>
+        /// <param name="editsMarkdown">Optional operator override body; when set, skips parser and uses this markdown.</param>
+        /// <param name="parser">Parser for <paramref name="missionId"/> AgentOutput when <paramref name="editsMarkdown"/> is absent.</param>
+        /// <param name="pruneOptions">Optional prune configuration applied to the canonical learned-facts file.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Structured result with <see cref="ReflectionAcceptProposalResult.Error"/> set on failure.</returns>
+        Task<ReflectionAcceptProposalResult> AcceptMemoryProposalAsync(
+            string missionId,
+            string? editsMarkdown,
+            IReflectionOutputParser parser,
+            LearnedFactsPruneOptions? pruneOptions,
+            CancellationToken token = default);
+
+        /// <summary>
         /// Reject a MemoryConsolidator proposal: record a <c>reflection.rejected</c> event with the reason.
         /// Does not update the learned playbook or <c>Vessel.LastReflectionMissionId</c>.
         /// </summary>

@@ -3,6 +3,7 @@ namespace Armada.Core.Settings
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using SyslogLogging;
 
@@ -789,6 +790,18 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Pruning policy for the canonical per-vessel learned-facts file. Keeps the file bounded
+        /// by merging near-duplicate pattern entries and capping the total number of retained
+        /// entries. Set MaxEntries to 0 to disable count-based pruning; MaxAgeDays is reserved
+        /// for future per-entry timestamp support. DedupeSimilarityThreshold defaults to 0.85.
+        /// </summary>
+        public LearnedFactsPruneOptions LearnedFactsPrune
+        {
+            get => _LearnedFactsPrune;
+            set => _LearnedFactsPrune = value ?? new LearnedFactsPruneOptions();
+        }
+
+        /// <summary>
         /// Cross-fleet fan-out warning threshold for fleet-curate dispatches with dualJudge=true
         /// (Reflections v2-F3). When a multi-fleet fan-out would dispatch to more than this
         /// many fleets with dualJudge=true, the response includes a starvation-risk warning.
@@ -1025,6 +1038,7 @@ namespace Armada.Core.Settings
         private int _FleetCurateInitialWindow = 200;
         private double _FleetVesselConflictThreshold = 0.7;
         private double _CrossVesselSuggestionThreshold = 0.5;
+        private LearnedFactsPruneOptions _LearnedFactsPrune = new LearnedFactsPruneOptions();
         private int _FleetCurateDualJudgeFanOutWarnThreshold = 3;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();

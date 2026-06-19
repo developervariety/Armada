@@ -217,6 +217,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new LearnedFactsReadPreferenceTests());
             runner.AddSuite(new LearnedFactsApplyTests());
             runner.AddSuite(new LearnedFactsFileExtractionTests());
+            runner.AddSuite(new LearnedFactsPruneTests());
             runner.AddSuite(new ReflectionLearnedFactProposalTests());
             runner.AddSuite(new ReflectionConsolidateToolsTests());
             runner.AddSuite(new ReflectionAcceptRejectToolsTests());
