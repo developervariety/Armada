@@ -5,6 +5,7 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.Linq;
     using System.Text;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -26,6 +27,10 @@ namespace Armada.Server
         private const string _RecoveryRunbookFileName = "system/mission-recovery.md";
         private const string _RescueMarker = "<!-- ARMADA:AUTO-RESCUE -->";
         private const string _NudgeMarker = "[ARMADA_AUTO_NUDGE]";
+
+        private static readonly Regex _JudgePassLinePattern = new Regex(
+            @"^\[(?:ARMADA:)?VERDICT\]\s+PASS\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly DatabaseDriver _Database;
         private readonly IAdmiralService _Admiral;
@@ -754,7 +759,10 @@ namespace Armada.Server
             for (int i = lines.Length - 1; i >= 0; i--)
             {
                 string line = lines[i].Trim();
-                if (line.Contains("[ARMADA:VERDICT] PASS", StringComparison.OrdinalIgnoreCase))
+                // Honor both the canonical standalone line and the progress-signal form the
+                // runtime echoes for an in-flight verdict, so a salvaged verdict still counts
+                // as a PASS when the safety-net sweep evaluates the Judge reviewer.
+                if (_JudgePassLinePattern.IsMatch(line))
                     return true;
             }
 

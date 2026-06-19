@@ -564,6 +564,11 @@ namespace Armada.Core.Services
                     "\n" +
                     "## Verdict\n" +
                     "\n" +
+                    "Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- " +
+                    "never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. " +
+                    "Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line in one of the forms below. " +
+                    "If a verdict is not emitted before you exit, the review is discarded and re-run.\n" +
+                    "\n" +
                     "After your analysis, produce one of these verdicts:\n" +
                     "- **PASS** -- The mission is complete and correct. No changes needed.\n" +
                     "- **FAIL** -- The mission has critical issues that cannot be easily fixed. Explain why.\n" +
