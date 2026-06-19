@@ -201,6 +201,212 @@ namespace Armada.Test.Unit.Suites.Services
                     DeleteTempRepoRoot(repoRoot);
                 }
             });
+
+            await RunTest("AcceptMemoryProposalAsync_NoRepoRoot_AcceptsWithoutFileLand", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // Vessel has neither WorkingDirectory nor LocalPath: the conditional file-land
+                    // block is skipped entirely, so accept must still succeed and be recorded.
+                    Vessel vessel = new Vessel("apply-no-root", "https://github.com/test/apply-no-root.git");
+                    vessel.TenantId = Constants.DefaultTenantId;
+                    vessel.WorkingDirectory = null;
+                    vessel.LocalPath = null;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    string fact = "[high] Fact landed only to the DB playbook because there is no in-dock checkout.";
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        ReflectionTestHelpers.BuildReflectionProposalAgentOutput("# Learned Facts\n\n" + fact)).ConfigureAwait(false);
+
+                    ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                    ReflectionOutputParser parser = new ReflectionOutputParser();
+                    ReflectionAcceptProposalResult outcome = await svc.AcceptMemoryProposalAsync(
+                        mission.Id,
+                        null,
+                        parser).ConfigureAwait(false);
+
+                    AssertNull(outcome.Error, "Accept with no repo root must not error");
+                    AssertNotNull(outcome.PlaybookId, "DB playbook must still be persisted");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(events.Exists(e => e.EventType == "reflection.accepted"), "Accepted event must be recorded even without a file land");
+                }
+            });
+
+            await RunTest("AcceptMemoryProposalAsync_LocalPathRepoRoot_LandsFact", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repoRoot = CreateTempRepoRoot();
+                    try
+                    {
+                        // WorkingDirectory empty -> the write side must resolve the repo root from LocalPath.
+                        Vessel vessel = new Vessel("apply-localpath", "https://github.com/test/apply-localpath.git");
+                        vessel.TenantId = Constants.DefaultTenantId;
+                        vessel.WorkingDirectory = null;
+                        vessel.LocalPath = repoRoot;
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        string fact = "[high] Fact landed via the LocalPath fallback.";
+                        Mission mission = await CreateReflectionMissionAsync(
+                            testDb.Driver,
+                            vessel.Id,
+                            ReflectionTestHelpers.BuildReflectionProposalAgentOutput("# Learned Facts\n\n" + fact)).ConfigureAwait(false);
+
+                        ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                        ReflectionOutputParser parser = new ReflectionOutputParser();
+                        ReflectionAcceptProposalResult outcome = await svc.AcceptMemoryProposalAsync(
+                            mission.Id,
+                            null,
+                            parser).ConfigureAwait(false);
+
+                        AssertNull(outcome.Error, "LocalPath land must not error");
+
+                        string? fileContent = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                        AssertNotNull(fileContent, "LocalPath repo root should receive the canonical file");
+                        AssertContains(fact, fileContent!, "Fact must be landed in the LocalPath repo root");
+                    }
+                    finally
+                    {
+                        DeleteTempRepoRoot(repoRoot);
+                    }
+                }
+            });
+
+            await RunTest("AcceptMemoryProposalAsync_DuplicateFact_NotDuplicatedInFile", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repoRoot = CreateTempRepoRoot();
+                    try
+                    {
+                        Vessel vessel = await CreateApplyVesselAsync(testDb.Driver, "apply-dup", repoRoot).ConfigureAwait(false);
+                        string fact = "[high] An already-present fact that must not be duplicated.";
+
+                        // Pre-seed the canonical file with exactly the content the accept will apply.
+                        WriteLearnedFile(repoRoot, "# Learned Facts\n\n" + fact);
+
+                        Mission mission = await CreateReflectionMissionAsync(
+                            testDb.Driver,
+                            vessel.Id,
+                            ReflectionTestHelpers.BuildReflectionProposalAgentOutput("# Learned Facts\n\n" + fact)).ConfigureAwait(false);
+
+                        ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                        ReflectionOutputParser parser = new ReflectionOutputParser();
+                        ReflectionAcceptProposalResult outcome = await svc.AcceptMemoryProposalAsync(
+                            mission.Id,
+                            null,
+                            parser).ConfigureAwait(false);
+
+                        AssertNull(outcome.Error, "Duplicate accept must not error");
+
+                        string? fileContent = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                        AssertNotNull(fileContent, "Canonical file should still exist");
+                        AssertEqual(1, CountOccurrences(fileContent!, fact), "Fact must appear exactly once after a duplicate accept");
+                    }
+                    finally
+                    {
+                        DeleteTempRepoRoot(repoRoot);
+                    }
+                }
+            });
+
+            await RunTest("AcceptMemoryProposalAsync_TemplateOnlyFile_ReplacedByRealFact", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repoRoot = CreateTempRepoRoot();
+                    try
+                    {
+                        Vessel vessel = await CreateApplyVesselAsync(testDb.Driver, "apply-template", repoRoot).ConfigureAwait(false);
+
+                        // A template-only file reads as empty, so the accepted fact replaces it cleanly
+                        // rather than being appended below the template boilerplate.
+                        WriteLearnedFile(repoRoot, LearnedFactsFile.DefaultTemplateContent);
+
+                        string fact = "[high] First real fact landed over an empty-state template.";
+                        Mission mission = await CreateReflectionMissionAsync(
+                            testDb.Driver,
+                            vessel.Id,
+                            ReflectionTestHelpers.BuildReflectionProposalAgentOutput("# Learned Facts\n\n" + fact)).ConfigureAwait(false);
+
+                        ReflectionMemoryService svc = new ReflectionMemoryService(testDb.Driver);
+                        ReflectionOutputParser parser = new ReflectionOutputParser();
+                        ReflectionAcceptProposalResult outcome = await svc.AcceptMemoryProposalAsync(
+                            mission.Id,
+                            null,
+                            parser).ConfigureAwait(false);
+
+                        AssertNull(outcome.Error, "Template-replacement accept must not error");
+
+                        string? fileContent = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                        AssertNotNull(fileContent, "Canonical file should contain the real fact");
+                        AssertContains(fact, fileContent!, "Real fact must be landed");
+                        AssertFalse(fileContent!.Contains("No accepted reflection facts yet"), "Empty-state template boilerplate must not remain in the file");
+                    }
+                    finally
+                    {
+                        DeleteTempRepoRoot(repoRoot);
+                    }
+                }
+            });
+
+            await RunTest("LearnedFactsFile_ApplyAsync_NullOrWhitespaceRepoRoot_ReturnsRepoRootMissing", async () =>
+            {
+                LearnedFactsFileApplyResult nullResult = await LearnedFactsFile.ApplyAsync(null!, "[high] fact").ConfigureAwait(false);
+                AssertFalse(nullResult.Success, "Null repo root must fail");
+                AssertEqual("repo_root_missing", nullResult.Error, "Null repo root surfaces repo_root_missing");
+
+                LearnedFactsFileApplyResult whitespaceResult = await LearnedFactsFile.ApplyAsync("   ", "[high] fact").ConfigureAwait(false);
+                AssertFalse(whitespaceResult.Success, "Whitespace repo root must fail");
+                AssertEqual("repo_root_missing", whitespaceResult.Error, "Whitespace repo root surfaces repo_root_missing");
+            });
+
+            await RunTest("LearnedFactsFile_ApplyAsync_NullOrWhitespaceContent_ReturnsContentMissing", async () =>
+            {
+                string repoRoot = CreateTempRepoRoot();
+                try
+                {
+                    LearnedFactsFileApplyResult nullResult = await LearnedFactsFile.ApplyAsync(repoRoot, null!).ConfigureAwait(false);
+                    AssertFalse(nullResult.Success, "Null content must fail");
+                    AssertEqual("content_missing", nullResult.Error, "Null content surfaces content_missing");
+
+                    LearnedFactsFileApplyResult whitespaceResult = await LearnedFactsFile.ApplyAsync(repoRoot, "   \n  ").ConfigureAwait(false);
+                    AssertFalse(whitespaceResult.Success, "Whitespace content must fail");
+                    AssertEqual("content_missing", whitespaceResult.Error, "Whitespace content surfaces content_missing");
+
+                    // Guard rejection must run before any file is created.
+                    AssertFalse(File.Exists(Path.Combine(repoRoot, ".armada", "LEARNED.md")), "No file should be written when content is missing");
+                }
+                finally
+                {
+                    DeleteTempRepoRoot(repoRoot);
+                }
+            });
+
+            await RunTest("LearnedFactsFile_ApplyAsync_AppendsSecondDistinctFact", async () =>
+            {
+                string repoRoot = CreateTempRepoRoot();
+                try
+                {
+                    LearnedFactsFileApplyResult first = await LearnedFactsFile.ApplyAsync(repoRoot, "[medium] First fact.").ConfigureAwait(false);
+                    AssertTrue(first.Success, "First apply should succeed");
+
+                    LearnedFactsFileApplyResult second = await LearnedFactsFile.ApplyAsync(repoRoot, "[high] Second distinct fact.").ConfigureAwait(false);
+                    AssertTrue(second.Success, "Second apply should succeed");
+
+                    string? content = await LearnedFactsFile.ReadAsync(repoRoot).ConfigureAwait(false);
+                    AssertNotNull(content, "File should exist after two applies");
+                    AssertContains("First fact.", content!, "First fact must be preserved when a second is appended");
+                    AssertContains("Second distinct fact.", content!, "Second distinct fact must be appended");
+                }
+                finally
+                {
+                    DeleteTempRepoRoot(repoRoot);
+                }
+            });
         }
 
         #region Private-Methods
@@ -252,6 +458,22 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // Best-effort cleanup.
             }
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            if (String.IsNullOrEmpty(haystack) || String.IsNullOrEmpty(needle))
+                return 0;
+
+            int count = 0;
+            int index = 0;
+            while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += needle.Length;
+            }
+
+            return count;
         }
 
         #endregion
