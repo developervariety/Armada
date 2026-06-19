@@ -264,6 +264,30 @@ namespace Armada.Test.Runtimes.Suites
                 }
             });
 
+            await RunTest("WriteStderrToLogFile False Preserves Quota Signal In Log File", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.WriteStderrToLogFileOverride = false;
+                string tempDir = Path.GetTempPath();
+                string quotaText = "You have hit your usage limit. try again at 11:12 AM.";
+                ConfigureStderrEmitter(runtime, quotaText);
+
+                string logFilePath = Path.Combine(Path.GetTempPath(), "armada_stderr_quota_" + Guid.NewGuid().ToString("N") + ".log");
+
+                try
+                {
+                    await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
+                    await Task.Delay(2500);
+
+                    string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
+                    AssertTrue(logContent.Contains("[stderr] " + quotaText), "Quota-signal stderr line must be preserved in log file even when WriteStderrToLogFile is false");
+                }
+                finally
+                {
+                    try { if (File.Exists(logFilePath)) File.Delete(logFilePath); } catch { }
+                }
+            });
+
             await RunTest("WriteStderrToLogFile False Echoes Final Message On Exit", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());

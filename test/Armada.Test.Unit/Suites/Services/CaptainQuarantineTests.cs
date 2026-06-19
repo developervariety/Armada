@@ -249,6 +249,95 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleProcessExitAsync_CodexUsageLimitCrashSignature_QuarantinesCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+                    AdmiralService service = CreateAdmiralService(db, settings, quarantine);
+
+                    Voyage voyage = new Voyage("Codex Crash Signature Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Codex Crash Worker");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    mission.ProcessId = 7474;
+                    mission.StartedUtc = DateTime.UtcNow.AddSeconds(-3);
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain captain = new Captain("codex-crash-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7474;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    // Real codex crash signature: stderr contains only the reset time, no other
+                    // quota keyword. The new IsCodexUsageLimitCrash detector must still route it
+                    // to quarantine via the exit-1 + short-runtime corroboration.
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, mission.Id + ".log"),
+                        "[stderr] try again at 11:57 PM\nAgent exited with code 1").ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(7474, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "codex usage-limit crash signature should quarantine the captain");
+                    AssertNotNull(after.QuarantineUntilUtc, "quarantine should carry a retry deadline");
+                    AssertEqual(23, after.QuarantineUntilUtc!.Value.Hour, "published reset hour should drive the deadline");
+                    AssertEqual(57, after.QuarantineUntilUtc.Value.Minute, "published reset minute should drive the deadline");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync_OrdinaryExitOneBuildFailure_DoesNotQuarantine", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+                    AdmiralService service = CreateAdmiralService(db, settings, quarantine);
+
+                    Voyage voyage = new Voyage("Ordinary Failure Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Ordinary Worker");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    mission.ProcessId = 8888;
+                    mission.StartedUtc = DateTime.UtcNow.AddSeconds(-5);
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain captain = new Captain("ordinary-failure-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 8888;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    // Ordinary build/test failure with no usage-limit text.
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, mission.Id + ".log"),
+                        "[stderr] Build failed with 3 errors\nAgent exited with code 1").ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(8888, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotEqual(CaptainStateEnum.Quarantined, after!.State, "ordinary exit-1 build failure must not quarantine the captain");
+                }
+            });
+
             await RunTest("RestoreExpiredQuarantines_AfterRetryWindow_ClearsQuarantine", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

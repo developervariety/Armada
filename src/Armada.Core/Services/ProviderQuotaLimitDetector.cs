@@ -24,12 +24,42 @@ namespace Armada.Core.Services
             }
 
             string normalized = Normalize(text);
-            return normalized.Contains("hit your limit", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("hit your usage limit", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("usage limit", StringComparison.OrdinalIgnoreCase) ||
+            return ContainsUsageLimitText(normalized) ||
                 normalized.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Detects the codex CLI usage-limit crash signature: a very short run that exits code 1
+        /// and prints a ChatGPT usage-limit message. The usage-limit text is the discriminator;
+        /// exit code and runtime are corroborating evidence so ordinary build/test failures are
+        /// not treated as quota crashes.
+        /// </summary>
+        /// <param name="exitCode">Agent process exit code.</param>
+        /// <param name="runtime">Agent process runtime.</param>
+        /// <param name="output">Captured agent stdout/stderr or failure reason text.</param>
+        /// <returns>True when the output looks like a codex usage-limit crash.</returns>
+        public static bool IsCodexUsageLimitCrash(int? exitCode, TimeSpan runtime, string? output)
+        {
+            if (exitCode != 1)
+            {
+                return false;
+            }
+
+            if (runtime.TotalSeconds > 30)
+            {
+                return false;
+            }
+
+            if (String.IsNullOrWhiteSpace(output))
+            {
+                return false;
+            }
+
+            string normalized = Normalize(output);
+            return ContainsUsageLimitText(normalized) ||
+                normalized.Contains("try again at", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -92,6 +122,19 @@ namespace Armada.Core.Services
             }
 
             return normalized;
+        }
+
+        private static bool ContainsUsageLimitText(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            string normalized = Normalize(text);
+            return normalized.Contains("hit your limit", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("hit your usage limit", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("usage limit", StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion

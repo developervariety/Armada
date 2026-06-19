@@ -1250,7 +1250,7 @@ namespace Armada.Core.Services
                 // when the failure indicates the runtime itself is unavailable.
                 _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId);
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
-                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
             }
 
             // Try to dispatch any pending missions now that capacity may have freed up
@@ -1383,7 +1383,7 @@ namespace Armada.Core.Services
                         " but no process ID is recorded; agent completion cannot be verified.";
                     _Logging.Warn(_Header + "captain " + captain.Id + " has active mission " + mission.Id +
                         " without a process id -- failing loudly instead of treating it as success");
-                    await HandleTerminalProcessExitFailureAsync(captain, mission, mission.Id, failureReason, token).ConfigureAwait(false);
+                    await HandleTerminalProcessExitFailureAsync(captain, mission, mission.Id, null, failureReason, token).ConfigureAwait(false);
                     return;
                 }
 
@@ -1450,7 +1450,7 @@ namespace Armada.Core.Services
                         captainId: captain.Id, missionId: missionId, token: token).ConfigureAwait(false);
 
                     string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
-                    await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+                    await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
                 }
             }
             else
@@ -2089,6 +2089,7 @@ namespace Armada.Core.Services
             Captain captain,
             Mission? mission,
             string missionId,
+            int? exitCode,
             string failureReason,
             CancellationToken token)
         {
@@ -2129,7 +2130,16 @@ namespace Armada.Core.Services
 
             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
 
-            if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason))
+            TimeSpan runtime = TimeSpan.Zero;
+            if (mission?.StartedUtc.HasValue ?? false)
+            {
+                runtime = DateTime.UtcNow - mission.StartedUtc.Value;
+            }
+
+            bool isQuotaFailure = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ||
+                ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(exitCode, runtime, failureReason);
+
+            if (isQuotaFailure)
             {
                 DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(failureReason, DateTime.UtcNow);
                 await _CaptainQuarantine.QuarantineAsync(captain, failureReason, retryAfterUtc, token).ConfigureAwait(false);
@@ -2154,7 +2164,7 @@ namespace Armada.Core.Services
             }
 
             string signalMessage = "Mission " + missionId + " failed: " + failureReason;
-            if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason))
+            if (isQuotaFailure)
             {
                 signalMessage += " (captain quarantined)";
             }

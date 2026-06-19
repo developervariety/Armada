@@ -150,6 +150,69 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(retryAfterUtc, "unparseable clock token should yield null");
                 return Task.CompletedTask;
             });
+
+            await RunTest("IsCodexUsageLimitCrash_CodexSignature_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(
+                        1,
+                        TimeSpan.FromSeconds(3),
+                        "You've hit your usage limit. Upgrade to Pro or try again at 11:12 AM."),
+                    "codex exit-1 usage-limit crash should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCodexUsageLimitCrash_TryAgainAtOnly_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(
+                        1,
+                        TimeSpan.FromSeconds(2),
+                        "try again at 11:12 AM"),
+                    "codex crash with only try-again-at text should still be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCodexUsageLimitCrash_OrdinaryExitOne_ReturnsFalse", () =>
+            {
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(
+                        1,
+                        TimeSpan.FromSeconds(3),
+                        "Agent process exited with code 1"),
+                    "ordinary exit-1 failure without usage-limit text must not be treated as codex quota crash");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCodexUsageLimitCrash_LongRuntime_ReturnsFalse", () =>
+            {
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(
+                        1,
+                        TimeSpan.FromMinutes(5),
+                        "You've hit your usage limit. try again at 11:12 AM."),
+                    "long-running exit-1 with usage-limit text should not match the codex crash signature");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCodexUsageLimitCrash_NonOneExitCode_ReturnsFalse", () =>
+            {
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(
+                        2,
+                        TimeSpan.FromSeconds(3),
+                        "You've hit your usage limit. try again at 11:12 AM."),
+                    "non-1 exit code should not match the codex crash signature");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCodexUsageLimitCrash_NullOutput_ReturnsFalse", () =>
+            {
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(1, TimeSpan.FromSeconds(3), null),
+                    "null output should not match the codex crash signature");
+                return Task.CompletedTask;
+            });
         }
     }
 }
