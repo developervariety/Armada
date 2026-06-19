@@ -48,6 +48,42 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(worker.Id, mergeQueue.EnqueueCalls[0].MissionId, "Enqueue should target the Worker mission.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_JudgeProgressSignalPass_WorkProduced_EnqueuesBranch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-progress", "Worker").ConfigureAwait(false);
+
+                Mission judge = new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    DependsOnMissionId = worker.Id,
+                    Persona = "Judge",
+                    Title = "Judge mission",
+                    Status = MissionStatusEnum.Complete,
+                    AgentOutput =
+                        "## Completeness\nok\n## Correctness\nok\n## Tests\nok\n## Failure Modes\nok\n" +
+                        "## Verdict\nPASS\n[verdict] PASS\nthe standalone verdict line was dropped before exit\n",
+                    CompletedUtc = DateTime.UtcNow,
+                    LastUpdateUtc = DateTime.UtcNow
+                };
+                await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "A Judge salvaged from a [verdict] PASS progress signal should still count as passed.");
+                AssertEqual(worker.Id, mergeQueue.EnqueueCalls[0].MissionId, "Enqueue should target the Worker mission.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_AlreadyEnqueued_DoesNotDoubleEnqueue", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

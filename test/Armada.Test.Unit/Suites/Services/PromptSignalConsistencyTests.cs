@@ -171,6 +171,9 @@ namespace Armada.Test.Unit.Suites.Services
             AssertContains("[ARMADA:VERDICT] FAIL", launchPrompt, "judge launch prompt FAIL");
             AssertContains("[ARMADA:VERDICT] NEEDS_REVISION", launchPrompt, "judge launch prompt NEEDS_REVISION");
 
+            AssertContains("Run the test suite in the FOREGROUND", embeddedPrompt, "judge embedded template foreground instruction");
+            AssertContains("never launch tests as a background task", embeddedPrompt, "judge embedded template background prohibition");
+
             AssertNotContains("[ARMADA:RESULT]", embeddedPrompt, "judge embedded template");
             AssertNotContains("[ARMADA:RESULT]", templateParams["CaptainInstructions"], "judge captain instructions");
             AssertNotContains("[ARMADA:RESULT]", fallbackPrompt, "judge fallback");
