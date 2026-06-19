@@ -1,11 +1,16 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
+    using System.Text.Json;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -17,6 +22,13 @@ namespace Armada.Test.Unit.Suites.Services
     /// </summary>
     public class CodeIndexFastPackTests : TestSuite
     {
+        private static readonly JsonSerializerOptions _IndexJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        };
+
         /// <summary>
         /// Suite name.
         /// </summary>
@@ -316,6 +328,209 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, recording.ShouldUseFastPackVesselIds.Count, "Recording double should record one call");
                 AssertEqual("vsl_recorded", recording.ShouldUseFastPackVesselIds[0], "Recording double should record the vessel id");
             });
+
+            await RunTest("BuildContextPackAsync_LargeVessel_AutoFastPack_CompletesWithinBudgetAndPreservesTopResult", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-large-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+
+                        int documentCount = 1600;
+                        List<CodeIndexRecord> records = BuildLargeRecords(vessel.Id, documentCount, out string topPath);
+                        await WritePersistedIndexAsync(settings, vessel, records, documentCount).ConfigureAwait(false);
+
+                        CountingEmbeddingClient embeddingClient = new CountingEmbeddingClient(new float[] { 1.0f, 0.0f, 0.0f });
+                        CodeIndexService service = CreateService(testDb, dataRoot, s =>
+                        {
+                            s.UseSemanticSearch = false;
+                            s.ContextPackBudgetMs = 500;
+                        }, embeddingClient);
+
+                        Stopwatch stopwatch = Stopwatch.StartNew();
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "ExactMatchKeyword",
+                            TokenBudget = 1200,
+                            MaxResults = 4
+                        }).ConfigureAwait(false);
+                        stopwatch.Stop();
+
+                        AssertTrue(response.Metrics.FastPackFallbackUsed, "Large vessel should auto-enable fast-pack fallback");
+                        AssertFalse(response.Metrics.GraphExpansionUsed, "Large vessel should skip graph expansion");
+                        AssertTrue(File.Exists(response.MaterializedPath), "Pack should still be materialized");
+                        AssertContains(topPath, response.Markdown, "Top search result must still be in the pack");
+                        AssertEqual(0, embeddingClient.CallCount, "Lexical fast pack should not issue any embedding calls");
+                        AssertTrue(stopwatch.ElapsedMilliseconds < 5000, "Large-vessel pack should complete well under budget (elapsed " + stopwatch.ElapsedMilliseconds + "ms)");
+                        AssertTrue(response.Warnings.Any(w => w.Contains("fast_pack_threshold", StringComparison.OrdinalIgnoreCase)),
+                            "Warning should explain the fast-pack fallback");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_LargeVessel_SemanticSearch_StillOneQueryEmbedding", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-large-semantic-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+
+                        int documentCount = 1600;
+                        List<CodeIndexRecord> records = BuildLargeRecords(vessel.Id, documentCount, out string topPath);
+                        await WritePersistedIndexAsync(settings, vessel, records, documentCount).ConfigureAwait(false);
+
+                        CountingEmbeddingClient embeddingClient = new CountingEmbeddingClient(new float[] { 1.0f, 0.0f, 0.0f });
+                        CodeIndexService service = CreateService(testDb, dataRoot, s =>
+                        {
+                            s.UseSemanticSearch = true;
+                            s.ContextPackBudgetMs = 8000;
+                        }, embeddingClient);
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "ExactMatchKeyword",
+                            TokenBudget = 1200,
+                            MaxResults = 4
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Metrics.FastPackFallbackUsed, "Large vessel should auto-enable fast-pack fallback");
+                        AssertFalse(response.Metrics.GraphExpansionUsed, "Large vessel should skip graph expansion");
+                        AssertContains(topPath, response.Markdown, "Top search result must still be in the pack");
+                        AssertEqual(1, embeddingClient.CallCount, "Semantic fast pack should issue exactly one query embedding (persisted corpus vectors are reused, never re-embedded)");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_BudgetExpiresDuringSearch_FallsBackToSearchOnlyPack", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-budget-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+
+                        List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                        {
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "src/Service.cs",
+                                CommitSha = "abc",
+                                ContentHash = "h1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "public class Service { public void ExactMatchKeyword() { } }"
+                            }
+                        };
+                        await WritePersistedIndexAsync(settings, vessel, records, documentCount: 1).ConfigureAwait(false);
+
+                        // A slow query embedding makes the search phase outlast the tiny context-pack budget.
+                        // The budget token must cut the embedding short, fall back to lexical scoring (so the
+                        // top lexical result still appears), skip graph expansion, and stage a search-only pack
+                        // -- proving the hard budget now covers the initial search/embedding phase, not just the
+                        // later graph/summarizer stages.
+                        SlowEmbeddingClient embeddingClient = new SlowEmbeddingClient(new float[] { 1.0f, 0.0f, 0.0f }, delayMs: 1500);
+                        CodeIndexService service = CreateService(testDb, dataRoot, s =>
+                        {
+                            s.UseSemanticSearch = true;
+                            s.ContextPackBudgetMs = 300;
+                            s.FastPackFileThreshold = 5000;
+                        }, embeddingClient);
+
+                        Stopwatch stopwatch = Stopwatch.StartNew();
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "ExactMatchKeyword",
+                            TokenBudget = 1200,
+                            MaxResults = 4
+                        }).ConfigureAwait(false);
+                        stopwatch.Stop();
+
+                        AssertTrue(File.Exists(response.MaterializedPath), "Budget fallback should still stage a pack");
+                        AssertContains("src/Service.cs", response.Markdown, "Lexical search result must still be in the fallback pack");
+                        AssertTrue(response.Metrics.FastPackFallbackUsed, "Budget-expired search should mark the pack as a fast-pack fallback");
+                        AssertFalse(response.Metrics.GraphExpansionUsed, "Budget-expired search must skip graph expansion");
+                        AssertTrue(response.Warnings.Any(w => w.Contains("context_pack_budget_expired", StringComparison.OrdinalIgnoreCase)),
+                            "Warning should report the budget expiration (warnings: " + String.Join(" | ", response.Warnings) + ")");
+                        AssertTrue(stopwatch.ElapsedMilliseconds < 5000, "Budget fallback should complete quickly (elapsed " + stopwatch.ElapsedMilliseconds + "ms)");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_CallerCancellation_PropagatesOperationCanceled", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-cancel-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+
+                        List<CodeIndexRecord> records = BuildLargeRecords(vessel.Id, 3, out string topPath);
+                        await WritePersistedIndexAsync(settings, vessel, records, documentCount: 3).ConfigureAwait(false);
+                        WriteMinimalGraphSidecars(settings, vessel);
+
+                        CodeIndexService service = CreateService(testDb, dataRoot, s =>
+                        {
+                            s.UseSemanticSearch = false;
+                            s.FastPackFileThreshold = 5000;
+                        });
+
+                        using (CancellationTokenSource cts = new CancellationTokenSource())
+                        {
+                            cts.Cancel();
+
+                            // Caller cancellation is distinct from budget expiry: a genuinely cancelled caller
+                            // token must surface as OperationCanceledException, NOT be silently swallowed into a
+                            // degraded fast-pack fallback. This pins the post-search caller-cancel check that
+                            // separates caller-cancel from budget-cancel.
+                            await AssertThrowsAsync<OperationCanceledException>(
+                                () => service.BuildContextPackAsync(new ContextPackRequest
+                                {
+                                    VesselId = vessel.Id,
+                                    Goal = "ExactMatchKeyword",
+                                    TokenBudget = 1200,
+                                    MaxResults = 4
+                                }, cts.Token),
+                                "Pre-cancelled caller token must propagate cancellation").ConfigureAwait(false);
+                        }
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
         }
 
         #region Helpers
@@ -323,7 +538,16 @@ namespace Armada.Test.Unit.Suites.Services
         private static CodeIndexService CreateService(
             TestDatabase testDb,
             string dataRoot,
-            Action<CodeIndexSettings>? configureCodeIndex = null)
+            Action<CodeIndexSettings>? configureCodeIndex = null,
+            IEmbeddingClient? embeddingClient = null,
+            IInferenceClient? inferenceClient = null)
+        {
+            ArmadaSettings settings = BuildSettings(dataRoot, configureCodeIndex);
+            LoggingModule logging = SilentLogging();
+            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), embeddingClient, inferenceClient);
+        }
+
+        private static ArmadaSettings BuildSettings(string dataRoot, Action<CodeIndexSettings>? configureCodeIndex = null)
         {
             CodeIndexSettings codeIndex = new CodeIndexSettings
             {
@@ -342,9 +566,127 @@ namespace Armada.Test.Unit.Suites.Services
                 CodeIndex = codeIndex
             };
             settings.InitializeDirectories();
+            return settings;
+        }
 
-            LoggingModule logging = SilentLogging();
-            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), null, null);
+        private static async Task WritePersistedIndexAsync(ArmadaSettings settings, Vessel vessel, IReadOnlyList<CodeIndexRecord> records, int documentCount)
+        {
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            CodeIndexStatus status = new CodeIndexStatus
+            {
+                VesselId = vessel.Id,
+                VesselName = vessel.Name,
+                DefaultBranch = vessel.DefaultBranch,
+                IndexedCommitSha = "deadbeef",
+                CurrentCommitSha = "deadbeef",
+                IndexedAtUtc = DateTime.UtcNow,
+                Freshness = "Fresh",
+                DocumentCount = documentCount,
+                ChunkCount = records.Count,
+                IndexDirectory = indexDir,
+                LastError = null
+            };
+
+            string metadataPath = Path.Combine(indexDir, "metadata.json");
+            await File.WriteAllTextAsync(metadataPath, JsonSerializer.Serialize(status, _IndexJsonOptions)).ConfigureAwait(false);
+
+            string chunksPath = Path.Combine(indexDir, "chunks.jsonl");
+            using (StreamWriter writer = new StreamWriter(chunksPath))
+            {
+                foreach (CodeIndexRecord record in records)
+                {
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(record, _IndexJsonOptions)).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static void WriteMinimalGraphSidecars(ArmadaSettings settings, Vessel vessel)
+        {
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
+            {
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    QualifiedName = "Service.ExactMatchKeyword",
+                    SimpleName = "ExactMatchKeyword",
+                    Kind = CodeGraphSymbolKindEnum.Method,
+                    Path = "src/Service.cs",
+                    StartLine = 1,
+                    EndLine = 1,
+                    CommitSha = "abc"
+                },
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    QualifiedName = "Consumer.UseKeyword",
+                    SimpleName = "UseKeyword",
+                    Kind = CodeGraphSymbolKindEnum.Method,
+                    Path = "src/Consumer.cs",
+                    StartLine = 1,
+                    EndLine = 1,
+                    CommitSha = "abc"
+                }
+            };
+
+            List<CodeGraphEdgeRecord> edges = new List<CodeGraphEdgeRecord>
+            {
+                new CodeGraphEdgeRecord
+                {
+                    VesselId = vessel.Id,
+                    Kind = CodeGraphEdgeKindEnum.Calls,
+                    SourceSymbol = "Consumer.UseKeyword",
+                    SourcePath = "src/Consumer.cs",
+                    TargetSymbol = "Service.ExactMatchKeyword",
+                    CommitSha = "abc"
+                }
+            };
+
+            WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
+            WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
+        }
+
+        private static void WriteJsonl<T>(string path, IReadOnlyList<T> records)
+        {
+            using (StreamWriter writer = new StreamWriter(path))
+            {
+                foreach (T record in records)
+                {
+                    writer.WriteLine(JsonSerializer.Serialize(record, _IndexJsonOptions));
+                }
+            }
+        }
+
+        private static List<CodeIndexRecord> BuildLargeRecords(string vesselId, int documentCount, out string topPath)
+        {
+            topPath = "src/TopMatch.cs";
+            List<CodeIndexRecord> records = new List<CodeIndexRecord>(documentCount);
+            for (int i = 0; i < documentCount; i++)
+            {
+                string path = i == 0 ? topPath : "src/File" + i.ToString() + ".cs";
+                string content = i == 0
+                    ? "public class TopMatch { public void ExactMatchKeyword() { } }"
+                    : "public class File" + i.ToString() + " { public void Work" + i.ToString() + "() { } }";
+
+                records.Add(new CodeIndexRecord
+                {
+                    VesselId = vesselId,
+                    Path = path,
+                    CommitSha = "deadbeef",
+                    ContentHash = "h" + i.ToString(),
+                    Language = "csharp",
+                    StartLine = 1,
+                    EndLine = 5,
+                    IsReferenceOnly = false,
+                    Content = content
+                });
+            }
+
+            return records;
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb, string repositoryPath)
@@ -467,6 +809,42 @@ namespace Armada.Test.Unit.Suites.Services
                 Root = root;
                 Path = path;
                 CommitSha = commitSha;
+            }
+        }
+
+        private sealed class CountingEmbeddingClient : IEmbeddingClient
+        {
+            private readonly float[] _Vector;
+
+            public int CallCount { get; private set; }
+
+            public CountingEmbeddingClient(float[] vector)
+            {
+                _Vector = vector ?? throw new ArgumentNullException(nameof(vector));
+            }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                CallCount++;
+                return Task.FromResult(_Vector);
+            }
+        }
+
+        private sealed class SlowEmbeddingClient : IEmbeddingClient
+        {
+            private readonly float[] _Vector;
+            private readonly int _DelayMs;
+
+            public SlowEmbeddingClient(float[] vector, int delayMs)
+            {
+                _Vector = vector ?? throw new ArgumentNullException(nameof(vector));
+                _DelayMs = delayMs;
+            }
+
+            public async Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                return _Vector;
             }
         }
 
