@@ -264,6 +264,60 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, events.Count(e => String.Equals(e.EventType, "reflection.candidate_emitted", StringComparison.Ordinal)), "Worker must not emit reflection candidate event");
                 }
             });
+
+            await RunTest("WorkerMission_WithDiff_MergeQueueMode_Enqueues", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "worker diff merge queue vessel").ConfigureAwait(false);
+                    vessel.LandingMode = LandingModeEnum.MergeQueue;
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Regular worker mission with diff");
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "Worker";
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.AgentOutput = "[ARMADA:RESULT] COMPLETE\nSummary.";
+                    mission.DiffSnapshot = "diff --git a/src/Example.cs\n+++ b/src/Example.cs\n@@ -1 +1,2 @@\n+// change\n";
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain captain = new Captain("test-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = "armada/worker/msn_test";
+                    dock.Active = true;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    git.ExistingBranches.Add(dock.BranchName);
+                    git.DiffResult = mission.DiffSnapshot;
+
+                    RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                    MissionLandingHandler handler = CreateHandler(logging, testDb.Driver, settings, git, mergeQueue);
+
+                    await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "mission row must exist");
+                    AssertEqual(MissionStatusEnum.WorkProduced, updated!.Status, "Worker mission with a diff must stay WorkProduced for merge queue processing");
+
+                    AssertEqual(1, mergeQueue.EnqueuedEntryIds.Count, "Worker mission with a diff must enqueue exactly one merge entry");
+                    AssertEqual(dock.BranchName, mergeQueue.EnqueuedBranchNames[0], "enqueued branch name must match dock branch");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 10).ConfigureAwait(false);
+                    AssertEqual(0, events.Count(e => String.Equals(e.EventType, "reflection.candidate_emitted", StringComparison.Ordinal)), "Worker must not emit reflection candidate event");
+                    AssertEqual(1, events.Count(e => String.Equals(e.EventType, "merge_queue.enqueued", StringComparison.Ordinal)), "Worker must emit merge_queue.enqueued event");
+                }
+            });
         }
 
         private MissionLandingHandler CreateHandler(
@@ -298,10 +352,12 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class RecordingMergeQueueService : IMergeQueueService
         {
             public List<string> EnqueuedEntryIds { get; } = new List<string>();
+            public List<string> EnqueuedBranchNames { get; } = new List<string>();
 
             public Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default)
             {
                 EnqueuedEntryIds.Add(entry.Id);
+                EnqueuedBranchNames.Add(entry.BranchName ?? string.Empty);
                 return Task.FromResult(entry);
             }
 
