@@ -222,16 +222,16 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_High_SelectsCaptainWithClaude46OpusHighThinking", () =>
+            await RunTest("SelectModel_High_SelectsCaptainWithClaude46OpusHigh", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-4.6-opus-high-thinking")
+                    MakeCaptain("claude-4.6-opus-high")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
-                AssertNotNull(selected, "High tier should match Claude 4.6 opus high-thinking alias");
-                AssertEqual("claude-4.6-opus-high-thinking", selected, "Exact model string should round-trip");
+                AssertNotNull(selected, "High tier should match Claude 4.6 opus high alias");
+                AssertEqual("claude-4.6-opus-high", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
             });
 
@@ -351,7 +351,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "curated opus is high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "curated gpt-5.5 is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high-thinking"), "curated cursor opus alias is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high"), "curated cursor opus alias is high");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6"), "curated sonnet is mid");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.3-codex"), "curated gpt codex is mid");
                 AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "curated kimi is low");
@@ -714,6 +714,269 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Worker", _ => 0);
                 AssertEqual("claude-opus-4-7", selected, "An explicit high request by a non-specialist resolves to the high captain, not the idle mid one");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_ConfigDrivenTierMembership_FollowsModelTierSettings", () =>
+            {
+                // Tier membership is sourced from ModelTierSettings, not hard-coded arrays.
+                // The configured lists win over canonical family patterns and over default
+                // tier assignments, so moving a model between tiers is a settings change.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.LowTierModels = new List<string> { "custom-low", "claude-opus-4-7" };
+                custom.MidTierModels = new List<string> { "custom-mid", "kimi-k2.5" };
+                custom.HighTierModels = new List<string> { "custom-high" };
+
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("custom-low", custom), "custom low-tier model classifies low");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("custom-mid", custom), "custom mid-tier model classifies mid");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("custom-high", custom), "custom high-tier model classifies high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.5", custom), "a default low model moved to mid config classifies mid");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "configured low-tier membership overrides the canonical opus high pattern");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("not-in-any-list-and-no-pattern-match", custom), "model not in custom lists and not matching a family pattern is not classified");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_Gpt55_ExplicitEntryOnlyClassifiesHigh", () =>
+            {
+                // gpt-5.5 must classify high through its explicit curated entry, not a fragile
+                // regex or prefix fallback. Nearby gpt variants that are not explicitly listed
+                // must remain unclassified.
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "gpt-5.5 is explicitly high");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.5-turbo"), "no gpt prefix fallback absorbs variants");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6"), "no gpt prefix fallback absorbs version bumps");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_KimiK27_HardensToMid", () =>
+            {
+                // Kimi K2.7 must reliably resolve to the mid tier, both bare and under opencode
+                // prefixes, while earlier Kimi releases stay low.
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7"), "bare k2.7 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7-code"), "k2.7-code variant is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.7-code"), "opencode-go k2.7 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode/kimi-k2.7"), "opencode k2.7 is mid");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "k2.5 stays low");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.6"), "k2.6 stays low");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_SpecialistPersona_MidDispatch_ForcedHigh", () =>
+            {
+                // A mid-tier dispatch for a specialist persona must resolve to the high tier
+                // even when an idle mid-tier captain is available.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-opus-4-7")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "TestEngineer", _ => 0);
+                AssertEqual("claude-opus-4-7", selected, "Specialist mid dispatch is forced to high-tier captain");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_K2_7FirstPreserved", () =>
+            {
+                // The default mid preference order must keep K2.7 first, then sonnet, then
+                // composer, and must be overridable through settings.
+                ModelTierSettings defaults = new ModelTierSettings();
+                AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default contains mid preference order");
+                List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
+                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[0], "default mid order starts with K2.7");
+                AssertEqual("claude-sonnet-4-6", midOrder[1], "default mid order second is sonnet");
+                AssertEqual("composer-2.5", midOrder[2], "default mid order third is composer");
+
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("opencode-go/kimi-k2.7-code")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults);
+                AssertEqual("opencode-go/kimi-k2.7-code", selected, "K2.7-first preference is preserved when all mid captains are idle");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("GetTierModels_CustomSettings_ReturnsConfiguredMembership", () =>
+            {
+                // The config-driven read path: GetTierModels must return the supplied settings'
+                // lists verbatim, not the built-in defaults. This is the read-side proof that
+                // tier membership is sourced from ModelTierSettings.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.LowTierModels = new List<string> { "alpha-low" };
+                custom.MidTierModels = new List<string> { "beta-mid", "gamma-mid" };
+                custom.HighTierModels = new List<string> { "delta-high" };
+
+                IReadOnlyList<string> low = PreferredModelTierSelector.GetTierModels("low", custom);
+                IReadOnlyList<string> mid = PreferredModelTierSelector.GetTierModels("mid", custom);
+                IReadOnlyList<string> high = PreferredModelTierSelector.GetTierModels("high", custom);
+
+                AssertEqual(1, low.Count, "custom low tier has exactly the one configured model");
+                AssertEqual("alpha-low", low[0], "custom low tier returns the configured model");
+                AssertEqual(2, mid.Count, "custom mid tier returns both configured models");
+                AssertTrue(mid.Contains("beta-mid") && mid.Contains("gamma-mid"), "custom mid tier returns the configured members");
+                AssertEqual(1, high.Count, "custom high tier has exactly the one configured model");
+                AssertEqual("delta-high", high[0], "custom high tier returns the configured model");
+
+                // The default membership must NOT leak through when custom settings are supplied.
+                AssertFalse(low.Contains("kimi-k2.5"), "default low model must not appear under custom low settings");
+                AssertFalse(high.Contains("gpt-5.5"), "default high model must not appear under custom high settings");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("GetTierModels_EmptyConfiguredList_ReturnsEmpty", () =>
+            {
+                // An operator who clears a tier list gets an empty membership list back -- the
+                // empty list is honored (it is not null, so the setter does not restore defaults).
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.MidTierModels = new List<string>();
+
+                IReadOnlyList<string> mid = PreferredModelTierSelector.GetTierModels("mid", custom);
+                AssertEqual(0, mid.Count, "an explicitly emptied mid list returns no configured members");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("GetTierAndAboveModels_CustomSettings_MidComposesMidAndHigh", () =>
+            {
+                // mid-and-above must concatenate the configured mid and high lists (and exclude
+                // low) when custom settings are supplied -- the upward chain is config-driven too.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.LowTierModels = new List<string> { "alpha-low" };
+                custom.MidTierModels = new List<string> { "beta-mid" };
+                custom.HighTierModels = new List<string> { "delta-high" };
+
+                IReadOnlyList<string> midAndAbove = PreferredModelTierSelector.GetTierAndAboveModels("mid", custom);
+                AssertTrue(midAndAbove.Contains("beta-mid"), "mid-and-above includes the configured mid model");
+                AssertTrue(midAndAbove.Contains("delta-high"), "mid-and-above includes the configured high model");
+                AssertFalse(midAndAbove.Contains("alpha-low"), "mid-and-above must exclude the configured low model");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_ListPrecedence_HighWinsOverLowWhenModelInBoth", () =>
+            {
+                // ClassifyModel checks High, then Mid, then Low. A (misconfigured) model present
+                // in more than one list resolves to the highest list it appears in -- this pins
+                // the documented check order so a future reorder is caught.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.LowTierModels = new List<string> { "dual-listed" };
+                custom.MidTierModels = new List<string> { "dual-listed" };
+                custom.HighTierModels = new List<string> { "dual-listed" };
+
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("dual-listed", custom), "a model in multiple lists classifies into the highest (high checked first)");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_EmptyHighList_DropsExplicitOnlyEntryButKeepsPatternFamily", () =>
+            {
+                // Residual-risk guard: emptying the high list removes models that ONLY count via an
+                // explicit entry (gpt-5.5) -- they fall through to null since there is no gpt
+                // pattern. Models that count via a canonical family pattern (opus) are unaffected,
+                // because the pattern fallback runs after the (now empty) list check.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.HighTierModels = new List<string>();
+
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.5", custom), "explicit-only gpt-5.5 is unclassified once the high list is emptied");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "opus still classifies high via its canonical family pattern even with an empty high list");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_EmptyMidList_PatternFamiliesStillClassifyMid", () =>
+            {
+                // Clearing the mid list does not strip pattern-driven members: sonnet (canonical
+                // pattern) and composer- (prefix fallback) remain mid because the pattern checks
+                // run after the empty list check.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.MidTierModels = new List<string>();
+
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", custom), "sonnet stays mid via canonical pattern with an empty mid list");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("composer-2.5", custom), "composer- stays mid via prefix fallback with an empty mid list");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_KimiK27Pattern_AnchoringBoundaries", () =>
+            {
+                // The K2.7 mid pattern is anchored: only k2.7 exactly, or k2.7 followed by a '-'
+                // or '.' separator, is mid. Adjacent digits (k2.70, k2.75) and later minor
+                // versions (k2.8) must NOT be absorbed -- they fall to the bare kimi- low fallback.
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7"), "bare k2.7 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7-thinking"), "k2.7 with a dash separator is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7.1"), "k2.7 with a dot separator is mid");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.70"), "k2.70 is NOT k2.7 -- the trailing digit blocks the anchored pattern, so it falls to low");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.75"), "k2.75 is NOT k2.7 -- it falls to low");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.8"), "a later kimi minor version stays low until promoted");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelMatchesTierOrAbove_CustomSettings_FollowsConfiguredMembership", () =>
+            {
+                // The pin-validation upward chain is config-driven: a model reclassified to high by
+                // settings now satisfies a low pin (upward fallback) and a high pin, while a model
+                // moved down to low no longer satisfies a mid pin.
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.LowTierModels = new List<string> { "claude-opus-4-7" };
+                custom.HighTierModels = new List<string> { "kimi-k2.5" };
+
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("kimi-k2.5", "low", custom), "a model promoted to high via config satisfies a low pin");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("kimi-k2.5", "high", custom), "a model promoted to high via config satisfies a high pin");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-7", "mid", custom), "a model demoted to low via config no longer satisfies a mid pin");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_CustomSettings_SelectsModelClassifiedByConfigOnly", () =>
+            {
+                // A captain whose model is unknown to the defaults (would classify null and be
+                // unselectable) becomes selectable for a mid request once config adds it to the
+                // mid list -- proving SelectModel threads modelTierSettings through to ClassifyModel.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("house-model-x")
+                };
+
+                string? withoutConfig = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                AssertNull(withoutConfig, "an unclassified model is not selectable for a mid request under defaults");
+
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.MidTierModels = new List<string> { "house-model-x" };
+                string? withConfig = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, custom);
+                AssertEqual("house-model-x", withConfig, "config adding the model to the mid list makes its captain selectable for mid work");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("NormalizeTier_UnknownSelector_Throws", () =>
+            {
+                // Defensive contract: NormalizeTier must reject values that are neither canonical
+                // tiers nor known aliases rather than silently coercing them.
+                AssertThrows<System.ArgumentException>(() => PreferredModelTierSelector.NormalizeTier("ultra"), "unknown tier selector throws");
+                AssertThrows<System.ArgumentException>(() => PreferredModelTierSelector.NormalizeTier(""), "empty tier selector throws");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("CaptainSatisfiesPreferredRouting_TierPin_HonorsConfiguredMembership", () =>
+            {
+                // The MissionService hard-pin/stage-pin gate must honor config-driven tier
+                // membership: a captain whose model the defaults treat as mid is rejected for a
+                // high pin, but accepted once config promotes that model to high.
+                Captain captain = MakeCaptain("claude-sonnet-4-6", "[\"Worker\"]");
+
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "high"), "a default mid-tier captain does not satisfy a high tier pin");
+
+                ModelTierSettings custom = new ModelTierSettings();
+                custom.HighTierModels = new List<string> { "claude-sonnet-4-6" };
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "high", custom), "config promoting the model to high lets the captain satisfy a high tier pin");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("CaptainSatisfiesPreferredRouting_LiteralPinAndPersona_AreEnforced", () =>
+            {
+                // Literal model pins must match exactly (tier config is irrelevant), and the
+                // persona allow-list is enforced independently of the model pin.
+                Captain captain = MakeCaptain("claude-opus-4-7", "[\"Worker\",\"Judge\"]");
+
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "claude-opus-4-7"), "exact literal model pin is satisfied");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "gpt-5.5"), "a non-matching literal model pin is rejected");
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, "Judge", null), "an allowed persona with no model pin is satisfied");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Architect", null), "a persona absent from the allow-list is rejected");
                 return Task.CompletedTask;
             });
         }

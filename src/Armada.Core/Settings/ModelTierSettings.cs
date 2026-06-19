@@ -7,8 +7,9 @@ namespace Armada.Core.Settings
     /// Settings that govern how captain model tiers are reserved across personas.
     /// Specialist personas (reviewers, Judge, Architect, etc.) are reserved for
     /// high-tier captains; non-specialist work runs on mid/low tiers with high held
-    /// back as a last resort. The specialist set is configurable so operators can
-    /// reclassify a persona without a code change.
+    /// back as a last resort. The specialist set and tier membership lists are
+    /// configurable so operators can reclassify a persona or move a model between
+    /// tiers without a code change.
     /// </summary>
     public class ModelTierSettings
     {
@@ -59,6 +60,41 @@ namespace Armada.Core.Settings
             set => _WithinTierPreferenceOrder = value ?? BuildDefaultWithinTierPreferenceOrder();
         }
 
+        /// <summary>
+        /// Low-complexity model names. A captain whose model is in this list is
+        /// eligible for low-tier dispatch and falls up to mid/high only through the
+        /// upward fallback chain. Setting this to null restores the built-in default
+        /// list.
+        /// </summary>
+        public List<string> LowTierModels
+        {
+            get => _LowTierModels;
+            set => _LowTierModels = value ?? BuildDefaultLowTierModels();
+        }
+
+        /// <summary>
+        /// Mid-complexity model names. A captain whose model is in this list is
+        /// eligible for mid-tier dispatch and falls up to high only through the
+        /// upward fallback chain. Setting this to null restores the built-in default
+        /// list.
+        /// </summary>
+        public List<string> MidTierModels
+        {
+            get => _MidTierModels;
+            set => _MidTierModels = value ?? BuildDefaultMidTierModels();
+        }
+
+        /// <summary>
+        /// High-complexity model names. Specialist personas are reserved for captains
+        /// whose model is in this list (or matches a canonical high-tier family
+        /// pattern). Setting this to null restores the built-in default list.
+        /// </summary>
+        public List<string> HighTierModels
+        {
+            get => _HighTierModels;
+            set => _HighTierModels = value ?? BuildDefaultHighTierModels();
+        }
+
         #endregion
 
         #region Private-Members
@@ -66,13 +102,17 @@ namespace Armada.Core.Settings
         private List<string> _SpecialistPersonas = BuildDefaultSpecialistPersonas();
         private int _ReservedHighTierSlots = 1;
         private Dictionary<string, List<string>> _WithinTierPreferenceOrder = BuildDefaultWithinTierPreferenceOrder();
+        private List<string> _LowTierModels = BuildDefaultLowTierModels();
+        private List<string> _MidTierModels = BuildDefaultMidTierModels();
+        private List<string> _HighTierModels = BuildDefaultHighTierModels();
 
         #endregion
 
         #region Constructors-and-Factories
 
         /// <summary>
-        /// Instantiate with the built-in default specialist persona set.
+        /// Instantiate with the built-in default specialist persona set and tier
+        /// membership lists.
         /// </summary>
         public ModelTierSettings()
         {
@@ -132,6 +172,41 @@ namespace Armada.Core.Settings
                         "composer-2.5"
                     }
                 }
+            };
+        }
+
+        private static List<string> BuildDefaultLowTierModels()
+        {
+            return new List<string>
+            {
+                "kimi-k2.5",
+                "opencode/kimi-k2.6",
+                "opencode-go/kimi-k2.6",
+                "opencode/deepseek-v4-flash"
+            };
+        }
+
+        private static List<string> BuildDefaultMidTierModels()
+        {
+            return new List<string>
+            {
+                "composer-2.5",
+                "claude-sonnet-4-6",
+                "gemini-3.5-pro",
+                "gpt-5.3-codex",
+                "claude-4.6-sonnet-medium",
+                "gemini-3.1-pro",
+                "opencode-go/kimi-k2.7-code"
+            };
+        }
+
+        private static List<string> BuildDefaultHighTierModels()
+        {
+            return new List<string>
+            {
+                "claude-opus-4-7",
+                "gpt-5.5",
+                "claude-4.6-opus-high"
             };
         }
 
