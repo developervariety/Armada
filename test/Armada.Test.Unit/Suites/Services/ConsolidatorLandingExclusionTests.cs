@@ -175,6 +175,55 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MemoryConsolidator_PersonaCaseInsensitive_ShortCircuits", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "consolidator lowercase persona vessel").ConfigureAwait(false);
+
+                    Mission mission = new Mission("Consolidate learned facts");
+                    mission.VesselId = vessel.Id;
+                    // Lowercase persona must still match via OrdinalIgnoreCase.
+                    mission.Persona = "memoryconsolidator";
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.AgentOutput = ReflectionTestHelpers.BuildReflectionProposalAgentOutput("# Vessel Learned Facts\n\nLowercase persona fact.");
+                    mission.DiffSnapshot = "";
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain captain = new Captain("test-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = "armada/consolidator/msn_test";
+                    dock.Active = true;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                    MissionLandingHandler handler = CreateHandler(logging, testDb.Driver, settings, git, mergeQueue);
+
+                    await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, updated!.Status, "lowercase-persona consolidator must still short-circuit to Complete");
+                    AssertEqual(0, mergeQueue.EnqueuedEntryIds.Count, "no merge entry for lowercase-persona consolidator");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 10).ConfigureAwait(false);
+                    AssertEqual(1, events.Count(e => String.Equals(e.EventType, "reflection.candidate_emitted", StringComparison.Ordinal)), "candidate event emitted regardless of persona casing");
+
+                    Vessel? vesselAfter = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual(mission.Id, vesselAfter!.LastReflectionMissionId, "anchor advances for lowercase-persona consolidator");
+                }
+            });
+
             await RunTest("WorkerMission_NotShortCircuited_NoReflectionCandidateEvent", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

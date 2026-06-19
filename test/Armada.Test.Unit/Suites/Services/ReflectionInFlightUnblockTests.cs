@@ -105,6 +105,108 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("IsReflectionInFlightAsync_Complete_ReturnsNull", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "inflight complete vessel").ConfigureAwait(false);
+                    await CreateConsolidatorMissionAsync(testDb.Driver, vessel.Id, MissionStatusEnum.Complete).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver);
+                    Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(inFlight, "Complete consolidator must not block dispatch");
+                }
+            });
+
+            await RunTest("IsReflectionInFlightAsync_Pending_ReturnsMission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "inflight pending vessel").ConfigureAwait(false);
+                    Mission mission = await CreateConsolidatorMissionAsync(testDb.Driver, vessel.Id, MissionStatusEnum.Pending).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver);
+                    Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(inFlight, "Pending consolidator must block dispatch");
+                    AssertEqual(mission.Id, inFlight!.Id, "in-flight mission id");
+                }
+            });
+
+            await RunTest("IsReflectionInFlightAsync_Assigned_ReturnsMission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "inflight assigned vessel").ConfigureAwait(false);
+                    Mission mission = await CreateConsolidatorMissionAsync(testDb.Driver, vessel.Id, MissionStatusEnum.Assigned).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver);
+                    Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(inFlight, "Assigned consolidator must block dispatch");
+                    AssertEqual(mission.Id, inFlight!.Id, "in-flight mission id");
+                }
+            });
+
+            await RunTest("IsReflectionInFlightAsync_NoConsolidator_ReturnsNull", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "inflight none vessel").ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver);
+                    Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(inFlight, "a vessel with no consolidator missions is never blocked");
+                }
+            });
+
+            await RunTest("IsReflectionInFlightAsync_ActiveNonConsolidator_ReturnsNull", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "inflight worker vessel").ConfigureAwait(false);
+
+                    Mission worker = new Mission("Regular worker mission");
+                    worker.VesselId = vessel.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.InProgress;
+                    await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver);
+                    Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(inFlight, "an active non-consolidator mission must not be treated as reflection in-flight");
+                }
+            });
+
+            await RunTest("IsReflectionInFlightAsync_TerminalNewest_ActiveOlder_ReturnsActive", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await ReflectionTestHelpers.CreateBootstrappedReflectionVesselAsync(
+                        testDb.Driver,
+                        "inflight mixed vessel").ConfigureAwait(false);
+
+                    // Active mission created first (older CreatedUtc); a terminal consolidator
+                    // created afterward (newer CreatedUtc) must NOT shadow the active one --
+                    // the active-state filter is applied before the recency ordering.
+                    Mission active = await CreateConsolidatorMissionAsync(testDb.Driver, vessel.Id, MissionStatusEnum.InProgress).ConfigureAwait(false);
+                    await CreateConsolidatorMissionAsync(testDb.Driver, vessel.Id, MissionStatusEnum.Failed).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver);
+                    Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(inFlight, "an active consolidator must still block even when a newer terminal one exists");
+                    AssertEqual(active.Id, inFlight!.Id, "the active mission is returned, not the newer terminal one");
+                }
+            });
+
             await RunTest("EvidenceWindow_AdvancesAfterConsolidatorCompletion", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -225,6 +225,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReflectionsV2F3EndToEndSmokeTests());
             runner.AddSuite(new ConsolidatorLandingExclusionTests());
             runner.AddSuite(new ReflectionInFlightUnblockTests());
+            runner.AddSuite(new CandidateDiffBuilderTests());
             runner.AddSuite(new VesselReflectionThresholdRoutesTests());
             runner.AddSuite(new VesselReorganizeThresholdRoutesTests());
             runner.AddSuite(new VoyageMailboxSignalPayloadTests());
