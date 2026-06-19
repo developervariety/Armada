@@ -371,6 +371,17 @@ namespace Armada.Core.Services
             vessel.LastReflectionMissionId = mission.Id;
             await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
 
+            string? repoRoot = !String.IsNullOrEmpty(vessel.WorkingDirectory) ? vessel.WorkingDirectory : vessel.LocalPath;
+            if (!String.IsNullOrEmpty(repoRoot))
+            {
+                LearnedFactsFileApplyResult landResult = await LearnedFactsFile.ApplyAsync(repoRoot!, contentToApply).ConfigureAwait(false);
+                if (!landResult.Success)
+                {
+                    outcome.Error = landResult.Error ?? "learned_file_land_failed";
+                    return outcome;
+                }
+            }
+
             ReflectionMetrics metrics = ComputeReflectionMetrics(
                 priorPlaybookContent,
                 contentToApply,
