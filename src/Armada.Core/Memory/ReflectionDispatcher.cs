@@ -214,7 +214,7 @@ namespace Armada.Core.Memory
 
             foreach (Mission mission in evidenceMissions)
             {
-                records.Add(await BuildMissionRecordAsync(mission, token).ConfigureAwait(false));
+                records.Add(await BuildMissionRecordAsync(mission, vessel.EnableModelContext, token).ConfigureAwait(false));
             }
 
             long maxChars = (long)tokenBudget * _CharactersPerToken;
@@ -1193,7 +1193,7 @@ namespace Armada.Core.Memory
             return terminal.Take(_Settings.InitialReflectionWindow).ToList();
         }
 
-        private async Task<string> BuildMissionRecordAsync(Mission mission, CancellationToken token)
+        private async Task<string> BuildMissionRecordAsync(Mission mission, bool includeLearnedFactProposals, CancellationToken token)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("### Mission " + mission.Id);
@@ -1204,9 +1204,26 @@ namespace Armada.Core.Memory
 
             AppendBlock(sb, "Final diff snapshot or tail", Tail(mission.DiffSnapshot, _MaxDiffChars));
             AppendBlock(sb, "Agent output or judge notes", Tail(mission.AgentOutput, _MaxAgentOutputChars));
+            if (includeLearnedFactProposals)
+            {
+                AppendLearnedFactProposals(sb, mission.AgentOutput);
+            }
+
             await AppendAuditNotesAsync(sb, mission, token).ConfigureAwait(false);
             await AppendMissionEventsAsync(sb, mission, token).ConfigureAwait(false);
             return sb.ToString();
+        }
+
+        private static void AppendLearnedFactProposals(StringBuilder sb, string? agentOutput)
+        {
+            List<string> proposals = LearnedFactsFile.ExtractProposals(agentOutput);
+            if (proposals.Count == 0) return;
+
+            sb.AppendLine("Learned-fact proposals:");
+            foreach (string proposal in proposals)
+            {
+                sb.AppendLine("- " + proposal);
+            }
         }
 
         private async Task AppendAuditNotesAsync(StringBuilder sb, Mission mission, CancellationToken token)
