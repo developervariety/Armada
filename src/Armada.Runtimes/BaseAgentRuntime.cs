@@ -3,6 +3,7 @@ namespace Armada.Runtimes
     using System.Diagnostics;
     using System.Text;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using SyslogLogging;
     using Armada.Runtimes.Interfaces;
 
@@ -211,7 +212,11 @@ namespace Armada.Runtimes
                     // working transcript on stderr (Codex exec) would otherwise bloat
                     // the mission log 75-220x; WriteStderrToLogFile=false keeps the file
                     // bounded while syslog and OnOutputReceived still see every line.
-                    if (WriteStderrToLogFile)
+                    // Provider usage/quota-limit signals are always preserved in the log
+                    // file so the admiral's failure-lifecycle detector can route them into
+                    // captain quarantine even when the full stderr transcript is suppressed.
+                    bool quotaSignal = ProviderQuotaLimitDetector.IsQuotaLimitSignal(e.Data);
+                    if (WriteStderrToLogFile || quotaSignal)
                     {
                         try { logWriter?.WriteLine("[stderr] " + e.Data); }
                         catch (ObjectDisposedException) { }
