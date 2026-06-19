@@ -9,6 +9,7 @@ namespace Armada.Core.Services
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -150,9 +151,9 @@ namespace Armada.Core.Services
             Playbook? existing = await _Database.Playbooks.ReadByFileNameAsync(vessel.TenantId!, fileName, token).ConfigureAwait(false);
             if (existing == null)
             {
-                Playbook playbook = new Playbook(fileName, "# Vessel Learned Facts\n\nNo accepted reflection facts yet.");
+                Playbook playbook = new Playbook(fileName, LearnedFactsFile.DefaultTemplateContent);
                 playbook.TenantId = vessel.TenantId;
-                playbook.Description = "Learned facts for vessel " + vessel.Name + ". Updated by accepted reflection missions.";
+                playbook.Description = "Learned facts for vessel " + vessel.Name + ". The canonical source of truth is `.armada/LEARNED.md` in the repository root. Captains must PROPOSE changes via `[LEARNED-FACT-PROPOSAL]` and never edit that file directly.";
                 existing = await _Database.Playbooks.CreateAsync(playbook, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created learned playbook " + existing.Id + " for vessel " + vessel.Id);
             }
