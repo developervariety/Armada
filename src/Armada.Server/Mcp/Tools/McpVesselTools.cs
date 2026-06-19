@@ -67,7 +67,7 @@ namespace Armada.Server.Mcp.Tools
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
                         workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
-                        enableModelContext = new { type = "boolean", description = "Enable model context accumulation -- agents will update context with key information discovered during missions (default false)" },
+                        enableModelContext = new { type = "boolean", description = "Enable legacy model context injection and learned-fact proposal routing for mission discoveries (default false)" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         protectedPaths = new
                         {
@@ -235,8 +235,8 @@ namespace Armada.Server.Mcp.Tools
                         styleGuide = new { type = "string", description = "New style guide" },
                         workingDirectory = new { type = "string", description = "New local directory where completed mission changes will be pulled after merge" },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel" },
-                        enableModelContext = new { type = "boolean", description = "Enable or disable model context accumulation" },
-                        modelContext = new { type = "string", description = "Agent-accumulated context about this repository" },
+                        enableModelContext = new { type = "boolean", description = "Enable or disable legacy model context injection and learned-fact proposal routing" },
+                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; mission discoveries should use [LEARNED-FACT-PROPOSAL]" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         protectedPaths = new
                         {
@@ -494,7 +494,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_update_vessel_context",
-                "Update a vessel's project context and style guide without modifying other properties",
+                "Update a vessel's project context, style guide, or legacy model context without modifying other properties. Mission discoveries should be emitted as [LEARNED-FACT-PROPOSAL] instead of appended to modelContext.",
                 new
                 {
                     type = "object",
@@ -503,7 +503,7 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
                         projectContext = new { type = "string", description = "Project context describing architecture, key files, and dependencies" },
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
-                        modelContext = new { type = "string", description = "Agent-accumulated context about this repository -- key information discovered during missions" }
+                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; do not use for mission-discovered learned facts" }
                     },
                     required = new[] { "vesselId" }
                 },

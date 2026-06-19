@@ -132,17 +132,16 @@ namespace Armada.Core.Models
         public string? StyleGuide { get; set; } = null;
 
         /// <summary>
-        /// Whether model context accumulation is enabled for this vessel.
-        /// When true, captains are instructed to update the model context with
-        /// key information discovered during missions.
+        /// Whether mission-discovered durable knowledge is routed into the
+        /// reviewed learned-facts proposal pipeline for this vessel.
+        /// Existing model context remains readable as legacy mission context.
         /// </summary>
         public bool EnableModelContext { get; set; } = true;
 
         /// <summary>
-        /// Agent-accumulated context about this repository. Contains key information
-        /// discovered by AI agents during missions, such as architectural insights,
-        /// testing patterns, build quirks, and other knowledge useful for future missions.
-        /// Updated by agents via update_vessel_context when EnableModelContext is true.
+        /// Legacy agent-accumulated context about this repository. Existing content
+        /// is still injected into mission prompts for backward compatibility, but
+        /// new mission discoveries should be proposed via the learned-facts pipeline.
         /// </summary>
         public string? ModelContext { get; set; } = null;
 

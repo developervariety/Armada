@@ -1690,23 +1690,22 @@ namespace Armada.Core.Services
 
                 case "mission.model_context_updates":
                     return
-                        "## Model Context Updates\n" +
+                        "## Learned-Fact Proposals\n" +
                         "\n" +
-                        "Model context accumulation is enabled for this vessel. Before you finish your mission, " +
-                        "review the existing model context above (if any) and consider whether you have discovered " +
-                        "key information that would help future agents work on this repository more effectively. " +
+                        "Legacy model context is enabled for this vessel. Before you finish your mission, " +
+                        "review the existing model context above (if any) as read-only background and consider " +
+                        "whether you have discovered key information that would help future agents work on this repository more effectively. " +
                         "Examples include: architectural insights, code style conventions, naming conventions, " +
                         "logging patterns, error handling patterns, testing patterns, build quirks, common pitfalls, " +
                         "important dependencies, interdependencies between modules, concurrency patterns, " +
                         "and performance considerations.\n" +
                         "\n" +
-                        "If you have useful additions, call `armada_update_vessel_context` with the `modelContext` " +
-                        "parameter set to the COMPLETE updated model context (not just your additions -- include " +
-                        "the existing content with your additions merged in). Be thorough -- this context is a " +
-                        "goldmine for future agents. Focus on information that is not obvious from reading the code, " +
-                        "and organize it clearly with sections or headings.\n" +
+                        "If you have useful additions, emit one or more `[LEARNED-FACT-PROPOSAL]` blocks in your final answer. " +
+                        "Each proposal should contain only durable, non-obvious repository knowledge, written as concise markdown. " +
+                        "Do not call `armada_update_vessel_context` for mission discoveries; proposals are routed through " +
+                        "the reviewed learned-facts pipeline instead of appending to raw ModelContext.\n" +
                         "\n" +
-                        "If you have nothing to add, skip this step.\n";
+                        "If you have nothing to propose, skip this step.\n";
 
                 case "mission.playbooks_wrapper":
                     return

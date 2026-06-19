@@ -1,6 +1,7 @@
 namespace Armada.Core.Memory
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Text;
     using System.Threading.Tasks;
@@ -62,6 +63,60 @@ namespace Armada.Core.Memory
             }
 
             return content;
+        }
+
+        /// <summary>
+        /// Extracts captain-authored learned-fact proposals from mission output.
+        /// Supports inline marker text and a contiguous block immediately following the marker.
+        /// </summary>
+        /// <param name="content">Mission output to scan.</param>
+        /// <returns>Trimmed proposal bodies in source order.</returns>
+        public static List<string> ExtractProposals(string? content)
+        {
+            List<string> proposals = new List<string>();
+            if (String.IsNullOrWhiteSpace(content))
+                return proposals;
+
+            string[] lines = NormalizeLineEndings(content).Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                int markerIndex = line.IndexOf(ProposalMarker, StringComparison.Ordinal);
+                if (markerIndex < 0) continue;
+
+                string inline = line.Substring(markerIndex + ProposalMarker.Length).Trim();
+                if (!String.IsNullOrWhiteSpace(inline))
+                {
+                    proposals.Add(inline);
+                    continue;
+                }
+
+                StringBuilder block = new StringBuilder();
+                int j = i + 1;
+                while (j < lines.Length)
+                {
+                    string next = lines[j];
+                    if (next.IndexOf(ProposalMarker, StringComparison.Ordinal) >= 0)
+                    {
+                        j--;
+                        break;
+                    }
+
+                    if (String.IsNullOrWhiteSpace(next))
+                        break;
+
+                    block.AppendLine(next);
+                    j++;
+                }
+
+                string proposal = block.ToString().Trim();
+                if (!String.IsNullOrWhiteSpace(proposal))
+                    proposals.Add(proposal);
+
+                i = j;
+            }
+
+            return proposals;
         }
 
         /// <summary>

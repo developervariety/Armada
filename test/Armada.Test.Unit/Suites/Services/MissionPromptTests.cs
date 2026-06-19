@@ -415,8 +415,10 @@ namespace Armada.Test.Unit.Suites.Services
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertContains("## Model Context", content);
                         AssertContains("The test suite takes 4 minutes.", content);
-                        AssertContains("## Model Context Updates", content);
-                        AssertContains("update_vessel_context", content);
+                        AssertContains("## Learned-Fact Proposals", content);
+                        AssertContains("[LEARNED-FACT-PROPOSAL]", content);
+                        AssertContains("read-only background", content);
+                        AssertFalse(content.Contains("COMPLETE updated model context"), "Prompt must not ask captains to append raw ModelContext");
                     }
                     finally
                     {
@@ -451,7 +453,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertFalse(content.Contains("## Model Context"), "Should not contain Model Context when disabled");
-                        AssertFalse(content.Contains("## Model Context Updates"), "Should not contain Model Context Updates when disabled");
+                        AssertFalse(content.Contains("## Learned-Fact Proposals"), "Should not contain learned-fact proposal instructions when disabled");
                     }
                     finally
                     {
@@ -486,8 +488,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertFalse(content.Contains("## Model Context\n"), "Should not contain Model Context section when null");
-                        AssertContains("## Model Context Updates", content);
-                        AssertContains("update_vessel_context", content);
+                        AssertContains("## Learned-Fact Proposals", content);
+                        AssertContains("[LEARNED-FACT-PROPOSAL]", content);
+                        AssertFalse(content.Contains("COMPLETE updated model context"), "Prompt must not ask captains to append raw ModelContext");
                     }
                     finally
                     {
@@ -772,8 +775,8 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("## Model Context Updates", content);
-                        AssertContains("update_vessel_context", content);
+                        AssertContains("## Learned-Fact Proposals", content);
+                        AssertContains("[LEARNED-FACT-PROPOSAL]", content);
                         AssertContains("The auth module was recently refactored to use JWT tokens.", content);
                     }
                     finally
