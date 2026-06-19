@@ -8,6 +8,7 @@ namespace Armada.Server
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -184,6 +185,76 @@ namespace Armada.Server
             if (!String.IsNullOrEmpty(mission.VesselId))
             {
                 vessel = await _Database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
+            }
+
+            // MemoryConsolidator missions are never landed: they produce a reviewable
+            // candidate-diff event, transition directly to Complete, and advance the
+            // evidence-window anchor. No merge queue, PR, or push work is created.
+            if (vessel != null
+                && String.Equals(mission.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
+            {
+                _Logging.Info(_Header + "short-circuiting landing for MemoryConsolidator mission " + mission.Id);
+
+                string? candidateMarkdown = null;
+                try
+                {
+                    ReflectionOutputParser parser = new ReflectionOutputParser();
+                    ReflectionOutputParseResult parseResult = parser.Parse(mission.AgentOutput ?? "");
+                    if (parseResult.Verdict == ReflectionOutputParseVerdict.Success)
+                    {
+                        candidateMarkdown = parseResult.CandidateMarkdown;
+                    }
+                    else
+                    {
+                        _Logging.Warn(_Header + "MemoryConsolidator mission " + mission.Id + " produced unparsable candidate output");
+                    }
+                }
+                catch (Exception parseEx)
+                {
+                    _Logging.Warn(_Header + "failed to parse candidate for MemoryConsolidator mission " + mission.Id + ": " + parseEx.Message);
+                }
+
+                IReflectionMemoryService memoryService = new ReflectionMemoryService(_Database);
+                string canonicalContent = await memoryService.ReadLearnedPlaybookContentAsync(vessel).ConfigureAwait(false);
+                CandidateDiffResult diffResult = ReflectionDispatcher.BuildCandidateDiff(canonicalContent, candidateMarkdown);
+
+                try
+                {
+                    ArmadaEvent candidateEvent = new ArmadaEvent("reflection.candidate_emitted", "MemoryConsolidator candidate emitted for mission " + mission.Id);
+                    candidateEvent.EntityType = "mission";
+                    candidateEvent.EntityId = mission.Id;
+                    candidateEvent.MissionId = mission.Id;
+                    candidateEvent.VesselId = mission.VesselId;
+                    candidateEvent.VoyageId = mission.VoyageId;
+                    candidateEvent.CaptainId = mission.CaptainId;
+                    candidateEvent.Payload = JsonSerializer.Serialize(new
+                    {
+                        proposedContentLength = diffResult.ProposedContentLength,
+                        hasDiff = diffResult.HasDiff,
+                        diffPreview = diffResult.Preview
+                    });
+                    await _Database.Events.CreateAsync(candidateEvent).ConfigureAwait(false);
+                }
+                catch (Exception evtEx)
+                {
+                    _Logging.Warn(_Header + "error emitting reflection.candidate_emitted event for " + mission.Id + ": " + evtEx.Message);
+                }
+
+                DateTime completedUtc = DateTime.UtcNow;
+                mission.Status = MissionStatusEnum.Complete;
+                mission.CompletedUtc = completedUtc;
+                mission.LastUpdateUtc = completedUtc;
+                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                if (!String.Equals(vessel.LastReflectionMissionId, mission.Id, StringComparison.Ordinal))
+                {
+                    vessel.LastReflectionMissionId = mission.Id;
+                    vessel.LastUpdateUtc = completedUtc;
+                    await _Database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    _Logging.Info(_Header + "advanced reflection anchor for vessel " + vessel.Id + " to mission " + mission.Id);
+                }
+
+                return;
             }
 
             // Protected-paths gate: runs before any merge / push / merge-queue enqueue

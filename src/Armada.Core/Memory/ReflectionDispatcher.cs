@@ -121,7 +121,7 @@ namespace Armada.Core.Memory
             List<Mission> missions = await _Database.Missions.EnumerateByVesselAsync(vesselId, token).ConfigureAwait(false);
             return missions
                 .Where(m => String.Equals(m.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
-                .Where(m => !IsTerminal(m.Status))
+                .Where(m => IsActiveReflectionStatus(m.Status))
                 .OrderByDescending(m => m.CreatedUtc)
                 .FirstOrDefault();
         }
@@ -1899,6 +1899,104 @@ namespace Armada.Core.Memory
             return status == MissionStatusEnum.Complete
                 || status == MissionStatusEnum.Failed
                 || status == MissionStatusEnum.Cancelled;
+        }
+
+        /// <summary>
+        /// Reflection consolidation missions are considered in-flight only while they are in an
+        /// active execution state. Terminal or review/wait states must not block a new dispatch.
+        /// </summary>
+        private static bool IsActiveReflectionStatus(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Pending
+                || status == MissionStatusEnum.Assigned
+                || status == MissionStatusEnum.InProgress
+                || status == MissionStatusEnum.WorkProduced;
+        }
+
+        /// <summary>
+        /// Build a bounded unified-diff preview between the current canonical learned-facts content
+        /// and a proposed MemoryConsolidator candidate. Treats null canonical content as empty.
+        /// </summary>
+        /// <param name="canonicalContent">Current accepted learned-facts markdown, or null.</param>
+        /// <param name="candidateContent">Proposed candidate markdown, or null.</param>
+        /// <param name="maxPreviewLength">Maximum characters for the returned preview.</param>
+        /// <returns>Diff result with length, has-diff flag, and bounded preview.</returns>
+        public static CandidateDiffResult BuildCandidateDiff(string? canonicalContent, string? candidateContent, int maxPreviewLength = 2000)
+        {
+            string canonical = canonicalContent ?? "";
+            string candidate = candidateContent ?? "";
+
+            CandidateDiffResult result = new CandidateDiffResult
+            {
+                ProposedContentLength = candidate.Length,
+                HasDiff = !String.Equals(canonical, candidate, StringComparison.Ordinal)
+            };
+
+            if (!result.HasDiff)
+            {
+                result.Preview = null;
+                return result;
+            }
+
+            List<string> oldLines = SplitContentLines(canonical);
+            List<string> newLines = SplitContentLines(candidate);
+
+            int commonPrefix = 0;
+            while (commonPrefix < oldLines.Count
+                && commonPrefix < newLines.Count
+                && String.Equals(oldLines[commonPrefix], newLines[commonPrefix], StringComparison.Ordinal))
+            {
+                commonPrefix++;
+            }
+
+            int commonSuffix = 0;
+            while (commonSuffix < oldLines.Count - commonPrefix
+                && commonSuffix < newLines.Count - commonPrefix
+                && String.Equals(oldLines[oldLines.Count - 1 - commonSuffix], newLines[newLines.Count - 1 - commonSuffix], StringComparison.Ordinal))
+            {
+                commonSuffix++;
+            }
+
+            int oldRemoved = oldLines.Count - commonPrefix - commonSuffix;
+            int newAdded = newLines.Count - commonPrefix - commonSuffix;
+
+            List<string> diffLines = new List<string>();
+            diffLines.Add("@@ -" + (commonPrefix + 1) + "," + oldRemoved + " +" + (commonPrefix + 1) + "," + newAdded + " @@");
+
+            for (int i = commonPrefix; i < oldLines.Count - commonSuffix; i++)
+            {
+                diffLines.Add("-" + oldLines[i]);
+            }
+
+            for (int i = commonPrefix; i < newLines.Count - commonSuffix; i++)
+            {
+                diffLines.Add("+" + newLines[i]);
+            }
+
+            string preview = String.Join("\n", diffLines);
+            if (preview.Length > maxPreviewLength)
+            {
+                preview = preview.Substring(0, maxPreviewLength);
+            }
+
+            result.Preview = preview;
+            return result;
+        }
+
+        /// <summary>Splits content into lines normalizing CRLF and CR to LF.</summary>
+        private static List<string> SplitContentLines(string content)
+        {
+            List<string> lines = new List<string>();
+            if (String.IsNullOrEmpty(content)) return lines;
+
+            string normalized = content.Replace("\r\n", "\n").Replace('\r', '\n');
+            string[] split = normalized.Split('\n');
+            foreach (string line in split)
+            {
+                lines.Add(line);
+            }
+
+            return lines;
         }
 
         /// <summary>
