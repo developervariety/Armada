@@ -1876,8 +1876,10 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Delete the captain branch (per vessel BranchCleanupPolicy) and the integration branch (always)
-        /// after a successful merge-queue land. Branch deletion failures are swallowed -- stale branches
-        /// are better than a failed entry.
+        /// after a successful merge-queue land. The bare repo HEAD is pointed at the default branch BEFORE
+        /// any branch deletion so that a captain branch that is currently HEAD can still be removed.
+        /// Post-success cleanup failures are surfaced as warnings and retriable audit events rather than
+        /// swallowed at debug level, because a successful land should not leave hidden cleanup debt.
         /// </summary>
         private async Task CleanupLandedBranchesAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
         {
@@ -1898,6 +1900,11 @@ namespace Armada.Core.Services
 
             BranchCleanupPolicyEnum cleanupPolicy = vessel?.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
 
+            // Point the bare repo HEAD at the default branch BEFORE deleting the captain or integration
+            // branch. In a bare repo git refuses to delete the branch that HEAD currently references, so
+            // restoring HEAD first makes the subsequent deletes reliable.
+            await EnsureBareHeadOnDefaultBranchAsync(entry, vessel, repoPath, token).ConfigureAwait(false);
+
             if (!String.IsNullOrEmpty(entry.BranchName))
             {
                 if (cleanupPolicy == BranchCleanupPolicyEnum.None)
@@ -1913,7 +1920,8 @@ namespace Armada.Core.Services
                     }
                     catch (Exception ex)
                     {
-                        _Logging.Debug(_Header + "could not delete captain branch " + entry.BranchName + " from bare repo: " + ex.Message);
+                        _Logging.Warn(_Header + "could not delete captain branch " + entry.BranchName + " from bare repo after successful land: " + ex.Message);
+                        await EmitBranchCleanupFailedAsync(entry, entry.BranchName, repoPath, ex.Message, token).ConfigureAwait(false);
                     }
 
                     if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote && !String.IsNullOrEmpty(vessel?.WorkingDirectory))
@@ -1925,7 +1933,8 @@ namespace Armada.Core.Services
                         }
                         catch (Exception ex)
                         {
-                            _Logging.Warn(_Header + "could not delete remote captain branch " + entry.BranchName + ": " + ex.Message);
+                            _Logging.Warn(_Header + "could not delete remote captain branch " + entry.BranchName + " after successful land: " + ex.Message);
+                            await EmitBranchCleanupFailedAsync(entry, entry.BranchName, vessel.WorkingDirectory, ex.Message, token).ConfigureAwait(false);
                         }
                     }
                 }
@@ -1941,7 +1950,8 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    _Logging.Debug(_Header + "could not delete integration branch " + integrationBranch + " from bare repo: " + ex.Message);
+                    _Logging.Warn(_Header + "could not delete integration branch " + integrationBranch + " from bare repo after successful land: " + ex.Message);
+                    await EmitBranchCleanupFailedAsync(entry, integrationBranch, repoPath, ex.Message, token).ConfigureAwait(false);
                 }
             }
 
@@ -2377,6 +2387,78 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "bare repo HEAD restore failed for " + repoPath + " after land of " + entry.Id + ": " + ex.Message);
                 await EmitBareHeadRestoreSkippedAsync(entry, repoPath, defaultBranch, ex.Message, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Point the bare repository HEAD at the default branch before deleting the captain
+        /// or integration branch. This is idempotent: if HEAD already points at the default
+        /// branch the method is a no-op. Uses the IGitService symbolic-ref primitives so the
+        /// operation is testable through the service interface.
+        /// </summary>
+        private async Task EnsureBareHeadOnDefaultBranchAsync(MergeEntry entry, Vessel? vessel, string repoPath, CancellationToken token)
+        {
+            string defaultBranch = !String.IsNullOrEmpty(vessel?.DefaultBranch) ? vessel!.DefaultBranch : entry.TargetBranch;
+            if (String.IsNullOrEmpty(defaultBranch) || String.IsNullOrEmpty(repoPath))
+            {
+                return;
+            }
+
+            string targetRef = "refs/heads/" + defaultBranch;
+            try
+            {
+                string? currentHead = null;
+                try
+                {
+                    currentHead = await _Git.GetRepositoryHeadRefAsync(repoPath, token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // If we cannot read HEAD, fall through and attempt to set it anyway.
+                }
+
+                if (!String.Equals(currentHead, targetRef, StringComparison.Ordinal))
+                {
+                    await _Git.SetHeadSymbolicRefAsync(repoPath, targetRef, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "pointed bare repo HEAD at " + targetRef + " before branch cleanup for " + entry.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not point bare repo HEAD at " + targetRef + " before branch cleanup for " + entry.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Emit a structured event when branch cleanup fails after a successful land.
+        /// The event is retriable and scoped to the merge entry, mission, and vessel.
+        /// </summary>
+        private async Task EmitBranchCleanupFailedAsync(MergeEntry entry, string branchName, string repoPath, string reason, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent();
+                evt.TenantId = entry.TenantId;
+                evt.EventType = "merge_queue.branch_cleanup_failed";
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = entry.MissionId;
+                evt.VesselId = entry.VesselId;
+                evt.Message = "Branch cleanup failed after successful land of " + entry.Id + ": " + branchName;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = entry.Id,
+                    missionId = entry.MissionId,
+                    vesselId = entry.VesselId,
+                    branchName,
+                    repoPath,
+                    reason
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record branch-cleanup-failed event for " + entry.Id + ": " + ex.Message);
             }
         }
 
