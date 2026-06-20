@@ -111,6 +111,33 @@ namespace Armada.Server.Routes
             return lines.ToArray();
         }
 
+        private string? ResolveMissionLogPath(string missionId)
+        {
+            string missionLogDir = Path.Combine(_settings.LogDirectory, "missions");
+            string canonicalPath = Path.Combine(missionLogDir, missionId + ".log");
+            if (File.Exists(canonicalPath) && new FileInfo(canonicalPath).Length > 0)
+            {
+                return canonicalPath;
+            }
+
+            if (!Directory.Exists(missionLogDir))
+            {
+                return File.Exists(canonicalPath) ? canonicalPath : null;
+            }
+
+            FileInfo? sidecar = Directory.GetFiles(missionLogDir, missionId + ".*.log")
+                .Select(path => new FileInfo(path))
+                .Where(file => file.Exists && file.Length > 0)
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .FirstOrDefault();
+            if (sidecar != null)
+            {
+                return sidecar.FullName;
+            }
+
+            return File.Exists(canonicalPath) ? canonicalPath : null;
+        }
+
         private async Task<MissionInstructionsPath?> ResolveMissionInstructionsPathAsync(AuthContext ctx, Mission mission)
         {
             Captain? captain = null;
@@ -1190,8 +1217,8 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                string logPath = Path.Combine(_settings.LogDirectory, "missions", id + ".log");
-                if (!File.Exists(logPath))
+                string? logPath = ResolveMissionLogPath(id);
+                if (String.IsNullOrEmpty(logPath))
                     return (object)new { MissionId = id, Log = "", Lines = 0, TotalLines = 0 };
 
                 try

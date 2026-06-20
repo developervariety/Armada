@@ -99,6 +99,14 @@ namespace Armada.Test.Automated.Suites
             File.WriteAllLines(Path.Combine(dir, missionId + ".log"), lines);
         }
 
+        private void WriteMissionSidecarLogLines(string missionId, int lineCount)
+        {
+            string dir = EnsureMissionLogDir();
+            File.WriteAllText(Path.Combine(dir, missionId + ".log"), String.Empty);
+            string[] lines = Enumerable.Range(1, lineCount).Select(i => "sidecar log line " + i).ToArray();
+            File.WriteAllLines(Path.Combine(dir, missionId + ".123456789.log"), lines);
+        }
+
         private void WriteCaptainPointer(string captainId, string targetPath)
         {
             string dir = EnsureCaptainLogDir();
@@ -327,6 +335,38 @@ namespace Armada.Test.Automated.Suites
 
                 AssertEqual(5, logResp.Lines);
                 AssertEqual(75, logResp.TotalLines);
+            }).ConfigureAwait(false);
+
+            await RunTest("MissionLog_TotalLines_ReflectsSidecarWhenCanonicalEmpty", async () =>
+            {
+                string missionId = await CreateMissionAsync("SidecarLineCountCheck").ConfigureAwait(false);
+                WriteMissionSidecarLogLines(missionId, 254);
+
+                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions/" + missionId + "/log?lines=20").ConfigureAwait(false);
+                MissionLogResponse logResp = await JsonHelper.DeserializeAsync<MissionLogResponse>(response).ConfigureAwait(false);
+
+                AssertEqual(20, logResp.Lines);
+                AssertEqual(254, logResp.TotalLines);
+                AssertContains("sidecar log line 1", logResp.Log!);
+                AssertContains("sidecar log line 20", logResp.Log!);
+            }).ConfigureAwait(false);
+
+            await RunTest("MissionLog_CanonicalNonEmpty_IgnoresSidecar", async () =>
+            {
+                string missionId = await CreateMissionAsync("CanonicalBeforeSidecar").ConfigureAwait(false);
+                WriteMissionLogLines(missionId, 3);
+
+                string dir = EnsureMissionLogDir();
+                string[] sidecarLines = Enumerable.Range(1, 50).Select(i => "sidecar should not win " + i).ToArray();
+                File.WriteAllLines(Path.Combine(dir, missionId + ".123456789.log"), sidecarLines);
+
+                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions/" + missionId + "/log?lines=20").ConfigureAwait(false);
+                MissionLogResponse logResp = await JsonHelper.DeserializeAsync<MissionLogResponse>(response).ConfigureAwait(false);
+
+                AssertEqual(3, logResp.Lines);
+                AssertEqual(3, logResp.TotalLines);
+                AssertContains("log line 1", logResp.Log!);
+                AssertFalse(logResp.Log!.Contains("sidecar should not win"), "non-empty canonical log must take precedence over sidecar logs");
             }).ConfigureAwait(false);
 
             await RunTest("MissionLog_LinesExceedsFile_ReturnsAllAvailable", async () =>
