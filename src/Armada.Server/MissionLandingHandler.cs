@@ -504,6 +504,7 @@ namespace Armada.Server
                                 dock.BranchName,
                                 cleanupPolicy,
                                 "after successful no-op landing",
+                                mission.Id,
                                 dock.WorktreePath).ConfigureAwait(false);
                         }
                     }
@@ -542,6 +543,7 @@ namespace Armada.Server
                                 dock.BranchName,
                                 cleanupPolicy,
                                 "after successful landing",
+                                mission.Id,
                                 dock.WorktreePath).ConfigureAwait(false);
                         }
                         else if (!landingSucceeded)
@@ -1046,6 +1048,7 @@ namespace Armada.Server
                             catch (Exception branchEx)
                             {
                                 _Logging.Warn(_Header + "failed to delete branch " + branchName + " from bare repo: " + branchEx.Message);
+                                await EmitBranchCleanupFailedAsync(missionId, branchName, bareRepoPath, branchEx.Message).ConfigureAwait(false);
                             }
 
                             if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote)
@@ -1058,6 +1061,7 @@ namespace Armada.Server
                                 catch (Exception remoteBranchEx)
                                 {
                                     _Logging.Warn(_Header + "failed to delete remote branch " + branchName + ": " + remoteBranchEx.Message);
+                                    await EmitBranchCleanupFailedAsync(missionId, branchName, workingDirectory, remoteBranchEx.Message).ConfigureAwait(false);
                                 }
                             }
                         }
@@ -1189,6 +1193,7 @@ namespace Armada.Server
             string branchName,
             BranchCleanupPolicyEnum cleanupPolicy,
             string cleanupReason,
+            string missionId,
             string? activeWorktreePath = null)
         {
             if (String.IsNullOrEmpty(branchName)) return;
@@ -1220,6 +1225,7 @@ namespace Armada.Server
             catch (Exception branchEx)
             {
                 _Logging.Warn(_Header + "failed to delete branch " + branchName + " from bare repo: " + branchEx.Message);
+                await EmitBranchCleanupFailedAsync(missionId, branchName, bareRepoPath, branchEx.Message).ConfigureAwait(false);
             }
 
             if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote)
@@ -1232,7 +1238,43 @@ namespace Armada.Server
                 catch (Exception remoteBranchEx)
                 {
                     _Logging.Warn(_Header + "failed to delete remote branch " + branchName + ": " + remoteBranchEx.Message);
+                    await EmitBranchCleanupFailedAsync(missionId, branchName, workingDirectory, remoteBranchEx.Message).ConfigureAwait(false);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Emit a retriable audit event when branch cleanup fails after a successful landing.
+        /// The event is scoped to the mission and vessel.
+        /// </summary>
+        private async Task EmitBranchCleanupFailedAsync(string missionId, string branchName, string repoPath, string reason)
+        {
+            try
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                if (mission == null) return;
+
+                ArmadaEvent evt = new ArmadaEvent("merge_queue.branch_cleanup_failed", "Branch cleanup failed after successful landing for mission " + missionId + ": " + branchName);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.CaptainId = mission.CaptainId;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    missionId = mission.Id,
+                    vesselId = mission.VesselId,
+                    voyageId = mission.VoyageId,
+                    branchName,
+                    repoPath,
+                    reason
+                });
+                await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
+            }
+            catch (Exception evtEx)
+            {
+                _Logging.Warn(_Header + "failed to emit branch_cleanup_failed event for mission " + missionId + ": " + evtEx.Message);
             }
         }
 

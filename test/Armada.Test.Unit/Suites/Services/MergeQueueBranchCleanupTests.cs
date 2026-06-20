@@ -734,6 +734,172 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("LandEntryAsync_BareHeadPointsAtCaptainBranch_DeletesBranchAndRestoresHead", async () =>
+            {
+                // Regression for the root cause: a bare repo whose HEAD symbolic-ref points at the
+                // captain branch must still land and must delete the captain branch, leaving HEAD on
+                // a valid default ref.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_head_captain_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    await RunGitAsync(repos.BareDir, "symbolic-ref", "HEAD", "refs/heads/" + repos.CaptainBranch).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("head-captain-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should be Landed even when bare HEAD starts on the captain branch");
+
+                        bool captainInBare = await BranchExistsInRepoAsync(repos.BareDir, repos.CaptainBranch).ConfigureAwait(false);
+                        AssertFalse(captainInBare, "Captain branch should be deleted from bare repo when HEAD starts on it");
+
+                        string bareHead = (await RunGitAsync(repos.BareDir, "symbolic-ref", "HEAD").ConfigureAwait(false)).Trim();
+                        AssertEqual("refs/heads/main", bareHead, "Bare repo HEAD should end on the default branch");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_PostSuccessLocalDeleteFails_EmitsBranchCleanupFailedEvent", async () =>
+            {
+                // When the post-success local delete is forced to fail (captain branch checked out in
+                // a separate worktree on the bare repo), the land still succeeds and a retriable
+                // merge_queue.branch_cleanup_failed audit event is emitted.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_cleanup_fail_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string blockingWorktreeDir = Path.Combine(rootDir, "blocking-worktree");
+                    await RunGitAsync(repos.BareDir, "worktree", "add", blockingWorktreeDir, repos.CaptainBranch).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("cleanup-fail-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should be Landed even when post-success branch cleanup fails");
+
+                        bool captainInBare = await BranchExistsInRepoAsync(repos.BareDir, repos.CaptainBranch).ConfigureAwait(false);
+                        AssertTrue(captainInBare, "Captain branch should still exist because the worktree blocked deletion");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.branch_cleanup_failed").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "Should emit one branch_cleanup_failed event when post-success local delete fails");
+                        BranchCleanupFailedPayload? payload = JsonSerializer.Deserialize<BranchCleanupFailedPayload>(
+                            events[0].Payload ?? "",
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        AssertNotNull(payload, "branch_cleanup_failed payload should deserialize");
+                        AssertEqual(entry.Id, payload!.EntryId ?? "", "Payload should include entry id");
+                        AssertEqual(repos.CaptainBranch, payload.BranchName ?? "", "Payload should include branch name");
+                        AssertEqual(repos.BareDir, payload.RepoPath ?? "", "Payload should include repo path");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_FailedLand_DoesNotEmitBranchCleanupFailedEvent", async () =>
+            {
+                // A genuinely failed land (gate rejects) must not emit branch_cleanup_failed: the
+                // branch is intentionally preserved for retry, so a failure signal would be noise.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_cleanup_noevent_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("cleanup-noevent-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "exit 1";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should be Failed when gate rejects");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.branch_cleanup_failed").ConfigureAwait(false);
+                        AssertEqual(0, events.Count, "Failed land should not emit branch_cleanup_failed event");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             // === WorkingDirectory Sync and Bare HEAD Restore Tests ===
 
             await RunTest("LandEntryAsync_CleanDefaultBranchWorkingDirectory_FastForwardedAfterLand", async () =>
@@ -1870,6 +2036,21 @@ namespace Armada.Test.Unit.Suites.Services
             public string? TargetBranch { get; set; }
 
             public string? WorkingDirectory { get; set; }
+
+            public string? Reason { get; set; }
+        }
+
+        private sealed class BranchCleanupFailedPayload
+        {
+            public string? EntryId { get; set; }
+
+            public string? MissionId { get; set; }
+
+            public string? VesselId { get; set; }
+
+            public string? BranchName { get; set; }
+
+            public string? RepoPath { get; set; }
 
             public string? Reason { get; set; }
         }

@@ -1883,8 +1883,10 @@ namespace Armada.Core.Services
         /// land runs <c>MergeQueueService.CleanupLandedBranchesAsync</c>, but terminally failed or
         /// cancelled missions never reach that path, so their branches accumulate. This mirrors that
         /// cleanup: it honors the resolved BranchCleanupPolicy (None = retain; LocalOnly = bare repo
-        /// only; LocalAndRemote = bare repo + remote) and swallows git failures, because a stale
-        /// branch is better than a stuck mission. Missions in any non-terminal status are ignored.
+        /// only; LocalAndRemote = bare repo + remote). Git failures are logged at warning level but
+        /// are NOT emitted as retriable <c>merge_queue.branch_cleanup_failed</c> events, because the
+        /// land itself failed and preserving the branch for retry is expected, not a surfaced failure.
+        /// Missions in any non-terminal status are ignored.
         /// </summary>
         /// <param name="mission">The mission whose captain branch should be reaped.</param>
         /// <param name="token">Cancellation token.</param>
@@ -1944,7 +1946,7 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                _Logging.Debug(_Header + "could not reap captain branch " + branchName + " from bare repo: " + ex.Message);
+                _Logging.Warn(_Header + "could not reap captain branch " + branchName + " from bare repo after terminal " + mission.Status + " for mission " + mission.Id + ": " + ex.Message);
             }
 
             if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote && !String.IsNullOrEmpty(vessel.WorkingDirectory))
