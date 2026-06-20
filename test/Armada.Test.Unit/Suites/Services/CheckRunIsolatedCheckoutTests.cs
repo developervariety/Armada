@@ -403,6 +403,66 @@ namespace Armada.Test.Unit.Suites.Services
                     SafeDeleteDirectory(source.RepoPath);
                 }
             }).ConfigureAwait(false);
+
+            // Fallback-checkout regression: CommitHash takes precedence and is resolved first, but when
+            // it cannot be checked out (unreachable hash) the code must fall back to BranchName. Both the
+            // failing primary checkout and the fallback use the corrected "git checkout <ref> --" form,
+            // so the feature marker -- present only on the fallback branch -- proves the fallback actually
+            // switched refs. With the old "-- <ref>" form the fallback checkout was a silent no-op and the
+            // command would have run against the clone default (marker absent).
+            await RunTest("Build check falls back to BranchName when an unreachable CommitHash cannot be checked out", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_fb", "usr_iso_fb").ConfigureAwait(false);
+
+                SourceRepoWithRef source = await CreateSourceRepoWithFeatureRefAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-fb-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_iso_fb", "usr_iso_fb", workingDirectory);
+                    vessel.LocalPath = source.RepoPath;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_iso_fb",
+                        UserId = "usr_iso_fb",
+                        Name = "Fallback Ref Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = PrintFileCommand(source.MarkerFileName)
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_fb", "usr_iso_fb", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build",
+                        // Unreachable 40-char hash: primary "git checkout <hash> --" fails, forcing the fallback.
+                        CommitHash = "0123456789abcdef0123456789abcdef01234567",
+                        BranchName = source.FeatureBranch
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    // The marker only exists on the fallback feature branch; its presence proves the fallback
+                    // checkout (not the failed CommitHash and not the clone default) supplied the working tree.
+                    AssertContains(source.MarkerContent, run.Output ?? String.Empty);
+                }
+                finally
+                {
+                    SafeDeleteDirectory(workingDirectory);
+                    SafeDeleteDirectory(source.RepoPath);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
