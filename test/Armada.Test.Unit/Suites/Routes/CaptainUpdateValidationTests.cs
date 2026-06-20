@@ -100,6 +100,42 @@ namespace Armada.Test.Unit.Suites.Routes
                 return Task.CompletedTask;
             });
 
+            await RunTest("PutHandler_SoftFailure_UsesQuotaAndCreditDetectors", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
+                AssertContains("ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(updateValidationError)", routes,
+                    "PUT soft-failure branch must classify credit/auth bench signals");
+                AssertContains("ProviderQuotaLimitDetector.IsQuotaLimitSignal(updateValidationError)", routes,
+                    "PUT soft-failure branch must classify quota limit signals");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("PutHandler_HardFailure_Returns400", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
+                AssertContains("if (!isSoftFailure)", routes, "PUT handler must branch hard vs soft validation failures");
+                AssertContains("req.Http.Response.StatusCode = 400", routes, "Hard validation failures must return HTTP 400");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("PutHandler_SoftFailure_LogsWarningAndPersists", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
+                AssertContains("_Logging?.Warn(_Header + \"model validation cannot be verified for captain \"", routes,
+                    "PUT soft-failure path must emit structured warning logging");
+                AssertContains("updated = await _database.Captains.UpdateAsync(updated)", routes,
+                    "PUT handler must persist captain after soft validation failure");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("McpHandler_CloneForOptionsBaseline_IncludesModel", () =>
+            {
+                string tools = ReadRepositoryFile("src", "Armada.Server", "Mcp", "Tools", "McpCaptainTools.cs");
+                AssertContains("Model = captain.Model", tools,
+                    "Options baseline clone must snapshot Model so metadata-only edits skip validation");
+                return Task.CompletedTask;
+            });
+
             await RunTest("ModelChange_InvalidModel_InvokesValidationAndRejects", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -127,6 +163,40 @@ namespace Armada.Test.Unit.Suites.Routes
                     Captain? unchanged = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
                     AssertNotNull(unchanged, "Captain should still exist after rejected update");
                     AssertEqual("ok-model", unchanged!.Model, "Rejected model change must not persist");
+                }
+            });
+
+            await RunTest("ModelChange_QuotaLimitFailure_BypassedAtLifecycle_PersistsWithoutCannotVerifyNote", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorValidationShimScope shim = CursorValidationShimScope.Create())
+                {
+                    AgentLifecycleHandler lifecycle = CreateAgentLifecycleHandler(testDb.Driver);
+                    ValidateCaptainModelInvocationRecorder recorder = new ValidateCaptainModelInvocationRecorder(shim.ArgsFile);
+                    recorder.CaptureBaseline();
+
+                    Captain captain = await CreateCaptainAsync(testDb.Driver, AgentRuntimeEnum.Cursor, "ok-model").ConfigureAwait(false);
+                    Func<JsonElement?, Task<object>> updateHandler = RegisterUpdateCaptainHandler(testDb.Driver, lifecycle);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        captainId = captain.Id,
+                        model = "quota-dead-model"
+                    });
+                    object result = await updateHandler(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertTrue(recorder.WasValidationLaunched(), "Model change must launch live validation before lifecycle bypass");
+                    AssertFalse(resultJson.Contains("\"content\"", StringComparison.Ordinal), "Quota bypass should not hard-fail the edit");
+                    AssertFalse(resultJson.Contains("CannotVerifyNow", StringComparison.OrdinalIgnoreCase),
+                        "Quota signals are stripped by ValidateModelBypassingQuotaAsync before MCP soft-failure envelope");
+
+                    Captain? updated = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Captain should exist after quota-bypassed validation");
+                    AssertEqual("quota-dead-model", updated!.Model, "Model change should persist when lifecycle bypasses quota errors");
+                    AssertTrue(
+                        ProviderQuotaLimitDetector.IsQuotaLimitSignal("You have hit your usage limit for Codex"),
+                        "Sanity check quota classifier used upstream of lifecycle bypass");
                 }
             });
 
@@ -545,6 +615,10 @@ namespace Armada.Test.Unit.Suites.Routes
                     "  >&2 echo insufficient credits for this account\r\n" +
                     "  exit /b 5\r\n" +
                     ")\r\n" +
+                    "if /I \"%MODEL%\"==\"quota-dead-model\" (\r\n" +
+                    "  >&2 echo You have hit your usage limit for Codex\r\n" +
+                    "  exit /b 5\r\n" +
+                    ")\r\n" +
                     "echo ok\r\n" +
                     "exit /b 0\r\n";
             }
@@ -569,6 +643,10 @@ namespace Armada.Test.Unit.Suites.Routes
                     "fi\n" +
                     "if [ \"$model\" = \"credit-dead-model\" ]; then\n" +
                     "  printf '%s\\n' \"insufficient credits for this account\" >&2\n" +
+                    "  exit 5\n" +
+                    "fi\n" +
+                    "if [ \"$model\" = \"quota-dead-model\" ]; then\n" +
+                    "  printf '%s\\n' \"You have hit your usage limit for Codex\" >&2\n" +
                     "  exit 5\n" +
                     "fi\n" +
                     "printf '%s\\n' ok\n" +

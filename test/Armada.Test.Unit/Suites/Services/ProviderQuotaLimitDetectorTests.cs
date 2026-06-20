@@ -113,6 +113,72 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsCreditAuthBenchSignal_InsufficientCredits_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("insufficient credits for this account"),
+                    "credit phrase should be detected");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("{\"error\":{\"code\":\"insufficient_credits\"}}"),
+                    "insufficient_credits token should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCreditAuthBenchSignal_AuthKeywords_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("HTTP 401: unauthorized"),
+                    "unauthorized should be detected");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("invalid_api_key supplied"),
+                    "invalid_api_key should be detected");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("authentication failed for provider"),
+                    "authentication should be detected");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("permission_denied for resource"),
+                    "permission_denied should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCreditAuthBenchSignal_BillingPayment_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("billing account suspended"),
+                    "billing keyword should be detected");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("payment required to continue"),
+                    "payment keyword should be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCreditAuthBenchSignal_StderrPrefixStripped_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("[stderr] invalid_api_key for this org"),
+                    "stderr-prefixed auth signal should be detected after normalization");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCreditAuthBenchSignal_UnrelatedError_ReturnsFalse", () =>
+            {
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("unknown model 'gpt-99'"),
+                    "genuine model errors should not be treated as credit/auth bench signals");
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("You've hit your usage limit for Codex"),
+                    "quota-only text should not match the credit/auth classifier");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCreditAuthBenchSignal_NullOrWhitespace_ReturnsFalse", () =>
+            {
+                AssertFalse(ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(null), "null should not be a credit/auth signal");
+                AssertFalse(ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(""), "empty should not be a credit/auth signal");
+                AssertFalse(ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("   \t  "), "whitespace should not be a credit/auth signal");
+                return Task.CompletedTask;
+            });
+
             await RunTest("TryParseRetryAfterUtc_RetryEarlierThanReference_RollsToNextDay", () =>
             {
                 DateTime referenceUtc = new DateTime(2026, 6, 18, 23, 0, 0, DateTimeKind.Utc);
