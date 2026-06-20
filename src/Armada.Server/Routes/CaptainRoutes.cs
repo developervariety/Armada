@@ -11,9 +11,11 @@ namespace Armada.Server.Routes
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
+    using SyslogLogging;
 
     /// <summary>
     /// REST API routes for captain management.
@@ -30,6 +32,8 @@ namespace Armada.Server.Routes
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly PlanningSessionCoordinator? _planningSessions;
         private readonly ObjectiveRefinementCoordinator? _objectiveRefinementSessions;
+        private readonly LoggingModule? _Logging;
+        private string _Header = "[CaptainRoutes] ";
 
         /// <summary>
         /// Instantiate.
@@ -44,6 +48,7 @@ namespace Armada.Server.Routes
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="planningSessions">Optional planning session coordinator for captain-planning ownership handoff.</param>
         /// <param name="objectiveRefinementSessions">Optional objective refinement coordinator for captain-refinement ownership handoff.</param>
+        /// <param name="logging">Optional logging module for structured warning output.</param>
         public CaptainRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -54,7 +59,8 @@ namespace Armada.Server.Routes
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             JsonSerializerOptions jsonOptions,
             PlanningSessionCoordinator? planningSessions = null,
-            ObjectiveRefinementCoordinator? objectiveRefinementSessions = null)
+            ObjectiveRefinementCoordinator? objectiveRefinementSessions = null,
+            LoggingModule? logging = null)
         {
             _database = database;
             _admiral = admiral;
@@ -66,6 +72,7 @@ namespace Armada.Server.Routes
             _jsonOptions = jsonOptions;
             _planningSessions = planningSessions;
             _objectiveRefinementSessions = objectiveRefinementSessions;
+            _Logging = logging;
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -266,11 +273,24 @@ namespace Armada.Server.Routes
                 updated.CreatedUtc = existing.CreatedUtc;
                 updated.LastUpdateUtc = DateTime.UtcNow;
                 NormalizeCaptainRuntimeOptions(updated, existing);
-                string? updateValidationError = await _agentLifecycle.ValidateCaptainModelAsync(updated).ConfigureAwait(false);
-                if (updateValidationError != null)
+                bool modelOrRuntimeChanged =
+                    !String.Equals(updated.Model, existing.Model, StringComparison.OrdinalIgnoreCase) ||
+                    updated.Runtime != existing.Runtime;
+                if (modelOrRuntimeChanged)
                 {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updateValidationError };
+                    string? updateValidationError = await _agentLifecycle.ValidateCaptainModelAsync(updated).ConfigureAwait(false);
+                    if (updateValidationError != null)
+                    {
+                        bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(updateValidationError) ||
+                            ProviderQuotaLimitDetector.IsQuotaLimitSignal(updateValidationError);
+                        if (!isSoftFailure)
+                        {
+                            req.Http.Response.StatusCode = 400;
+                            return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updateValidationError };
+                        }
+
+                        _Logging?.Warn(_Header + "model validation cannot be verified for captain " + id + "; edit persisted. Error: " + updateValidationError);
+                    }
                 }
                 updated = await _database.Captains.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;

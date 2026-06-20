@@ -15,6 +15,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server;
+    using SyslogLogging;
 
     /// <summary>
     /// Registers MCP tools for captain operations (get, create, update, stop, delete, log).
@@ -36,7 +37,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="settings">Armada settings, or null if unavailable.</param>
         /// <param name="onStopCaptain">Optional callback invoked when a captain is stopped.</param>
         /// <param name="agentLifecycle">Optional lifecycle handler used for model validation.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null)
+        /// <param name="logging">Optional logging module for structured warning output.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null)
         {
             register(
                 "armada_get_captain",
@@ -173,8 +175,32 @@ namespace Armada.Server.Mcp.Tools
 
                     if (agentLifecycle != null)
                     {
-                        string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-                        if (validationError != null) return CreateToolErrorResponse(validationError);
+                        bool modelOrRuntimeChanged =
+                            !String.Equals(captain.Model, existingCaptain.Model, StringComparison.OrdinalIgnoreCase) ||
+                            captain.Runtime != existingCaptain.Runtime;
+                        if (modelOrRuntimeChanged)
+                        {
+                            string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+                            if (validationError != null)
+                            {
+                                bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(validationError) ||
+                                    ProviderQuotaLimitDetector.IsQuotaLimitSignal(validationError);
+                                if (isSoftFailure)
+                                {
+                                    logging?.Warn("[McpCaptainTools] model validation cannot be verified for captain " + captainId + "; edit persisted. Error: " + validationError);
+                                    captain.LastUpdateUtc = DateTime.UtcNow;
+                                    captain = await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                                    return (object)new
+                                    {
+                                        Captain = captain,
+                                        CannotVerifyNow = true,
+                                        ValidationWarning = "Model validation cannot be verified: provider credit or authentication failure. Edit persisted; captain may be benched at dispatch."
+                                    };
+                                }
+
+                                return CreateToolErrorResponse(validationError);
+                            }
+                        }
                     }
 
                     captain.LastUpdateUtc = DateTime.UtcNow;
@@ -472,7 +498,8 @@ namespace Armada.Server.Mcp.Tools
             {
                 Id = captain.Id,
                 Runtime = captain.Runtime,
-                RuntimeOptionsJson = captain.RuntimeOptionsJson
+                RuntimeOptionsJson = captain.RuntimeOptionsJson,
+                Model = captain.Model
             };
         }
     }
