@@ -162,6 +162,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed diagnostic protocol reviewer persona uses domain-neutral description", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    // Fresh-seed path: the existing "upgrades existing" test only asserts the
+                    // description on the reconcile branch. Guard the freshly-seeded description
+                    // against a regression back to domain-specific framing by asserting the
+                    // domain-neutral vocabulary that replaced it.
+                    Persona? persona = await testDb.Driver.Personas.ReadByNameAsync("DiagnosticProtocolReviewer").ConfigureAwait(false);
+                    AssertNotNull(persona, "DiagnosticProtocolReviewer persona should be seeded");
+                    string description = persona!.Description ?? "";
+                    AssertContains("protocol parsing", description, "Description should describe protocol-parsing scope");
+                    AssertContains("security-sensitive access", description, "Description should describe security-sensitive access scope");
+                    AssertContains("hardware-affecting operations", description, "Description should describe high-risk hardware-affecting scope");
+                }
+            });
+
             await RunTest("Seed creates memory consolidator persona", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

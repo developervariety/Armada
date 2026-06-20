@@ -121,6 +121,28 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Diagnostic protocol reviewer template focus is domain-neutral", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+
+                    // The embedded template renders its focus string and guidance bullets into
+                    // the Specialist Focus / Review Checklist sections of Content. Guard against a
+                    // regression back to domain-specific framing by asserting the domain-neutral
+                    // vocabulary that replaced it; the persona/template NAME mapping is covered above.
+                    PromptTemplate? resolved = await service.ResolveAsync("persona.diagnostic_protocol_reviewer").ConfigureAwait(false);
+                    AssertNotNull(resolved, "Diagnostic protocol reviewer template should resolve from embedded defaults");
+                    string content = resolved!.Content;
+                    AssertContains("hardware-affecting operations", content, "Template focus should describe high-risk hardware-affecting scope");
+                    AssertContains("security-sensitive access", content, "Template checklist should describe security-sensitive access scope");
+                    AssertContains("high-risk safety boundary", content, "Template checklist should describe the high-risk safety boundary");
+                }
+            });
+
             await RunTest("Seed defaults preserves existing template content", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
