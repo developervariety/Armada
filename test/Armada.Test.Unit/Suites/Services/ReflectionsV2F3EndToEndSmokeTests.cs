@@ -117,10 +117,10 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("F3_Jaccard3Gram_AndSentimentDisagreement", () =>
             {
-                double simSame = HabitPatternMiner.Jaccard3GramSimilarity("the seed-key algorithm lives here", "the seed-key algorithm lives here");
+                double simSame = HabitPatternMiner.Jaccard3GramSimilarity("the example shared module lives here", "the example shared module lives here");
                 AssertTrue(simSame > 0.99, "Identical strings have Jaccard ~ 1.0");
 
-                double simNeg = HabitPatternMiner.Jaccard3GramSimilarity("the seed-key algorithm lives here", "different content entirely zzz");
+                double simNeg = HabitPatternMiner.Jaccard3GramSimilarity("the example shared module lives here", "different content entirely zzz");
                 AssertTrue(simNeg < 0.3, "Unrelated strings have low Jaccard");
 
                 AssertTrue(HabitPatternMiner.SentimentDisagrees("we always do X", "we do not do X here"), "Negation asymmetry detected");
@@ -232,7 +232,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 Playbook vesselLearned = new Playbook(
                     "vessel-f3-conflict-vessel-learned.md",
-                    "# F3-conflict-vessel learned facts\n\n## Project conventions\n[high] PASETO token primitives are project-wide and live in otrbuddy.\nSource: msn_aaa, msn_bbb.\n")
+                    "# F3-conflict-vessel learned facts\n\n## Project conventions\n[high] PASETO token primitives are project-wide and live in service-a.\nSource: msn_aaa, msn_bbb.\n")
                 {
                     TenantId = Constants.DefaultTenantId
                 };
@@ -240,7 +240,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 // Candidate that contradicts the vessel-learned content (negation asymmetry +
                 // high 3-gram overlap).
-                string candidate = "=== FLEET PLAYBOOK CONTENT ===\n# Fleet Notes\n\n## Project conventions\n[high] PASETO token primitives are not project-wide and do not live in otrbuddy.\nSource: vessel A (msn_xxx, msn_yyy), vessel B (msn_zzz).\n=== END FLEET PLAYBOOK CONTENT ===\n\n=== RIPPLE DISABLES (JSON) ===\n{\"disableFromVessels\":[]}\n=== END RIPPLE DISABLES ===";
+                string candidate = "=== FLEET PLAYBOOK CONTENT ===\n# Fleet Notes\n\n## Project conventions\n[high] PASETO token primitives are not project-wide and do not live in service-a.\nSource: vessel A (msn_xxx, msn_yyy), vessel B (msn_zzz).\n=== END FLEET PLAYBOOK CONTENT ===\n\n=== RIPPLE DISABLES (JSON) ===\n{\"disableFromVessels\":[]}\n=== END RIPPLE DISABLES ===";
                 string diff = "{\"added\":[{\"section\":\"Project conventions\",\"summary\":\"contradicting\",\"confidence\":\"high\",\"vesselsContributing\":2,\"missionsSupporting\":3}],\"modified\":[],\"disabled\":[],\"rippleDisables\":0,\"evidenceConfidence\":\"high\",\"missionsExamined\":3,\"vesselsInScope\":2,\"notes\":\"conflict\"}";
                 Mission mission = await CreateFleetCurateMissionAsync(testDb, vessel, fleet.Id, candidate, diff).ConfigureAwait(false);
 
