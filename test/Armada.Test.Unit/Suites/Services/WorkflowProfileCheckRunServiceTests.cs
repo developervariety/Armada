@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using Armada.Core.Enums;
@@ -1038,6 +1039,216 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(workingDirectory);
                 }
             }).ConfigureAwait(false);
+
+            // Isolation regression tests (M2): these tests are designed to FAIL against the old
+            // live-WorkingDirectory execution path and PASS once M1's isolated checkout is in place.
+
+            await RunTest("RunAsync executes check in isolated LocalPath checkout, not live WorkingDirectory", async () =>
+            {
+                if (!IsGitOnPath())
+                {
+                    Console.WriteLine("  SKIP  isolated-checkout test -- git not found on PATH");
+                    return;
+                }
+
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_isol", "usr_isol").ConfigureAwait(false);
+
+                string localPath = Path.Combine(Path.GetTempPath(), "armada-isol-lp-" + Guid.NewGuid().ToString("N"));
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-isol-wd-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(localPath);
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    // Minimal git repo in localPath so M1 can use it as an isolated checkout source.
+                    await RunGitInitAsync(localPath).ConfigureAwait(false);
+
+                    // Vessel has distinct LocalPath (isolated repo) and WorkingDirectory (live dir).
+                    Vessel vessel = CreateVesselWithSeparatePaths("ten_isol", "usr_isol", localPath, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // Command prints the current working directory to stdout.
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_isol",
+                        UserId = "usr_isol",
+                        Name = "Isolated Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = PrintWorkingDirCommand()
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_isol", "usr_isol", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Isolated Build"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    // The check must run outside the live WorkingDirectory.
+                    // On old code the output equals WorkingDirectory; on M1 it equals LocalPath or a temp checkout.
+                    AssertFalse(
+                        (run.Output ?? String.Empty).Contains(workingDirectory, StringComparison.OrdinalIgnoreCase),
+                        "Check output must not contain the live WorkingDirectory path when isolation is active.");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(localPath);
+                    SafeDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RunAsync passes when live WorkingDirectory contains a blocking artifact at the check output path", async () =>
+            {
+                if (!IsGitOnPath())
+                {
+                    Console.WriteLine("  SKIP  blocking-artifact test -- git not found on PATH");
+                    return;
+                }
+
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_block", "usr_block").ConfigureAwait(false);
+
+                string localPath = Path.Combine(Path.GetTempPath(), "armada-block-lp-" + Guid.NewGuid().ToString("N"));
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-block-wd-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(localPath);
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await RunGitInitAsync(localPath).ConfigureAwait(false);
+
+                    // Hold an exclusive lock on a build-output-like path in the live working directory.
+                    // Simulates a running Admiral locking a DLL the check command would overwrite.
+                    string blockedRelPath = Path.Combine("bin", "Debug", "blocked.out");
+                    string blockedAbsPath = Path.Combine(workingDirectory, blockedRelPath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(blockedAbsPath)!);
+                    File.WriteAllText(blockedAbsPath, "locked");
+
+                    // echo is a terminal shell builtin so readiness does not treat trailing tokens as dependencies.
+                    string checkCmd = OperatingSystem.IsWindows()
+                        ? "echo isolated>" + blockedRelPath
+                        : "echo isolated > " + blockedRelPath;
+
+                    Vessel vessel = CreateVesselWithSeparatePaths("ten_block", "usr_block", localPath, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_block",
+                        UserId = "usr_block",
+                        Name = "Blocking Artifact Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = checkCmd
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_block", "usr_block", false, false, "UnitTest");
+                    CheckRun run;
+                    using (FileStream lockStream = new FileStream(
+                        blockedAbsPath,
+                        FileMode.Open,
+                        FileAccess.ReadWrite,
+                        FileShare.None))
+                    {
+                        run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Label = "Blocking Artifact Build"
+                        }).ConfigureAwait(false);
+                    }
+
+                    // Old code runs in WorkingDirectory (locked file blocks redirect) -> non-zero exit -> Failed.
+                    // M1 runs in isolated LocalPath checkout (no lock) -> exit 0 -> Passed.
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status,
+                        "Check must pass in the isolated checkout even when the same relative path is locked in WorkingDirectory.");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(localPath);
+                    SafeDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RunAsync strips --no-restore from Build command before isolated checkout execution", async () =>
+            {
+                if (!IsGitOnPath())
+                {
+                    Console.WriteLine("  SKIP  no-restore test -- git not found on PATH");
+                    return;
+                }
+
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_norestore", "usr_norestore").ConfigureAwait(false);
+
+                string localPath = Path.Combine(Path.GetTempPath(), "armada-norestore-lp-" + Guid.NewGuid().ToString("N"));
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-norestore-wd-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(localPath);
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await RunGitInitAsync(localPath).ConfigureAwait(false);
+
+                    Vessel vessel = CreateVesselWithSeparatePaths("ten_norestore", "usr_norestore", localPath, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // Build command contains --no-restore; echo lets us observe the executed command.
+                    // M1 strips --no-restore before execution so a fresh isolated checkout can restore.
+                    // Old code passes the command verbatim, so the output contains "--no-restore".
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_norestore",
+                        UserId = "usr_norestore",
+                        Name = "NoRestore Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "echo BUILDING --no-restore"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_norestore", "usr_norestore", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "No-Restore Build"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    // M1 strips --no-restore from the command before executing in the isolated checkout.
+                    // Old code executes "echo BUILDING --no-restore" verbatim, so output contains "--no-restore".
+                    AssertFalse(
+                        (run.Output ?? String.Empty).Contains("--no-restore", StringComparison.OrdinalIgnoreCase),
+                        "Expected --no-restore to be stripped from the command executed in the isolated checkout.");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(localPath);
+                    SafeDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
         }
 
         private static LoggingModule CreateLogging()
@@ -1104,6 +1315,123 @@ namespace Armada.Test.Unit.Suites.Services
             catch
             {
             }
+        }
+
+        private static void SafeDeleteDirectory(string path)
+        {
+            try
+            {
+                if (!Directory.Exists(path)) return;
+                foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
+                }
+                Directory.Delete(path, true);
+            }
+            catch { }
+        }
+
+        private static bool IsGitOnPath()
+        {
+            try
+            {
+                ProcessStartInfo info = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    Arguments = "--version",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                using (Process p = Process.Start(info)!)
+                {
+                    p.WaitForExit();
+                    return p.ExitCode == 0;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static async Task RunGitInitAsync(string repoPath)
+        {
+            string[] commands = new[]
+            {
+                "init -b main",
+                "config user.email armada-tests@example.com",
+                "config user.name \"Armada Tests\""
+            };
+
+            foreach (string args in commands)
+            {
+                ProcessStartInfo info = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    Arguments = args,
+                    WorkingDirectory = repoPath,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                using (Process p = new Process { StartInfo = info })
+                {
+                    p.Start();
+                    await p.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                    await p.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                    await p.WaitForExitAsync().ConfigureAwait(false);
+                }
+            }
+
+            // Add an initial commit so the repo is valid.
+            await File.WriteAllTextAsync(Path.Combine(repoPath, "README.md"), "test").ConfigureAwait(false);
+
+            foreach (string args in new[] { "add .", "commit -m init" })
+            {
+                ProcessStartInfo info = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    Arguments = args,
+                    WorkingDirectory = repoPath,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                using (Process p = new Process { StartInfo = info })
+                {
+                    p.Start();
+                    await p.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                    await p.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                    await p.WaitForExitAsync().ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static string PrintWorkingDirCommand()
+        {
+            return OperatingSystem.IsWindows() ? "cd" : "pwd";
+        }
+
+        private static Vessel CreateVesselWithSeparatePaths(
+            string tenantId,
+            string userId,
+            string localPath,
+            string workingDirectory)
+        {
+            return new Vessel
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                Name = "Isolated Check Vessel",
+                RepoUrl = "file:///" + localPath.Replace("\\", "/"),
+                LocalPath = localPath,
+                WorkingDirectory = workingDirectory,
+                DefaultBranch = "main"
+            };
         }
     }
 }
