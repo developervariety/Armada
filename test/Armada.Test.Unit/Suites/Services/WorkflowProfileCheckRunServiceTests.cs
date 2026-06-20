@@ -1109,6 +1109,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("RunAsync passes when live WorkingDirectory contains a blocking artifact at the check output path", async () =>
             {
+                if (!IsGitOnPath())
+                {
+                    Console.WriteLine("  SKIP  blocking-artifact test -- git not found on PATH");
+                    return;
+                }
+
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
@@ -1124,21 +1130,22 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    // Plant a directory at the path the check command expects to write to.
-                    // A directory at that path blocks any file-create command (simulates a running
-                    // Admiral holding an exclusive lock on a DLL at the same relative path).
-                    // The isolated checkout (localPath) has no such obstruction.
-                    string blockedRelPath = "blocked.out";
-                    Directory.CreateDirectory(Path.Combine(workingDirectory, blockedRelPath));
+                    await RunGitInitAsync(localPath).ConfigureAwait(false);
+
+                    // Hold an exclusive lock on a build-output-like path in the live working directory.
+                    // Simulates a running Admiral locking a DLL the check command would overwrite.
+                    string blockedRelPath = Path.Combine("bin", "Debug", "blocked.out");
+                    string blockedAbsPath = Path.Combine(workingDirectory, blockedRelPath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(blockedAbsPath)!);
+                    File.WriteAllText(blockedAbsPath, "locked");
+
+                    // echo is a terminal shell builtin so readiness does not treat trailing tokens as dependencies.
+                    string checkCmd = OperatingSystem.IsWindows()
+                        ? "echo isolated>" + blockedRelPath
+                        : "echo isolated > " + blockedRelPath;
 
                     Vessel vessel = CreateVesselWithSeparatePaths("ten_block", "usr_block", localPath, workingDirectory);
                     await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                    // Command exits 1 if the blocked path already exists (old code runs in workingDirectory where it does),
-                    // exits 0 in the isolated checkout (localPath) where the path is absent.
-                    string checkCmd = OperatingSystem.IsWindows()
-                        ? "if exist " + blockedRelPath + " (exit /b 1) else (echo isolated)"
-                        : "[ -e " + blockedRelPath + " ] && exit 1 || echo isolated";
 
                     WorkflowProfile profile = new WorkflowProfile
                     {
@@ -1152,17 +1159,25 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
 
                     AuthContext auth = AuthContext.Authenticated("ten_block", "usr_block", false, false, "UnitTest");
-                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    CheckRun run;
+                    using (FileStream lockStream = new FileStream(
+                        blockedAbsPath,
+                        FileMode.Open,
+                        FileAccess.ReadWrite,
+                        FileShare.None))
                     {
-                        VesselId = vessel.Id,
-                        Type = CheckRunTypeEnum.Build,
-                        Label = "Blocking Artifact Build"
-                    }).ConfigureAwait(false);
+                        run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Label = "Blocking Artifact Build"
+                        }).ConfigureAwait(false);
+                    }
 
-                    // Old code runs in WorkingDirectory (blocked.out exists as dir) -> exit 1 -> Failed.
-                    // M1 runs in isolated LocalPath checkout (no blocked.out) -> exit 0 -> Passed.
+                    // Old code runs in WorkingDirectory (locked file blocks redirect) -> non-zero exit -> Failed.
+                    // M1 runs in isolated LocalPath checkout (no lock) -> exit 0 -> Passed.
                     AssertEqual(CheckRunStatusEnum.Passed, run.Status,
-                        "Check must pass in the isolated checkout even when the same relative path is blocked in WorkingDirectory.");
+                        "Check must pass in the isolated checkout even when the same relative path is locked in WorkingDirectory.");
                 }
                 finally
                 {
@@ -1173,6 +1188,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("RunAsync strips --no-restore from Build command before isolated checkout execution", async () =>
             {
+                if (!IsGitOnPath())
+                {
+                    Console.WriteLine("  SKIP  no-restore test -- git not found on PATH");
+                    return;
+                }
+
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
@@ -1188,6 +1209,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
+                    await RunGitInitAsync(localPath).ConfigureAwait(false);
+
                     Vessel vessel = CreateVesselWithSeparatePaths("ten_norestore", "usr_norestore", localPath, workingDirectory);
                     await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
