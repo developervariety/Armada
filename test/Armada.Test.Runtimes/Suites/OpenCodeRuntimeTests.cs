@@ -611,6 +611,18 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(result.Contains("\"type\""), "Reasoning event must not leak raw JSON");
             });
 
+            await RunTest("TransformOutputLine_ToolUseEvent_RedactsPrivateKeyOutput", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string keyBody = "supersecretprivatekeybodythatshouldnotappear";
+                string output = "-----BEGIN OPENSSH PRIVATE KEY-----\\n" + keyBody + "\\n-----END OPENSSH PRIVATE KEY-----";
+                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"cat key.pem\"},\"output\":\"" + output + "\"}}}";
+                string result = runtime.TransformLine(line);
+                AssertContains("[tool: bash] cat key.pem -> <redacted len=", result);
+                AssertFalse(result.Contains(keyBody), "private key material must not leak from tool output snippets");
+                AssertFalse(result.Contains("BEGIN OPENSSH PRIVATE KEY"), "private key boundaries must not leak from tool output snippets");
+            });
+
             // --- Real opencode-go/kimi-k2.7-code captured sample coverage ---
 
             await RunTest("RealJsonl_ToolUseEvent_SurfacesConciseNarration", () =>
