@@ -117,60 +117,48 @@ target vessel's `CLAUDE.md`. This playbook distils the project-wide
    or handler gets a test in the parallel `*.Tests` project. Bug
    fixes get a regression test.
 2. **No mocking libraries.** Hand-rolled doubles only
-   (`RecordingHttpHandler`, `ConstantVehicleDataSource`, etc.).
-   `NullLogger<T>.Instance` (otrbuddy/j1939mitm/reference repos) or
-   `new LoggingModule()` (armada) for loggers.
-3. **Algorithm math lives in `j1939mitm` only.** Per-OEM primitives
-   are pure static functions in `J1939Mitm.Core/<Manufacturer>/`.
-   Signers and command handlers are thin adapters (pack seed → call
-   static signer → unpack key). Two copies of the same algorithm = bug.
-4. **Structured logging only.** `{Foo} {Bar}` placeholders, NOT
+   (`RecordingHttpHandler`, `StubDataSource`, etc.).
+   `NullLogger<T>.Instance` or `new LoggingModule()` (armada) for loggers.
+3. **Structured logging only.** `{Foo} {Bar}` placeholders, NOT
    `$"..."` interpolation in `LogX(...)`. (Exception: armada's
    `LoggingModule` doesn't support placeholders — concat with `+`
    instead. See vessel-armada-codestyle.)
-5. **Never log secrets.** Tokens (PASETO, Bearer, session),
+4. **Never log secrets.** Tokens (PASETO, Bearer, session),
    signatures, shared secrets, API keys, passwords, RSA private
-   exponents, full seed/key byte sequences. At `Information` level:
-   no request/response payloads.
-6. **Tenant isolation (multi-tenancy).** Every entity with a
+   exponents. At `Information` level: no request/response payloads.
+5. **Tenant isolation (multi-tenancy).** Every entity with a
    `FleetId` field gets a `HasQueryFilter(x => BypassTenantFilter ||
    x.FleetId == CurrentFleetId)` registered in the same commit as
-   the `DbSet`. (otrbuddy primarily.)
-7. **UDS 0x34 (RequestDownload / reflash) stays guarded.** No
-   service byte `0x34` in any j1939mitm code path, agent command
-   handler, or future `IDiagnosticSession` implementation.
-   Reflashing a truck ECU can brick hardware.
-8. **J1939 sentinels are "not available", not zero.** `0xFF`
-   (8-bit), `0xFFFF` (16-bit), `0xFFFFFFFF` (32-bit). Check before
-   trusting; preserve prior value, don't overwrite with zero.
-9. **Never hand-edit generated or embedded files.**
+   the `DbSet`.
+6. **Never hand-edit generated or embedded files.**
    `output/approved-reference/`, `output/reference-export/`,
    `output/source-export/`, source dumps, decompiler dumps, decrypted
-   data exports, embedded workflow JSON in otrbuddy. **Fix the
-   exporter or extractor upstream and re-run.** EF migrations may be edited
-   only to fix idempotency issues; document the edit.
-10. **Do not reintroduce removed features.** otrbuddy's IFTA / Fuel
-    Tax Compliance is permanently removed.
-11. **Read the target repo's `CLAUDE.md`** before making changes.
+   data exports, embedded workflow JSON. **Fix the exporter or extractor
+   upstream and re-run.** EF migrations may be edited only to fix
+   idempotency issues; document the edit.
+7. **Do not reintroduce removed features.** Permanently removed
+   product areas must stay removed unless a new mission explicitly
+   reintroduces them.
+8. **Read the target repo's `CLAUDE.md`** before making changes.
     Repo-specific rules win on conflict.
-12. **Do not reference plan / spec / roadmap docs in code,
-    commits, or tracked specs.** Inline the *why*, not "see plan §3"
+9. **Do not reference plan / spec / roadmap docs in code,
+    commits, or tracked specs.** Inline the *why*, not "see plan section 3"
     / "per the Phase 4 spec" / "tracked in TODO.md". They rot
     independently.
-13. **Planning state lives in Armada first.** Objectives/Backlog,
+10. **Planning state lives in Armada first.** Objectives/Backlog,
     Planning Sessions, Checks, Releases, Deployments, Incidents,
     Runbooks, History, and Requests are the durable store. Legacy
     `project/docs/superpowers/` and `project/TODO.md` artifacts are
     migration/export material only.
-14. **Update Armada records when work lands.** Link final
+11. **Update Armada records when work lands.** Link final
     mission/voyage/check/release/deployment evidence back to the
     objective. TODO close-out applies only to legacy rows not yet
     migrated into Armada.
-15. **All code changes go through Armada.** Orchestrator does NOT
+12. **All code changes go through Armada.** Orchestrator does NOT
     Edit/Write tracked code in repo subdirs. Bug fixes, features,
     refactors flow through `armada_dispatch`. (You are the captain
     — this rule binds the orchestrator, not you.)
-17. **Captains never edit `CLAUDE.md`.** Vessels carry
+13. **Captains never edit `CLAUDE.md`.** Vessels carry
     `ProtectedPaths = ["**/CLAUDE.md"]`; commits to CLAUDE.md are
     rejected with a coaching message. Surface rule proposals as a
     `[CLAUDE.MD-PROPOSAL]` block in your final report:
@@ -198,13 +186,10 @@ target vessel's `CLAUDE.md`. This playbook distils the project-wide
 
 ## Quick logging cheat-sheet
 
-| Vessel | Logger | Style |
+| Vessel / repo | Logger | Style |
 |---|---|---|
 | armada | `LoggingModule` (SyslogLogging) | `_Logging.Info(_Header + "op " + value)` (concat, NOT `$"..."`) |
-| otrbuddy | `ILogger<T>` | `_log.LogInformation("op {Foo} {Bar}", foo, bar)` (placeholders) |
-| j1939mitm | `ILogger<T>` (rare; mostly pure static) | `_log.LogDebug("op {Foo}", foo)` |
-| reference-port | `ILogger<T>` | `_log.LogInformation("op {Foo}", foo)` |
-| reference-source | `ILogger<T>` | `_log.LogInformation("op {Foo}", foo)` |
+| other .NET repos | `ILogger<T>` | `_log.LogInformation("op {Foo} {Bar}", foo, bar)` (placeholders) |
 
 Never `$"..."` interpolation in `ILogger<T>.LogX(...)` calls.
 
@@ -251,19 +236,13 @@ to your mission.
 - Register new suite: `runner.AddSuite(new MySuiteTests());` in
   `test/Armada.Test.Unit/Program.cs`.
 
-### otrbuddy
+### Other vessels (xUnit)
 
-- Production: `src/<App>/Features/<Slice>/`.
-- Tests: `src/<App>/Features/<Slice>/<Slice>.Tests/<Class>Tests.cs`,
-  flat at root of the test project.
-- One test project per slice.
-
-### j1939mitm
-
-- Production: `src/J1939Mitm/J1939Mitm.Core/<Manufacturer>/`.
-- Tests: `src/J1939Mitm/J1939Mitm.Core.Tests/<Area>/<Name>Tests.cs`.
-- The `<Area>/` subfolder is the only allowed nesting — typically
-  `<Manufacturer>/` mirroring source.
+- Production: `src/<area>/<Project>/`.
+- Tests: `src/<area>/<Project>.Tests/<Class>Tests.cs`, flat at root
+  of the test project.
+- One test project per slice or service area unless the vessel playbook
+  says otherwise.
 
 ### Reference decompiler projects
 
@@ -287,7 +266,7 @@ one file. If a single production class needs many tests, split by
 ## Method-name convention
 
 `{Behavior}_{Condition}_{Expected}` — e.g.
-`Sign_KnownSeed_ReturnsExpectedKey`,
+`ProcessAsync_ValidInput_ReturnsExpected`,
 `Validate_MissingFleetId_ThrowsArgumentException`.
 
 Don't use `[Theory]` to "save space" if the cases test fundamentally
@@ -366,7 +345,7 @@ test you write.
 - For `LoggingModule` use a fresh `new LoggingModule()` and disable
   console output via `logging.Settings.EnableConsole = false`.
 - For options/settings, just `new Foo { ... }` directly — no
-  `Options.Create<T>()` here (that's an otrbuddy idiom).
+  `Options.Create<T>()` unless the production code under test expects it.
 
 ## Database tests
 
@@ -593,14 +572,13 @@ You are an Armada worker agent. Implement only the current mission description, 
 These rules apply to every mission against the configured project repos. Read the repo's in-tree CLAUDE.md before any change for repo-specific overrides.
 
 1. **Tests are required.** Every new public type, service, endpoint, or handler gets an xUnit test in the parallel `*.Tests` project. Bug fixes get a regression test. No exceptions.
-2. **No mocking libraries.** Ever. Hand-rolled test doubles only (`RecordingHttpHandler`, `ConstantVehicleDataSource`, `FlakyPollHandler`, ...). `NullLogger<T>.Instance` for loggers. `Options.Create(...)` for options. No Moq / NSubstitute / FakeItEasy / JustMock.
+2. **No mocking libraries.** Ever. Hand-rolled test doubles only (`RecordingHttpHandler`, `StubDataSource`, `FlakyPollHandler`, ...). `NullLogger<T>.Instance` for loggers. `Options.Create(...)` for options when production code expects it. No Moq / NSubstitute / FakeItEasy / JustMock.
 3. **Structured logging only.** `{DeviceId}`, `{StatusCode}`, `{ElapsedMs}` placeholders. NEVER `$"..."` string interpolation inside `LogInformation` / `LogDebug` / `LogWarning` / `LogError`.
-4. **Never log secrets.** Tokens (PASETO, Bearer, session), signatures, shared secrets, API keys, passwords, RSA private exponents, Cummins password-table rows, full seed/key byte sequences. At Information level: no request/response payloads.
-5. **UDS 0x34 (RequestDownload / reflash) stays guarded.** No code path may emit the service byte `0x34`. Reflashing a truck ECU can brick hardware; this guard protects field equipment.
-6. **J1939 sentinels are "not available", not zero.** `0xFF` (8-bit), `0xFFFF` (16-bit), `0xFFFFFFFF` (32-bit) are SAE-defined "signal not available" sentinels. Decode -> check sentinel -> only then trust the value. Properties stay null on sentinel; consumers skip rather than fail.
-7. **Test files live at the ROOT of the test project.** Flat layout, NOT mirrored under feature folders. File name `{ClassUnderTest}Tests.cs`. Method name `{Behavior}_{Condition}_{Expected}`.
-8. **Do not reference plan / spec / roadmap docs from code comments.** Plans rot or move; comments must be self-contained. Never write `see docs/superpowers/plans/...`, `per the Phase 4 spec`, `see TODO.md`, or `library Spec D5` style references. Inline the WHY in the comment itself.
-9. **Update Armada records when work lands.** Link final evidence back to the Armada objective/backlog item, checks, releases, deployments, and incidents. `project/TODO.md` is legacy migration material only; if the mission references a legacy row, surface the commit SHA and the orchestrator will migrate or close it.
+4. **Never log secrets.** Tokens (PASETO, Bearer, session), signatures, shared secrets, API keys, passwords, RSA private exponents. At Information level: no request/response payloads.
+5. **Guard high-risk operations.** Code paths that can affect production hardware, billing, or irreversible external state need explicit guards, tests, and operator confirmation -- do not add them casually in agent-driven flows.
+6. **Test files live at the ROOT of the test project.** Flat layout, NOT mirrored under feature folders. File name `{ClassUnderTest}Tests.cs`. Method name `{Behavior}_{Condition}_{Expected}`.
+7. **Do not reference plan / spec / roadmap docs from code comments.** Plans rot or move; comments must be self-contained. Never write `see docs/superpowers/plans/...`, `per the Phase 4 spec`, `see TODO.md`, or `library Spec D5` style references. Inline the WHY in the comment itself.
+8. **Update Armada records when work lands.** Link final evidence back to the Armada objective/backlog item, checks, releases, deployments, and incidents. `project/TODO.md` is legacy migration material only; if the mission references a legacy row, surface the commit SHA and the orchestrator will migrate or close it.
 
 ## Dock isolation (Windows + Armada specific)
 
