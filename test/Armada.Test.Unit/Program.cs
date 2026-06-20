@@ -201,6 +201,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpCodeIndexToolsTests());
             runner.AddSuite(new McpCheckRunToolsTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
+            runner.AddSuite(new CheckRunIsolatedCheckoutTests());
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());
             runner.AddSuite(new McpStdioServerTests());
             runner.AddSuite(new VoyageDispatchServiceTests());

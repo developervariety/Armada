@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -114,15 +115,35 @@ namespace Armada.Core.Services
             run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
 
+            string? isolatedCheckoutPath = null;
+
             Stopwatch sw = Stopwatch.StartNew();
             CommandExecutionResult execution;
 
             try
             {
-                execution = await ExecuteCommandAsync(run.Command, run.WorkingDirectory!, _DefaultTimeout, token).ConfigureAwait(false);
+                string executionDirectory = run.WorkingDirectory!;
+                string executionCommand = run.Command;
+
+                if (IsIsolatedCheckoutType(run.Type))
+                {
+                    string? repoSource = ResolveRepoSource(vessel);
+                    if (repoSource != null)
+                    {
+                        isolatedCheckoutPath = await TryCloneToTempAsync(repoSource, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                        if (isolatedCheckoutPath != null)
+                        {
+                            executionDirectory = isolatedCheckoutPath;
+                            executionCommand = StripNoRestore(run.Command);
+                        }
+                    }
+                }
+
+                execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
+                SafeDeleteDirectory(isolatedCheckoutPath);
                 run.Status = CheckRunStatusEnum.Pending;
                 run.LastUpdateUtc = DateTime.UtcNow;
                 run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
@@ -146,10 +167,14 @@ namespace Armada.Core.Services
             run.CompletedUtc = DateTime.UtcNow;
             run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
-            run.Artifacts = CollectArtifacts(run.WorkingDirectory!, profile?.ExpectedArtifacts);
-            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, run.WorkingDirectory, run.Artifacts);
-            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(run.WorkingDirectory, run.Artifacts);
+
+            string artifactDirectory = isolatedCheckoutPath ?? run.WorkingDirectory!;
+            run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
+            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
+            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
             run.Summary = BuildSummary(run, profile);
+
+            SafeDeleteDirectory(isolatedCheckoutPath);
 
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
@@ -505,12 +530,30 @@ namespace Armada.Core.Services
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
 
+            string? isolatedCheckoutPath = null;
+            string executionDirectory = run.WorkingDirectory!;
+            string executionCommand = run.Command;
+
+            if (IsIsolatedCheckoutType(run.Type))
+            {
+                string? repoSource = ResolveRepoSource(vessel);
+                if (repoSource != null)
+                {
+                    isolatedCheckoutPath = await TryCloneToTempAsync(repoSource, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                    if (isolatedCheckoutPath != null)
+                    {
+                        executionDirectory = isolatedCheckoutPath;
+                        executionCommand = StripNoRestore(run.Command);
+                    }
+                }
+            }
+
             Stopwatch sw = Stopwatch.StartNew();
             CommandExecutionResult execution;
 
             try
             {
-                execution = await ExecuteCommandAsync(run.Command, run.WorkingDirectory!, _DefaultTimeout, token).ConfigureAwait(false);
+                execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -529,10 +572,14 @@ namespace Armada.Core.Services
             run.CompletedUtc = DateTime.UtcNow;
             run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
-            run.Artifacts = CollectArtifacts(run.WorkingDirectory!, profile?.ExpectedArtifacts);
-            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, run.WorkingDirectory, run.Artifacts);
-            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(run.WorkingDirectory, run.Artifacts);
+
+            string artifactDirectory = isolatedCheckoutPath ?? run.WorkingDirectory!;
+            run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
+            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
+            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
             run.Summary = BuildSummary(run, profile);
+
+            SafeDeleteDirectory(isolatedCheckoutPath);
 
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
@@ -867,6 +914,161 @@ namespace Armada.Core.Services
         private static string? NormalizeValue(string? value)
         {
             return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static bool IsIsolatedCheckoutType(CheckRunTypeEnum type)
+        {
+            return type == CheckRunTypeEnum.Build || type == CheckRunTypeEnum.UnitTest;
+        }
+
+        private static string? ResolveRepoSource(Vessel vessel)
+        {
+            if (!String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
+                return vessel.LocalPath;
+            if (!String.IsNullOrWhiteSpace(vessel.RepoUrl))
+                return vessel.RepoUrl;
+            return null;
+        }
+
+        private static string StripNoRestore(string command)
+        {
+            string result = Regex.Replace(command, @"\s*--no-restore(?=\s|$)", String.Empty, RegexOptions.IgnoreCase);
+            return result.Trim();
+        }
+
+        private static void SafeDeleteDirectory(string? path)
+        {
+            if (String.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+                return;
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                    {
+                        try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
+                    }
+                }
+                Directory.Delete(path, true);
+            }
+            catch { }
+        }
+
+        private async Task<string?> TryCloneToTempAsync(
+            string repoSource,
+            string? commitHash,
+            string? branchName,
+            string defaultBranch,
+            CancellationToken token)
+        {
+            string tempPath = Path.Combine(Path.GetTempPath(), "armada-chk-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                int cloneExit = await RunGitAsync(
+                    Path.GetTempPath(),
+                    TimeSpan.FromMinutes(10),
+                    token,
+                    "clone", "--", repoSource, tempPath).ConfigureAwait(false);
+
+                if (cloneExit != 0)
+                {
+                    _Logging.Warn(_Header + "isolated checkout: git clone failed for " + repoSource);
+                    SafeDeleteDirectory(tempPath);
+                    return null;
+                }
+
+                string checkoutRef = !String.IsNullOrWhiteSpace(commitHash)
+                    ? commitHash!
+                    : !String.IsNullOrWhiteSpace(branchName)
+                        ? branchName!
+                        : defaultBranch;
+
+                if (!String.IsNullOrWhiteSpace(checkoutRef)
+                    && !String.Equals(checkoutRef, defaultBranch, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Place the ref BEFORE the "--" separator so git treats it as a branch/commit to
+                    // switch to, not as a pathspec to restore. "checkout -- <ref>" silently fails for any
+                    // branch/commit (the ref is interpreted as a path), leaving HEAD on the clone default.
+                    int checkoutExit = await RunGitAsync(
+                        tempPath,
+                        TimeSpan.FromMinutes(2),
+                        token,
+                        "checkout", checkoutRef, "--").ConfigureAwait(false);
+
+                    if (checkoutExit != 0 && !String.IsNullOrWhiteSpace(commitHash))
+                    {
+                        string fallbackRef = !String.IsNullOrWhiteSpace(branchName)
+                            ? branchName!
+                            : defaultBranch;
+                        if (!String.Equals(fallbackRef, checkoutRef, StringComparison.OrdinalIgnoreCase))
+                        {
+                            await RunGitAsync(
+                                tempPath,
+                                TimeSpan.FromMinutes(2),
+                                token,
+                                "checkout", fallbackRef, "--").ConfigureAwait(false);
+                        }
+                    }
+                }
+
+                _Logging.Debug(_Header + "isolated checkout created at " + tempPath);
+                return tempPath;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                SafeDeleteDirectory(tempPath);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "isolated checkout failed: " + ex.Message);
+                SafeDeleteDirectory(tempPath);
+                return null;
+            }
+        }
+
+        private static async Task<int> RunGitAsync(
+            string workingDirectory,
+            TimeSpan timeout,
+            CancellationToken token,
+            params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            foreach (string arg in args)
+                startInfo.ArgumentList.Add(arg);
+
+            using Process process = new Process { StartInfo = startInfo };
+            if (!process.Start())
+                return -1;
+
+            Task<string> drainStdout = process.StandardOutput.ReadToEndAsync();
+            Task<string> drainStderr = process.StandardError.ReadToEndAsync();
+
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(timeout);
+
+            try
+            {
+                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                try { if (!process.HasExited) process.Kill(true); } catch { }
+                throw;
+            }
+
+            await drainStdout.ConfigureAwait(false);
+            await drainStderr.ConfigureAwait(false);
+            return process.ExitCode;
         }
 
         private sealed class CommandExecutionResult
