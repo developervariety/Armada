@@ -12,6 +12,30 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
+        /// Returns true when <paramref name="text"/> looks like a provider credit, billing, or authentication failure
+        /// that should be treated as "cannot verify now" rather than a hard model-invalid rejection.
+        /// </summary>
+        /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
+        /// <returns>True when the text indicates a credit, billing, or auth failure.</returns>
+        public static bool IsCreditAuthBenchSignal(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            string normalized = Normalize(text);
+            return normalized.Contains("credit", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("billing", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("payment", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("insufficient_credits", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("authentication", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("permission_denied", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Returns true when <paramref name="text"/> looks like a provider usage or quota limit response.
         /// </summary>
         /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
