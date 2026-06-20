@@ -678,20 +678,20 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
 
-                    string artifactSourceRoot = Path.Combine(Path.GetTempPath(), "armada_test_jpro_" + Guid.NewGuid().ToString("N"));
+                    string artifactSourceRoot = Path.Combine(Path.GetTempPath(), "armada_test_sibling_" + Guid.NewGuid().ToString("N"));
                     try
                     {
-                        // Arrange -- create source artifact tree that simulates the JPRO extraction output
-                        string vinCatalogDir = Path.Combine(artifactSourceRoot, "output", "jpro-export", "vin-catalog");
-                        string meddutyDir = Path.Combine(artifactSourceRoot, "output", "jpro-export", "medduty-kwp");
+                        // Arrange -- create source artifact tree that simulates a sibling extraction-artifact tree
+                        string vinCatalogDir = Path.Combine(artifactSourceRoot, "output", "extracted-artifacts", "vin-catalog");
+                        string meddutyDir = Path.Combine(artifactSourceRoot, "output", "extracted-artifacts", "medduty-kwp");
                         Directory.CreateDirectory(vinCatalogDir);
                         Directory.CreateDirectory(meddutyDir);
                         await File.WriteAllTextAsync(Path.Combine(vinCatalogDir, "catalog.json"), "{\"v\":1}").ConfigureAwait(false);
                         await File.WriteAllTextAsync(Path.Combine(meddutyDir, "data.bin"), "binary").ConfigureAwait(false);
 
-                        // Register the sibling (JproDeobfuscator) vessel with a WorkingDirectory pointing at our temp tree
-                        Vessel siblingVessel = new Vessel("JproDeobfuscator", "https://github.com/test/jpro.git");
-                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "JproDeobfuscator.git");
+                        // Register the sibling (ExampleSibling) vessel with a WorkingDirectory pointing at our temp tree
+                        Vessel siblingVessel = new Vessel("ExampleSibling", "https://github.com/test/example-sibling.git");
+                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSibling.git");
                         siblingVessel.WorkingDirectory = artifactSourceRoot;
                         siblingVessel = await testDb.Driver.Vessels.CreateAsync(siblingVessel).ConfigureAwait(false);
 
@@ -700,33 +700,33 @@ namespace Armada.Test.Unit.Suites.Services
                             new SiblingRepo
                             {
                                 VesselRef = siblingVessel.Id,
-                                RepoUrl = "https://github.com/test/jpro.git",
-                                RelativePath = "../JproDeobfuscator",
+                                RepoUrl = "https://github.com/test/example-sibling.git",
+                                RelativePath = "../ExampleSibling",
                                 BranchStrategy = SiblingBranchStrategyEnum.MatchBranchElseDefault,
                                 DefaultBranch = "main",
-                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "jpro-export") }
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
                             }
                         };
 
-                        Vessel vessel = new Vessel("otrbuddy", "https://github.com/test/otrbuddy.git");
-                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "otrbuddy.git");
+                        Vessel vessel = new Vessel("service-a", "https://github.com/test/service-a.git");
+                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "service-a.git");
                         vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
                         vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-                        Captain captain = new Captain("captain-jpro");
+                        Captain captain = new Captain("captain-a");
                         captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
 
                         RecordingGitService git = new RecordingGitService();
                         DockService service = new DockService(logging, testDb.Driver, settings, git);
 
                         // Act
-                        Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-jpro/msn_art", "msn_art").ConfigureAwait(false);
+                        Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_art", "msn_art").ConfigureAwait(false);
                         AssertNotNull(dock, "Dock should be provisioned");
 
                         // Assert -- artifacts copied into the sibling worktree at the expected relative path
-                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../JproDeobfuscator"));
-                        string expectedCatalog = Path.Combine(siblingWorktree, "output", "jpro-export", "vin-catalog", "catalog.json");
-                        string expectedMedduty = Path.Combine(siblingWorktree, "output", "jpro-export", "medduty-kwp", "data.bin");
+                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSibling"));
+                        string expectedCatalog = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "vin-catalog", "catalog.json");
+                        string expectedMedduty = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "medduty-kwp", "data.bin");
                         AssertTrue(File.Exists(expectedCatalog), "vin-catalog artifact should be copied into the sibling worktree");
                         AssertTrue(File.Exists(expectedMedduty), "medduty-kwp artifact should be copied into the sibling worktree");
                     }
@@ -753,13 +753,13 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
 
                     // Arrange -- WorkingDirectory exists but the artifact sub-path does NOT
-                    string hostWorkDir = Path.Combine(Path.GetTempPath(), "armada_test_jpro_absent_" + Guid.NewGuid().ToString("N"));
+                    string hostWorkDir = Path.Combine(Path.GetTempPath(), "armada_test_sibling_absent_" + Guid.NewGuid().ToString("N"));
                     try
                     {
                         Directory.CreateDirectory(hostWorkDir);
 
-                        Vessel siblingVessel = new Vessel("JproDeobfuscatorAbsent", "https://github.com/test/jpro.git");
-                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "JproDeobfuscatorAbsent.git");
+                        Vessel siblingVessel = new Vessel("ExampleSiblingAbsent", "https://github.com/test/example-sibling.git");
+                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSiblingAbsent.git");
                         siblingVessel.WorkingDirectory = hostWorkDir;
                         siblingVessel = await testDb.Driver.Vessels.CreateAsync(siblingVessel).ConfigureAwait(false);
 
@@ -768,16 +768,16 @@ namespace Armada.Test.Unit.Suites.Services
                             new SiblingRepo
                             {
                                 VesselRef = siblingVessel.Id,
-                                RepoUrl = "https://github.com/test/jpro.git",
-                                RelativePath = "../JproDeobfuscatorAbsent",
+                                RepoUrl = "https://github.com/test/example-sibling.git",
+                                RelativePath = "../ExampleSiblingAbsent",
                                 BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
                                 DefaultBranch = "main",
-                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "jpro-export") }
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
                             }
                         };
 
-                        Vessel vessel = new Vessel("otrbuddy-absent", "https://github.com/test/otrbuddy.git");
-                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "otrbuddy-absent.git");
+                        Vessel vessel = new Vessel("service-a-absent", "https://github.com/test/service-a.git");
+                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "service-a-absent.git");
                         vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
                         vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
@@ -791,8 +791,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-absent/msn_abs", "msn_abs").ConfigureAwait(false);
                         AssertNotNull(dock, "Dock should be provisioned even when artifact source is absent");
 
-                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../JproDeobfuscatorAbsent"));
-                        string absentDest = Path.Combine(siblingWorktree, "output", "jpro-export");
+                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSiblingAbsent"));
+                        string absentDest = Path.Combine(siblingWorktree, "output", "extracted-artifacts");
                         AssertFalse(Directory.Exists(absentDest), "Absent artifact source should not create a destination directory");
                     }
                     finally
@@ -817,16 +817,16 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
 
-                    string artifactSourceRoot = Path.Combine(Path.GetTempPath(), "armada_test_jpro_name_" + Guid.NewGuid().ToString("N"));
+                    string artifactSourceRoot = Path.Combine(Path.GetTempPath(), "armada_test_sibling_name_" + Guid.NewGuid().ToString("N"));
                     try
                     {
-                        string nestedFaultDir = Path.Combine(artifactSourceRoot, "output", "jpro-export", "fault-descriptions", "nested");
+                        string nestedFaultDir = Path.Combine(artifactSourceRoot, "output", "extracted-artifacts", "fault-descriptions", "nested");
                         Directory.CreateDirectory(nestedFaultDir);
                         string sourceFile = Path.Combine(nestedFaultDir, "fault.json");
                         await File.WriteAllTextAsync(sourceFile, "{\"fault\":123}").ConfigureAwait(false);
 
-                        Vessel siblingVessel = new Vessel("JproDeobfuscatorByName", "https://github.com/test/jpro-name.git");
-                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "JproDeobfuscatorByName.git");
+                        Vessel siblingVessel = new Vessel("ExampleSiblingByName", "https://github.com/test/example-sibling-name.git");
+                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSiblingByName.git");
                         siblingVessel.WorkingDirectory = artifactSourceRoot;
                         siblingVessel = await testDb.Driver.Vessels.CreateAsync(siblingVessel).ConfigureAwait(false);
 
@@ -835,16 +835,16 @@ namespace Armada.Test.Unit.Suites.Services
                             new SiblingRepo
                             {
                                 VesselRef = siblingVessel.Name,
-                                RepoUrl = "https://github.com/test/jpro-name.git",
-                                RelativePath = "../JproDeobfuscatorByName",
+                                RepoUrl = "https://github.com/test/example-sibling-name.git",
+                                RelativePath = "../ExampleSiblingByName",
                                 BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
                                 DefaultBranch = "main",
-                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "jpro-export") }
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
                             }
                         };
 
-                        Vessel vessel = new Vessel("otrbuddy-name-ref", "https://github.com/test/otrbuddy.git");
-                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "otrbuddy-name-ref.git");
+                        Vessel vessel = new Vessel("service-a-name-ref", "https://github.com/test/service-a.git");
+                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "service-a-name-ref.git");
                         vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
                         vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
@@ -857,8 +857,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-name-ref/msn_art", "msn_art").ConfigureAwait(false);
                         AssertNotNull(dock, "Dock should be provisioned");
 
-                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../JproDeobfuscatorByName"));
-                        string copiedFile = Path.Combine(siblingWorktree, "output", "jpro-export", "fault-descriptions", "nested", "fault.json");
+                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSiblingByName"));
+                        string copiedFile = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "fault-descriptions", "nested", "fault.json");
                         AssertTrue(File.Exists(copiedFile), "Nested artifact should be copied when VesselRef resolves by name");
                         AssertEqual("{\"fault\":123}", await File.ReadAllTextAsync(copiedFile).ConfigureAwait(false), "Copied artifact content should match the source file");
                     }
@@ -886,8 +886,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     try
                     {
-                        Vessel siblingVessel = new Vessel("JproDeobfuscatorNoWorkDir", "https://github.com/test/jpro-noworkdir.git");
-                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "JproDeobfuscatorNoWorkDir.git");
+                        Vessel siblingVessel = new Vessel("ExampleSiblingNoWorkDir", "https://github.com/test/example-sibling-noworkdir.git");
+                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSiblingNoWorkDir.git");
                         siblingVessel = await testDb.Driver.Vessels.CreateAsync(siblingVessel).ConfigureAwait(false);
 
                         List<SiblingRepo> siblings = new List<SiblingRepo>
@@ -895,16 +895,16 @@ namespace Armada.Test.Unit.Suites.Services
                             new SiblingRepo
                             {
                                 VesselRef = siblingVessel.Id,
-                                RepoUrl = "https://github.com/test/jpro-noworkdir.git",
-                                RelativePath = "../JproDeobfuscatorNoWorkDir",
+                                RepoUrl = "https://github.com/test/example-sibling-noworkdir.git",
+                                RelativePath = "../ExampleSiblingNoWorkDir",
                                 BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
                                 DefaultBranch = "main",
-                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "jpro-export") }
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
                             }
                         };
 
-                        Vessel vessel = new Vessel("otrbuddy-noworkdir", "https://github.com/test/otrbuddy.git");
-                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "otrbuddy-noworkdir.git");
+                        Vessel vessel = new Vessel("service-a-noworkdir", "https://github.com/test/service-a.git");
+                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "service-a-noworkdir.git");
                         vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
                         vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
@@ -917,8 +917,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-noworkdir/msn_art", "msn_art").ConfigureAwait(false);
                         AssertNotNull(dock, "Dock should be provisioned even when sibling WorkingDirectory is missing");
 
-                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../JproDeobfuscatorNoWorkDir"));
-                        string artifactDest = Path.Combine(siblingWorktree, "output", "jpro-export");
+                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSiblingNoWorkDir"));
+                        string artifactDest = Path.Combine(siblingWorktree, "output", "extracted-artifacts");
                         AssertTrue(Directory.Exists(siblingWorktree), "Sibling worktree should still be provisioned");
                         AssertFalse(Directory.Exists(artifactDest), "Missing WorkingDirectory should not create an artifact destination directory");
                     }
