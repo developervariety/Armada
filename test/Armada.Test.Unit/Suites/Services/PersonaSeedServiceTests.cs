@@ -151,7 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Persona? persona = await testDb.Driver.Personas.ReadByNameAsync("DiagnosticProtocolReviewer").ConfigureAwait(false);
                     AssertNotNull(persona, "Persona should still exist after reconciliation");
                     AssertEqual("persona.diagnostic_protocol_reviewer", persona!.PromptTemplateName, "Persona template should be canonical");
-                    AssertContains("J1939", persona.Description ?? "", "Persona description should be canonical");
+                    AssertContains("protocol", persona.Description ?? "", "Persona description should be canonical");
                     AssertTrue(persona.IsBuiltIn, "Persona should be upgraded to built in");
                     AssertTrue(persona.Active, "Persona should be reactivated");
                     AssertEqual(Constants.DefaultTenantId, persona.TenantId, "Persona should be reconciled to default tenant");

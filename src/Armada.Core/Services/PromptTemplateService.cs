@@ -670,13 +670,12 @@ namespace Armada.Core.Services
 
             defaults["persona.diagnostic_protocol_reviewer"] = BuildSpecialistPersonaTemplate(
                 "persona.diagnostic_protocol_reviewer",
-                "Diagnostic protocol reviewer persona for heavy vehicle diagnostic and protocol safety checks.",
+                "Diagnostic protocol reviewer persona for binary/wire protocol and hardware-safety checks.",
                 "DiagnosticProtocolReviewer",
-                "J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks.",
-                "- Verify diagnostic framing, timing, retries, byte order, sentinel handling, and transport assumptions.\n" +
-                "- Check seed-key and security-access code for scope, auditability, and secret handling.\n" +
-                "- Treat UDS 0x34 RequestDownload/reflash behavior as out of bounds unless the mission explicitly authorizes a guarded analysis-only change.\n" +
-                "- Flag any path that could emit unsafe reflash traffic or weaken a banned reflash boundary.\n");
+                "binary/wire protocol parsing, security-sensitive access paths, and high-risk hardware-affecting operations.",
+                "- Check protocol-parsing and security-sensitive access code for scope, auditability, and secret handling.\n" +
+                "- Treat high-risk hardware-affecting operations as out of bounds unless the mission explicitly authorizes a guarded analysis-only change.\n" +
+                "- Flag any path that could weaken a high-risk safety boundary.\n");
 
             defaults["persona.tenant_security_reviewer"] = BuildSpecialistPersonaTemplate(
                 "persona.tenant_security_reviewer",

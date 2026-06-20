@@ -31,7 +31,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Relative checkout path, resolved against the dock's primary worktree directory, where
         /// the sibling is materialized. Use "../Name" style paths to place the sibling next to
-        /// the dock so the consumer's parent-probe arithmetic resolves (e.g. "..\\JproDeobfuscator").
+        /// the dock so the consumer's parent-probe arithmetic resolves (e.g. "..\\ExampleSibling").
         /// Required.
         /// </summary>
         public string RelativePath { get; set; } = String.Empty;
@@ -52,7 +52,7 @@ namespace Armada.Core.Models
         /// Optional list of relative paths whose contents are copied from the sibling vessel's
         /// <see cref="Vessel.WorkingDirectory"/> into the same relative location under the dock
         /// sibling worktree after the worktree is provisioned. Use this to materialise
-        /// git-ignored extraction artifacts (e.g. "output/jpro-export") that consumer build
+        /// git-ignored extraction artifacts (e.g. "output/extracted-artifacts") that consumer build
         /// probes expect alongside the sibling checkout. Requires <see cref="VesselRef"/> to
         /// point to a registered vessel that has <see cref="Vessel.WorkingDirectory"/> configured.
         /// When null or empty no artifact copy is performed. If the source directory is absent
