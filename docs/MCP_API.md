@@ -3358,14 +3358,14 @@ literal marker pairs:
 # Fleet Notes -- <fleet name>
 
 ## Project conventions
-[high] J1939 SPN decoding lives in j1939mitm/J1939Mitm.Core/<OEM>/.
-Source: vessel j1939mitm (msn_aaa, msn_bbb), vessel otrbuddy (msn_ccc).
+[high] Shared parsing helpers live in service-a/Service.Core/<Module>/.
+Source: vessel service-a (msn_aaa, msn_bbb), vessel service-b (msn_ccc).
 === END FLEET PLAYBOOK CONTENT ===
 
 === RIPPLE DISABLES (JSON) ===
 {
   "disableFromVessels": [
-    {"vesselId": "vsl_j1939mitm", "noteRef": "Project conventions:0",
+    {"vesselId": "vsl_service_a", "noteRef": "Project conventions:0",
      "reason": "Promoted to fleet scope."}
   ]
 }
