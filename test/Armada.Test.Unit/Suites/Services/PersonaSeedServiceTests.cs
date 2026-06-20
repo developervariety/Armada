@@ -151,7 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Persona? persona = await testDb.Driver.Personas.ReadByNameAsync("DiagnosticProtocolReviewer").ConfigureAwait(false);
                     AssertNotNull(persona, "Persona should still exist after reconciliation");
                     AssertEqual("persona.diagnostic_protocol_reviewer", persona!.PromptTemplateName, "Persona template should be canonical");
-                    AssertContains("J1939", persona.Description ?? "", "Persona description should be canonical");
+                    AssertContains("protocol", persona.Description ?? "", "Persona description should be canonical");
                     AssertTrue(persona.IsBuiltIn, "Persona should be upgraded to built in");
                     AssertTrue(persona.Active, "Persona should be reactivated");
                     AssertEqual(Constants.DefaultTenantId, persona.TenantId, "Persona should be reconciled to default tenant");
@@ -159,6 +159,26 @@ namespace Armada.Test.Unit.Suites.Services
                     Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("DiagnosticProtocolTested").ConfigureAwait(false);
                     AssertSpecialistPipeline("DiagnosticProtocolTested", "DiagnosticProtocolReviewer", pipeline);
                     AssertContains("DiagnosticProtocolReviewer", pipeline!.Description ?? "", "Pipeline description should be canonical");
+                }
+            });
+
+            await RunTest("Seed diagnostic protocol reviewer persona uses domain-neutral description", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    // Fresh-seed path: the existing "upgrades existing" test only asserts the
+                    // description on the reconcile branch. Guard the freshly-seeded description
+                    // against a regression back to domain-specific framing by asserting the
+                    // domain-neutral vocabulary that replaced it.
+                    Persona? persona = await testDb.Driver.Personas.ReadByNameAsync("DiagnosticProtocolReviewer").ConfigureAwait(false);
+                    AssertNotNull(persona, "DiagnosticProtocolReviewer persona should be seeded");
+                    string description = persona!.Description ?? "";
+                    AssertContains("protocol parsing", description, "Description should describe protocol-parsing scope");
+                    AssertContains("security-sensitive access", description, "Description should describe security-sensitive access scope");
+                    AssertContains("hardware-affecting operations", description, "Description should describe high-risk hardware-affecting scope");
                 }
             });
 

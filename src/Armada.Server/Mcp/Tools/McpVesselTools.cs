@@ -117,7 +117,7 @@ namespace Armada.Server.Mcp.Tools
                                 {
                                     vesselRef = new { type = "string", description = "Optional known Armada vessel ID or name supplying the sibling source" },
                                     repoUrl = new { type = "string", description = "Optional git URL for the sibling source (used when vesselRef is unset/unresolvable)" },
-                                    relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../JproDeobfuscator)" },
+                                    relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../ExampleSibling)" },
                                     branchStrategy = new { type = "string", description = "MatchBranchElseDefault (default) or DefaultOnly" },
                                     defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" }
                                 },
@@ -286,7 +286,7 @@ namespace Armada.Server.Mcp.Tools
                                 {
                                     vesselRef = new { type = "string", description = "Optional known Armada vessel ID or name supplying the sibling source" },
                                     repoUrl = new { type = "string", description = "Optional git URL for the sibling source (used when vesselRef is unset/unresolvable)" },
-                                    relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../JproDeobfuscator)" },
+                                    relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../ExampleSibling)" },
                                     branchStrategy = new { type = "string", description = "MatchBranchElseDefault (default) or DefaultOnly" },
                                     defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" }
                                 },
