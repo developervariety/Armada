@@ -39,7 +39,7 @@ Armada is intentionally vocabulary-heavy because the model mirrors the operating
 | Admiral | The server that schedules work, owns persistence, exposes REST/MCP/WebSocket surfaces, and manages landing. |
 | Fleet | A collection of related repositories. |
 | Vessel | One git repository registered with Armada. |
-| Captain | One configured AI worker runtime, such as Claude Code, Codex, Cursor, or Gemini. |
+| Captain | One configured AI worker runtime, such as Claude Code, Codex, Cursor, Gemini, or OpenCode. |
 | Mission | One atomic unit of work assigned to a captain. |
 | Voyage | A batch of related missions dispatched together. |
 | Dock | An isolated git worktree where a captain performs the mission. |
@@ -61,7 +61,7 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada`. It keeps up
 
 ### Fork-only features
 
-- Durable multi-runtime orchestration: Claude Code, Codex, Cursor, and Gemini captains can be scheduled through the same mission, voyage, dock, and merge-queue model. (`cec36fa6`, `db9439c`, `34574c5f`)
+- Durable multi-runtime orchestration: Claude Code, Codex, Cursor, Gemini, and OpenCode (Kimi K2.7) captains can be scheduled through the same mission, voyage, dock, and merge-queue model. (`cec36fa6`, `db9439c`, `34574c5f`)
 - Pipeline and persona expansion: built-in Worker, Architect, TestEngineer, Judge, Product Manager, Usability Engineer, MemoryConsolidator, and specialist reviewer personas support WorkerOnly, Reviewed, Tested, FullPipeline, ProductDevelopment, specialist-tested, and reflection pipelines. (`60781f72`, `e5fe494d`, `5e2a993f`)
 - Model-tier routing: `low`, `mid`, and `high` routing picks eligible captains by tier, reserves high-tier capacity for specialist personas, and supports per-stage routing. (`5ae0ce4b`, `fc48ea41`, `b5088b0d`)
 - Code-index retrieval: context packs, fleet search, hybrid lexical/semantic search, symbol graph sidecars, caller/callee queries, impact search, affected-test suggestions, and background refresh after landing. (`d242cc7b`, `c2ec68f1`, `86724a1d`, `9716f670`)
@@ -73,7 +73,7 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada`. It keeps up
 
 ### Upstream features in-tree but not actively wired
 
-- Mux runtime is present in-tree, but the active default captain pool for this fork is Claude Code, Codex, Cursor, and Gemini. Configure Mux captains explicitly before relying on them.
+- Mux runtime is present in-tree, but the active default captain pool for this fork is Claude Code, Codex, Cursor, Gemini, and OpenCode. Configure Mux captains explicitly before relying on them.
 - Some upstream planning and workspace UX remains available as operator-facing dashboard functionality, while the fork's main automation path runs through durable MCP dispatch, objective linkage, pipelines, and merge-queue landing.
 
 ---
@@ -193,7 +193,7 @@ Armada persists state through database drivers for SQLite, PostgreSQL, MySQL, an
 
 - .NET 10.0 SDK.
 - Git.
-- At least one supported agent CLI if you want local captains: Claude Code, Codex, Cursor, or Gemini.
+- At least one supported agent CLI if you want local captains: Claude Code, Codex, Cursor, Gemini, or OpenCode.
 - Optional for pull requests: `gh` for GitHub or `glab` for GitLab.
 
 ### Build
@@ -337,7 +337,7 @@ Useful REST areas include:
 ```text
 src/
   Armada.Core       Domain models, settings, database drivers, services, and interfaces
-  Armada.Runtimes   Runtime adapters for Claude Code, Codex, Cursor, Gemini, and extensible agents
+  Armada.Runtimes   Runtime adapters for Claude Code, Codex, Cursor, Gemini, OpenCode, and extensible agents
   Armada.Server     Admiral REST/MCP/WebSocket server and dashboard host
   Armada.Helm       CLI for config, server start, and MCP setup
   Armada.Dashboard  React/Vite operator dashboard
