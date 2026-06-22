@@ -3725,7 +3725,7 @@ namespace Armada.Core.Services
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
                     string? selectedModel = PreferredModelTierSelector.SelectModel(
-                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier);
+                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier, mission?.CapabilityHint);
                     if (selectedModel == null) return null;
                     List<Captain> filtered = new List<Captain>();
                     foreach (Captain captain in idleCaptains)
@@ -3762,7 +3762,7 @@ namespace Armada.Core.Services
                         if (classifiedTier != null)
                         {
                             string? fallbackModel = PreferredModelTierSelector.SelectModel(
-                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier);
+                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier, mission?.CapabilityHint);
                             if (fallbackModel == null) return null;
                             List<Captain> tierFiltered = new List<Captain>();
                             foreach (Captain captain in idleCaptains)
@@ -3790,7 +3790,7 @@ namespace Armada.Core.Services
                 // captains carrying custom/unclassified models still receive work.
                 string defaultTier = isSpecialist ? PreferredModelTierSelector.HighTier : PreferredModelTierSelector.MidTier;
                 string? defaultedModel = PreferredModelTierSelector.SelectModel(
-                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier);
+                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier, mission?.CapabilityHint);
                 if (defaultedModel != null)
                 {
                     List<Captain> filtered = new List<Captain>();

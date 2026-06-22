@@ -46,6 +46,14 @@ namespace Armada.Core.Models
         public string? PreferredModel { get; set; } = null;
 
         /// <summary>
+        /// Optional capability hint for within-tier captain selection. Plumbed through to
+        /// <see cref="Mission.CapabilityHint"/> on the created mission. Accepted values are
+        /// audit, reasoning-heavy, mechanical, and doc-only; Armada prefers the best-fit
+        /// available captain in the chosen tier. Omit when default routing is sufficient.
+        /// </summary>
+        public string? CapabilityHint { get; set; } = null;
+
+        /// <summary>
         /// Optional ID of a mission this mission must wait for. The dependent
         /// mission stays Pending until the referenced mission reaches a
         /// completion state. Plumbed through to <see cref="Mission.DependsOnMissionId"/>
