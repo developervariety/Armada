@@ -213,6 +213,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpVoyageToolsTests());
             runner.AddSuite(new VoyageStatusAssignmentSurfaceTests());
             runner.AddSuite(new McpMissionToolsTests());
+            runner.AddSuite(new ContextPackUsageSummaryTests());
             runner.AddSuite(new PreferredModelTierSelectorTests());
             runner.AddSuite(new PreferredModelUserGuidanceTests());
             runner.AddSuite(new MissionServicePreferredModelRoutingTests());

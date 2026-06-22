@@ -265,6 +265,13 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime? LastRecoveryActionUtc { get; set; } = null;
 
+        /// <summary>
+        /// Transient projection of the most-recent <c>mission.context_pack_usage</c> event for this
+        /// mission. Never persisted to the database; populated on demand by armada_mission_status.
+        /// Null when no such event has been emitted or when the payload is unreadable.
+        /// </summary>
+        public ContextPackUsageSummary? ContextPackUsage { get; set; } = null;
+
         #endregion
 
         #region Private-Members
