@@ -1067,13 +1067,16 @@ namespace Armada.Core.Services
         }
 
         // LF-only hook scripts so Git for Windows sh.exe can execute them without CRLF errors.
-        // Each script reads .armada/boundary.json for protected paths, secret patterns, and
-        // private-identifier patterns, falling back to hard-coded built-in defaults when the
-        // config is absent. Secret bytes and private identifier values are never printed.
+        // Protected paths are read from .armada/boundary.json via extract_section (globs need no
+        // unescaping). Secret and private-id patterns are read from the sibling .armada/boundary.patterns
+        // file which stores raw (un-JSON-escaped) regex strings so grep -qE receives correct metacharacters.
+        // Both files fall back to hard-coded built-in defaults when absent.
+        // Secret bytes and private identifier values are never printed.
         private const string _PreCommitHook =
             "#!/bin/sh\n" +
             "# Armada boundary pre-commit hook -- do not edit; regenerated on dock provision\n" +
             "cfg=\".armada/boundary.json\"\n" +
+            "pat_cfg=\".armada/boundary.patterns\"\n" +
             "extract_section() {\n" +
             "  sec=\"$1\"; found=0\n" +
             "  while IFS= read -r ln; do\n" +
@@ -1109,10 +1112,28 @@ namespace Armada.Core.Services
             "}\n" +
             "if [ -f \"$cfg\" ]; then\n" +
             "  protected=$(extract_section protectedPaths)\n" +
-            "  secrets=$(extract_section secretPatterns)\n" +
-            "  privids=$(extract_section privateIdentifiers)\n" +
             "else\n" +
             "  protected='**/CLAUDE.md\n**/CODEX.md\n**/CURSOR.md\n**/AGENTS.md\n.armada/instructions/**\n_briefing/**\n**/_briefing/**'\n" +
+            "fi\n" +
+            "if [ -f \"$pat_cfg\" ]; then\n" +
+            "  secrets=''\n" +
+            "  privids=''\n" +
+            "  _mode=''\n" +
+            "  while IFS= read -r _ln; do\n" +
+            "    case \"$_ln\" in\n" +
+            "      '# secretPatterns') _mode=s ;;\n" +
+            "      '# privateIdentifiers') _mode=p ;;\n" +
+            "      *) [ -z \"$_ln\" ] && continue\n" +
+            "         if [ \"$_mode\" = \"s\" ]; then\n" +
+            "           if [ -z \"$secrets\" ]; then secrets=\"$_ln\"\n" +
+            "           else secrets=\"$secrets\n$_ln\"; fi\n" +
+            "         elif [ \"$_mode\" = \"p\" ]; then\n" +
+            "           if [ -z \"$privids\" ]; then privids=\"$_ln\"\n" +
+            "           else privids=\"$privids\n$_ln\"; fi\n" +
+            "         fi ;;\n" +
+            "    esac\n" +
+            "  done < \"$pat_cfg\"\n" +
+            "else\n" +
             "  secrets='-----BEGIN.*PRIVATE KEY-----'\n" +
             "  privids=''\n" +
             "fi\n" +
@@ -1167,6 +1188,7 @@ namespace Armada.Core.Services
             "#!/bin/sh\n" +
             "# Armada boundary pre-push hook -- do not edit; regenerated on dock provision\n" +
             "cfg=\".armada/boundary.json\"\n" +
+            "pat_cfg=\".armada/boundary.patterns\"\n" +
             "extract_section() {\n" +
             "  sec=\"$1\"; found=0\n" +
             "  while IFS= read -r ln; do\n" +
@@ -1202,10 +1224,28 @@ namespace Armada.Core.Services
             "}\n" +
             "if [ -f \"$cfg\" ]; then\n" +
             "  protected=$(extract_section protectedPaths)\n" +
-            "  secrets=$(extract_section secretPatterns)\n" +
-            "  privids=$(extract_section privateIdentifiers)\n" +
             "else\n" +
             "  protected='**/CLAUDE.md\n**/CODEX.md\n**/CURSOR.md\n**/AGENTS.md\n.armada/instructions/**\n_briefing/**\n**/_briefing/**'\n" +
+            "fi\n" +
+            "if [ -f \"$pat_cfg\" ]; then\n" +
+            "  secrets=''\n" +
+            "  privids=''\n" +
+            "  _mode=''\n" +
+            "  while IFS= read -r _ln; do\n" +
+            "    case \"$_ln\" in\n" +
+            "      '# secretPatterns') _mode=s ;;\n" +
+            "      '# privateIdentifiers') _mode=p ;;\n" +
+            "      *) [ -z \"$_ln\" ] && continue\n" +
+            "         if [ \"$_mode\" = \"s\" ]; then\n" +
+            "           if [ -z \"$secrets\" ]; then secrets=\"$_ln\"\n" +
+            "           else secrets=\"$secrets\n$_ln\"; fi\n" +
+            "         elif [ \"$_mode\" = \"p\" ]; then\n" +
+            "           if [ -z \"$privids\" ]; then privids=\"$_ln\"\n" +
+            "           else privids=\"$privids\n$_ln\"; fi\n" +
+            "         fi ;;\n" +
+            "    esac\n" +
+            "  done < \"$pat_cfg\"\n" +
+            "else\n" +
             "  secrets='-----BEGIN.*PRIVATE KEY-----'\n" +
             "  privids=''\n" +
             "fi\n" +
@@ -1419,6 +1459,18 @@ namespace Armada.Core.Services
                 string? excludePath = ResolveGitInfoExcludePath(worktreePath);
                 if (!String.IsNullOrWhiteSpace(excludePath))
                     await EnsureGitExcludeEntryAsync(excludePath, ".armada/boundary.json", token).ConfigureAwait(false);
+
+                // Write raw-pattern sibling file: hook reads this instead of JSON-parsing boundary.json,
+                // so grep receives un-escaped metacharacters (\s, \w, \b, embedded ") verbatim.
+                string patternsPath = Path.Combine(armadaDir, "boundary.patterns");
+                string patternsContent =
+                    "# secretPatterns\n" +
+                    (config.SecretPatterns.Count > 0 ? String.Join("\n", config.SecretPatterns) + "\n" : "") +
+                    "# privateIdentifiers\n" +
+                    (config.PrivateIdentifiers.Count > 0 ? String.Join("\n", config.PrivateIdentifiers) + "\n" : "");
+                await File.WriteAllTextAsync(patternsPath, patternsContent, new System.Text.UTF8Encoding(false), token).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(excludePath))
+                    await EnsureGitExcludeEntryAsync(excludePath, ".armada/boundary.patterns", token).ConfigureAwait(false);
 
                 _Logging.Debug(_Header + "wrote boundary config to " + configPath);
             }

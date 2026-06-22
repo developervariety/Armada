@@ -251,6 +251,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ArchitectSettingsTests());
             runner.AddSuite(new McpObjectiveSchedulerToolsTests());
             runner.AddSuite(new DefinitionOfDoneGateTests());
+            runner.AddSuite(new DockBoundaryHookExecutionTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;
