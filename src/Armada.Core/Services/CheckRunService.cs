@@ -136,6 +136,13 @@ namespace Armada.Core.Services
                             executionDirectory = isolatedCheckoutPath;
                             executionCommand = StripNoRestore(run.Command);
                         }
+                        else
+                        {
+                            return await CompleteExistingRunAsFailureAsync(
+                                run,
+                                "Isolated checkout could not be created: clone failed for the configured repo source. The check will not execute in the live working directory.",
+                                token).ConfigureAwait(false);
+                        }
                     }
                 }
 
@@ -544,6 +551,13 @@ namespace Armada.Core.Services
                     {
                         executionDirectory = isolatedCheckoutPath;
                         executionCommand = StripNoRestore(run.Command);
+                    }
+                    else
+                    {
+                        return await CompleteExistingRunAsFailureAsync(
+                            run,
+                            "Isolated checkout could not be created: clone failed for the configured repo source. The check will not execute in the live working directory.",
+                            token).ConfigureAwait(false);
                     }
                 }
             }

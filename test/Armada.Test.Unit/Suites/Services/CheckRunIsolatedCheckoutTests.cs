@@ -15,8 +15,10 @@ namespace Armada.Test.Unit.Suites.Services
     /// Coverage for the CheckRunService isolated-checkout behavior: Armada-generated Build and
     /// UnitTest check runs clone the vessel repo into a dedicated temp checkout and execute there
     /// instead of in the live <c>Vessel.WorkingDirectory</c>, so a running Admiral cannot lock build
-    /// outputs and create false failures. Also covers the <c>--no-restore</c> strip on the executed
-    /// command and the working-directory fallback when no usable repo source is available.
+    /// outputs and create false failures. When a repo source resolves but the clone fails, the check
+    /// fails loudly instead of silently falling back to the live directory. Also covers the
+    /// <c>--no-restore</c> strip on the executed command, the live-dir path when no repo source
+    /// resolves, and genuine command failures inside the isolated checkout.
     /// </summary>
     public class CheckRunIsolatedCheckoutTests : TestSuite
     {
@@ -26,11 +28,10 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            // Negative / fallback path: a repo source resolves (so readiness passes) but the clone
-            // fails because LocalPath is not a real git repository. The check must degrade to running
-            // in the live working directory rather than erroring. Runs even without git (the clone
-            // attempt simply fails fast and returns null).
-            await RunTest("Build check falls back to live working directory when the clone fails", async () =>
+            // Loud-fail path: a repo source resolves (so readiness passes) but the clone fails because
+            // LocalPath is not a real git repository. The check must fail without executing in the live
+            // working directory. Runs even without git (the clone attempt fails fast and returns null).
+            await RunTest("Build check fails loudly when isolated checkout cannot be created", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
@@ -38,31 +39,30 @@ namespace Armada.Test.Unit.Suites.Services
                 VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
                 CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
 
-                await EnsureTenantAndUserAsync(testDb, "ten_iso_fallback", "usr_iso_fallback").ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_loudfail", "usr_iso_loudfail").ConfigureAwait(false);
 
-                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-fallback-" + Guid.NewGuid().ToString("N"));
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-loudfail-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(workingDirectory);
 
                 try
                 {
-                    // Default vessel: LocalPath == WorkingDirectory (exists, satisfies readiness) but is NOT a
-                    // git repository, so ResolveRepoSource returns it yet TryCloneToTempAsync fails and the
-                    // service falls back to the live working directory.
-                    Vessel vessel = CreateVessel("ten_iso_fallback", "usr_iso_fallback", workingDirectory);
+                    // LocalPath exists (ResolveRepoSource returns it) but is NOT a git repository, so
+                    // TryCloneToTempAsync fails. The service must fail loudly instead of falling back.
+                    Vessel vessel = CreateVessel("ten_iso_loudfail", "usr_iso_loudfail", workingDirectory);
                     await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
                     WorkflowProfile profile = new WorkflowProfile
                     {
-                        TenantId = "ten_iso_fallback",
-                        UserId = "usr_iso_fallback",
-                        Name = "Fallback Build Workflow",
+                        TenantId = "ten_iso_loudfail",
+                        UserId = "usr_iso_loudfail",
+                        Name = "Loud Fail Build Workflow",
                         Scope = WorkflowProfileScopeEnum.Vessel,
                         VesselId = vessel.Id,
                         BuildCommand = PrintWorkingDirectoryCommand()
                     };
                     await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
 
-                    AuthContext auth = AuthContext.Authenticated("ten_iso_fallback", "usr_iso_fallback", false, false, "UnitTest");
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_loudfail", "usr_iso_loudfail", false, false, "UnitTest");
                     CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
                     {
                         VesselId = vessel.Id,
@@ -70,9 +70,56 @@ namespace Armada.Test.Unit.Suites.Services
                         Label = "Build"
                     }).ConfigureAwait(false);
 
+                    AssertLoudIsolationFailure(run, workingDirectory);
+                }
+                finally
+                {
+                    SafeDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            // No-repo-source path: when both LocalPath and RepoUrl are unset, ResolveRepoSource returns
+            // null and the isolated check must still execute in the live WorkingDirectory and pass.
+            // CommandOverride bypasses profile requirements so the check runs without a configured profile.
+            await RunTest("Graceful live-dir run when no repo source resolves", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_norepo", "usr_iso_norepo").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-norepo-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = new Vessel
+                    {
+                        TenantId = "ten_iso_norepo",
+                        UserId = "usr_iso_norepo",
+                        Name = "No Repo Source Vessel",
+                        RepoUrl = String.Empty,
+                        LocalPath = String.Empty,
+                        WorkingDirectory = workingDirectory,
+                        DefaultBranch = "main"
+                    };
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_norepo", "usr_iso_norepo", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build",
+                        CommandOverride = PrintWorkingDirectoryCommand()
+                    }).ConfigureAwait(false);
+
                     AssertEqual(CheckRunStatusEnum.Passed, run.Status);
                     AssertContains(workingDirectory, run.Output ?? String.Empty);
-                    AssertFalse((run.Output ?? String.Empty).Contains("armada-chk-"), "Fallback run must not execute in an isolated checkout.");
+                    AssertFalse((run.Output ?? String.Empty).Contains("armada-chk-"), "No-repo-source check must execute in the live working directory, not an isolated checkout.");
                 }
                 finally
                 {
@@ -85,6 +132,59 @@ namespace Armada.Test.Unit.Suites.Services
                 Console.WriteLine("  SKIP  CheckRunIsolatedCheckoutTests (git-backed cases) -- git not found on PATH");
                 return;
             }
+
+            // Goal-3 guard: a real non-zero exit inside the isolated checkout must still fail with
+            // genuine command output; the isolation path must not mask real build/test failures.
+            await RunTest("Build check fails with real output when command fails in isolated checkout", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_cmdfail", "usr_iso_cmdfail").ConfigureAwait(false);
+
+                string sourceRepo = await CreateSourceRepoAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-cmdfail-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_iso_cmdfail", "usr_iso_cmdfail", workingDirectory);
+                    vessel.LocalPath = sourceRepo;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_iso_cmdfail",
+                        UserId = "usr_iso_cmdfail",
+                        Name = "Isolated Command Failure Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = FailingCommandWithMarker("ISOLATEDCMDFAILMARKER")
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_cmdfail", "usr_iso_cmdfail", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Failed, run.Status);
+                    AssertTrue((run.ExitCode ?? 0) != 0, "Failed isolated check must preserve the non-zero exit code.");
+                    AssertContains("ISOLATEDCMDFAILMARKER", run.Output ?? String.Empty);
+                    AssertFalse((run.Output ?? String.Empty).Contains(workingDirectory), "Command failure must occur in the isolated checkout, not the live working directory.");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(workingDirectory);
+                    SafeDeleteDirectory(sourceRepo);
+                }
+            }).ConfigureAwait(false);
 
             // Build check clones the repo and executes in the isolated temp checkout, not WorkingDirectory.
             await RunTest("Build check executes in isolated temp checkout, not the live working directory", async () =>
@@ -477,6 +577,36 @@ namespace Armada.Test.Unit.Suites.Services
         private static string PrintWorkingDirectoryCommand()
         {
             return OperatingSystem.IsWindows() ? "cd" : "pwd";
+        }
+
+        private static string FailingCommandWithMarker(string marker)
+        {
+            return OperatingSystem.IsWindows()
+                ? "echo " + marker + " & exit 1"
+                : "echo " + marker + "; exit 1";
+        }
+
+        private void AssertLoudIsolationFailure(CheckRun run, string liveWorkingDirectory)
+        {
+            AssertEqual(CheckRunStatusEnum.Failed, run.Status);
+            AssertEqual(-1, run.ExitCode ?? 0);
+
+            string output = run.Output ?? String.Empty;
+            AssertFalse(
+                output.Contains(liveWorkingDirectory, StringComparison.OrdinalIgnoreCase),
+                "Check must not execute in the live working directory when isolated checkout cannot be created.");
+            AssertFalse(
+                output.Contains("armada-chk-", StringComparison.OrdinalIgnoreCase),
+                "Check must not execute inside a partial isolated checkout path.");
+
+            bool hasIsolationMessage =
+                output.IndexOf("isolated", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("checkout", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("clone", StringComparison.OrdinalIgnoreCase) >= 0;
+            AssertTrue(
+                hasIsolationMessage,
+                "Failure output must contain a self-contained isolated-checkout error message.");
+            AssertFalse(String.IsNullOrWhiteSpace(output), "Failure output must not be empty.");
         }
 
         private static string PrintFileCommand(string fileName)

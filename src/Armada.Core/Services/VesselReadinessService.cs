@@ -129,13 +129,14 @@ namespace Armada.Core.Services
 
             bool bareRepoExists = !String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath);
             bool hasRepoUrl = !String.IsNullOrWhiteSpace(vessel.RepoUrl);
+            bool hasUsableWorkingDirectory = !String.IsNullOrWhiteSpace(vessel.WorkingDirectory) && Directory.Exists(vessel.WorkingDirectory);
             result.HasRepositoryContext = bareRepoExists || hasRepoUrl;
             if (!bareRepoExists && !hasRepoUrl)
             {
                 AddIssue(
                     result,
                     "repository_context_missing",
-                    ReadinessSeverityEnum.Error,
+                    (checkSpecific && !hasUsableWorkingDirectory) ? ReadinessSeverityEnum.Error : ReadinessSeverityEnum.Warning,
                     "Repository context unavailable",
                     "Armada has neither a usable bare repository path nor a RepoUrl from which it can recover one.",
                     vessel.LocalPath);
