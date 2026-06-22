@@ -327,6 +327,9 @@ namespace Armada.Server
                     if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
                         return "code context force requested for mission '" + mission.Title + "' but no query could be built";
 
+                    if (requireContextPackWhenEnabled)
+                        return "code context required for mission '" + mission.Title + "' but no query could be built (provide CodeContextQuery, title, or description)";
+
                     LogCodeContextWarning("skipping code context for mission '" + mission.Title + "' because no query could be built");
                     continue;
                 }
@@ -335,6 +338,9 @@ namespace Armada.Server
                 {
                     if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
                         return "code context force requested but code index service is unavailable";
+
+                    if (requireContextPackWhenEnabled)
+                        return "code context required for mission '" + mission.Title + "' but the code index service is unavailable";
 
                     if (!loggedUnavailable)
                     {

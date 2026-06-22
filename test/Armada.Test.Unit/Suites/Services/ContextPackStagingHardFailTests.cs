@@ -375,6 +375,238 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, codeIndex.BuildCallCount, "the loop must short-circuit on first failure and never build the second mission's pack");
                 }
             });
+
+            // NOTE: The "no query could be built" require-gate branch in PrepareDispatchCodeContextAsync is
+            // unreachable through the public DispatchAsync entry point: an earlier per-mission validation
+            // (missing_mission_title / missing_mission_description) rejects any mission whose Title or Description
+            // is null/whitespace, and BuildMissionCodeContextQuery always yields a non-empty query for a non-empty
+            // title. These two tests therefore pin the REAL behavior (upstream validation rejects the dispatch
+            // before code-context staging) rather than asserting an unreachable code path. See Residual Risks.
+            await RunTest("EmptyTitleAndDescription_RequireEnabled_RejectedByMissionValidationBeforeStaging", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-10", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    // RequireContextPackWhenEnabled defaults to true
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    // Empty title and description never reach the code-context no-query branch; the per-mission
+                    // title/description validation rejects the dispatch first.
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Empty query voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "", Description = "" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "dispatch must fail when a mission has an empty title");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertContains("missing_mission_title", result.Value!.ToString() ?? "", "an empty title is rejected by mission validation before code-context staging runs");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when mission validation rejects the dispatch");
+                    AssertEqual(0, codeIndex.BuildCallCount, "no build must be attempted when the dispatch is rejected by validation");
+                }
+            });
+
+            await RunTest("RequirePackEnabled_NullCodeIndexService_AutoMode_HardFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-11", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    // RequireContextPackWhenEnabled defaults to true
+
+                    // Construct with null code index service (4th parameter).
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Null service voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task J", Description = "Implement feature J" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "dispatch must fail when code index service is null and RequireContextPackWhenEnabled=true");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertContains("Task J", result.Value.ToString() ?? "", "error must name the mission that triggered the failure");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when service-unavailable staging fails");
+                }
+            });
+
+            await RunTest("EmptyTitleAndDescription_RequireDisabled_StillRejectedByMissionValidation", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-12", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    // The RequireContextPackWhenEnabled flag cannot relax the upstream title/description validation:
+                    // an empty-title mission is rejected before code-context staging regardless of the flag, so the
+                    // no-query warn-and-continue legacy path is never reached through DispatchAsync.
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Legacy empty-query voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "", Description = "" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "an empty-title mission must be rejected even when RequireContextPackWhenEnabled=false");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertContains("missing_mission_title", result.Value!.ToString() ?? "", "mission validation rejects the empty title regardless of the require flag");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when mission validation rejects the dispatch");
+                    AssertEqual(0, codeIndex.BuildCallCount, "no build must be attempted when the dispatch is rejected by validation");
+                }
+            });
+
+            await RunTest("RequirePackDisabled_NullCodeIndexService_AutoMode_WarnsAndContinues", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-13", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    // Construct with null code index service; legacy path must warn and continue.
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Legacy null-service voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task K", Description = "Implement feature K" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "dispatch must succeed (warn-and-continue) when RequireContextPackWhenEnabled=false and code index service is null");
+                    AssertTrue(admiral.DispatchVoyageCalled, "admiral must be called on legacy warn-and-continue path");
+                }
+            });
+
+            await RunTest("ForceMode_NullCodeIndexService_FlagDisabled_StillHardFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-16", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    // Construct with null code index service; force mode must still hard-fail regardless of the require flag.
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Force null-service voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "force",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task L", Description = "Implement feature L" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "force mode must hard-fail when the code index service is null even when RequireContextPackWhenEnabled=false");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertContains("force requested", result.Value!.ToString() ?? "", "force-mode unavailable error must surface the force-requested reason, not the require-gate message");
+                    AssertContains("unavailable", result.Value!.ToString() ?? "", "force-mode error must explain that the code index service is unavailable");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when force-mode service-unavailable staging fails");
+                }
+            });
+
+            await RunTest("OffMode_NullCodeIndexService_RequireEnabled_ShortCircuitsBeforeUnavailableCheck", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-17", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    // RequireContextPackWhenEnabled defaults to true; off mode must short-circuit before the null-service hard-fail.
+
+                    // Null code index service would hard-fail in auto/force, but off mode must never reach that branch.
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Off null-service voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task M", Description = "Implement feature M" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "off mode must dispatch without error even when the code index service is null and RequireContextPackWhenEnabled=true");
+                    AssertTrue(admiral.DispatchVoyageCalled, "admiral must be called because off mode short-circuits before the unavailable-service branch");
+                }
+            });
         }
 
         #region Private-Types
