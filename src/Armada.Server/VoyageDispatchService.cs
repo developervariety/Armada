@@ -863,6 +863,7 @@ namespace Armada.Server
                     mission.VesselId = vesselId;
                     mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
                     mission.PreferredModel = md.PreferredModel;
+                    mission.CapabilityHint = md.CapabilityHint;
                     mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     mission.DependsOnMissionId = externalDep;
 
@@ -903,6 +904,7 @@ namespace Armada.Server
                             stage.PreferredModel ?? md.PreferredModel,
                             stage.PersonaName,
                             settings?.ModelTier.SpecialistPersonas);
+                        stageMission.CapabilityHint = md.CapabilityHint;
                         stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
 
                         bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
