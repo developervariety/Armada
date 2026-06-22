@@ -986,6 +986,16 @@ namespace Armada.Core.Settings
             set => _DockBoundary = value ?? new DockBoundarySettings();
         }
 
+        /// <summary>
+        /// Definition-of-done gate settings that control in-dock build and unit-test verification
+        /// for Worker missions before they are accepted as complete.
+        /// </summary>
+        public DefinitionOfDoneSettings DefinitionOfDone
+        {
+            get => _DefinitionOfDone;
+            set => _DefinitionOfDone = value ?? new DefinitionOfDoneSettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -1062,6 +1072,7 @@ namespace Armada.Core.Settings
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
         private DockBoundarySettings _DockBoundary = new DockBoundarySettings();
+        private DefinitionOfDoneSettings _DefinitionOfDone = new DefinitionOfDoneSettings();
         private bool _DatabasePathConfigured = false;
 
         #endregion

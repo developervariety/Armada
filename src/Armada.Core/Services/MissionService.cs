@@ -34,6 +34,18 @@ namespace Armada.Core.Services
         /// </summary>
         public Action<Mission>? OnReviewRequested { get; set; }
 
+        /// <summary>
+        /// Optional definition-of-done gate that runs in-dock build and unit-test commands
+        /// before a Worker mission is accepted as complete. When set, the gate is evaluated
+        /// after diff capture and before handoff/landing. A failing gate sets the mission to
+        /// Failed and prevents landing.
+        /// </summary>
+        public DefinitionOfDoneGate? DefinitionOfDone
+        {
+            get => _DefinitionOfDoneGate;
+            set => _DefinitionOfDoneGate = value;
+        }
+
         #endregion
 
         #region Private-Members
@@ -48,6 +60,7 @@ namespace Armada.Core.Services
         private ICaptainQuarantineService _CaptainQuarantine;
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
+        private DefinitionOfDoneGate? _DefinitionOfDoneGate;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
@@ -878,8 +891,32 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
+            bool failedForDodGate = false;
+            if (!failedForScopeViolation && dock != null && _DefinitionOfDoneGate != null)
+            {
+                try
+                {
+                    DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token).ConfigureAwait(false);
+                    if (!dodResult.Passed && String.IsNullOrEmpty(dodResult.SkippedReason))
+                    {
+                        failedForDodGate = true;
+                        mission.Status = MissionStatusEnum.Failed;
+                        mission.CompletedUtc = DateTime.UtcNow;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        mission.FailureReason = BuildDodFailureReason(dodResult);
+                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate: " + mission.FailureReason);
+                    }
+                }
+                catch (Exception dodEx)
+                {
+                    _Logging.Warn(_Header + "error in DoD gate for mission " + mission.Id + ": " + dodEx.Message);
+                }
+            }
+
             bool retryingMissingVerdict = false;
-            if (!failedForScopeViolation && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+            if (!failedForScopeViolation && !failedForDodGate && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
@@ -976,7 +1013,7 @@ namespace Armada.Core.Services
 
             bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
             bool awaitingManualReview = false;
-            if (!failedForScopeViolation &&
+            if (!failedForScopeViolation && !failedForDodGate &&
                 mission.Status == MissionStatusEnum.WorkProduced &&
                 mission.RequiresReview)
             {
@@ -994,7 +1031,7 @@ namespace Armada.Core.Services
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation && !awaitingManualReview)
+            if (!failedForScopeViolation && !failedForDodGate && !awaitingManualReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }
@@ -3943,6 +3980,13 @@ namespace Armada.Core.Services
         private static string BuildReviewDeniedFailureReason(string comment)
         {
             return "Review denied: " + comment;
+        }
+
+        private static string BuildDodFailureReason(DefinitionOfDoneResult result)
+        {
+            string label = result.CommandLabel ?? "unknown";
+            string tail = String.IsNullOrWhiteSpace(result.OutputTail) ? "" : "\n" + result.OutputTail.Trim();
+            return "DoD gate failed: " + label + " command exited " + result.ExitCode + tail;
         }
 
         private static string ApplyReviewFeedback(string? description, string reviewComment)
