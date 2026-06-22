@@ -437,12 +437,16 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
 
+                    // Legacy best-effort deferral only applies when the pack is not required.
+                    ArmadaSettings legacySettings = new ArmadaSettings();
+                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
+
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        legacySettings,
                         null,
                         null,
                         codeIndex);
@@ -487,12 +491,16 @@ namespace Armada.Test.Unit.Suites.Services
                         NeverCompleteBuild = true
                     };
 
+                    // Legacy best-effort deferral only applies when the pack is not required.
+                    ArmadaSettings legacySettings = new ArmadaSettings();
+                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
+
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        legacySettings,
                         null,
                         null,
                         codeIndex);
@@ -1143,12 +1151,16 @@ namespace Armada.Test.Unit.Suites.Services
                         WarmBaselineCacheException = new InvalidOperationException("warm must not be called")
                     };
 
+                    // Legacy best-effort deferral only applies when the pack is not required.
+                    ArmadaSettings legacySettings = new ArmadaSettings();
+                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
+
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        legacySettings,
                         null,
                         null,
                         codeIndex);
@@ -1198,12 +1210,16 @@ namespace Armada.Test.Unit.Suites.Services
                         WarmBaselineCacheException = new InvalidOperationException("warm must not be called for auto")
                     };
 
+                    // Legacy best-effort deferral only applies when the pack is not required.
+                    ArmadaSettings legacySettings = new ArmadaSettings();
+                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
+
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        legacySettings,
                         null,
                         null,
                         codeIndex);

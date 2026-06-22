@@ -13,6 +13,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Server;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
@@ -585,7 +586,11 @@ namespace Armada.Test.Unit.Suites.Services
                             Missions = new List<MissionDescription> { new MissionDescription("auto worker", "fix something") }
                         };
 
-                        VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, logging, codeIndex, null, null);
+                        // Legacy best-effort warn-and-continue only applies when the pack is not required.
+                        ArmadaSettings legacySettings = new ArmadaSettings();
+                        legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                        VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, logging, codeIndex, null, legacySettings);
                         VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
 
                         AssertTrue(result.Succeeded, "auto dispatch with empty pack should still succeed");
@@ -670,7 +675,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     SlowCodeIndexService codeIndex = new SlowCodeIndexService();
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
-                    VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, codeIndex, null, null);
+
+                    // Deferred (non-blocking) pack build is the legacy path, gated off the required-pack flag.
+                    ArmadaSettings legacySettings = new ArmadaSettings();
+                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, codeIndex, null, legacySettings);
 
                     SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
                     {
