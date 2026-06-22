@@ -439,6 +439,172 @@ namespace Armada.Test.Unit.Suites.Services
                 settings.MaxReadContextFileCount = 99999;
                 AssertEqual(2000, settings.MaxReadContextFileCount, "Above max should clamp to 2000");
             });
+
+            // ---------------------------------------------------------------
+            // Argument-guard / misconfiguration branches
+            // ---------------------------------------------------------------
+
+            await RunTest("Stager_Constructor_NullLogging_Throws", () =>
+            {
+                AssertThrows<ArgumentNullException>(() => new ReadContextStager(null!), "Null logging must be rejected");
+            });
+
+            await RunTest("Stager_EmptySourceGlob_ReturnsActionableError", () =>
+            {
+                string root = NewTempDir("armada_rcs_root_");
+                try
+                {
+                    CodeIndexSettings settings = new CodeIndexSettings();
+                    ReadContextStager stager = new ReadContextStager(SilentLogging());
+
+                    StageResult result = stager.Stage(
+                        new List<ReadContextRequest> { new ReadContextRequest("") },
+                        root,
+                        settings);
+
+                    AssertNotNull(result.Error, "Empty SourceGlob must be rejected");
+                    AssertEqual(0, result.Entries.Count, "No entries on empty SourceGlob");
+                    AssertContains("SourceGlob", result.Error!);
+                }
+                finally
+                {
+                    TryDeleteDir(root);
+                }
+            });
+
+            await RunTest("Stager_WhitespaceSourceGlob_ReturnsActionableError", () =>
+            {
+                string root = NewTempDir("armada_rcs_root_");
+                try
+                {
+                    CodeIndexSettings settings = new CodeIndexSettings();
+                    ReadContextStager stager = new ReadContextStager(SilentLogging());
+
+                    StageResult result = stager.Stage(
+                        new List<ReadContextRequest> { new ReadContextRequest("   ") },
+                        root,
+                        settings);
+
+                    AssertNotNull(result.Error, "Whitespace SourceGlob must be rejected");
+                    AssertEqual(0, result.Entries.Count, "No entries on whitespace SourceGlob");
+                    AssertContains("SourceGlob", result.Error!);
+                }
+                finally
+                {
+                    TryDeleteDir(root);
+                }
+            });
+
+            await RunTest("Stager_EmptyHostRoot_ReturnsActionableError", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                ReadContextStager stager = new ReadContextStager(SilentLogging());
+
+                StageResult result = stager.Stage(
+                    new List<ReadContextRequest> { new ReadContextRequest("anything.txt") },
+                    "",
+                    settings);
+
+                AssertNotNull(result.Error, "Empty host root must be rejected");
+                AssertEqual(0, result.Entries.Count, "No entries when host root is empty");
+                AssertContains("hostRootForRelativePaths", result.Error!);
+            });
+
+            await RunTest("Stager_NullSettings_ReturnsActionableError", () =>
+            {
+                string root = NewTempDir("armada_rcs_root_");
+                try
+                {
+                    ReadContextStager stager = new ReadContextStager(SilentLogging());
+
+                    StageResult result = stager.Stage(
+                        new List<ReadContextRequest> { new ReadContextRequest("anything.txt") },
+                        root,
+                        null!);
+
+                    AssertNotNull(result.Error, "Null settings must be rejected (cannot enforce guards)");
+                    AssertEqual(0, result.Entries.Count, "No entries when settings is null");
+                    AssertContains("settings", result.Error!);
+                }
+                finally
+                {
+                    TryDeleteDir(root);
+                }
+            });
+
+            // ---------------------------------------------------------------
+            // Recursive glob preserves nested relative dest paths under _refs/
+            // ---------------------------------------------------------------
+
+            await RunTest("Stager_RecursiveGlob_PreservesNestedRelativeDestPaths", () =>
+            {
+                string root = NewTempDir("armada_rcs_root_");
+                try
+                {
+                    WriteNestedTempFile(root, "src/inner/deep.cs", "// deep");
+                    WriteNestedTempFile(root, "src/top.cs", "// top");
+                    WriteNestedTempFile(root, "src/skip.txt", "ignore me");
+
+                    CodeIndexSettings settings = new CodeIndexSettings();
+                    ReadContextStager stager = new ReadContextStager(SilentLogging());
+
+                    string glob = (root + "/**/*.cs").Replace('\\', '/');
+                    StageResult result = stager.Stage(
+                        new List<ReadContextRequest> { new ReadContextRequest(glob) },
+                        root,
+                        settings);
+
+                    AssertNull(result.Error, "Recursive glob should succeed: " + result.Error);
+                    AssertEqual(2, result.Entries.Count, "Should match exactly the two .cs files");
+
+                    bool foundDeep = false;
+                    bool foundTop = false;
+                    foreach (PrestagedFile entry in result.Entries)
+                    {
+                        AssertTrue(entry.ReadOnly, "All recursive-glob entries must be read-only");
+                        AssertTrue(entry.DestPath.StartsWith("_refs/"), "DestPath must be under _refs/");
+                        AssertFalse(entry.DestPath.Contains(".."), "DestPath must never contain '..'");
+                        AssertFalse(Path.IsPathRooted(entry.DestPath), "DestPath must be relative, never absolute");
+                        if (entry.DestPath == "_refs/src/inner/deep.cs") foundDeep = true;
+                        if (entry.DestPath == "_refs/src/top.cs") foundTop = true;
+                    }
+                    AssertTrue(foundDeep, "Nested subdirectory structure must be preserved (src/inner/deep.cs)");
+                    AssertTrue(foundTop, "Top-level relative path must be preserved (src/top.cs)");
+                }
+                finally
+                {
+                    TryDeleteDir(root);
+                }
+            });
+
+            await RunTest("Stager_MultipleExplicitRequests_AccumulateAllEntries", () =>
+            {
+                string root = NewTempDir("armada_rcs_root_");
+                try
+                {
+                    string a = WriteTempFile(root, "one.txt", "1");
+                    string b = WriteTempFile(root, "two.txt", "22");
+
+                    CodeIndexSettings settings = new CodeIndexSettings();
+                    ReadContextStager stager = new ReadContextStager(SilentLogging());
+
+                    StageResult result = stager.Stage(
+                        new List<ReadContextRequest>
+                        {
+                            new ReadContextRequest(a),
+                            new ReadContextRequest(b)
+                        },
+                        root,
+                        settings);
+
+                    AssertNull(result.Error, "Multiple explicit requests should succeed: " + result.Error);
+                    AssertEqual(2, result.Entries.Count, "Both explicit requests must accumulate as entries");
+                }
+                finally
+                {
+                    TryDeleteDir(root);
+                }
+            });
         }
 
         #region Private-Methods
@@ -461,6 +627,15 @@ namespace Armada.Test.Unit.Suites.Services
         {
             string path = Path.Combine(dir, name);
             File.WriteAllBytes(path, new byte[byteCount]);
+            return path;
+        }
+
+        private static string WriteNestedTempFile(string root, string relativePath, string content)
+        {
+            string path = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            string? dir = Path.GetDirectoryName(path);
+            if (!String.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(path, content, new System.Text.UTF8Encoding(false));
             return path;
         }
 

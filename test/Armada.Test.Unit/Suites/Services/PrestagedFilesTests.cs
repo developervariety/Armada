@@ -301,6 +301,29 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Mission round-trips PrestagedFile.ReadOnly through SQLite JSON column", async () =>
+            {
+                using (TestHelpers.TestDatabase db = await TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = new Mission("title", "desc");
+                    mission.PrestagedFiles = new List<PrestagedFile>
+                    {
+                        new PrestagedFile("/abs/readonly.txt", "_refs/ro.txt") { ReadOnly = true },
+                        new PrestagedFile("/abs/writable.txt", "rw.txt") { ReadOnly = false }
+                    };
+                    Mission created = await db.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Mission? read = await db.Driver.Missions.ReadAsync(created.Id).ConfigureAwait(false);
+                    AssertNotNull(read);
+                    AssertNotNull(read!.PrestagedFiles);
+                    AssertEqual(2, read.PrestagedFiles!.Count);
+                    // The new ReadOnly flag must survive the existing JSON column with no migration.
+                    AssertTrue(read.PrestagedFiles[0].ReadOnly, "ReadOnly=true must round-trip through the JSON column");
+                    AssertFalse(read.PrestagedFiles[1].ReadOnly, "ReadOnly=false must round-trip through the JSON column");
+                    AssertEqual("_refs/ro.txt", read.PrestagedFiles[0].DestPath);
+                }
+            });
+
             await RunTest("Mission stores null PrestagedFiles when not supplied", async () =>
             {
                 using (TestHelpers.TestDatabase db = await TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
