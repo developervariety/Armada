@@ -1133,10 +1133,11 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitInitAsync(localPath).ConfigureAwait(false);
 
                     // Hold an exclusive lock on a build-output-like path in the live working directory.
-                    // Simulates a running Admiral locking a DLL the check command would overwrite.
-                    string blockedRelPath = Path.Combine("bin", "Debug", "blocked.out");
+                    // Simulates a running Admiral locking a file the check command would overwrite.
+                    // Use a flat path: the isolated checkout clone has no subdirectory tree, so any
+                    // path requiring mkdir would fail the command inside the clone.
+                    string blockedRelPath = "blocked.out";
                     string blockedAbsPath = Path.Combine(workingDirectory, blockedRelPath);
-                    Directory.CreateDirectory(Path.GetDirectoryName(blockedAbsPath)!);
                     File.WriteAllText(blockedAbsPath, "locked");
 
                     // echo is a terminal shell builtin so readiness does not treat trailing tokens as dependencies.
@@ -1291,8 +1292,8 @@ namespace Armada.Test.Unit.Suites.Services
                 TenantId = tenantId,
                 UserId = userId,
                 Name = "Workflow Vessel",
-                RepoUrl = "file:///tmp/armada-tests.git",
-                LocalPath = workingDirectory,
+                RepoUrl = String.Empty,
+                LocalPath = String.Empty,
                 WorkingDirectory = workingDirectory,
                 DefaultBranch = "main"
             };
