@@ -316,6 +316,10 @@ namespace Armada.Server
             _Admiral.OnCaptureDiff = _MissionLanding.HandleCaptureDiffAsync;
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
+            if (_Settings.DefinitionOfDone.Enabled)
+            {
+                missionService.DefinitionOfDone = new DefinitionOfDoneGate(_Settings.DefinitionOfDone, _Database, _Logging);
+            }
             MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(_RemoteTriggerService, _Logging);
             missionService.OnMissionOutcome = async (Mission mission, bool willInvokeLanding) =>
             {
