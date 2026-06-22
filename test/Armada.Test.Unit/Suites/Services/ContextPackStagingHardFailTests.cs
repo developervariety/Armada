@@ -214,6 +214,167 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, codeIndex.BuildCallCount, "off mode must never call BuildContextPackAsync");
                 }
             });
+
+            await RunTest("ForceMode_EmptyBuild_FlagDisabled_StillHardFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-6", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    // Flag OFF must NOT relax force mode: force always hard-fails on an empty pack.
+                    settings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Force empty voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "force",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task F", Description = "Implement feature F" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "force mode must hard-fail on an empty pack even when RequireContextPackWhenEnabled=false");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertContains("Task F", result.Value.ToString() ?? "", "force-mode error must name the offending mission");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when force-mode staging fails");
+                    AssertEqual(1, codeIndex.BuildCallCount, "force mode must synchronously attempt the build (no deferral)");
+                }
+            });
+
+            await RunTest("ForceMode_ThrowingBuild_FlagDisabled_StillHardFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-7", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    ThrowingBuildCodeIndexService codeIndex = new ThrowingBuildCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Force throwing voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "force",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task G", Description = "Implement feature G" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "force mode must hard-fail when the build throws even when RequireContextPackWhenEnabled=false");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertContains("Task G", result.Value.ToString() ?? "", "force-mode error must name the offending mission");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when force-mode build throws");
+                }
+            });
+
+            await RunTest("ForceMode_SuccessfulBuild_SucceedsWithPrestagedFile", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-8", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    SuccessPackCodeIndexService codeIndex = new SuccessPackCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Force success voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "force",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task H", Description = "Implement feature H" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "force mode must succeed when the build returns prestaged files");
+                    AssertTrue(admiral.DispatchVoyageCalled, "admiral must be called on successful force-mode staging");
+                    AssertEqual(1, admiral.CreatedMissions.Count, "one mission must be created");
+                    List<PrestagedFile>? prestagedFiles = admiral.CreatedMissions[0].PrestagedFiles;
+                    AssertNotNull(prestagedFiles, "created mission must have prestaged files");
+                    bool hasContextPack = false;
+                    foreach (PrestagedFile f in prestagedFiles!)
+                    {
+                        if (String.Equals(f.DestPath, "_briefing/context-pack.md", StringComparison.Ordinal))
+                        {
+                            hasContextPack = true;
+                            break;
+                        }
+                    }
+                    AssertTrue(hasContextPack, "force-mode created mission prestaged files must contain _briefing/context-pack.md");
+                }
+            });
+
+            await RunTest("RequirePackEnabled_MultiMission_FirstFails_AbortsBeforeAnyDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-9", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    // RequireContextPackWhenEnabled defaults to true
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Multi-mission abort voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task I-1", Description = "First mission" },
+                            new MissionDescription { Title = "Task I-2", Description = "Second mission" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "dispatch must abort when the first mission's pack is empty");
+                    AssertContains("Task I-1", result.Value.ToString() ?? "", "error must name the first failing mission");
+                    AssertFalse(admiral.DispatchVoyageCalled, "no mission may dispatch when an earlier mission's staging fails");
+                    AssertEqual(1, codeIndex.BuildCallCount, "the loop must short-circuit on first failure and never build the second mission's pack");
+                }
+            });
         }
 
         #region Private-Types
