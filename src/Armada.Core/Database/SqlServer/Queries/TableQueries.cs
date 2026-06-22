@@ -639,6 +639,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     "Add captain quarantine columns",
                     @"IF COL_LENGTH('captains', 'quarantine_until_utc') IS NULL ALTER TABLE captains ADD quarantine_until_utc NVARCHAR(450);",
                     @"IF COL_LENGTH('captains', 'quarantine_reason') IS NULL ALTER TABLE captains ADD quarantine_reason NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    56,
+                    "Add capabilityhint column to missions",
+                    @"IF COL_LENGTH('missions', 'capabilityhint') IS NULL ALTER TABLE missions ADD capabilityhint NVARCHAR(MAX);"
                 )
             };
         }
