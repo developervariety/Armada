@@ -126,6 +126,7 @@ namespace Armada.Core.Services
                     }
 
                     _Logging.Info(_Header + "prestaged file written from content: -> " + destAbsolute);
+                    if (entry.ReadOnly) SetReadOnlyAttribute(destAbsolute);
                 }
                 else
                 {
@@ -141,10 +142,28 @@ namespace Armada.Core.Services
                     }
 
                     _Logging.Info(_Header + "prestaged file copied: " + source + " -> " + destAbsolute);
+                    if (entry.ReadOnly) SetReadOnlyAttribute(destAbsolute);
                 }
             }
 
             return null;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private void SetReadOnlyAttribute(string path)
+        {
+            try
+            {
+                FileAttributes attrs = File.GetAttributes(path);
+                File.SetAttributes(path, attrs | FileAttributes.ReadOnly);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to set read-only attribute on '" + path + "': " + ex.Message);
+            }
         }
 
         #endregion

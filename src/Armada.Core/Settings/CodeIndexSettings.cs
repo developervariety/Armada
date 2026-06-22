@@ -510,6 +510,51 @@ namespace Armada.Core.Settings
         /// </summary>
         public bool RequireContextPackWhenEnabled { get; set; } = true;
 
+        /// <summary>
+        /// Maximum size in bytes for a single file staged via <c>ReadContextStager</c>.
+        /// Clamped to [1 KB .. 8 MB]. Default 1 MB.
+        /// </summary>
+        public long MaxReadContextFileBytes
+        {
+            get => _MaxReadContextFileBytes;
+            set
+            {
+                if (value < 1024) value = 1024;
+                if (value > 1024 * 1024 * 8) value = 1024 * 1024 * 8;
+                _MaxReadContextFileBytes = value;
+            }
+        }
+
+        /// <summary>
+        /// Maximum combined size in bytes of all files staged by a single
+        /// <c>ReadContextStager</c> call. Clamped to [64 KB .. 64 MB]. Default 16 MB.
+        /// </summary>
+        public long MaxReadContextTotalBytes
+        {
+            get => _MaxReadContextTotalBytes;
+            set
+            {
+                if (value < 64 * 1024) value = 64 * 1024;
+                if (value > 1024 * 1024 * 64) value = 1024 * 1024 * 64;
+                _MaxReadContextTotalBytes = value;
+            }
+        }
+
+        /// <summary>
+        /// Maximum number of files staged by a single <c>ReadContextStager</c> call.
+        /// Clamped to [1 .. 2000]. Default 200.
+        /// </summary>
+        public int MaxReadContextFileCount
+        {
+            get => _MaxReadContextFileCount;
+            set
+            {
+                if (value < 1) value = 1;
+                if (value > 2000) value = 2000;
+                _MaxReadContextFileCount = value;
+            }
+        }
+
         #endregion
 
         #region Private-Members
@@ -543,6 +588,9 @@ namespace Armada.Core.Settings
         private double _GraphEndpointBoost = 12.0;
         private double _GraphFrameworkBoost = 10.0;
         private double _GraphTagBoost = 6.0;
+        private long _MaxReadContextFileBytes = 1024 * 1024;
+        private long _MaxReadContextTotalBytes = 16 * 1024 * 1024;
+        private int _MaxReadContextFileCount = 200;
 
         #endregion
     }

@@ -38,6 +38,13 @@ namespace Armada.Core.Models
         /// </summary>
         public string? Content { get; set; }
 
+        /// <summary>
+        /// When true, the Admiral sets the read-only file attribute on the staged file
+        /// after the copy or content-write succeeds. Defaults to false (writable).
+        /// Attribute-set failures are logged as warnings but do not abort staging.
+        /// </summary>
+        public bool ReadOnly { get; set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories
