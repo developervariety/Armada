@@ -139,6 +139,82 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(read!.ProtectedPaths, "ProtectedPaths should round-trip as null when not set");
                 }
             });
+
+            await RunTest("Built-in protected paths block root CODEX.md", () =>
+            {
+                string diff = MakeDiff("CODEX.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in paths must block CODEX.md");
+                AssertEqual("CODEX.md", offending);
+            });
+
+            await RunTest("Built-in protected paths block root CURSOR.md", () =>
+            {
+                string diff = MakeDiff("CURSOR.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in paths must block CURSOR.md");
+                AssertEqual("CURSOR.md", offending);
+            });
+
+            await RunTest("Built-in protected paths block root AGENTS.md", () =>
+            {
+                string diff = MakeDiff("AGENTS.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in paths must block AGENTS.md");
+                AssertEqual("AGENTS.md", offending);
+            });
+
+            await RunTest("Built-in protected paths block root GEMINI.md", () =>
+            {
+                string diff = MakeDiff("GEMINI.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in paths must block GEMINI.md");
+                AssertEqual("GEMINI.md", offending);
+            });
+
+            await RunTest("Built-in protected paths block root MUX.md", () =>
+            {
+                string diff = MakeDiff("MUX.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in paths must block MUX.md");
+                AssertEqual("MUX.md", offending);
+            });
+
+            await RunTest("Built-in protected paths block subdirectory runtime instruction files", () =>
+            {
+                string diff = MakeDiff("some/nested/dir/CODEX.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in paths must block nested CODEX.md via **/CODEX.md");
+            });
+
+            await RunTest("BuiltInProtectedPaths includes all five runtime instruction file patterns", () =>
+            {
+                IReadOnlyList<string> builtIn = ProtectedPathsValidator.BuiltInProtectedPaths;
+                bool hasCodex = false;
+                bool hasCursor = false;
+                bool hasAgents = false;
+                bool hasGemini = false;
+                bool hasMux = false;
+                foreach (string pattern in builtIn)
+                {
+                    if (pattern == "**/CODEX.md") hasCodex = true;
+                    if (pattern == "**/CURSOR.md") hasCursor = true;
+                    if (pattern == "**/AGENTS.md") hasAgents = true;
+                    if (pattern == "**/GEMINI.md") hasGemini = true;
+                    if (pattern == "**/MUX.md") hasMux = true;
+                }
+                AssertTrue(hasCodex, "CODEX.md must be in built-in list");
+                AssertTrue(hasCursor, "CURSOR.md must be in built-in list");
+                AssertTrue(hasAgents, "AGENTS.md must be in built-in list");
+                AssertTrue(hasGemini, "GEMINI.md must be in built-in list");
+                AssertTrue(hasMux, "MUX.md must be in built-in list");
+            });
         }
 
         /// <summary>

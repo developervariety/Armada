@@ -23,8 +23,32 @@ namespace Armada.Core.Services
             ("CORE_RULE_5_password_literal", new Regex(@"password\s*[:=]\s*""\w{8,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_5_apikey_literal", new Regex(@"api_?key\s*[:=]\s*""\w{16,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_5_bearer_literal", new Regex(@"bearer\s+[A-Za-z0-9._~-]{20,}", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
+            ("CORE_RULE_5_seed_literal", new Regex(@"\bseed\s*[:=]\s*""[A-Za-z0-9+/\s]{8,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_12_spec_plan_ref", new Regex(@"(see plan|per the.*(spec|plan)|tracked in TODO|superpowers/(plans|specs)|TODO\.md)", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
         };
+
+        /// <summary>
+        /// Check a single addition line against CORE_RULE_5 secret patterns only.
+        /// Used by DockBoundaryScanner to run file-scoped secret detection without
+        /// re-scanning the full diff through all convention rules.
+        /// Returns matched rule names; empty list when no secret pattern fires.
+        /// Secret bytes are never echoed -- only the rule name is returned.
+        /// </summary>
+        /// <param name="addedLine">
+        /// Content of a '+' addition line from a unified diff, with the leading '+' stripped.
+        /// </param>
+        /// <returns>Read-only list of CORE_RULE_5 rule names that matched.</returns>
+        public static IReadOnlyList<string> CheckSecretLine(string addedLine)
+        {
+            List<string> matched = new List<string>();
+            if (String.IsNullOrEmpty(addedLine)) return matched;
+            foreach ((string rule, System.Text.RegularExpressions.Regex pattern) in _Rules)
+            {
+                if (!rule.StartsWith("CORE_RULE_5", StringComparison.Ordinal)) continue;
+                if (pattern.IsMatch(addedLine)) matched.Add(rule);
+            }
+            return matched;
+        }
 
         /// <summary>Checks the unified diff and returns the result of all rule evaluations.</summary>
         public ConventionCheckResult Check(string unifiedDiff)

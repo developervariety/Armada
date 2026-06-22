@@ -22,6 +22,13 @@ namespace Armada.Core.Services
         public static readonly IReadOnlyList<string> BuiltInProtectedPaths = new List<string>
         {
             "**/CLAUDE.md",
+            "**/CODEX.md",
+            "**/CURSOR.md",
+            "**/AGENTS.md",
+            "**/GEMINI.md",
+            "**/MUX.md",
+            "**/ModelContext",
+            "**/ModelContext/**",
             LearnedFactsFile.RelativePath,
             "**/" + LearnedFactsFile.RelativePath,
             ".armada/instructions/**",

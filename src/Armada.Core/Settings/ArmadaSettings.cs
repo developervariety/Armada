@@ -976,6 +976,16 @@ namespace Armada.Core.Settings
             set => _AutonomousObjectiveScheduler = value ?? new AutonomousObjectiveSchedulerSettings();
         }
 
+        /// <summary>
+        /// Dock-boundary diff scanning settings. Controls secret scanning, private-identifier
+        /// denylist evaluation, and public-repo classification for pre-commit and landing gates.
+        /// </summary>
+        public DockBoundarySettings DockBoundary
+        {
+            get => _DockBoundary;
+            set => _DockBoundary = value ?? new DockBoundarySettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -1051,6 +1061,7 @@ namespace Armada.Core.Settings
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
+        private DockBoundarySettings _DockBoundary = new DockBoundarySettings();
         private bool _DatabasePathConfigured = false;
 
         #endregion
