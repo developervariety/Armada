@@ -138,6 +138,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AutonomousObjectiveSelectorTests());
             runner.AddSuite(new ConventionCheckTests());
             runner.AddSuite(new DockBoundaryScannerTests());
+            runner.AddSuite(new DockBoundaryConfigTests());
+            runner.AddSuite(new ConventionCheckerSecretPatternsTests());
             runner.AddSuite(new CriticalTriggerEvaluatorTests());
             runner.AddSuite(new AutoLandLandingHandlerTests());
             runner.AddSuite(new AutoLandSafetyNetIntegrationTests());
@@ -148,6 +150,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VesselAutoLandPredicateRoutesTests());
             runner.AddSuite(new CaptainUpdateValidationTests());
             runner.AddSuite(new VesselDefaultPlaybooksTests());
+            runner.AddSuite(new VesselModelContextBoundaryTests());
             runner.AddSuite(new VesselSiblingReposRoutesTests());
             runner.AddSuite(new CodeIndexRoutesTests());
             runner.AddSuite(new AuditDrainerTests());

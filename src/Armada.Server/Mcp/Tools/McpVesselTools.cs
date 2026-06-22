@@ -300,6 +300,8 @@ namespace Armada.Server.Mcp.Tools
                 {
                     VesselUpdateArgs request = JsonSerializer.Deserialize<VesselUpdateArgs>(args!.Value, _JsonOptions)!;
                     string vesselId = request.VesselId;
+                    if (!String.IsNullOrEmpty(request.ModelContext))
+                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals." };
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     if (request.Name != null)
@@ -318,8 +320,6 @@ namespace Armada.Server.Mcp.Tools
                         vessel.AllowConcurrentMissions = request.AllowConcurrentMissions.Value;
                     if (request.EnableModelContext.HasValue)
                         vessel.EnableModelContext = request.EnableModelContext.Value;
-                    if (request.ModelContext != null)
-                        vessel.ModelContext = request.ModelContext;
                     if (request.DefaultPipelineId != null)
                         vessel.DefaultPipelineId = request.DefaultPipelineId;
                     if (request.ProtectedPaths != null)
@@ -511,14 +511,14 @@ namespace Armada.Server.Mcp.Tools
                 {
                     VesselContextArgs request = JsonSerializer.Deserialize<VesselContextArgs>(args!.Value, _JsonOptions)!;
                     string vesselId = request.VesselId;
+                    if (!String.IsNullOrEmpty(request.ModelContext))
+                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals." };
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     if (request.ProjectContext != null)
                         vessel.ProjectContext = request.ProjectContext;
                     if (request.StyleGuide != null)
                         vessel.StyleGuide = request.StyleGuide;
-                    if (request.ModelContext != null)
-                        vessel.ModelContext = request.ModelContext;
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });

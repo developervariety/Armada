@@ -410,6 +410,64 @@ namespace Armada.Test.Unit
                 AssertEqual(1, recordingIndex.UpdateAsyncVesselIds.Count(id => id == vesselId),
                     "rapid refresh requests for one vessel should be coalesced into one update");
             });
+
+            await RunTest("ProcessSingle_BoundaryViolation_FailsBeforeTestsRun", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_boundary_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    // Captain branch modifies a built-in protected path (_briefing/spec.md)
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "_briefing/spec.md").ConfigureAwait(false);
+                    string markerPath = Path.Combine(rootDir, "tests-ran.txt");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mq-boundary-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = BuildMarkerCommand(markerPath);
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "Boundary violation must fail the entry");
+                        AssertFalse(File.Exists(markerPath), "Boundary validation must block before merge-queue tests run");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+        }
+
+        private static string BuildMarkerCommand(string markerPath)
+        {
+            string escaped = markerPath.Replace("'", "''", StringComparison.Ordinal);
+            return "pwsh -NoProfile -Command \"Set-Content -LiteralPath '" + escaped + "' -Value ran\"";
         }
 
         /// <summary>
