@@ -27,6 +27,8 @@ namespace Armada.Core.Services
             "**/AGENTS.md",
             "**/GEMINI.md",
             "**/MUX.md",
+            "**/ModelContext",
+            "**/ModelContext/**",
             LearnedFactsFile.RelativePath,
             "**/" + LearnedFactsFile.RelativePath,
             ".armada/instructions/**",

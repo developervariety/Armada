@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
+    using System.IO;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -158,6 +159,27 @@ namespace Armada.Test.Unit.Suites.Services
                 DockBoundaryScanResult result = scanner.Scan(
                     diff, null, null, null, null, null, DefaultSettings());
                 AssertFalse(result.Passed, "_briefing/** must be blocked");
+                AssertEqual(DockBoundaryFindingKindEnum.ProtectedPath, result.Findings[0].Kind);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelContext path is blocked by built-in protected paths", () =>
+            {
+                string diff = MakeDiff("ModelContext", "captain-discovered context");
+                DockBoundaryScanResult result = scanner.Scan(
+                    diff, null, null, null, null, null, DefaultSettings());
+                AssertFalse(result.Passed, "ModelContext must be blocked by built-in paths");
+                AssertEqual(DockBoundaryFindingKindEnum.ProtectedPath, result.Findings[0].Kind);
+                AssertEqual("ModelContext", result.Findings[0].Path);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Nested ModelContext path is blocked by built-in protected paths", () =>
+            {
+                string diff = MakeDiff("metadata/ModelContext/context.md", "captain-discovered context");
+                DockBoundaryScanResult result = scanner.Scan(
+                    diff, null, null, null, null, null, DefaultSettings());
+                AssertFalse(result.Passed, "Nested ModelContext paths must be blocked by built-in paths");
                 AssertEqual(DockBoundaryFindingKindEnum.ProtectedPath, result.Findings[0].Kind);
                 return Task.CompletedTask;
             });
@@ -408,6 +430,36 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Malformed private identifier pattern does not suppress later valid entries", () =>
+            {
+                DockBoundarySettings settings = new DockBoundarySettings
+                {
+                    SecretScanEnabled = false,
+                    PrivateIdentifierScanEnabled = true,
+                    PublicRepoPatterns = new List<string> { "github.com/acme" },
+                    PrivateIdentifiers = new List<DockBoundaryPrivateIdentifierEntry>
+                    {
+                        new DockBoundaryPrivateIdentifierEntry { Label = "bad-entry", Pattern = "[" },
+                        new DockBoundaryPrivateIdentifierEntry { Label = "internal-ticket", Pattern = @"ACME-INTERNAL-[0-9]+" }
+                    }
+                };
+
+                string diff = MakeDiff("src/File.cs", "// ACME-INTERNAL-9999");
+                DockBoundaryScanResult result = scanner.Scan(
+                    diff,
+                    null,
+                    "vsl_test",
+                    "my-vessel",
+                    "https://github.com/acme/repo.git",
+                    null,
+                    settings);
+
+                AssertFalse(result.Passed, "Malformed denylist entries must not disable valid entries");
+                AssertEqual(DockBoundaryFindingKindEnum.PrivateIdentifier, result.Findings[0].Kind);
+                AssertEqual("internal-ticket", result.Findings[0].FindingLabel);
+                return Task.CompletedTask;
+            });
+
             // -----------------------------------------------------------------------
             // Every finding has non-empty message and label
             // -----------------------------------------------------------------------
@@ -469,6 +521,47 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(DockBoundaryFindingKindEnum.ProtectedPath, result.Findings[0].Kind);
                 return Task.CompletedTask;
             });
+
+            await RunTest("Production landing and merge queue use DockBoundaryScanner", () =>
+            {
+                string root = FindRepositoryRoot();
+                string landing = File.ReadAllText(Path.Combine(root, "src", "Armada.Server", "MissionLandingHandler.cs"));
+                string mergeQueue = File.ReadAllText(Path.Combine(root, "src", "Armada.Core", "Services", "MergeQueueService.cs"));
+
+                AssertContains(
+                    "new DockBoundaryScanner().Scan(",
+                    landing,
+                    "MissionLandingHandler must use DockBoundaryScanner before landing work");
+                AssertContains(
+                    "_Settings.DockBoundary",
+                    landing,
+                    "MissionLandingHandler must use configured dock-boundary settings");
+                AssertContains(
+                    "ScanDockBoundaryAsync",
+                    mergeQueue,
+                    "MergeQueueService must scan dock boundaries before queued push/test paths");
+                AssertContains(
+                    "new DockBoundaryScanner().Scan(",
+                    mergeQueue,
+                    "MergeQueueService must use DockBoundaryScanner before queued work lands");
+                AssertContains(
+                    "_Settings.DockBoundary",
+                    mergeQueue,
+                    "MergeQueueService must use configured dock-boundary settings");
+                return Task.CompletedTask;
+            });
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            string? dir = Directory.GetCurrentDirectory();
+            while (!String.IsNullOrEmpty(dir))
+            {
+                if (File.Exists(Path.Combine(dir, "src", "Armada.sln"))) return dir;
+                dir = Directory.GetParent(dir)?.FullName;
+            }
+
+            return Directory.GetCurrentDirectory();
         }
     }
 }

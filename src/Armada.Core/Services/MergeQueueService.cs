@@ -956,14 +956,14 @@ namespace Armada.Core.Services
         {
             string integrationPath = GetIntegrationPath(entry);
             string entryTag = entry.Id + " branch " + entry.BranchName;
-            string? protectedPathViolation = await FindProtectedPathViolationAsync(entry, integrationPath, token).ConfigureAwait(false);
-            if (!String.IsNullOrEmpty(protectedPathViolation))
+            DockBoundaryScanResult boundaryResult = await ScanDockBoundaryAsync(entry, integrationPath, token).ConfigureAwait(false);
+            if (!boundaryResult.Passed)
             {
                 Vessel? violationVessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
-                string failureReason = ProtectedPathsValidator.FormatFailureReason(
-                    protectedPathViolation,
+                string failureReason = FormatDockBoundaryFailureReason(
+                    boundaryResult,
                     violationVessel?.Name ?? entry.VesselId ?? "unknown");
-                _Logging.Warn(_Header + "protected path violation for " + entryTag + ": " + failureReason);
+                _Logging.Warn(_Header + "dock-boundary violation for " + entryTag + ": " + failureReason);
                 await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
                 return;
@@ -1466,10 +1466,10 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<string?> FindProtectedPathViolationAsync(MergeEntry entry, string worktreePath, CancellationToken token)
+        private async Task<DockBoundaryScanResult> ScanDockBoundaryAsync(MergeEntry entry, string worktreePath, CancellationToken token)
         {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
-            if (String.IsNullOrEmpty(worktreePath)) return null;
+            if (String.IsNullOrEmpty(worktreePath)) return new DockBoundaryScanResult();
 
             List<string> changedFiles = await CollectChangedFilesAgainstTargetAsync(
                 worktreePath,
@@ -1477,7 +1477,24 @@ namespace Armada.Core.Services
                 token).ConfigureAwait(false);
 
             Vessel? vessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
-            return ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changedFiles, vessel?.ProtectedPaths);
+            string unifiedDiff = "";
+            try
+            {
+                unifiedDiff = await _Git.DiffAsync(worktreePath, entry.TargetBranch, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "dock-boundary validation could not collect unified diff in " + worktreePath + ": " + ex.Message);
+            }
+
+            return new DockBoundaryScanner().Scan(
+                unifiedDiff,
+                changedFiles,
+                vessel?.Id ?? entry.VesselId,
+                vessel?.Name,
+                vessel?.RepoUrl,
+                vessel?.ProtectedPaths,
+                _Settings.DockBoundary);
         }
 
         private async Task<Vessel?> ReadEntryVesselAsync(MergeEntry entry, CancellationToken token)
@@ -1541,6 +1558,22 @@ namespace Armada.Core.Services
             {
                 FireRecoveryHandlerForEntry(entry.Id);
             }
+        }
+
+        private static string FormatDockBoundaryFailureReason(DockBoundaryScanResult result, string vesselName)
+        {
+            if (result == null || result.Findings.Count == 0)
+            {
+                return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "'.";
+            }
+
+            DockBoundaryFinding first = result.Findings[0];
+            if (first.Kind == DockBoundaryFindingKindEnum.ProtectedPath)
+            {
+                return ProtectedPathsValidator.FormatFailureReason(first.Path ?? first.FindingLabel, vesselName);
+            }
+
+            return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "': " + first.Message;
         }
 
         /// <summary>

@@ -87,7 +87,7 @@ namespace Armada.Core.Services
             }
 
             Dictionary<string, List<string>> fileAddedLines = ParseAddedLinesByFile(unifiedDiff);
-            List<Regex> compiledPrivateIdPatterns = BuildPrivateIdPatterns(settings, runPrivateIds);
+            List<PrivateIdentifierRule> compiledPrivateIdPatterns = BuildPrivateIdPatterns(settings, runPrivateIds);
 
             foreach (KeyValuePair<string, List<string>> fileEntry in fileAddedLines)
             {
@@ -227,9 +227,9 @@ namespace Armada.Core.Services
             }
         }
 
-        private static List<Regex> BuildPrivateIdPatterns(DockBoundarySettings settings, bool runPrivateIds)
+        private static List<PrivateIdentifierRule> BuildPrivateIdPatterns(DockBoundarySettings settings, bool runPrivateIds)
         {
-            List<Regex> compiled = new List<Regex>();
+            List<PrivateIdentifierRule> compiled = new List<PrivateIdentifierRule>();
             if (!runPrivateIds || settings.PrivateIdentifiers == null) return compiled;
 
             foreach (DockBoundaryPrivateIdentifierEntry entry in settings.PrivateIdentifiers)
@@ -237,7 +237,11 @@ namespace Armada.Core.Services
                 if (String.IsNullOrWhiteSpace(entry.Pattern)) continue;
                 try
                 {
-                    compiled.Add(new Regex(entry.Pattern.Trim(), RegexOptions.Compiled | RegexOptions.IgnoreCase));
+                    compiled.Add(new PrivateIdentifierRule
+                    {
+                        Label = entry.Label,
+                        Pattern = new Regex(entry.Pattern.Trim(), RegexOptions.Compiled | RegexOptions.IgnoreCase)
+                    });
                 }
                 catch (ArgumentException)
                 {
@@ -252,33 +256,20 @@ namespace Armada.Core.Services
             string filePath,
             List<string> addedLines,
             DockBoundarySettings settings,
-            List<Regex> compiledPatterns,
+            List<PrivateIdentifierRule> compiledPatterns,
             DockBoundaryScanResult result)
         {
             if (compiledPatterns.Count == 0) return;
             if (settings.PrivateIdentifiers == null) return;
 
-            // Pair each compiled regex with its label for reporting. The label is all that
-            // is surfaced in the finding; the actual matched text is never included.
-            int idx = 0;
-            List<string> activeLabels = new List<string>();
-            foreach (DockBoundaryPrivateIdentifierEntry entry in settings.PrivateIdentifiers)
+            foreach (PrivateIdentifierRule rule in compiledPatterns)
             {
-                if (!String.IsNullOrWhiteSpace(entry.Pattern)) activeLabels.Add(entry.Label);
-            }
-
-            if (activeLabels.Count != compiledPatterns.Count) return;
-
-            for (int i = 0; i < compiledPatterns.Count; i++)
-            {
-                Regex pattern = compiledPatterns[i];
-                string label = activeLabels[i];
                 bool alreadyReported = false;
 
                 foreach (string addedLine in addedLines)
                 {
                     if (alreadyReported) break;
-                    if (pattern.IsMatch(addedLine))
+                    if (rule.Pattern.IsMatch(addedLine))
                     {
                         alreadyReported = true;
                         result.Passed = false;
@@ -286,15 +277,20 @@ namespace Armada.Core.Services
                         {
                             Kind = DockBoundaryFindingKindEnum.PrivateIdentifier,
                             Path = filePath,
-                            FindingLabel = label,
-                            Message = "Private identifier '" + label + "' matched an added line in '" +
+                            FindingLabel = rule.Label,
+                            Message = "Private identifier '" + rule.Label + "' matched an added line in '" +
                                       filePath + "'. This identifier must not appear in public repositories."
                         });
                     }
                 }
-
-                idx++;
             }
+        }
+
+        private sealed class PrivateIdentifierRule
+        {
+            public string Label { get; set; } = "";
+
+            public Regex Pattern { get; set; } = null!;
         }
 
         #endregion

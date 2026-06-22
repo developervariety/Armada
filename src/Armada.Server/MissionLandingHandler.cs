@@ -257,16 +257,21 @@ namespace Armada.Server
                 return;
             }
 
-            // Protected-paths gate: runs before any merge / push / merge-queue enqueue
+            // Dock-boundary gate: runs before any merge / push / merge-queue enqueue
             // so a violation never produces a merge entry, never opens a PR, and never
-            // pushes the captain's branch. Built-in Armada artifacts such as CLAUDE.md
-            // and _briefing are always protected; vessel-specific paths add to that list.
-            IReadOnlyList<string> changedFiles = ProtectedPathsValidator.ExtractChangedFilesFromDiff(mission.DiffSnapshot);
-            string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changedFiles, vessel?.ProtectedPaths);
-            if (!String.IsNullOrEmpty(offending))
+            // pushes the captain's branch.
+            DockBoundaryScanResult boundaryResult = new DockBoundaryScanner().Scan(
+                mission.DiffSnapshot,
+                null,
+                vessel?.Id ?? mission.VesselId,
+                vessel?.Name,
+                vessel?.RepoUrl,
+                vessel?.ProtectedPaths,
+                _Settings.DockBoundary);
+            if (!boundaryResult.Passed)
             {
-                string failureReason = ProtectedPathsValidator.FormatFailureReason(offending, vessel?.Name ?? "unknown");
-                _Logging.Warn(_Header + "mission " + mission.Id + " blocked by protected paths gate: " + failureReason);
+                string failureReason = FormatDockBoundaryFailureReason(boundaryResult, vessel?.Name ?? "unknown");
+                _Logging.Warn(_Header + "mission " + mission.Id + " blocked by dock-boundary gate: " + failureReason);
 
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
@@ -895,6 +900,22 @@ namespace Armada.Server
             // NOTE: Dock reclaim is NOT done here. MissionService.HandleCompletionAsync
             // owns the full finalization sequence (reclaim dock, release captain, dispatch next)
             // to prevent duplicate reclaim calls from racing.
+        }
+
+        private static string FormatDockBoundaryFailureReason(DockBoundaryScanResult result, string vesselName)
+        {
+            if (result == null || result.Findings.Count == 0)
+            {
+                return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "'.";
+            }
+
+            DockBoundaryFinding first = result.Findings[0];
+            if (first.Kind == DockBoundaryFindingKindEnum.ProtectedPath)
+            {
+                return ProtectedPathsValidator.FormatFailureReason(first.Path ?? first.FindingLabel, vesselName);
+            }
+
+            return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "': " + first.Message;
         }
 
         /// <summary>
