@@ -315,6 +315,150 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(worktreePath);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Gate fails with timeout result when a command hangs (rescue: timeout actually fires)", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_timeout", "vsl_timeout",
+                        worktreePath, HangCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    // 30 is the floor of CommandTimeoutSeconds (clamped), so this test waits ~30s
+                    // by design to prove the timeout path interrupts a hanging read instead of deadlocking.
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, CommandTimeoutSeconds = 30 },
+                        testDb.Driver,
+                        logging);
+
+                    Mission mission = CreateWorkerMission("ten_timeout", "vsl_timeout");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "Gate should fail when a command exceeds the timeout");
+                    AssertEqual("build", result.CommandLabel, "Timed-out command should keep its label");
+                    AssertEqual(-1, result.ExitCode, "Timeout failure should report exit code -1");
+                    AssertNotNull(result.OutputTail, "Timeout failure should carry a message");
+                    AssertContains("timed out", result.OutputTail!, "Message should explain the timeout");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate redacts secret-like lines in the failing-command output tail", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_redact", "vsl_redact",
+                        worktreePath, FailWithSecretCommand("hunter2"), null).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true },
+                        testDb.Driver,
+                        logging);
+
+                    Mission mission = CreateWorkerMission("ten_redact", "vsl_redact");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "Gate should fail on the failing command");
+                    AssertNotNull(result.OutputTail, "Failing command should carry an output tail");
+                    AssertContains("[REDACTED]", result.OutputTail!, "Secret-like value should be redacted");
+                    AssertFalse(result.OutputTail!.Contains("hunter2"), "Raw secret must not leak into the output tail");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate fails with dock-setup when the dock has no worktree path", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_nodock", "vsl_nodock",
+                        worktreePath, SuccessCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true },
+                        testDb.Driver,
+                        logging);
+
+                    Mission mission = CreateWorkerMission("ten_nodock", "vsl_nodock");
+                    Dock dock = new Dock { WorktreePath = null };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "Gate should fail when the dock lacks a worktree path");
+                    AssertEqual("dock-setup", result.CommandLabel, "CommandLabel should identify the dock-setup failure");
+                    AssertEqual(-1, result.ExitCode, "Dock-setup failure should report exit code -1");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate runs (does not skip) for a persona explicitly listed in AppliedPersonas", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_applied", "vsl_applied",
+                        worktreePath, SuccessCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, AppliedPersonas = new List<string> { "Worker", "Judge" } },
+                        testDb.Driver,
+                        logging);
+
+                    Mission mission = CreateMissionWithPersona("ten_applied", "vsl_applied", "Judge");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "Gate should pass when commands succeed for an applied persona");
+                    AssertNull(result.SkippedReason, "Gate should actually run (not skip) for an applied persona");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Settings clamp CommandTimeoutSeconds, OutputTailLines, and normalize DocOnlyMarker", async () =>
+            {
+                AssertEqual(30, new DefinitionOfDoneSettings { CommandTimeoutSeconds = 5 }.CommandTimeoutSeconds,
+                    "CommandTimeoutSeconds below floor should clamp to 30");
+                AssertEqual(3600, new DefinitionOfDoneSettings { CommandTimeoutSeconds = 99999 }.CommandTimeoutSeconds,
+                    "CommandTimeoutSeconds above ceiling should clamp to 3600");
+
+                AssertEqual(10, new DefinitionOfDoneSettings { OutputTailLines = 1 }.OutputTailLines,
+                    "OutputTailLines below floor should clamp to 10");
+                AssertEqual(500, new DefinitionOfDoneSettings { OutputTailLines = 99999 }.OutputTailLines,
+                    "OutputTailLines above ceiling should clamp to 500");
+
+                AssertEqual("[DOD:DOC-ONLY]", new DefinitionOfDoneSettings { DocOnlyMarker = "   " }.DocOnlyMarker,
+                    "Whitespace DocOnlyMarker should fall back to the default");
+                AssertEqual("[CUSTOM]", new DefinitionOfDoneSettings { DocOnlyMarker = "  [CUSTOM]  " }.DocOnlyMarker,
+                    "DocOnlyMarker should be trimmed");
+
+                await Task.CompletedTask.ConfigureAwait(false);
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
@@ -353,6 +497,26 @@ namespace Armada.Test.Unit.Suites.Services
         private static string FailCommand()
         {
             return OperatingSystem.IsWindows() ? "exit 1" : "exit 1";
+        }
+
+        /// <summary>
+        /// A command that blocks far longer than any test timeout, used to exercise the timeout path
+        /// without relying on interactive sleep helpers.
+        /// </summary>
+        private static string HangCommand()
+        {
+            return OperatingSystem.IsWindows() ? "ping -n 999 127.0.0.1 >nul" : "sleep 999";
+        }
+
+        /// <summary>
+        /// A command that emits a single secret-like line and then exits non-zero, used to verify
+        /// that the failing-command output tail is redacted.
+        /// </summary>
+        private static string FailWithSecretCommand(string secret)
+        {
+            return OperatingSystem.IsWindows()
+                ? "echo password=" + secret + "& exit 1"
+                : "echo password=" + secret + "; exit 1";
         }
 
         private static Mission CreateWorkerMission(string tenantId, string vesselId)
