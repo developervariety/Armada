@@ -28,6 +28,25 @@ namespace Armada.Core.Services
         };
 
         /// <summary>
+        /// CORE_RULE_5 regex pattern strings for inclusion in the dock boundary hook
+        /// configuration file. These are the same patterns used by
+        /// <see cref="CheckSecretLine"/> so the hook and the server-side gate are consistent.
+        /// </summary>
+        public static IReadOnlyList<string> BuiltInSecretPatternStrings
+        {
+            get
+            {
+                List<string> patterns = new List<string>();
+                foreach ((string rule, Regex pattern) in _Rules)
+                {
+                    if (rule.StartsWith("CORE_RULE_5", StringComparison.Ordinal))
+                        patterns.Add(pattern.ToString());
+                }
+                return patterns.AsReadOnly();
+            }
+        }
+
+        /// <summary>
         /// Check a single addition line against CORE_RULE_5 secret patterns only.
         /// Used by DockBoundaryScanner to run file-scoped secret detection without
         /// re-scanning the full diff through all convention rules.

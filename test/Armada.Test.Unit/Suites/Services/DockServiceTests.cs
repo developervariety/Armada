@@ -1029,6 +1029,191 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(dockBranch, presentCreation!.BranchName, "Present matching branch should be tracked by the sibling");
                 }
             });
+
+            await RunTest("ProvisionAsync installs pre-commit and pre-push hooks in the bare repo hooks directory", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "hook-vessel.git");
+                    // Create hooks directory so the fallback path is usable without a real git repo
+                    Directory.CreateDirectory(Path.Combine(repoPath, "hooks"));
+
+                    Vessel vessel = new Vessel("hook-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = repoPath;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("hook-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain/msn_hooks", "msn_hooks").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock must be provisioned");
+
+                    string preCommitPath = Path.Combine(repoPath, "hooks", "pre-commit");
+                    string prePushPath = Path.Combine(repoPath, "hooks", "pre-push");
+
+                    Assert(File.Exists(preCommitPath), "pre-commit hook must exist in the bare repo hooks directory");
+                    Assert(File.Exists(prePushPath), "pre-push hook must exist in the bare repo hooks directory");
+
+                    string preCommitContent = await File.ReadAllTextAsync(preCommitPath).ConfigureAwait(false);
+                    string prePushContent = await File.ReadAllTextAsync(prePushPath).ConfigureAwait(false);
+
+                    Assert(!preCommitContent.Contains("\r\n", StringComparison.Ordinal), "pre-commit hook must use LF-only line endings");
+                    Assert(!prePushContent.Contains("\r\n", StringComparison.Ordinal), "pre-push hook must use LF-only line endings");
+                    AssertContains("#!/bin/sh", preCommitContent, "pre-commit hook must be a sh script");
+                    AssertContains("#!/bin/sh", prePushContent, "pre-push hook must be a sh script");
+                    AssertContains("CLAUDE.md", preCommitContent, "pre-commit hook must reference CLAUDE.md protection");
+                    AssertContains("CLAUDE.md", prePushContent, "pre-push hook must reference CLAUDE.md protection");
+                    AssertContains("secret", preCommitContent, "pre-commit hook must include secret pattern scanning");
+                    AssertContains("secret", prePushContent, "pre-push hook must include secret pattern scanning");
+                    AssertContains("privateIdentifiers", preCommitContent, "pre-commit hook must handle private identifier section");
+                    AssertContains("privateIdentifiers", prePushContent, "pre-push hook must handle private identifier section");
+                }
+            });
+
+            await RunTest("ProvisionAsync writes non-tracked boundary config into dock .armada directory", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "boundary-vessel.git");
+                    Directory.CreateDirectory(repoPath);
+
+                    List<string> customPaths = new List<string> { "**/secrets.json" };
+                    Vessel vessel = new Vessel("boundary-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = repoPath;
+                    vessel.ProtectedPaths = customPaths;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("boundary-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain/msn_boundary", "msn_boundary").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock must be provisioned");
+
+                    string configPath = Path.Combine(dock!.WorktreePath!, ".armada", "boundary.json");
+                    Assert(File.Exists(configPath), "boundary.json must exist in the dock .armada directory");
+
+                    string configJson = await File.ReadAllTextAsync(configPath).ConfigureAwait(false);
+                    AssertContains("protectedPaths", configJson, "boundary.json must contain protectedPaths");
+                    AssertContains("CLAUDE.md", configJson, "boundary.json must include built-in CLAUDE.md protection");
+                    AssertContains("secrets.json", configJson, "boundary.json must include vessel-configured protected path");
+                    AssertContains("secretPatterns", configJson, "boundary.json must contain secretPatterns");
+                    AssertContains("privateIdentifiers", configJson, "boundary.json must contain privateIdentifiers section");
+
+                    // Verify excluded from git tracking via info/exclude
+                    string excludePath = Path.Combine(dock.WorktreePath!, ".git", "info", "exclude");
+                    if (File.Exists(excludePath))
+                    {
+                        string excludeContent = await File.ReadAllTextAsync(excludePath).ConfigureAwait(false);
+                        AssertContains("boundary.json", excludeContent, "boundary.json must be listed in git info/exclude");
+                    }
+                }
+            });
+
+            await RunTest("ProvisionAsync populates private identifiers in boundary config for a public-classified vessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    // Classify the vessel as public and configure a private-identifier denylist.
+                    settings.DockBoundary.PublicRepoPatterns = new List<string> { "github.com/acme" };
+                    settings.DockBoundary.PrivateIdentifiers = new List<DockBoundaryPrivateIdentifierEntry>
+                    {
+                        new DockBoundaryPrivateIdentifierEntry { Label = "internal-org", Pattern = "ACME-INTERNAL-[0-9]+" }
+                    };
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "public-vessel.git");
+                    Directory.CreateDirectory(repoPath);
+
+                    Vessel vessel = new Vessel("public-vessel", "https://github.com/acme/repo.git");
+                    vessel.LocalPath = repoPath;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("public-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain/msn_public", "msn_public").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock must be provisioned");
+
+                    string configPath = Path.Combine(dock!.WorktreePath!, ".armada", "boundary.json");
+                    Assert(File.Exists(configPath), "boundary.json must exist for a public vessel");
+
+                    string configJson = await File.ReadAllTextAsync(configPath).ConfigureAwait(false);
+                    AssertContains("ACME-INTERNAL", configJson,
+                        "boundary.json for a public vessel must carry the configured private-identifier pattern");
+                }
+            });
+
+            await RunTest("ProvisionAsync omits private identifiers from boundary config for a non-public vessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    // The denylist is configured, but only "github.com/acme" vessels are public.
+                    settings.DockBoundary.PublicRepoPatterns = new List<string> { "github.com/acme" };
+                    settings.DockBoundary.PrivateIdentifiers = new List<DockBoundaryPrivateIdentifierEntry>
+                    {
+                        new DockBoundaryPrivateIdentifierEntry { Label = "internal-org", Pattern = "ACME-INTERNAL-[0-9]+" }
+                    };
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "private-vessel.git");
+                    Directory.CreateDirectory(repoPath);
+
+                    // Repo URL does not match any PublicRepoPatterns entry -> not classified public.
+                    Vessel vessel = new Vessel("private-vessel", "https://github.com/private-org/repo.git");
+                    vessel.LocalPath = repoPath;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("private-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain/msn_private", "msn_private").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock must be provisioned");
+
+                    string configPath = Path.Combine(dock!.WorktreePath!, ".armada", "boundary.json");
+                    Assert(File.Exists(configPath), "boundary.json must exist for a non-public vessel");
+
+                    string configJson = await File.ReadAllTextAsync(configPath).ConfigureAwait(false);
+                    AssertContains("privateIdentifiers", configJson, "boundary.json must still carry the privateIdentifiers section");
+                    AssertFalse(configJson.Contains("ACME-INTERNAL", StringComparison.Ordinal),
+                        "Private-identifier patterns must not leak into a non-public vessel's boundary config");
+                }
+            });
         }
 
         private static bool PathEquals(string a, string b)

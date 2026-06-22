@@ -1,5 +1,7 @@
 namespace Armada.Core.Services
 {
+    using System.Diagnostics;
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -212,6 +214,8 @@ namespace Armada.Core.Services
                 // instead of recreating it so downstream pipeline stages and retries preserve work.
                 await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
                 await SeedDockMcpConfigAsync(vessel, worktreePath, missionId, token).ConfigureAwait(false);
+                await InstallBoundaryHooksAsync(repoPath, vessel, token).ConfigureAwait(false);
+                await WriteBoundaryConfigAsync(vessel, worktreePath, token).ConfigureAwait(false);
 
                 // Provision declared sibling repositories alongside this dock so consumer repos
                 // that resolve cross-repo sources via parent-probe paths can build inside the dock.
@@ -1060,6 +1064,420 @@ namespace Armada.Core.Services
 
             string prefix = existing.Length > 0 && !existing.EndsWith("\n", StringComparison.Ordinal) ? "\n" : "";
             await File.AppendAllTextAsync(excludePath, prefix + normalizedEntry + "\n", token).ConfigureAwait(false);
+        }
+
+        // LF-only hook scripts so Git for Windows sh.exe can execute them without CRLF errors.
+        // Protected paths are read from .armada/boundary.json via extract_section (globs need no
+        // unescaping). Secret and private-id patterns are read from the sibling .armada/boundary.patterns
+        // file which stores raw (un-JSON-escaped) regex strings so grep -qE receives correct metacharacters.
+        // Both files fall back to hard-coded built-in defaults when absent.
+        // Secret bytes and private identifier values are never printed.
+        private const string _PreCommitHook =
+            "#!/bin/sh\n" +
+            "# Armada boundary pre-commit hook -- do not edit; regenerated on dock provision\n" +
+            "cfg=\".armada/boundary.json\"\n" +
+            "pat_cfg=\".armada/boundary.patterns\"\n" +
+            "extract_section() {\n" +
+            "  sec=\"$1\"; found=0\n" +
+            "  while IFS= read -r ln; do\n" +
+            "    if [ $found -eq 0 ]; then\n" +
+            "      case \"$ln\" in *\"\\\"$sec\\\"\"*) found=1 ;; esac; continue\n" +
+            "    fi\n" +
+            "    case \"$ln\" in *']'*) return ;; esac\n" +
+            "    val=$(printf '%s' \"$ln\" | sed 's/^[[:space:]]*\"//;s/\"[[:space:]]*,\\{0,1\\}[[:space:]]*$//')\n" +
+            "    [ -n \"$val\" ] && printf '%s\\n' \"$val\"\n" +
+            "  done < \"$cfg\"\n" +
+            "}\n" +
+            "matches_pattern() {\n" +
+            "  _mp=\"$1\"; _pat=\"$2\"\n" +
+            "  [ -z \"$_mp\" ] || [ -z \"$_pat\" ] && return 1\n" +
+            "  case \"$_pat\" in\n" +
+            "    \"**/\"*)\n" +
+            "      _suf=\"${_pat#**/}\"\n" +
+            "      case \"$_suf\" in\n" +
+            "        \"**/\"*)\n" +
+            "          _suf2=\"${_suf#**/}\"; _pre2=\"${_suf2%/**}\"\n" +
+            "          case \"$_mp\" in \"$_pre2\"|\"$_pre2/\"*|*\"/$_pre2\"|*\"/$_pre2/\"*) return 0 ;; esac ;;\n" +
+            "        *\"/**\")\n" +
+            "          _pre2=\"${_suf%/**}\"\n" +
+            "          case \"$_mp\" in \"$_pre2\"|\"$_pre2/\"*|*\"/$_pre2\"|*\"/$_pre2/\"*) return 0 ;; esac ;;\n" +
+            "        *) case \"$_mp\" in \"$_suf\"|*\"/$_suf\") return 0 ;; esac ;;\n" +
+            "      esac ;;\n" +
+            "    *\"/**\")\n" +
+            "      _pre=\"${_pat%/**}\"\n" +
+            "      case \"$_mp\" in \"$_pre\"|\"$_pre/\"*) return 0 ;; esac ;;\n" +
+            "    *) case \"$_mp\" in $_pat) return 0 ;; esac ;;\n" +
+            "  esac\n" +
+            "  return 1\n" +
+            "}\n" +
+            "if [ -f \"$cfg\" ]; then\n" +
+            "  protected=$(extract_section protectedPaths)\n" +
+            "else\n" +
+            "  protected='**/CLAUDE.md\n**/CODEX.md\n**/CURSOR.md\n**/AGENTS.md\n.armada/instructions/**\n_briefing/**\n**/_briefing/**'\n" +
+            "fi\n" +
+            "if [ -f \"$pat_cfg\" ]; then\n" +
+            "  secrets=''\n" +
+            "  privids=''\n" +
+            "  _mode=''\n" +
+            "  while IFS= read -r _ln; do\n" +
+            "    case \"$_ln\" in\n" +
+            "      '# secretPatterns') _mode=s ;;\n" +
+            "      '# privateIdentifiers') _mode=p ;;\n" +
+            "      *) [ -z \"$_ln\" ] && continue\n" +
+            "         if [ \"$_mode\" = \"s\" ]; then\n" +
+            "           if [ -z \"$secrets\" ]; then secrets=\"$_ln\"\n" +
+            "           else secrets=\"$secrets\n$_ln\"; fi\n" +
+            "         elif [ \"$_mode\" = \"p\" ]; then\n" +
+            "           if [ -z \"$privids\" ]; then privids=\"$_ln\"\n" +
+            "           else privids=\"$privids\n$_ln\"; fi\n" +
+            "         fi ;;\n" +
+            "    esac\n" +
+            "  done < \"$pat_cfg\"\n" +
+            "else\n" +
+            "  secrets='-----BEGIN.*PRIVATE KEY-----'\n" +
+            "  privids=''\n" +
+            "fi\n" +
+            "staged_files=$(git diff --cached --name-only 2>/dev/null)\n" +
+            "if [ -n \"$staged_files\" ] && [ -n \"$protected\" ]; then\n" +
+            "  while IFS= read -r f; do\n" +
+            "    [ -z \"$f\" ] && continue\n" +
+            "    while IFS= read -r pat; do\n" +
+            "      [ -z \"$pat\" ] && continue\n" +
+            "      if matches_pattern \"$f\" \"$pat\"; then\n" +
+            "        echo \"BLOCKED: commit modifies protected path '$f'. Use a [CLAUDE.MD-PROPOSAL] block to propose changes.\" >&2\n" +
+            "        exit 1\n" +
+            "      fi\n" +
+            "    done <<PATS\n" +
+            "$protected\n" +
+            "PATS\n" +
+            "  done <<FILES\n" +
+            "$staged_files\n" +
+            "FILES\n" +
+            "fi\n" +
+            "if [ -n \"$secrets\" ]; then\n" +
+            "  added=$(git diff --cached 2>/dev/null | sed -n '/^+++/d;/^+/p')\n" +
+            "  if [ -n \"$added\" ]; then\n" +
+            "    while IFS= read -r pat; do\n" +
+            "      [ -z \"$pat\" ] && continue\n" +
+            "      if printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "        echo \"BLOCKED: staged changes contain secret material. Remove the sensitive content before committing.\" >&2\n" +
+            "        exit 1\n" +
+            "      fi\n" +
+            "    done <<SPATS\n" +
+            "$secrets\n" +
+            "SPATS\n" +
+            "  fi\n" +
+            "fi\n" +
+            "if [ -n \"$privids\" ]; then\n" +
+            "  added=$(git diff --cached 2>/dev/null | sed -n '/^+++/d;/^+/p')\n" +
+            "  if [ -n \"$added\" ]; then\n" +
+            "    while IFS= read -r pat; do\n" +
+            "      [ -z \"$pat\" ] && continue\n" +
+            "      if printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "        echo \"BLOCKED: staged changes contain a private identifier. Remove the identifier before committing to this public repository.\" >&2\n" +
+            "        exit 1\n" +
+            "      fi\n" +
+            "    done <<IPATS\n" +
+            "$privids\n" +
+            "IPATS\n" +
+            "  fi\n" +
+            "fi\n" +
+            "exit 0\n";
+
+        private const string _PrePushHook =
+            "#!/bin/sh\n" +
+            "# Armada boundary pre-push hook -- do not edit; regenerated on dock provision\n" +
+            "cfg=\".armada/boundary.json\"\n" +
+            "pat_cfg=\".armada/boundary.patterns\"\n" +
+            "extract_section() {\n" +
+            "  sec=\"$1\"; found=0\n" +
+            "  while IFS= read -r ln; do\n" +
+            "    if [ $found -eq 0 ]; then\n" +
+            "      case \"$ln\" in *\"\\\"$sec\\\"\"*) found=1 ;; esac; continue\n" +
+            "    fi\n" +
+            "    case \"$ln\" in *']'*) return ;; esac\n" +
+            "    val=$(printf '%s' \"$ln\" | sed 's/^[[:space:]]*\"//;s/\"[[:space:]]*,\\{0,1\\}[[:space:]]*$//')\n" +
+            "    [ -n \"$val\" ] && printf '%s\\n' \"$val\"\n" +
+            "  done < \"$cfg\"\n" +
+            "}\n" +
+            "matches_pattern() {\n" +
+            "  _mp=\"$1\"; _pat=\"$2\"\n" +
+            "  [ -z \"$_mp\" ] || [ -z \"$_pat\" ] && return 1\n" +
+            "  case \"$_pat\" in\n" +
+            "    \"**/\"*)\n" +
+            "      _suf=\"${_pat#**/}\"\n" +
+            "      case \"$_suf\" in\n" +
+            "        \"**/\"*)\n" +
+            "          _suf2=\"${_suf#**/}\"; _pre2=\"${_suf2%/**}\"\n" +
+            "          case \"$_mp\" in \"$_pre2\"|\"$_pre2/\"*|*\"/$_pre2\"|*\"/$_pre2/\"*) return 0 ;; esac ;;\n" +
+            "        *\"/**\")\n" +
+            "          _pre2=\"${_suf%/**}\"\n" +
+            "          case \"$_mp\" in \"$_pre2\"|\"$_pre2/\"*|*\"/$_pre2\"|*\"/$_pre2/\"*) return 0 ;; esac ;;\n" +
+            "        *) case \"$_mp\" in \"$_suf\"|*\"/$_suf\") return 0 ;; esac ;;\n" +
+            "      esac ;;\n" +
+            "    *\"/**\")\n" +
+            "      _pre=\"${_pat%/**}\"\n" +
+            "      case \"$_mp\" in \"$_pre\"|\"$_pre/\"*) return 0 ;; esac ;;\n" +
+            "    *) case \"$_mp\" in $_pat) return 0 ;; esac ;;\n" +
+            "  esac\n" +
+            "  return 1\n" +
+            "}\n" +
+            "if [ -f \"$cfg\" ]; then\n" +
+            "  protected=$(extract_section protectedPaths)\n" +
+            "else\n" +
+            "  protected='**/CLAUDE.md\n**/CODEX.md\n**/CURSOR.md\n**/AGENTS.md\n.armada/instructions/**\n_briefing/**\n**/_briefing/**'\n" +
+            "fi\n" +
+            "if [ -f \"$pat_cfg\" ]; then\n" +
+            "  secrets=''\n" +
+            "  privids=''\n" +
+            "  _mode=''\n" +
+            "  while IFS= read -r _ln; do\n" +
+            "    case \"$_ln\" in\n" +
+            "      '# secretPatterns') _mode=s ;;\n" +
+            "      '# privateIdentifiers') _mode=p ;;\n" +
+            "      *) [ -z \"$_ln\" ] && continue\n" +
+            "         if [ \"$_mode\" = \"s\" ]; then\n" +
+            "           if [ -z \"$secrets\" ]; then secrets=\"$_ln\"\n" +
+            "           else secrets=\"$secrets\n$_ln\"; fi\n" +
+            "         elif [ \"$_mode\" = \"p\" ]; then\n" +
+            "           if [ -z \"$privids\" ]; then privids=\"$_ln\"\n" +
+            "           else privids=\"$privids\n$_ln\"; fi\n" +
+            "         fi ;;\n" +
+            "    esac\n" +
+            "  done < \"$pat_cfg\"\n" +
+            "else\n" +
+            "  secrets='-----BEGIN.*PRIVATE KEY-----'\n" +
+            "  privids=''\n" +
+            "fi\n" +
+            "while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do\n" +
+            "  [ \"$local_sha\" = \"0000000000000000000000000000000000000000\" ] && continue\n" +
+            "  if [ \"$remote_sha\" = \"0000000000000000000000000000000000000000\" ]; then\n" +
+            "    push_files=$(git diff-tree --no-commit-id --name-only -r \"$local_sha\" 2>/dev/null)\n" +
+            "    push_diff=$(git show --format= --no-ext-diff \"$local_sha\" 2>/dev/null)\n" +
+            "  else\n" +
+            "    push_files=$(git diff --name-only \"${remote_sha}..${local_sha}\" 2>/dev/null)\n" +
+            "    push_diff=$(git diff \"${remote_sha}..${local_sha}\" 2>/dev/null)\n" +
+            "  fi\n" +
+            "  if [ -n \"$push_files\" ] && [ -n \"$protected\" ]; then\n" +
+            "    while IFS= read -r f; do\n" +
+            "      [ -z \"$f\" ] && continue\n" +
+            "      while IFS= read -r pat; do\n" +
+            "        [ -z \"$pat\" ] && continue\n" +
+            "        if matches_pattern \"$f\" \"$pat\"; then\n" +
+            "          echo \"BLOCKED: push modifies protected path '$f'. Use a [CLAUDE.MD-PROPOSAL] block to propose changes.\" >&2\n" +
+            "          exit 1\n" +
+            "        fi\n" +
+            "      done <<PPATS\n" +
+            "$protected\n" +
+            "PPATS\n" +
+            "    done <<PFILES\n" +
+            "$push_files\n" +
+            "PFILES\n" +
+            "  fi\n" +
+            "  if [ -n \"$secrets\" ] && [ -n \"$push_diff\" ]; then\n" +
+            "    added=$(printf '%s' \"$push_diff\" | sed -n '/^+++/d;/^+/p')\n" +
+            "    if [ -n \"$added\" ]; then\n" +
+            "      while IFS= read -r pat; do\n" +
+            "        [ -z \"$pat\" ] && continue\n" +
+            "        if printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "          echo \"BLOCKED: pushed commits contain secret material. Rewrite history to remove the sensitive content.\" >&2\n" +
+            "          exit 1\n" +
+            "        fi\n" +
+            "      done <<PSPATS\n" +
+            "$secrets\n" +
+            "PSPATS\n" +
+            "    fi\n" +
+            "  fi\n" +
+            "  if [ -n \"$privids\" ] && [ -n \"$push_diff\" ]; then\n" +
+            "    added=$(printf '%s' \"$push_diff\" | sed -n '/^+++/d;/^+/p')\n" +
+            "    if [ -n \"$added\" ]; then\n" +
+            "      while IFS= read -r pat; do\n" +
+            "        [ -z \"$pat\" ] && continue\n" +
+            "        if printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "          echo \"BLOCKED: pushed commits contain a private identifier. Rewrite history to remove the identifier from this public repository.\" >&2\n" +
+            "          exit 1\n" +
+            "        fi\n" +
+            "      done <<PIPATS\n" +
+            "$privids\n" +
+            "PIPATS\n" +
+            "    fi\n" +
+            "  fi\n" +
+            "done\n" +
+            "exit 0\n";
+
+        /// <summary>
+        /// Resolve the git hooks directory for a bare repository by asking git directly,
+        /// so that a configured <c>core.hooksPath</c> is honoured rather than assumed.
+        /// Falls back to <c>&lt;repoPath&gt;/hooks</c> when git is unavailable.
+        /// </summary>
+        private static async Task<string> ResolveHooksDirectoryAsync(string repoPath, CancellationToken token)
+        {
+            try
+            {
+                ProcessStartInfo si = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    WorkingDirectory = repoPath,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                si.ArgumentList.Add("rev-parse");
+                si.ArgumentList.Add("--git-path");
+                si.ArgumentList.Add("hooks");
+
+                using Process proc = new Process { StartInfo = si };
+                proc.Start();
+                string stdout = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                await proc.WaitForExitAsync(token).ConfigureAwait(false);
+
+                string hooksPath = stdout.Trim();
+                if (String.IsNullOrEmpty(hooksPath)) return Path.Combine(repoPath, "hooks");
+                return Path.IsPathRooted(hooksPath) ? hooksPath : Path.Combine(repoPath, hooksPath);
+            }
+            catch
+            {
+                return Path.Combine(repoPath, "hooks");
+            }
+        }
+
+        /// <summary>
+        /// Install Armada boundary pre-commit and pre-push hooks into the bare repository's
+        /// hooks directory. Resolves the hooks path via git to honour any configured
+        /// <c>core.hooksPath</c>. Failures are logged as warnings; the server-side landing
+        /// and merge-queue gates remain as a second boundary even when hooks cannot be installed.
+        /// </summary>
+        private async Task InstallBoundaryHooksAsync(string repoPath, Vessel vessel, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(repoPath)) return;
+
+            try
+            {
+                string hooksDir = await ResolveHooksDirectoryAsync(repoPath, token).ConfigureAwait(false);
+                Directory.CreateDirectory(hooksDir);
+
+                await WriteHookFileAsync(Path.Combine(hooksDir, "pre-commit"), _PreCommitHook, token).ConfigureAwait(false);
+                await WriteHookFileAsync(Path.Combine(hooksDir, "pre-push"), _PrePushHook, token).ConfigureAwait(false);
+
+                _Logging.Debug(_Header + "installed boundary hooks in " + hooksDir);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not install boundary hooks for " + repoPath + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Write a hook script file with LF line endings and executable permissions on Unix.
+        /// Overwrites an existing hook so patterns stay current on re-provision.
+        /// </summary>
+        private static async Task WriteHookFileAsync(string hookPath, string content, CancellationToken token)
+        {
+            await File.WriteAllTextAsync(hookPath, content, new System.Text.UTF8Encoding(false), token).ConfigureAwait(false);
+
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(hookPath,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            }
+        }
+
+        /// <summary>
+        /// Determine whether the vessel is classified as public based on the configured
+        /// <see cref="DockBoundarySettings.PublicRepoPatterns"/>. Mirrors the logic in
+        /// <see cref="DockBoundaryScanner"/> so the dock config and server gate agree.
+        /// </summary>
+        private bool IsPublicVessel(Vessel? vessel)
+        {
+            if (vessel == null) return false;
+            List<string> patterns = _Settings.DockBoundary.PublicRepoPatterns;
+            if (patterns == null || patterns.Count == 0) return false;
+
+            foreach (string pattern in patterns)
+            {
+                if (String.IsNullOrWhiteSpace(pattern)) continue;
+                string p = pattern.Trim();
+                bool idMatch = !String.IsNullOrEmpty(vessel.Id) && vessel.Id.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0;
+                bool nameMatch = !String.IsNullOrEmpty(vessel.Name) && vessel.Name.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0;
+                bool urlMatch = !String.IsNullOrEmpty(vessel.RepoUrl) && vessel.RepoUrl.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0;
+                if (idMatch || nameMatch || urlMatch) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Build the <see cref="DockBoundaryConfig"/> for the given vessel, merging built-in
+        /// protected paths and secret patterns with vessel-specific additions.
+        /// Private-identifier patterns are included only when the vessel is classified as public.
+        /// </summary>
+        private DockBoundaryConfig BuildBoundaryConfig(Vessel? vessel)
+        {
+            DockBoundaryConfig config = new DockBoundaryConfig();
+
+            foreach (string builtIn in ProtectedPathsValidator.BuiltInProtectedPaths)
+                config.ProtectedPaths.Add(builtIn);
+
+            if (vessel?.ProtectedPaths != null)
+            {
+                foreach (string path in vessel.ProtectedPaths)
+                    if (!String.IsNullOrWhiteSpace(path)) config.ProtectedPaths.Add(path);
+            }
+
+            foreach (string pattern in ConventionChecker.BuiltInSecretPatternStrings)
+                config.SecretPatterns.Add(pattern);
+
+            if (IsPublicVessel(vessel) && _Settings.DockBoundary.PrivateIdentifiers != null)
+            {
+                foreach (Settings.DockBoundaryPrivateIdentifierEntry entry in _Settings.DockBoundary.PrivateIdentifiers)
+                    if (!String.IsNullOrWhiteSpace(entry.Pattern)) config.PrivateIdentifiers.Add(entry.Pattern);
+            }
+
+            return config;
+        }
+
+        /// <summary>
+        /// Write the vessel's boundary configuration into the dock's .armada directory
+        /// and register it in git info/exclude so it is not committed accidentally.
+        /// </summary>
+        private async Task WriteBoundaryConfigAsync(Vessel? vessel, string worktreePath, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(worktreePath) || !Directory.Exists(worktreePath)) return;
+
+            try
+            {
+                string armadaDir = Path.Combine(worktreePath, ".armada");
+                Directory.CreateDirectory(armadaDir);
+
+                DockBoundaryConfig config = BuildBoundaryConfig(vessel);
+                string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                string configPath = Path.Combine(armadaDir, "boundary.json");
+                await File.WriteAllTextAsync(configPath, json, new System.Text.UTF8Encoding(false), token).ConfigureAwait(false);
+
+                string? excludePath = ResolveGitInfoExcludePath(worktreePath);
+                if (!String.IsNullOrWhiteSpace(excludePath))
+                    await EnsureGitExcludeEntryAsync(excludePath, ".armada/boundary.json", token).ConfigureAwait(false);
+
+                // Write raw-pattern sibling file: hook reads this instead of JSON-parsing boundary.json,
+                // so grep receives un-escaped metacharacters (\s, \w, \b, embedded ") verbatim.
+                string patternsPath = Path.Combine(armadaDir, "boundary.patterns");
+                string patternsContent =
+                    "# secretPatterns\n" +
+                    (config.SecretPatterns.Count > 0 ? String.Join("\n", config.SecretPatterns) + "\n" : "") +
+                    "# privateIdentifiers\n" +
+                    (config.PrivateIdentifiers.Count > 0 ? String.Join("\n", config.PrivateIdentifiers) + "\n" : "");
+                await File.WriteAllTextAsync(patternsPath, patternsContent, new System.Text.UTF8Encoding(false), token).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(excludePath))
+                    await EnsureGitExcludeEntryAsync(excludePath, ".armada/boundary.patterns", token).ConfigureAwait(false);
+
+                _Logging.Debug(_Header + "wrote boundary config to " + configPath);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not write boundary config for " + worktreePath + ": " + ex.Message);
+            }
         }
 
         private async Task ForceRemoveDirectoryAsync(string path, CancellationToken token)
