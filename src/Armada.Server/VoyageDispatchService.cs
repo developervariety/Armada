@@ -307,6 +307,7 @@ namespace Armada.Server
             if (!TryNormalizeCodeContextMode(topLevelMode, _CodeContextModeAuto, out dispatchMode))
                 return "invalid codeContextMode: " + topLevelMode + ". Expected auto, off, or force.";
 
+            bool requireContextPackWhenEnabled = _Settings?.CodeIndex?.RequireContextPackWhenEnabled ?? true;
             bool loggedUnavailable = false;
             for (int i = 0; i < missions.Count; i++)
             {
@@ -367,7 +368,7 @@ namespace Armada.Server
                         continue;
                     }
 
-                    if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal))
+                    if (String.Equals(mode, _CodeContextModeAuto, StringComparison.Ordinal) && !requireContextPackWhenEnabled)
                     {
                         mission.CodeContextMode = mode;
                         mission.CodeContextQuery = query;
@@ -412,7 +413,7 @@ namespace Armada.Server
 
                     if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
                     {
-                        if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
+                        if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
                             return "code context generation returned no prestaged files for mission '" + mission.Title + "'";
 
                         LogCodeContextWarning("code context generation returned no prestaged files for mission '" + mission.Title + "'");
@@ -423,7 +424,7 @@ namespace Armada.Server
                 }
                 catch (Exception ex)
                 {
-                    if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
+                    if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
                         return "code context generation failed for mission '" + mission.Title + "': " + ex.Message;
 
                     LogCodeContextWarning("code context generation failed for mission '" + mission.Title + "': " + ex.Message);

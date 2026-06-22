@@ -502,6 +502,14 @@ namespace Armada.Core.Settings
         /// </summary>
         public List<string> ReferenceOnlyPathFragments { get; set; } = new List<string>();
 
+        /// <summary>
+        /// When true (the default) and code context mode is auto or force, dispatch fails with
+        /// an actionable error if the context pack cannot be staged. When false, the legacy
+        /// best-effort behavior applies: the pack build is deferred and any failure is logged
+        /// as a warning while dispatch continues without the pack.
+        /// </summary>
+        public bool RequireContextPackWhenEnabled { get; set; } = true;
+
         #endregion
 
         #region Private-Members
