@@ -249,6 +249,143 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
+
+            await RunTest("boundary.patterns stores raw un-escaped patterns under ordered section headers", async () =>
+            {
+                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; raw-patterns format test skipped"); return; }
+
+                string tempRoot = NewTempRoot("armada-hookcov-rawpat");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        // Public so both secret and private-id sections are populated.
+                        ProvisionedDock provisioned = await ProvisionDockAsync(testDb, tempRoot, "rawpat-vessel",
+                            "https://github.com/test/repo.git", "github.com/test/repo", _PrivateIdentifierPattern).ConfigureAwait(false);
+                        string worktreePath = provisioned.WorktreePath;
+
+                        string patternsPath = Path.Combine(worktreePath, ".armada", "boundary.patterns");
+                        Assert(File.Exists(patternsPath), "boundary.patterns must be written by provisioning");
+                        string patterns = await File.ReadAllTextAsync(patternsPath).ConfigureAwait(false);
+
+                        // Both sentinel headers are present and ordered secretPatterns -> privateIdentifiers,
+                        // which is what the hook's sh state machine keys on to bucket the lines.
+                        int secretsHeader = patterns.IndexOf("# secretPatterns", StringComparison.Ordinal);
+                        int prividHeader = patterns.IndexOf("# privateIdentifiers", StringComparison.Ordinal);
+                        Assert(secretsHeader >= 0, "boundary.patterns must carry the '# secretPatterns' header");
+                        Assert(prividHeader >= 0, "boundary.patterns must carry the '# privateIdentifiers' header");
+                        Assert(secretsHeader < prividHeader,
+                            "secretPatterns header must precede privateIdentifiers header so the state machine buckets correctly");
+
+                        // Every built-in secret pattern must appear VERBATIM (raw regex), one per line. This is the
+                        // core fix: the JSON round-trip used to mangle backslash metacharacters and embedded quotes.
+                        foreach (string builtIn in ConventionChecker.BuiltInSecretPatternStrings)
+                            AssertContains(builtIn, patterns,
+                                "boundary.patterns must carry the raw un-escaped built-in pattern: " + builtIn);
+
+                        // The configured private identifier appears raw under the private-id section.
+                        AssertContains(_PrivateIdentifierPattern, patterns,
+                            "boundary.patterns must carry the raw private-identifier pattern");
+
+                        // Prove the two files differ in escaping: a pattern containing \s lands raw in
+                        // boundary.patterns but JSON-escaped (\\s) in boundary.json. If they matched, the JSON
+                        // round-trip bug the fix removed would still be present.
+                        string json = await File.ReadAllTextAsync(
+                            Path.Combine(worktreePath, ".armada", "boundary.json")).ConfigureAwait(false);
+                        AssertContains(@"\s", patterns, "boundary.patterns must keep backslash metachars raw (\\s)");
+                        AssertContains(@"\\s", json, "boundary.json must JSON-escape backslash metachars (\\\\s)");
+                        Assert(!patterns.Contains(@"\\s"),
+                            "boundary.patterns must NOT contain the JSON-escaped double-backslash form");
+                    }
+                }
+                finally { SafeDeleteDirectory(tempRoot); }
+            }).ConfigureAwait(false);
+
+            await RunTest("Pre-push hook blocks a secret in the pushed commit range", async () =>
+            {
+                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; pre-push hook test skipped"); return; }
+                string? shPath = FindShPath();
+                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; pre-push hook test skipped"); return; }
+
+                string tempRoot = NewTempRoot("armada-hookcov-prepush");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ProvisionedDock provisioned = await ProvisionDockAsync(testDb, tempRoot, "prepush-vessel",
+                            "https://github.com/test/repo.git", null, null).ConfigureAwait(false);
+                        string worktreePath = provisioned.WorktreePath;
+
+                        // Commit a secret directly (the worktree repo has no installed hooks, so the commit is
+                        // not pre-empted), then drive the pre-push hook over the new commit's range.
+                        string secretFile = Path.Combine(worktreePath, "leak.txt");
+                        await File.WriteAllTextAsync(secretFile, "password = \"SuperSecret1\"\n").ConfigureAwait(false);
+                        await RunGitAsync(worktreePath, "add", "leak.txt").ConfigureAwait(false);
+                        await RunGitAsync(worktreePath, "commit", "-m", "add leak").ConfigureAwait(false);
+                        string headSha = await RunGitAsync(worktreePath, "rev-parse", "HEAD").ConfigureAwait(false);
+
+                        // New-branch push tuple: remote sha is all-zero, so the hook scans the single new commit
+                        // via git show -- exactly the branch the production hook takes for a first push.
+                        string zeros = new string('0', 40);
+                        string stdin = "refs/heads/main " + headSha + " refs/heads/main " + zeros + "\n";
+                        HookRun run = await RunHookWithStdinAsync(shPath, provisioned.PrePushPath, worktreePath, stdin).ConfigureAwait(false);
+
+                        Assert(run.ExitCode != 0,
+                            "Pre-push hook must block a secret in the pushed range (ExitCode=" + run.ExitCode + ", stderr=" + run.Stderr + ")");
+                        AssertContains("BLOCKED:", run.Stderr, "Pre-push hook must emit BLOCKED: (stderr=" + run.Stderr + ")");
+                        AssertContains("secret material", run.Stderr,
+                            "Pre-push block message must name secret material (stderr=" + run.Stderr + ")");
+                        Assert(!run.Stderr.Contains("SuperSecret1"),
+                            "Pre-push hook must never print secret bytes (CORE RULE 4)");
+                    }
+                }
+                finally { SafeDeleteDirectory(tempRoot); }
+            }).ConfigureAwait(false);
+
+            await RunTest("Pre-commit hook falls back to the built-in default when boundary.patterns is absent", async () =>
+            {
+                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; fallback hook test skipped"); return; }
+                string? shPath = FindShPath();
+                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; fallback hook test skipped"); return; }
+
+                string tempRoot = NewTempRoot("armada-hookcov-fallback");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ProvisionedDock provisioned = await ProvisionDockAsync(testDb, tempRoot, "fallback-vessel",
+                            "https://github.com/test/repo.git", null, null).ConfigureAwait(false);
+                        string worktreePath = provisioned.WorktreePath;
+
+                        // Remove the raw-pattern sibling so the hook takes its absent-file branch, which seeds only
+                        // the hard-coded '-----BEGIN.*PRIVATE KEY-----' default (boundary.json still drives paths).
+                        File.Delete(Path.Combine(worktreePath, ".armada", "boundary.patterns"));
+
+                        // A password literal matches a BUILT-IN pattern but NOT the lone fallback default, so under
+                        // fallback it must pass -- proving the hook fell back rather than still reading the full set.
+                        string benign = Path.Combine(worktreePath, "pwd.txt");
+                        await File.WriteAllTextAsync(benign, "password = \"SuperSecret1\"\n").ConfigureAwait(false);
+                        await RunGitAsync(worktreePath, "add", "pwd.txt").ConfigureAwait(false);
+                        HookRun passRun = await RunHookAsync(shPath, provisioned.HookPath, worktreePath).ConfigureAwait(false);
+                        AssertEqual(0, passRun.ExitCode,
+                            "Fallback secret set must not match a password literal (stderr=" + passRun.Stderr + ")");
+                        await RunGitAsync(worktreePath, "reset").ConfigureAwait(false);
+
+                        // A PRIVATE KEY header matches the fallback default and must still block.
+                        string keyFile = Path.Combine(worktreePath, "key.txt");
+                        await File.WriteAllTextAsync(keyFile, "-----BEGIN RSA PRIVATE KEY-----\n").ConfigureAwait(false);
+                        await RunGitAsync(worktreePath, "add", "key.txt").ConfigureAwait(false);
+                        HookRun blockRun = await RunHookAsync(shPath, provisioned.HookPath, worktreePath).ConfigureAwait(false);
+                        Assert(blockRun.ExitCode != 0,
+                            "Fallback default must still block a private key (ExitCode=" + blockRun.ExitCode + ", stderr=" + blockRun.Stderr + ")");
+                        AssertContains("BLOCKED:", blockRun.Stderr,
+                            "Fallback block must emit BLOCKED: (stderr=" + blockRun.Stderr + ")");
+                        AssertContains("secret material", blockRun.Stderr,
+                            "Fallback block message must name secret material (stderr=" + blockRun.Stderr + ")");
+                    }
+                }
+                finally { SafeDeleteDirectory(tempRoot); }
+            }).ConfigureAwait(false);
         }
 
         #endregion
@@ -309,8 +446,11 @@ namespace Armada.Test.Unit.Suites.Services
             ProvisionedDock result = new ProvisionedDock();
             result.WorktreePath = dock.WorktreePath!;
             result.HookPath = Path.Combine(repoDir, "hooks", "pre-commit");
+            result.PrePushPath = Path.Combine(repoDir, "hooks", "pre-push");
             if (!File.Exists(result.HookPath))
                 throw new InvalidOperationException("pre-commit hook was not installed at " + result.HookPath);
+            if (!File.Exists(result.PrePushPath))
+                throw new InvalidOperationException("pre-push hook was not installed at " + result.PrePushPath);
             return result;
         }
 
@@ -352,6 +492,46 @@ namespace Armada.Test.Unit.Suites.Services
             using (Process hookProc = new Process { StartInfo = hookSi })
             {
                 hookProc.Start();
+                string stdout = await hookProc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string stderr = await hookProc.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await hookProc.WaitForExitAsync().ConfigureAwait(false);
+
+                HookRun run = new HookRun();
+                run.ExitCode = hookProc.ExitCode;
+                run.Stdout = stdout;
+                run.Stderr = stderr;
+                return run;
+            }
+        }
+
+        /// <summary>
+        /// Execute an installed hook script through sh, feeding <paramref name="stdin"/> on standard input.
+        /// The pre-push hook reads ref-update tuples (local_ref local_sha remote_ref remote_sha) from
+        /// stdin, so this variant is required to exercise it the way git would invoke it.
+        /// </summary>
+        private static async Task<HookRun> RunHookWithStdinAsync(string shPath, string hookPath, string worktreePath, string stdin)
+        {
+            ProcessStartInfo hookSi = new ProcessStartInfo
+            {
+                FileName = shPath,
+                WorkingDirectory = worktreePath,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            hookSi.ArgumentList.Add(hookPath.Replace('\\', '/'));
+            // git passes the remote name and URL as positional args; the hook ignores them but supply
+            // realistic values so the invocation matches the production contract.
+            hookSi.ArgumentList.Add("origin");
+            hookSi.ArgumentList.Add("https://github.com/test/repo.git");
+
+            using (Process hookProc = new Process { StartInfo = hookSi })
+            {
+                hookProc.Start();
+                await hookProc.StandardInput.WriteAsync(stdin).ConfigureAwait(false);
+                hookProc.StandardInput.Close();
                 string stdout = await hookProc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
                 string stderr = await hookProc.StandardError.ReadToEndAsync().ConfigureAwait(false);
                 await hookProc.WaitForExitAsync().ConfigureAwait(false);
@@ -516,6 +696,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             /// <summary>Absolute path to the installed pre-commit hook.</summary>
             public string HookPath { get; set; } = "";
+
+            /// <summary>Absolute path to the installed pre-push hook.</summary>
+            public string PrePushPath { get; set; } = "";
         }
 
         /// <summary>
