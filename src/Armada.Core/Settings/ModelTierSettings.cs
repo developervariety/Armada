@@ -61,6 +61,33 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Per-model capability profiles keyed by concrete model name. Used by the tier
+        /// selector to rank idle captains within a tier by best fit for a capability hint.
+        /// Each profile scores the model across TelemetryRichness, AuditReasoningFit,
+        /// MechanicalThroughput, and Cost dimensions on a 0-100 scale. Setting this to
+        /// null restores the built-in default profiles.
+        /// </summary>
+        public Dictionary<string, ModelCapabilityProfile> ModelCapabilityProfiles
+        {
+            get => _ModelCapabilityProfiles;
+            set => _ModelCapabilityProfiles = value ?? BuildDefaultModelCapabilityProfiles();
+        }
+
+        /// <summary>
+        /// Maps capability hint names to the profile dimension they optimize. The selector
+        /// looks up the hint here to determine which ModelCapabilityProfile property to
+        /// score models by, so operators can remap hints to different dimensions without a
+        /// code change. Setting this to null restores the built-in default mapping.
+        /// Built-in defaults: "audit" and "reasoning-heavy" map to AuditReasoningFit;
+        /// "mechanical" and "doc-only" map to MechanicalThroughput.
+        /// </summary>
+        public Dictionary<string, string> CapabilityHintDimensionMap
+        {
+            get => _CapabilityHintDimensionMap;
+            set => _CapabilityHintDimensionMap = value ?? BuildDefaultCapabilityHintDimensionMap();
+        }
+
+        /// <summary>
         /// Low-complexity model names. A captain whose model is in this list is
         /// eligible for low-tier dispatch and falls up to mid/high only through the
         /// upward fallback chain. Setting this to null restores the built-in default
@@ -102,6 +129,8 @@ namespace Armada.Core.Settings
         private List<string> _SpecialistPersonas = BuildDefaultSpecialistPersonas();
         private int _ReservedHighTierSlots = 1;
         private Dictionary<string, List<string>> _WithinTierPreferenceOrder = BuildDefaultWithinTierPreferenceOrder();
+        private Dictionary<string, ModelCapabilityProfile> _ModelCapabilityProfiles = BuildDefaultModelCapabilityProfiles();
+        private Dictionary<string, string> _CapabilityHintDimensionMap = BuildDefaultCapabilityHintDimensionMap();
         private List<string> _LowTierModels = BuildDefaultLowTierModels();
         private List<string> _MidTierModels = BuildDefaultMidTierModels();
         private List<string> _HighTierModels = BuildDefaultHighTierModels();
@@ -207,6 +236,41 @@ namespace Armada.Core.Settings
                 "claude-opus-4-7",
                 "gpt-5.5",
                 "claude-4.6-opus-high"
+            };
+        }
+
+        private static Dictionary<string, ModelCapabilityProfile> BuildDefaultModelCapabilityProfiles()
+        {
+            return new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
+            {
+                // Low-tier: high mechanical throughput, low telemetry/audit fit, minimal cost.
+                { "kimi-k2.5", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
+                { "opencode/kimi-k2.6", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
+                { "opencode-go/kimi-k2.6", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
+                { "opencode/deepseek-v4-flash", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 75, Cost = 15 } },
+                // Mid-tier: opencode/kimi variants optimized for throughput; claude/gemini for telemetry and reasoning.
+                { "opencode-go/kimi-k2.7-code", new ModelCapabilityProfile { TelemetryRichness = 25, AuditReasoningFit = 25, MechanicalThroughput = 85, Cost = 20 } },
+                { "claude-sonnet-4-6", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
+                { "composer-2.5", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 80, Cost = 25 } },
+                { "gemini-3.5-pro", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 60, MechanicalThroughput = 60, Cost = 50 } },
+                { "gpt-5.3-codex", new ModelCapabilityProfile { TelemetryRichness = 50, AuditReasoningFit = 55, MechanicalThroughput = 70, Cost = 55 } },
+                { "claude-4.6-sonnet-medium", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 75, MechanicalThroughput = 55, Cost = 60 } },
+                { "gemini-3.1-pro", new ModelCapabilityProfile { TelemetryRichness = 55, AuditReasoningFit = 55, MechanicalThroughput = 60, Cost = 45 } },
+                // High-tier: rich telemetry and strong audit reasoning, higher cost.
+                { "claude-opus-4-7", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
+                { "gpt-5.5", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 85, MechanicalThroughput = 60, Cost = 90 } },
+                { "claude-4.6-opus-high", new ModelCapabilityProfile { TelemetryRichness = 90, AuditReasoningFit = 90, MechanicalThroughput = 55, Cost = 90 } }
+            };
+        }
+
+        private static Dictionary<string, string> BuildDefaultCapabilityHintDimensionMap()
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "audit", "AuditReasoningFit" },
+                { "reasoning-heavy", "AuditReasoningFit" },
+                { "mechanical", "MechanicalThroughput" },
+                { "doc-only", "MechanicalThroughput" }
             };
         }
 
