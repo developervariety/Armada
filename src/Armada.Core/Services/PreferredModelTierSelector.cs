@@ -31,6 +31,30 @@ namespace Armada.Core.Services
         /// <summary>Canonical tier name for high-complexity work.</summary>
         public const string HighTier = "high";
 
+        /// <summary>
+        /// Capability hint requesting a captain with strong audit reasoning and
+        /// cross-repository analysis fit. Maps to the AuditReasoningFit profile dimension.
+        /// </summary>
+        public const string AuditHint = "audit";
+
+        /// <summary>
+        /// Capability hint requesting a captain suited for reasoning-intensive tasks.
+        /// Maps to the AuditReasoningFit profile dimension.
+        /// </summary>
+        public const string ReasoningHeavyHint = "reasoning-heavy";
+
+        /// <summary>
+        /// Capability hint requesting a captain optimized for high-volume mechanical
+        /// coding work. Maps to the MechanicalThroughput profile dimension.
+        /// </summary>
+        public const string MechanicalHint = "mechanical";
+
+        /// <summary>
+        /// Capability hint requesting a fast, low-cost captain for documentation-only
+        /// tasks. Maps to the MechanicalThroughput profile dimension.
+        /// </summary>
+        public const string DocOnlyHint = "doc-only";
+
         #endregion
 
         #region Private-Members
@@ -74,6 +98,11 @@ namespace Armada.Core.Services
             LowTier, MidTier, HighTier, "quick", "medium"
         };
 
+        private static readonly HashSet<string> _CapabilityHintNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            AuditHint, ReasoningHeavyHint, MechanicalHint, DocOnlyHint
+        };
+
         // Personas that can only be filled by high-tier captains. Mid- and low-tier
         // captains carry ["Worker"] allow-lists and would never match these personas
         // anyway, but enforcing the tier at mission-create time keeps the stored
@@ -104,6 +133,32 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(value)) return false;
             return _TierNames.Contains(value);
+        }
+
+        /// <summary>
+        /// Returns true when the value is a recognized capability hint (audit, reasoning-heavy,
+        /// mechanical, or doc-only). Matching is case-insensitive. Returns false for null, empty,
+        /// whitespace, and unrecognized values.
+        /// </summary>
+        public static bool IsCapabilityHint(string? value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return false;
+            return _CapabilityHintNames.Contains(value);
+        }
+
+        /// <summary>
+        /// Normalizes a capability hint to its canonical lowercase form. Returns null for
+        /// null, empty, whitespace, or unrecognized hints -- unrecognized hints degrade
+        /// gracefully to no-hint behavior without throwing.
+        /// </summary>
+        public static string? NormalizeCapabilityHint(string? value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return null;
+            if (String.Equals(value, AuditHint, StringComparison.OrdinalIgnoreCase)) return AuditHint;
+            if (String.Equals(value, ReasoningHeavyHint, StringComparison.OrdinalIgnoreCase)) return ReasoningHeavyHint;
+            if (String.Equals(value, MechanicalHint, StringComparison.OrdinalIgnoreCase)) return MechanicalHint;
+            if (String.Equals(value, DocOnlyHint, StringComparison.OrdinalIgnoreCase)) return DocOnlyHint;
+            return null;
         }
 
         /// <summary>
@@ -273,6 +328,10 @@ namespace Armada.Core.Services
         /// Within a tier, models are tried in the configured preference order; the first
         /// model with at least one idle, persona-eligible captain is selected. Tiers without
         /// a configured preference order fall back to random selection across eligible models.
+        /// When a recognized capability hint is supplied, eligible models within each tier are
+        /// sorted descending by their profile score for the hint's mapped dimension before the
+        /// preference-order step, with unprofiled models trailing. Unknown or empty hints
+        /// degrade gracefully to the existing preference-order or random path.
         /// </summary>
         /// <param name="tierValue">Tier selector value (low, mid, high, or alias).</param>
         /// <param name="idleCaptains">All currently idle captains.</param>
@@ -290,6 +349,12 @@ namespace Armada.Core.Services
         /// persona-eligible captain is chosen. Null or missing entries use random selection.
         /// </param>
         /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
+        /// <param name="capabilityHint">
+        /// Optional capability hint (audit, reasoning-heavy, mechanical, doc-only). When
+        /// recognized and the settings contain a matching profile dimension, eligible models
+        /// within a tier are sorted by that dimension score before the preference-order step.
+        /// Null, empty, and unrecognized hints are treated as no hint.
+        /// </param>
         /// <returns>
         /// A model name string if an eligible model was found, or null if no idle captain
         /// with a tier model is available (mission stays Pending).
@@ -301,7 +366,8 @@ namespace Armada.Core.Services
             Func<int, int> randomPick,
             IReadOnlyCollection<string>? specialistPersonas = null,
             IReadOnlyDictionary<string, List<string>>? withinTierPreferenceOrder = null,
-            ModelTierSettings? modelTierSettings = null)
+            ModelTierSettings? modelTierSettings = null,
+            string? capabilityHint = null)
         {
             if (randomPick == null)
                 throw new ArgumentNullException(nameof(randomPick));
@@ -310,6 +376,7 @@ namespace Armada.Core.Services
             string normalized = NormalizeTier(tierValue);
             bool isSpecialist = IsSpecialistPersona(persona, specialistPersonas);
             string[] tierOrder = BuildTierOrder(isSpecialist, normalized);
+            string? resolvedHint = NormalizeCapabilityHint(capabilityHint);
 
             foreach (string tier in tierOrder)
             {
@@ -334,9 +401,26 @@ namespace Armada.Core.Services
                 if (eligibleModels.Count == 0)
                     continue;
 
-                if (TryGetWithinTierPreferenceOrder(tier, withinTierPreferenceOrder, out IReadOnlyList<string>? preferenceOrder)
-                    && preferenceOrder != null
-                    && preferenceOrder.Count > 0)
+                IReadOnlyList<string>? preferenceOrder = null;
+                bool hasPreferenceOrder = TryGetWithinTierPreferenceOrder(tier, withinTierPreferenceOrder, out preferenceOrder);
+
+                // When a recognized capability hint maps to a profile dimension, sort eligible
+                // models descending by their score for that dimension before the preference-order
+                // step. Ties are broken by the configured within-tier preference order;
+                // unprofiled models sort last. Because only idle captains are in eligibleModels,
+                // a busy best-fit captain is simply absent and the next-best idle captain wins.
+                if (resolvedHint != null)
+                {
+                    string? dimension = null;
+                    if (TryGetCapabilityDimension(settings.CapabilityHintDimensionMap, resolvedHint, out dimension)
+                        && !String.IsNullOrWhiteSpace(dimension))
+                    {
+                        List<string> scored = SortByCapabilityScore(eligibleModels, dimension, settings.ModelCapabilityProfiles, preferenceOrder);
+                        return scored[0];
+                    }
+                }
+
+                if (hasPreferenceOrder && preferenceOrder != null && preferenceOrder.Count > 0)
                 {
                     List<string> ordered = OrderModelsByPreference(eligibleModels, preferenceOrder);
                     if (ordered.Count > 0)
@@ -472,6 +556,82 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(persona)) return true;
             if (String.IsNullOrEmpty(captain.AllowedPersonas)) return true;
             return captain.AllowedPersonas.Contains("\"" + persona + "\"", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryGetCapabilityDimension(
+            Dictionary<string, string> dimensionMap,
+            string hint,
+            out string? dimension)
+        {
+            dimension = null;
+            if (dimensionMap.TryGetValue(hint, out string? direct))
+            {
+                dimension = direct;
+                return !String.IsNullOrWhiteSpace(dimension);
+            }
+
+            foreach (KeyValuePair<string, string> kvp in dimensionMap)
+            {
+                if (String.Equals(kvp.Key, hint, StringComparison.OrdinalIgnoreCase))
+                {
+                    dimension = kvp.Value;
+                    return !String.IsNullOrWhiteSpace(dimension);
+                }
+            }
+
+            return false;
+        }
+
+        private static List<string> SortByCapabilityScore(
+            List<string> models,
+            string dimension,
+            Dictionary<string, ModelCapabilityProfile> profiles,
+            IReadOnlyList<string>? tieBreakPreference)
+        {
+            // Establish tiebreak ordering via the configured preference order first,
+            // so equal-score models preserve the operator-defined preference.
+            List<string> ordered;
+            if (tieBreakPreference != null && tieBreakPreference.Count > 0)
+                ordered = OrderModelsByPreference(models, tieBreakPreference);
+            else
+                ordered = new List<string>(models);
+
+            // Stable descending insertion sort by dimension score. Models with no profile
+            // entry (score -1) sort last. Equal-score models preserve their tiebreak position.
+            for (int i = 1; i < ordered.Count; i++)
+            {
+                string current = ordered[i];
+                int currentScore = GetModelDimensionScore(current, dimension, profiles);
+                int j = i - 1;
+                while (j >= 0 && GetModelDimensionScore(ordered[j], dimension, profiles) < currentScore)
+                {
+                    ordered[j + 1] = ordered[j];
+                    j--;
+                }
+                ordered[j + 1] = current;
+            }
+
+            return ordered;
+        }
+
+        private static int GetModelDimensionScore(string model, string dimension, Dictionary<string, ModelCapabilityProfile> profiles)
+        {
+            ModelCapabilityProfile? profile = null;
+            profiles.TryGetValue(model, out profile);
+            if (profile == null)
+            {
+                foreach (KeyValuePair<string, ModelCapabilityProfile> kvp in profiles)
+                {
+                    if (String.Equals(kvp.Key, model, StringComparison.OrdinalIgnoreCase))
+                    {
+                        profile = kvp.Value;
+                        break;
+                    }
+                }
+            }
+
+            if (profile == null) return -1;
+            return profile.GetDimensionScore(dimension);
         }
 
         #endregion
