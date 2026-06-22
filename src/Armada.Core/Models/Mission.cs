@@ -145,6 +145,13 @@ namespace Armada.Core.Models
         public string? PreferredModel { get; set; } = null;
 
         /// <summary>
+        /// Optional dispatch-time capability hint (e.g. audit, reasoning-heavy, mechanical, doc-only)
+        /// used as a within-tier routing preference. Persisted at creation time and read by the
+        /// asynchronous assignment loop when selecting a captain.
+        /// </summary>
+        public string? CapabilityHint { get; set; } = null;
+
+        /// <summary>
         /// Human-readable reason for failure or landing failure.
         /// Set when a mission transitions to Failed or LandingFailed status.
         /// </summary>

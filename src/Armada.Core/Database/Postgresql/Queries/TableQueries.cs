@@ -689,6 +689,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(55, "Add captain quarantine columns",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS quarantine_until_utc TEXT;",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS quarantine_reason TEXT;"
+                ),
+                new SchemaMigration(56, "Add capabilityhint column to missions",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS capabilityhint TEXT;"
                 )
             };
         }

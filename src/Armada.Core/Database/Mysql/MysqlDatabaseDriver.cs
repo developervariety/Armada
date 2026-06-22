@@ -591,6 +591,11 @@ namespace Armada.Core.Database.Mysql
                     55,
                     "Add captain quarantine columns",
                     TableQueries.MigrationV55Statements
+                ),
+                new SchemaMigration(
+                    56,
+                    "Add capabilityhint column to missions",
+                    TableQueries.MigrationV56Statements
                 )
             };
         }

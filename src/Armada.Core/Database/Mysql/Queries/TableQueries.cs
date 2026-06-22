@@ -923,6 +923,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v56 statements for adding capabilityhint column to missions.
+        /// </summary>
+        public static readonly string[] MigrationV56Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN capabilityhint LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]
