@@ -98,6 +98,66 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(result, "null input must return null");
             });
 
+            // FromEventPayload: whitespace-only -> null
+            await RunTest("FromEventPayload_WhitespaceOnly_ReturnsNull", async () =>
+            {
+                await Task.CompletedTask.ConfigureAwait(false);
+                ContextPackUsageSummary? result = ContextPackUsageSummary.FromEventPayload("   \t\n");
+                AssertNull(result, "whitespace-only input must return null");
+            });
+
+            // FromEventPayload: JSON null literal -> null
+            await RunTest("FromEventPayload_JsonNullLiteral_ReturnsNull", async () =>
+            {
+                await Task.CompletedTask.ConfigureAwait(false);
+                ContextPackUsageSummary? result = ContextPackUsageSummary.FromEventPayload("null");
+                AssertNull(result, "JSON null literal must return null");
+            });
+
+            // FromEventPayload: unknown fields are ignored (forward-compatible payloads)
+            await RunTest("FromEventPayload_UnknownFields_Ignored", async () =>
+            {
+                await Task.CompletedTask.ConfigureAwait(false);
+                string payload = JsonSerializer.Serialize(new
+                {
+                    MissionId = "msn_unknown01",
+                    LogAvailable = true,
+                    ContextPackStaged = true,
+                    ContextPackCompliance = "ReadBeforeSearch",
+                    FirstContextPackReadOffset = (int?)15,
+                    FirstSearchToolOffset = (int?)50,
+                    SearchToolCallCount = 1,
+                    FilesReadFromPack = new List<string>(),
+                    FilesIgnoredFromPack = new List<string>(),
+                    FilesGrepDiscovered = new List<string>(),
+                    FilesEdited = new List<string>(),
+                    FutureTelemetryField = "should be ignored",
+                    AnotherUnknown = 42
+                });
+                ContextPackUsageSummary? summary = ContextPackUsageSummary.FromEventPayload(payload);
+                AssertNotNull(summary, "unknown fields must not break deserialization");
+                AssertEqual("msn_unknown01", summary!.MissionId);
+                AssertTrue(summary.PackReadVerified, "known fields must still deserialize when unknown fields are present");
+            });
+
+            // FromEventPayload: omitted/null list fields default to empty lists
+            await RunTest("FromEventPayload_NullListFields_DefaultToEmptyLists", async () =>
+            {
+                await Task.CompletedTask.ConfigureAwait(false);
+                string payload = "{\"missionId\":\"msn_lists01\",\"logAvailable\":true,\"contextPackStaged\":true," +
+                    "\"contextPackCompliance\":\"SearchBeforeRead\",\"firstContextPackReadOffset\":5," +
+                    "\"searchToolCallCount\":0," +
+                    "\"filesReadFromPack\":null,\"filesIgnoredFromPack\":null," +
+                    "\"filesGrepDiscovered\":null,\"filesEdited\":null}";
+                ContextPackUsageSummary? summary = ContextPackUsageSummary.FromEventPayload(payload);
+                AssertNotNull(summary);
+                AssertEqual(0, summary!.FilesReadFromPack.Count, "null FilesReadFromPack must default to empty list");
+                AssertEqual(0, summary.FilesIgnoredFromPack.Count);
+                AssertEqual(0, summary.FilesGrepDiscovered.Count);
+                AssertEqual(0, summary.FilesEdited.Count);
+                AssertTrue(summary.PackReadVerified, "read offset alone drives PackReadVerified regardless of compliance string");
+            });
+
             // Round-trip: serialize payload using EmitContextPackUsageTelemetryAsync shape, deserialize via FromEventPayload
             await RunTest("FromEventPayload_RoundTrip_FieldsMatchPayloadShape", async () =>
             {
@@ -196,6 +256,133 @@ namespace Armada.Test.Unit.Suites.Services
                         "result must include contextPackUsage field");
                     AssertTrue(resultJson.Contains("packReadVerified") || resultJson.Contains("PackReadVerified"),
                         "result must include packReadVerified field");
+
+                    Mission? resultMission = result as Mission;
+                    AssertNotNull(resultMission, "handler must return a Mission instance");
+                    AssertNotNull(resultMission!.ContextPackUsage, "ContextPackUsage must be populated when event exists");
+                    AssertTrue(resultMission.ContextPackUsage!.PackReadVerified,
+                        "PackReadVerified must be true when event payload has a read offset");
+                    AssertEqual(10, resultMission.ContextPackUsage.FirstContextPackReadOffset);
+                    AssertEqual("ReadBeforeSearch", resultMission.ContextPackUsage.ContextPackCompliance);
+                }
+            });
+
+            // armada_mission_status: multiple events -> uses most recent by CreatedUtc
+            await RunTest("MissionStatus_MultipleContextPackEvents_UsesMostRecent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cps-multi-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Mission mission = new Mission("cps-multi-mission");
+                    mission.VesselId = vessel.Id;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    DateTime anchorUtc = DateTime.UtcNow;
+
+                    string olderPayload = JsonSerializer.Serialize(new
+                    {
+                        MissionId = mission.Id,
+                        LogAvailable = true,
+                        ContextPackStaged = true,
+                        ContextPackCompliance = "SearchBeforeRead",
+                        FirstContextPackReadOffset = (int?)null,
+                        FirstSearchToolOffset = (int?)50,
+                        SearchToolCallCount = 1,
+                        FilesReadFromPack = new List<string>(),
+                        FilesIgnoredFromPack = new List<string>(),
+                        FilesGrepDiscovered = new List<string>(),
+                        FilesEdited = new List<string>()
+                    });
+                    ArmadaEvent olderEvent = new ArmadaEvent("mission.context_pack_usage", "older pack usage");
+                    olderEvent.MissionId = mission.Id;
+                    olderEvent.EntityType = "mission";
+                    olderEvent.EntityId = mission.Id;
+                    olderEvent.Payload = olderPayload;
+                    olderEvent.CreatedUtc = anchorUtc.AddMinutes(-10);
+                    await testDb.Driver.Events.CreateAsync(olderEvent).ConfigureAwait(false);
+
+                    string newerPayload = JsonSerializer.Serialize(new
+                    {
+                        MissionId = mission.Id,
+                        LogAvailable = true,
+                        ContextPackStaged = true,
+                        ContextPackCompliance = "ReadBeforeSearch",
+                        FirstContextPackReadOffset = (int?)99,
+                        FirstSearchToolOffset = (int?)200,
+                        SearchToolCallCount = 2,
+                        FilesReadFromPack = new List<string> { "_briefing/context-pack.md" },
+                        FilesIgnoredFromPack = new List<string>(),
+                        FilesGrepDiscovered = new List<string>(),
+                        FilesEdited = new List<string>()
+                    });
+                    ArmadaEvent newerEvent = new ArmadaEvent("mission.context_pack_usage", "newer pack usage");
+                    newerEvent.MissionId = mission.Id;
+                    newerEvent.EntityType = "mission";
+                    newerEvent.EntityId = mission.Id;
+                    newerEvent.Payload = newerPayload;
+                    newerEvent.CreatedUtc = anchorUtc;
+                    await testDb.Driver.Events.CreateAsync(newerEvent).ConfigureAwait(false);
+
+                    NullAdmiralDouble admiralDouble = new NullAdmiralDouble();
+                    Func<JsonElement?, Task<object>>? statusHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null);
+
+                    AssertNotNull(statusHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id });
+                    object result = await statusHandler!(args).ConfigureAwait(false);
+                    Mission? resultMission = result as Mission;
+                    AssertNotNull(resultMission);
+                    AssertNotNull(resultMission!.ContextPackUsage,
+                        "most-recent mission.context_pack_usage event must be projected");
+                    AssertTrue(resultMission.ContextPackUsage!.PackReadVerified,
+                        "newer event with read offset must win over older unverified event");
+                    AssertEqual(99, resultMission.ContextPackUsage.FirstContextPackReadOffset);
+                    AssertEqual("ReadBeforeSearch", resultMission.ContextPackUsage.ContextPackCompliance);
+                }
+            });
+
+            // armada_mission_status: malformed event payload -> ContextPackUsage null, no throw
+            await RunTest("MissionStatus_MalformedEventPayload_ContextPackUsageNull", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cps-bad-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Mission mission = new Mission("cps-bad-mission");
+                    mission.VesselId = vessel.Id;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    ArmadaEvent badEvent = new ArmadaEvent("mission.context_pack_usage", "malformed payload");
+                    badEvent.MissionId = mission.Id;
+                    badEvent.EntityType = "mission";
+                    badEvent.EntityId = mission.Id;
+                    badEvent.Payload = "{ not valid json %%";
+                    await testDb.Driver.Events.CreateAsync(badEvent).ConfigureAwait(false);
+
+                    NullAdmiralDouble admiralDouble = new NullAdmiralDouble();
+                    Func<JsonElement?, Task<object>>? statusHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null);
+
+                    AssertNotNull(statusHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id });
+                    object result = await statusHandler!(args).ConfigureAwait(false);
+                    Mission? resultMission = result as Mission;
+                    AssertNotNull(resultMission, "malformed payload must not prevent mission status from returning");
+                    AssertNull(resultMission!.ContextPackUsage,
+                        "malformed event payload must leave ContextPackUsage null");
                 }
             });
 
