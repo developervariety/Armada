@@ -375,6 +375,153 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, codeIndex.BuildCallCount, "the loop must short-circuit on first failure and never build the second mission's pack");
                 }
             });
+
+            await RunTest("RequirePackEnabled_EmptyQuery_AutoMode_HardFailsWithActionableError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-10", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    // RequireContextPackWhenEnabled defaults to true
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    // Mission with no title and no description yields an empty query from BuildMissionCodeContextQuery.
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Empty query voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "", Description = "" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "dispatch must fail when no query can be built and RequireContextPackWhenEnabled=true");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when query-build staging fails");
+                    AssertEqual(0, codeIndex.BuildCallCount, "no build must be attempted when the query is empty");
+                }
+            });
+
+            await RunTest("RequirePackEnabled_NullCodeIndexService_AutoMode_HardFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-11", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    // RequireContextPackWhenEnabled defaults to true
+
+                    // Construct with null code index service (4th parameter).
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Null service voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task J", Description = "Implement feature J" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "dispatch must fail when code index service is null and RequireContextPackWhenEnabled=true");
+                    AssertNotNull(result.Value, "result.Value (error payload) must not be null");
+                    AssertContains("Task J", result.Value.ToString() ?? "", "error must name the mission that triggered the failure");
+                    AssertFalse(admiral.DispatchVoyageCalled, "admiral must not be called when service-unavailable staging fails");
+                }
+            });
+
+            await RunTest("RequirePackDisabled_EmptyQuery_AutoMode_WarnsAndContinues", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-12", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+                    EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, codeIndex, null, settings);
+
+                    // Empty title and description produces an empty query; legacy path must warn and continue.
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Legacy empty-query voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "", Description = "" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "dispatch must succeed (warn-and-continue) when RequireContextPackWhenEnabled=false and query is empty");
+                    AssertTrue(admiral.DispatchVoyageCalled, "admiral must be called on legacy warn-and-continue path");
+                    AssertEqual(0, codeIndex.BuildCallCount, "no build must be attempted when query is empty");
+                }
+            });
+
+            await RunTest("RequirePackDisabled_NullCodeIndexService_AutoMode_WarnsAndContinues", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("hf-vessel-13", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.RequireContextPackWhenEnabled = false;
+
+                    // Construct with null code index service; legacy path must warn and continue.
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "Legacy null-service voyage",
+                        Description = "test",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "auto",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription { Title = "Task K", Description = "Implement feature K" }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "dispatch must succeed (warn-and-continue) when RequireContextPackWhenEnabled=false and code index service is null");
+                    AssertTrue(admiral.DispatchVoyageCalled, "admiral must be called on legacy warn-and-continue path");
+                }
+            });
         }
 
         #region Private-Types
