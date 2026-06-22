@@ -1214,6 +1214,126 @@ namespace Armada.Test.Unit.Suites.Services
                         "Private-identifier patterns must not leak into a non-public vessel's boundary config");
                 }
             });
+
+            // The M1 fix routes secret/private-id patterns through .armada/boundary.patterns
+            // (raw, un-JSON-escaped) instead of boundary.json, so the hook's grep -qE receives
+            // single-backslash metacharacters. This regression guard runs unconditionally --
+            // unlike DockBoundaryHookExecutionTests, which skips when sh.exe is unavailable --
+            // so the core fix stays covered even on a minimal CI host without Git-for-Windows sh.
+            await RunTest("ProvisionAsync writes boundary.patterns with raw single-backslash metacharacter secret patterns", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "patterns-vessel.git");
+                    Directory.CreateDirectory(repoPath);
+
+                    Vessel vessel = new Vessel("patterns-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = repoPath;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("patterns-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain/msn_patterns", "msn_patterns").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock must be provisioned");
+
+                    string patternsPath = Path.Combine(dock!.WorktreePath!, ".armada", "boundary.patterns");
+                    Assert(File.Exists(patternsPath), "boundary.patterns must be written into the dock .armada directory");
+
+                    string patternsContent = await File.ReadAllTextAsync(patternsPath).ConfigureAwait(false);
+                    AssertContains("# secretPatterns", patternsContent, "boundary.patterns must carry the # secretPatterns header the hook parses");
+                    AssertContains("# privateIdentifiers", patternsContent, "boundary.patterns must carry the # privateIdentifiers header even when empty");
+
+                    // Crux of the M1 fix: metacharacters appear raw (single backslash) so grep -qE
+                    // matches. The JSON-parse path doubled them to \\s / \\w and the hook never fired.
+                    Assert(patternsContent.Contains(@"\s", StringComparison.Ordinal),
+                        "boundary.patterns must contain a raw \\s metacharacter from the password/apikey patterns");
+                    Assert(patternsContent.Contains(@"\w", StringComparison.Ordinal),
+                        "boundary.patterns must contain a raw \\w metacharacter");
+                    AssertFalse(patternsContent.Contains(@"\\s", StringComparison.Ordinal),
+                        "boundary.patterns must NOT contain a JSON-escaped \\\\s -- that double-escape broke grep -qE");
+                    AssertFalse(patternsContent.Contains(@"\\w", StringComparison.Ordinal),
+                        "boundary.patterns must NOT contain a JSON-escaped \\\\w");
+                    AssertContains("password", patternsContent, "boundary.patterns must include the CORE_RULE_5 password-literal pattern");
+
+                    // boundary.patterns must never be committed by a captain.
+                    string excludePath = Path.Combine(dock.WorktreePath!, ".git", "info", "exclude");
+                    Assert(File.Exists(excludePath), "git info/exclude must exist after provisioning");
+                    string excludeContent = await File.ReadAllTextAsync(excludePath).ConfigureAwait(false);
+                    AssertContains("boundary.patterns", excludeContent, "boundary.patterns must be listed in git info/exclude");
+                }
+            });
+
+            await RunTest("ProvisionAsync writes private-identifier patterns into boundary.patterns only for a public vessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.DockBoundary.PublicRepoPatterns = new List<string> { "github.com/acme" };
+                    settings.DockBoundary.PrivateIdentifiers = new List<DockBoundaryPrivateIdentifierEntry>
+                    {
+                        new DockBoundaryPrivateIdentifierEntry { Label = "internal-org", Pattern = @"ACME-\w{4,}" }
+                    };
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string publicRepoPath = Path.Combine(settings.ReposDirectory, "public-patterns.git");
+                    string privateRepoPath = Path.Combine(settings.ReposDirectory, "private-patterns.git");
+                    Directory.CreateDirectory(publicRepoPath);
+                    Directory.CreateDirectory(privateRepoPath);
+
+                    Vessel publicVessel = new Vessel("public-patterns", "https://github.com/acme/repo.git");
+                    publicVessel.LocalPath = publicRepoPath;
+                    publicVessel = await testDb.Driver.Vessels.CreateAsync(publicVessel).ConfigureAwait(false);
+
+                    Vessel privateVessel = new Vessel("private-patterns", "https://github.com/private-org/repo.git");
+                    privateVessel.LocalPath = privateRepoPath;
+                    privateVessel = await testDb.Driver.Vessels.CreateAsync(privateVessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("patterns-pub-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? publicDock = await service.ProvisionAsync(publicVessel, captain, "armada/captain/msn_pub_pat", "msn_pub_pat").ConfigureAwait(false);
+                    Dock? privateDock = await service.ProvisionAsync(privateVessel, captain, "armada/captain/msn_priv_pat", "msn_priv_pat").ConfigureAwait(false);
+                    AssertNotNull(publicDock, "Public-vessel dock must be provisioned");
+                    AssertNotNull(privateDock, "Private-vessel dock must be provisioned");
+
+                    string publicPatterns = await File.ReadAllTextAsync(
+                        Path.Combine(publicDock!.WorktreePath!, ".armada", "boundary.patterns")).ConfigureAwait(false);
+                    string privatePatterns = await File.ReadAllTextAsync(
+                        Path.Combine(privateDock!.WorktreePath!, ".armada", "boundary.patterns")).ConfigureAwait(false);
+
+                    // Public vessel: the raw private-id pattern lands under the privateIdentifiers section.
+                    AssertContains(@"ACME-\w{4,}", publicPatterns,
+                        "Public vessel boundary.patterns must carry the raw private-identifier pattern");
+                    int headerIndex = publicPatterns.IndexOf("# privateIdentifiers", StringComparison.Ordinal);
+                    int patternIndex = publicPatterns.IndexOf(@"ACME-\w{4,}", StringComparison.Ordinal);
+                    Assert(headerIndex >= 0 && patternIndex > headerIndex,
+                        "Private-identifier pattern must appear after the # privateIdentifiers header so the hook routes it correctly");
+                    AssertFalse(publicPatterns.Contains(@"ACME-\\w", StringComparison.Ordinal),
+                        "Public vessel private-identifier pattern must stay raw (not JSON double-escaped)");
+
+                    // Non-public vessel: the same denylist must not leak into its hook patterns.
+                    AssertFalse(privatePatterns.Contains("ACME-", StringComparison.Ordinal),
+                        "Non-public vessel boundary.patterns must omit configured private-identifier patterns");
+                }
+            });
         }
 
         private static bool PathEquals(string a, string b)
