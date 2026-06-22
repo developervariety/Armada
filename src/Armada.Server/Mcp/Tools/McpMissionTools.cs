@@ -64,6 +64,24 @@ namespace Armada.Server.Mcp.Tools
                     string missionId = request.MissionId;
                     Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
+                    try
+                    {
+                        List<ArmadaEvent> missionEvents = await database.Events.EnumerateByMissionAsync(
+                            missionId, 50).ConfigureAwait(false);
+                        ArmadaEvent? packEvent = null;
+                        foreach (ArmadaEvent evt in missionEvents)
+                        {
+                            if (evt.EventType != "mission.context_pack_usage") continue;
+                            if (packEvent == null || evt.CreatedUtc > packEvent.CreatedUtc)
+                                packEvent = evt;
+                        }
+                        if (packEvent != null)
+                            mission.ContextPackUsage = ContextPackUsageSummary.FromEventPayload(packEvent.Payload);
+                    }
+                    catch (Exception)
+                    {
+                        // Non-fatal; leave ContextPackUsage null.
+                    }
                     return (object)mission;
                 });
 
