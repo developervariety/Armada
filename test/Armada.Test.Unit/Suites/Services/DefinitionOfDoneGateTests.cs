@@ -32,7 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, SuccessCommand(), SuccessCommand()).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -61,7 +61,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, FailCommand(), SuccessCommand()).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -91,7 +91,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, SuccessCommand(), FailCommand()).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -121,7 +121,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, null, null).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -151,7 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await EnsureVesselOnlyAsync(testDb, "ten_noprofile", "vsl_noprofile", worktreePath).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -179,7 +179,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await EnsureVesselWithProfileAsync(testDb, "ten_doconly", "vsl_doconly",
                         worktreePath, FailCommand(), FailCommand()).ConfigureAwait(false);
 
-                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings { Enabled = true };
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false };
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
 
                     Mission mission = CreateWorkerMission("ten_doconly", "vsl_doconly");
@@ -209,7 +209,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, FailCommand(), FailCommand()).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -239,7 +239,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, FailCommand(), FailCommand()).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -297,7 +297,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, FailCommand(), null).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -329,7 +329,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // 30 is the floor of CommandTimeoutSeconds (clamped), so this test waits ~30s
                     // by design to prove the timeout path interrupts a hanging read instead of deadlocking.
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true, CommandTimeoutSeconds = 30 },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 30 },
                         testDb.Driver,
                         logging);
 
@@ -361,7 +361,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, FailWithSecretCommand("hunter2"), null).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -392,7 +392,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, SuccessCommand(), SuccessCommand()).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
                         logging);
 
@@ -422,7 +422,7 @@ namespace Armada.Test.Unit.Suites.Services
                         worktreePath, SuccessCommand(), SuccessCommand()).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true, AppliedPersonas = new List<string> { "Worker", "Judge" } },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, AppliedPersonas = new List<string> { "Worker", "Judge" } },
                         testDb.Driver,
                         logging);
 
@@ -456,6 +456,159 @@ namespace Armada.Test.Unit.Suites.Services
                     "Whitespace DocOnlyMarker should fall back to the default");
                 AssertEqual("[CUSTOM]", new DefinitionOfDoneSettings { DocOnlyMarker = "  [CUSTOM]  " }.DocOnlyMarker,
                     "DocOnlyMarker should be trimmed");
+
+                await Task.CompletedTask.ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("Restore runs before build: sentinel created by restore is present when build checks for it", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_rseam", "vsl_rseam",
+                        worktreePath, BuildCommandRequiringSentinel(), null).ConfigureAwait(false);
+
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
+                    {
+                        Enabled = true,
+                        RunRestoreBeforeBuild = true,
+                        RestoreCommand = CreateSentinelRestoreCommand()
+                    };
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
+                    Mission mission = CreateWorkerMission("ten_rseam", "vsl_rseam");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "Gate must pass: restore created the sentinel before build checked for it");
+                    AssertNull(result.CommandLabel, "No command should be labeled as failing");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Restore failure short-circuits: gate returns restore failure and build never runs", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_rfail", "vsl_rfail",
+                        worktreePath, CreateBuildSentinelCommand(), null).ConfigureAwait(false);
+
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
+                    {
+                        Enabled = true,
+                        RunRestoreBeforeBuild = true,
+                        RestoreCommand = FailCommand()
+                    };
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
+                    Mission mission = CreateWorkerMission("ten_rfail", "vsl_rfail");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "Gate must fail when restore fails");
+                    AssertEqual("restore", result.CommandLabel, "CommandLabel must identify the restore step");
+                    AssertTrue(result.ExitCode != 0, "ExitCode must be non-zero for a failed restore");
+                    AssertFalse(File.Exists(Path.Combine(worktreePath, "build_ran.txt")),
+                        "Build must not run when restore exits non-zero");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Restore disabled by RunRestoreBeforeBuild=false: sentinel absent, gate proceeds to build", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_roff", "vsl_roff",
+                        worktreePath, SuccessCommand(), null).ConfigureAwait(false);
+
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
+                    {
+                        Enabled = true,
+                        RunRestoreBeforeBuild = false,
+                        RestoreCommand = CreateSentinelRestoreCommand()
+                    };
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
+                    Mission mission = CreateWorkerMission("ten_roff", "vsl_roff");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "Gate must pass: build succeeded and restore was skipped");
+                    AssertFalse(File.Exists(Path.Combine(worktreePath, "sentinel.txt")),
+                        "Restore must not run when RunRestoreBeforeBuild is false");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Restore disabled by empty RestoreCommand: sentinel absent, gate proceeds to build", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_rempty", "vsl_rempty",
+                        worktreePath, SuccessCommand(), null).ConfigureAwait(false);
+
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
+                    {
+                        Enabled = true,
+                        RunRestoreBeforeBuild = true,
+                        RestoreCommand = String.Empty
+                    };
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
+                    Mission mission = CreateWorkerMission("ten_rempty", "vsl_rempty");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "Gate must pass: build succeeded and empty RestoreCommand means no restore");
+                    AssertFalse(File.Exists(Path.Combine(worktreePath, "sentinel.txt")),
+                        "Restore must not run when RestoreCommand is empty");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Settings defaults: RunRestoreBeforeBuild, RestoreCommand, CommandTimeoutSeconds", async () =>
+            {
+                DefinitionOfDoneSettings defaults = new DefinitionOfDoneSettings();
+                AssertTrue(defaults.RunRestoreBeforeBuild, "Default RunRestoreBeforeBuild must be true");
+                AssertEqual("dotnet restore", defaults.RestoreCommand, "Default RestoreCommand must be 'dotnet restore'");
+                AssertEqual(600, defaults.CommandTimeoutSeconds, "Default CommandTimeoutSeconds must be 600");
+
+                // Clamp [30,3600] still applies.
+                AssertEqual(30, new DefinitionOfDoneSettings { CommandTimeoutSeconds = 5 }.CommandTimeoutSeconds,
+                    "CommandTimeoutSeconds below floor must clamp to 30");
+                AssertEqual(3600, new DefinitionOfDoneSettings { CommandTimeoutSeconds = 99999 }.CommandTimeoutSeconds,
+                    "CommandTimeoutSeconds above ceiling must clamp to 3600");
+
+                // RestoreCommand setter: trim but allow empty (does not force-default empty back to "dotnet restore").
+                AssertEqual("dotnet restore", new DefinitionOfDoneSettings { RestoreCommand = "  dotnet restore  " }.RestoreCommand,
+                    "RestoreCommand setter must trim leading/trailing whitespace");
+                AssertEqual(String.Empty, new DefinitionOfDoneSettings { RestoreCommand = String.Empty }.RestoreCommand,
+                    "Empty RestoreCommand must stay empty, not revert to default");
+                AssertEqual(String.Empty, new DefinitionOfDoneSettings { RestoreCommand = "   " }.RestoreCommand,
+                    "Whitespace-only RestoreCommand must trim to empty, not revert to default");
 
                 await Task.CompletedTask.ConfigureAwait(false);
             }).ConfigureAwait(false);
@@ -497,6 +650,39 @@ namespace Armada.Test.Unit.Suites.Services
         private static string FailCommand()
         {
             return OperatingSystem.IsWindows() ? "exit 1" : "exit 1";
+        }
+
+        /// <summary>
+        /// A command that creates sentinel.txt in the working directory to prove it ran.
+        /// Used as a RestoreCommand to verify ordering: restore before build.
+        /// </summary>
+        private static string CreateSentinelRestoreCommand()
+        {
+            return OperatingSystem.IsWindows()
+                ? "echo sentinel > sentinel.txt"
+                : "touch sentinel.txt";
+        }
+
+        /// <summary>
+        /// A build command that exits 0 only when sentinel.txt already exists in the working
+        /// directory, proving a prior restore step created it.
+        /// </summary>
+        private static string BuildCommandRequiringSentinel()
+        {
+            return OperatingSystem.IsWindows()
+                ? "if exist sentinel.txt (exit 0) else (exit 1)"
+                : "test -f sentinel.txt";
+        }
+
+        /// <summary>
+        /// A build command that creates build_ran.txt and exits 0. Used to prove the build step
+        /// ran (or did not run) by checking for the file after EvaluateAsync returns.
+        /// </summary>
+        private static string CreateBuildSentinelCommand()
+        {
+            return OperatingSystem.IsWindows()
+                ? "echo build_ran > build_ran.txt"
+                : "touch build_ran.txt";
         }
 
         /// <summary>
