@@ -34,23 +34,12 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// When true, the gate runs <see cref="RestoreCommand"/> in the dock worktree once
-        /// before executing the build and unit-test commands, so a fresh dock has NuGet (or
-        /// equivalent) package assets for the whole solution. Defaults to true.
+        /// When true, the gate strips the <c>--no-restore</c> token from the build and
+        /// unit-test commands before executing them, so a fresh dock performs NuGet (or
+        /// equivalent) package restore as part of the normal build or test invocation.
+        /// Set to false to leave the commands untouched (legacy behavior). Defaults to true.
         /// </summary>
         public bool RunRestoreBeforeBuild { get; set; } = true;
-
-        /// <summary>
-        /// Shell command the gate runs before the build and unit-test commands when
-        /// <see cref="RunRestoreBeforeBuild"/> is true and this value is non-empty.
-        /// An empty or whitespace value disables the restore step, allowing non-.NET vessels
-        /// to opt out without disabling the gate entirely. Defaults to "dotnet restore".
-        /// </summary>
-        public string RestoreCommand
-        {
-            get => _RestoreCommand;
-            set => _RestoreCommand = value == null ? String.Empty : value.Trim();
-        }
 
         /// <summary>
         /// Maximum seconds each command (build, restore, or unit-test) may run before it is
@@ -77,7 +66,6 @@ namespace Armada.Core.Settings
         #region Private-Members
 
         private string _DocOnlyMarker = "[DOD:DOC-ONLY]";
-        private string _RestoreCommand = "dotnet restore";
         private int _CommandTimeoutSeconds = 600;
         private int _OutputTailLines = 50;
 

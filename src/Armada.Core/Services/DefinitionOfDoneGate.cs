@@ -102,22 +102,18 @@ namespace Armada.Core.Services
                     "' to the mission description to opt out of in-dock verification.");
             }
 
-            if (_Settings.RunRestoreBeforeBuild && !String.IsNullOrWhiteSpace(_Settings.RestoreCommand))
-            {
-                DefinitionOfDoneResult restoreResult = await RunCommandAsync("restore", _Settings.RestoreCommand, worktreePath, token).ConfigureAwait(false);
-                if (!restoreResult.Passed) return restoreResult;
-            }
-
             if (!String.IsNullOrWhiteSpace(buildCommand))
             {
-                DefinitionOfDoneResult buildResult = await RunCommandAsync("build", buildCommand, worktreePath, token).ConfigureAwait(false);
+                string effectiveBuild = _Settings.RunRestoreBeforeBuild ? EnsureRestore(buildCommand) : buildCommand;
+                DefinitionOfDoneResult buildResult = await RunCommandAsync("build", effectiveBuild, worktreePath, token).ConfigureAwait(false);
                 if (!buildResult.Passed)
                     return buildResult;
             }
 
             if (!String.IsNullOrWhiteSpace(testCommand))
             {
-                DefinitionOfDoneResult testResult = await RunCommandAsync("unit-test", testCommand, worktreePath, token).ConfigureAwait(false);
+                string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(testCommand) : testCommand;
+                DefinitionOfDoneResult testResult = await RunCommandAsync("unit-test", effectiveTest, worktreePath, token).ConfigureAwait(false);
                 if (!testResult.Passed)
                     return testResult;
             }
@@ -281,6 +277,17 @@ namespace Armada.Core.Services
             }
 
             return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Strips the <c>--no-restore</c> token from a shell command string so the build or
+        /// test tool performs its own NuGet restore. Called only when
+        /// <see cref="DefinitionOfDoneSettings.RunRestoreBeforeBuild"/> is true.
+        /// A command that does not contain <c>--no-restore</c> is returned unchanged.
+        /// </summary>
+        private static string EnsureRestore(string command)
+        {
+            return Regex.Replace(command, @"(^|\s)--no-restore\b", " ", RegexOptions.IgnoreCase).Trim();
         }
 
         private string GetShell()

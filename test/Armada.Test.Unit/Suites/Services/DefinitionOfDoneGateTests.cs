@@ -460,30 +460,35 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask.ConfigureAwait(false);
             }).ConfigureAwait(false);
 
-            await RunTest("Restore runs before build: sentinel created by restore is present when build checks for it", async () =>
+            await RunTest("RunRestoreBeforeBuild strips --no-restore from build command before execution", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 string worktreePath = CreateTempDir();
                 try
                 {
-                    await EnsureVesselWithProfileAsync(testDb, "ten_rseam", "vsl_rseam",
-                        worktreePath, BuildCommandRequiringSentinel(), null).ConfigureAwait(false);
+                    // Build command writes its own text into echo_output.txt; with --no-restore in
+                    // the profile command but RunRestoreBeforeBuild=true, the gate must strip the
+                    // token before running so the file content does NOT contain "--no-restore".
+                    string buildCmd = EchoToFileCommand("echo_output.txt", "build_args --no-restore");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_strip_build", "vsl_strip_build",
+                        worktreePath, buildCmd, null).ConfigureAwait(false);
 
-                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
-                    {
-                        Enabled = true,
-                        RunRestoreBeforeBuild = true,
-                        RestoreCommand = CreateSentinelRestoreCommand()
-                    };
-                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
-                    Mission mission = CreateWorkerMission("ten_rseam", "vsl_rseam");
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = true },
+                        testDb.Driver,
+                        logging);
+                    Mission mission = CreateWorkerMission("ten_strip_build", "vsl_strip_build");
                     Dock dock = new Dock { WorktreePath = worktreePath };
 
                     DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
 
-                    AssertTrue(result.Passed, "Gate must pass: restore created the sentinel before build checked for it");
-                    AssertNull(result.CommandLabel, "No command should be labeled as failing");
+                    AssertTrue(result.Passed, "Gate must pass after stripping --no-restore from the build command");
+                    string outputPath = Path.Combine(worktreePath, "echo_output.txt");
+                    AssertTrue(File.Exists(outputPath), "Build command must have run and created the output file");
+                    string fileContent = File.ReadAllText(outputPath);
+                    AssertFalse(fileContent.Contains("--no-restore"),
+                        "--no-restore must be stripped from the effective build command before execution");
                 }
                 finally
                 {
@@ -491,32 +496,33 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Restore runs before unit-test for a build-less profile: sentinel present when test checks for it", async () =>
+            await RunTest("RunRestoreBeforeBuild strips --no-restore from test command before execution", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 string worktreePath = CreateTempDir();
                 try
                 {
-                    // No build command; only a unit-test command that asserts the restore sentinel exists.
-                    // Proves restore runs before the test step (not just before build) for test-only profiles.
-                    await EnsureVesselWithProfileAsync(testDb, "ten_rtestonly", "vsl_rtestonly",
-                        worktreePath, null, BuildCommandRequiringSentinel()).ConfigureAwait(false);
+                    // Build succeeds normally; test command contains --no-restore and must have it stripped.
+                    string testCmd = EchoToFileCommand("test_output.txt", "test_args --no-restore");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_strip_test", "vsl_strip_test",
+                        worktreePath, SuccessCommand(), testCmd).ConfigureAwait(false);
 
-                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
-                    {
-                        Enabled = true,
-                        RunRestoreBeforeBuild = true,
-                        RestoreCommand = CreateSentinelRestoreCommand()
-                    };
-                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
-                    Mission mission = CreateWorkerMission("ten_rtestonly", "vsl_rtestonly");
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = true },
+                        testDb.Driver,
+                        logging);
+                    Mission mission = CreateWorkerMission("ten_strip_test", "vsl_strip_test");
                     Dock dock = new Dock { WorktreePath = worktreePath };
 
                     DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
 
-                    AssertTrue(result.Passed, "Gate must pass: restore created the sentinel before the unit-test step checked for it");
-                    AssertNull(result.CommandLabel, "No command should be labeled as failing");
+                    AssertTrue(result.Passed, "Gate must pass after stripping --no-restore from the test command");
+                    string outputPath = Path.Combine(worktreePath, "test_output.txt");
+                    AssertTrue(File.Exists(outputPath), "Test command must have run and created the output file");
+                    string fileContent = File.ReadAllText(outputPath);
+                    AssertFalse(fileContent.Contains("--no-restore"),
+                        "--no-restore must be stripped from the effective test command before execution");
                 }
                 finally
                 {
@@ -524,33 +530,34 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Restore failure short-circuits: gate returns restore failure and build never runs", async () =>
+            await RunTest("--no-restore is preserved in build command when RunRestoreBeforeBuild is false", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 string worktreePath = CreateTempDir();
                 try
                 {
-                    await EnsureVesselWithProfileAsync(testDb, "ten_rfail", "vsl_rfail",
-                        worktreePath, CreateBuildSentinelCommand(), null).ConfigureAwait(false);
+                    // RunRestoreBeforeBuild=false: the gate must NOT strip --no-restore; the output
+                    // file must still contain the token.
+                    string buildCmd = EchoToFileCommand("echo_output.txt", "build_args --no-restore");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_nostrip", "vsl_nostrip",
+                        worktreePath, buildCmd, null).ConfigureAwait(false);
 
-                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
-                    {
-                        Enabled = true,
-                        RunRestoreBeforeBuild = true,
-                        RestoreCommand = FailCommand()
-                    };
-                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
-                    Mission mission = CreateWorkerMission("ten_rfail", "vsl_rfail");
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    Mission mission = CreateWorkerMission("ten_nostrip", "vsl_nostrip");
                     Dock dock = new Dock { WorktreePath = worktreePath };
 
                     DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
 
-                    AssertFalse(result.Passed, "Gate must fail when restore fails");
-                    AssertEqual("restore", result.CommandLabel, "CommandLabel must identify the restore step");
-                    AssertTrue(result.ExitCode != 0, "ExitCode must be non-zero for a failed restore");
-                    AssertFalse(File.Exists(Path.Combine(worktreePath, "build_ran.txt")),
-                        "Build must not run when restore exits non-zero");
+                    AssertTrue(result.Passed, "Gate must pass (build command itself exits 0)");
+                    string outputPath = Path.Combine(worktreePath, "echo_output.txt");
+                    AssertTrue(File.Exists(outputPath), "Build command must have run and created the output file");
+                    string fileContent = File.ReadAllText(outputPath);
+                    AssertTrue(fileContent.Contains("--no-restore"),
+                        "--no-restore must be preserved in the build command when RunRestoreBeforeBuild is false");
                 }
                 finally
                 {
@@ -558,31 +565,35 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Restore disabled by RunRestoreBeforeBuild=false: sentinel absent, gate proceeds to build", async () =>
+            await RunTest("Build command without --no-restore is unchanged by EnsureRestore (regression guard)", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 string worktreePath = CreateTempDir();
                 try
                 {
-                    await EnsureVesselWithProfileAsync(testDb, "ten_roff", "vsl_roff",
-                        worktreePath, SuccessCommand(), null).ConfigureAwait(false);
+                    // A plain build command (no --no-restore) must work normally with
+                    // RunRestoreBeforeBuild=true. This guards the j1939mitm/armada case where the
+                    // profile uses dotnet build src/X.sln and no --no-restore token is present.
+                    string buildCmd = EchoToFileCommand("echo_output.txt", "build_args");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_noflag", "vsl_noflag",
+                        worktreePath, buildCmd, null).ConfigureAwait(false);
 
-                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
-                    {
-                        Enabled = true,
-                        RunRestoreBeforeBuild = false,
-                        RestoreCommand = CreateSentinelRestoreCommand()
-                    };
-                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
-                    Mission mission = CreateWorkerMission("ten_roff", "vsl_roff");
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = true },
+                        testDb.Driver,
+                        logging);
+                    Mission mission = CreateWorkerMission("ten_noflag", "vsl_noflag");
                     Dock dock = new Dock { WorktreePath = worktreePath };
 
                     DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
 
-                    AssertTrue(result.Passed, "Gate must pass: build succeeded and restore was skipped");
-                    AssertFalse(File.Exists(Path.Combine(worktreePath, "sentinel.txt")),
-                        "Restore must not run when RunRestoreBeforeBuild is false");
+                    AssertTrue(result.Passed, "Gate must pass for a command that never had --no-restore");
+                    string outputPath = Path.Combine(worktreePath, "echo_output.txt");
+                    AssertTrue(File.Exists(outputPath), "Build command must have run");
+                    string fileContent = File.ReadAllText(outputPath);
+                    AssertTrue(fileContent.Contains("build_args"), "Build command content must be preserved unchanged");
+                    AssertFalse(fileContent.Contains("--no-restore"), "No spurious token should appear in output");
                 }
                 finally
                 {
@@ -590,43 +601,10 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Restore disabled by empty RestoreCommand: sentinel absent, gate proceeds to build", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                LoggingModule logging = CreateLogging();
-                string worktreePath = CreateTempDir();
-                try
-                {
-                    await EnsureVesselWithProfileAsync(testDb, "ten_rempty", "vsl_rempty",
-                        worktreePath, SuccessCommand(), null).ConfigureAwait(false);
-
-                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
-                    {
-                        Enabled = true,
-                        RunRestoreBeforeBuild = true,
-                        RestoreCommand = String.Empty
-                    };
-                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
-                    Mission mission = CreateWorkerMission("ten_rempty", "vsl_rempty");
-                    Dock dock = new Dock { WorktreePath = worktreePath };
-
-                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
-
-                    AssertTrue(result.Passed, "Gate must pass: build succeeded and empty RestoreCommand means no restore");
-                    AssertFalse(File.Exists(Path.Combine(worktreePath, "sentinel.txt")),
-                        "Restore must not run when RestoreCommand is empty");
-                }
-                finally
-                {
-                    TryDeleteDirectory(worktreePath);
-                }
-            }).ConfigureAwait(false);
-
-            await RunTest("Settings defaults: RunRestoreBeforeBuild, RestoreCommand, CommandTimeoutSeconds", async () =>
+            await RunTest("Settings defaults: RunRestoreBeforeBuild true, CommandTimeoutSeconds 600, RestoreCommand absent", async () =>
             {
                 DefinitionOfDoneSettings defaults = new DefinitionOfDoneSettings();
                 AssertTrue(defaults.RunRestoreBeforeBuild, "Default RunRestoreBeforeBuild must be true");
-                AssertEqual("dotnet restore", defaults.RestoreCommand, "Default RestoreCommand must be 'dotnet restore'");
                 AssertEqual(600, defaults.CommandTimeoutSeconds, "Default CommandTimeoutSeconds must be 600");
 
                 // Clamp [30,3600] still applies.
@@ -634,14 +612,6 @@ namespace Armada.Test.Unit.Suites.Services
                     "CommandTimeoutSeconds below floor must clamp to 30");
                 AssertEqual(3600, new DefinitionOfDoneSettings { CommandTimeoutSeconds = 99999 }.CommandTimeoutSeconds,
                     "CommandTimeoutSeconds above ceiling must clamp to 3600");
-
-                // RestoreCommand setter: trim but allow empty (does not force-default empty back to "dotnet restore").
-                AssertEqual("dotnet restore", new DefinitionOfDoneSettings { RestoreCommand = "  dotnet restore  " }.RestoreCommand,
-                    "RestoreCommand setter must trim leading/trailing whitespace");
-                AssertEqual(String.Empty, new DefinitionOfDoneSettings { RestoreCommand = String.Empty }.RestoreCommand,
-                    "Empty RestoreCommand must stay empty, not revert to default");
-                AssertEqual(String.Empty, new DefinitionOfDoneSettings { RestoreCommand = "   " }.RestoreCommand,
-                    "Whitespace-only RestoreCommand must trim to empty, not revert to default");
 
                 await Task.CompletedTask.ConfigureAwait(false);
             }).ConfigureAwait(false);
@@ -686,36 +656,14 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         /// <summary>
-        /// A command that creates sentinel.txt in the working directory to prove it ran.
-        /// Used as a RestoreCommand to verify ordering: restore before build.
+        /// Returns a shell command that echoes the given text into a file in the working
+        /// directory. Used by stripping tests to capture the effective command content.
         /// </summary>
-        private static string CreateSentinelRestoreCommand()
+        private static string EchoToFileCommand(string fileName, string text)
         {
             return OperatingSystem.IsWindows()
-                ? "echo sentinel > sentinel.txt"
-                : "touch sentinel.txt";
-        }
-
-        /// <summary>
-        /// A build command that exits 0 only when sentinel.txt already exists in the working
-        /// directory, proving a prior restore step created it.
-        /// </summary>
-        private static string BuildCommandRequiringSentinel()
-        {
-            return OperatingSystem.IsWindows()
-                ? "if exist sentinel.txt (exit 0) else (exit 1)"
-                : "test -f sentinel.txt";
-        }
-
-        /// <summary>
-        /// A build command that creates build_ran.txt and exits 0. Used to prove the build step
-        /// ran (or did not run) by checking for the file after EvaluateAsync returns.
-        /// </summary>
-        private static string CreateBuildSentinelCommand()
-        {
-            return OperatingSystem.IsWindows()
-                ? "echo build_ran > build_ran.txt"
-                : "touch build_ran.txt";
+                ? "echo " + text + " > " + fileName
+                : "echo '" + text + "' > " + fileName;
         }
 
         /// <summary>
