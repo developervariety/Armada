@@ -491,6 +491,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Restore runs before unit-test for a build-less profile: sentinel present when test checks for it", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    // No build command; only a unit-test command that asserts the restore sentinel exists.
+                    // Proves restore runs before the test step (not just before build) for test-only profiles.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_rtestonly", "vsl_rtestonly",
+                        worktreePath, null, BuildCommandRequiringSentinel()).ConfigureAwait(false);
+
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings
+                    {
+                        Enabled = true,
+                        RunRestoreBeforeBuild = true,
+                        RestoreCommand = CreateSentinelRestoreCommand()
+                    };
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
+                    Mission mission = CreateWorkerMission("ten_rtestonly", "vsl_rtestonly");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "Gate must pass: restore created the sentinel before the unit-test step checked for it");
+                    AssertNull(result.CommandLabel, "No command should be labeled as failing");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Restore failure short-circuits: gate returns restore failure and build never runs", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
