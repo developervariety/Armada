@@ -102,6 +102,12 @@ namespace Armada.Core.Services
                     "' to the mission description to opt out of in-dock verification.");
             }
 
+            if (_Settings.RunRestoreBeforeBuild && !String.IsNullOrWhiteSpace(_Settings.RestoreCommand))
+            {
+                DefinitionOfDoneResult restoreResult = await RunCommandAsync("restore", _Settings.RestoreCommand, worktreePath, token).ConfigureAwait(false);
+                if (!restoreResult.Passed) return restoreResult;
+            }
+
             if (!String.IsNullOrWhiteSpace(buildCommand))
             {
                 DefinitionOfDoneResult buildResult = await RunCommandAsync("build", buildCommand, worktreePath, token).ConfigureAwait(false);
