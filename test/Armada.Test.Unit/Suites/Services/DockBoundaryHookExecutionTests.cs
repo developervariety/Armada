@@ -323,7 +323,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             /// <inheritdoc />
-            public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
             {
                 Directory.CreateDirectory(worktreePath);
                 await RunGitAsync(worktreePath, "init", "-b", "main").ConfigureAwait(false);

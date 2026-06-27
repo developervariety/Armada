@@ -64,13 +64,13 @@ namespace Armada.Core.Services
         /// <summary>
         /// Create a git worktree from a bare repository.
         /// </summary>
-        public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+        public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
             if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
 
-            _Logging.Info(_Header + "creating worktree: " + worktreePath + " branch: " + branchName);
+            _Logging.Info(_Header + "creating worktree: " + worktreePath + " branch: " + branchName + (detached ? " (detached)" : ""));
 
             string normalizedRepoPath = Path.GetFullPath(repoPath);
             SemaphoreSlim repoLock = _RepoLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
@@ -85,51 +85,67 @@ namespace Armada.Core.Services
                     throw new InvalidOperationException("Unable to prepare base branch " + baseBranch + " in repository " + repoPath);
                 }
 
-                bool branchExists = await BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
-                if (!branchExists)
+                if (detached)
                 {
-                    branchExists = await SyncLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false);
-                }
+                    // Detached path: check out at the named ref without binding HEAD to a branch.
+                    // This allows a second worktree to point at a branch already checked out elsewhere.
+                    bool refExists = await BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
+                    if (!refExists)
+                    {
+                        refExists = await SyncLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false);
+                    }
 
-                if (branchExists)
-                {
-                    _Logging.Info(_Header + "attaching worktree to existing branch: " + branchName);
-                    await RunGitAsync(repoPath, "worktree", "add", worktreePath, branchName).ConfigureAwait(false);
+                    string detachRef = refExists ? branchName : baseBranch;
+                    await RunGitAsync(repoPath, "worktree", "add", "--detach", worktreePath, detachRef).ConfigureAwait(false);
                 }
                 else
                 {
-                    string baseRef = "refs/heads/" + baseBranch;
-                    string baseCommit = await ResolveCommitAsync(repoPath, baseRef).ConfigureAwait(false);
-
-                    // Create the branch ref in the bare repo first, then attach the worktree to
-                    // that branch by name. This keeps HEAD on the named branch and avoids the
-                    // detach/rebind sequence that can materialize an unborn branch under load.
-                    await RunGitAsync(repoPath, "branch", branchName, baseCommit).ConfigureAwait(false);
-                    createdBranchRef = true;
-                    await RunGitAsync(repoPath, "worktree", "add", worktreePath, branchName).ConfigureAwait(false);
-
-                    string createdHead = await ResolveCommitAsync(worktreePath, "HEAD").ConfigureAwait(false);
-                    if (!String.Equals(createdHead, baseCommit, StringComparison.OrdinalIgnoreCase))
+                    bool branchExists = await BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
+                    if (!branchExists)
                     {
-                        throw new InvalidOperationException("New worktree branch " + branchName +
-                            " was expected to start at " + baseCommit + " from " + baseRef +
-                            " but HEAD resolved to " + createdHead);
+                        branchExists = await SyncLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false);
                     }
-                }
 
-                string currentBranch = (await RunGitAsync(worktreePath, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
-                if (!String.Equals(currentBranch, branchName, StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException("Worktree " + worktreePath +
-                        " was expected to be on branch " + branchName +
-                        " but is on " + currentBranch);
+                    if (branchExists)
+                    {
+                        _Logging.Info(_Header + "attaching worktree to existing branch: " + branchName);
+                        await RunGitAsync(repoPath, "worktree", "add", worktreePath, branchName).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        string baseRef = "refs/heads/" + baseBranch;
+                        string baseCommit = await ResolveCommitAsync(repoPath, baseRef).ConfigureAwait(false);
+
+                        // Create the branch ref in the bare repo first, then attach the worktree to
+                        // that branch by name. This keeps HEAD on the named branch and avoids the
+                        // detach/rebind sequence that can materialize an unborn branch under load.
+                        await RunGitAsync(repoPath, "branch", branchName, baseCommit).ConfigureAwait(false);
+                        createdBranchRef = true;
+                        await RunGitAsync(repoPath, "worktree", "add", worktreePath, branchName).ConfigureAwait(false);
+
+                        string createdHead = await ResolveCommitAsync(worktreePath, "HEAD").ConfigureAwait(false);
+                        if (!String.Equals(createdHead, baseCommit, StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException("New worktree branch " + branchName +
+                                " was expected to start at " + baseCommit + " from " + baseRef +
+                                " but HEAD resolved to " + createdHead);
+                        }
+                    }
+
+                    string currentBranch = (await RunGitAsync(worktreePath, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    if (!String.Equals(currentBranch, branchName, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException("Worktree " + worktreePath +
+                            " was expected to be on branch " + branchName +
+                            " but is on " + currentBranch);
+                    }
+
+                    // Agent-driven plain `git push` should publish the current branch rather than
+                    // attempting to update the inherited base-branch upstream (commonly `main`).
+                    await RunGitAsync(worktreePath, "config", "push.default", "current").ConfigureAwait(false);
                 }
 
                 await EnsureTrackedFilesCleanAsync(worktreePath, token).ConfigureAwait(false);
-
-                // Agent-driven plain `git push` should publish the current branch rather than
-                // attempting to update the inherited base-branch upstream (commonly `main`).
-                await RunGitAsync(worktreePath, "config", "push.default", "current").ConfigureAwait(false);
             }
             catch
             {

@@ -2631,7 +2631,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             /// <inheritdoc />
-            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
             {
                 // Create the directory on disk so CLAUDE.md can be written
                 Directory.CreateDirectory(worktreePath);

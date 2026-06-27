@@ -295,7 +295,7 @@ namespace Armada.Test.Unit.Suites.Services
             public int RepairWorktreeCalls { get; private set; }
 
             public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) { throw new NotImplementedException(); }
-            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default) { throw new NotImplementedException(); }
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task FetchAsync(string repoPath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) { throw new NotImplementedException(); }

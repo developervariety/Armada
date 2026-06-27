@@ -629,9 +629,165 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(3, git.CreatedWorktrees.Count, "Primary plus two sibling worktrees should be created");
                     AssertTrue(Directory.Exists(expectedSibA), "Sibling A directory should exist after provisioning");
 
+                    WorktreeCreation? primary = git.CreatedWorktrees.FirstOrDefault(w => !PathEquals(w.WorktreePath, expectedSibA) && !PathEquals(w.WorktreePath, expectedSibB));
+                    AssertNotNull(primary, "Primary worktree creation should be recorded");
+                    AssertFalse(primary!.Detached, "Primary dock worktree must not be detached");
+                    AssertTrue(sibA.Detached, "Sibling A worktree must be detached to avoid branch-collision with other docks");
+                    AssertTrue(sibB.Detached, "Sibling B worktree must be detached to avoid branch-collision with other docks");
+
                     await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
                     AssertFalse(Directory.Exists(expectedSibA), "Reclaim should tear down provisioned sibling worktrees");
                     AssertFalse(Directory.Exists(expectedSibB), "Reclaim should tear down nested sibling worktrees");
+                }
+            });
+
+            await RunTest("ProvisionAsync skips failed sibling and returns valid primary dock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    ThrowOnDetachedGitService git = new ThrowOnDetachedGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "fail-sib-vessel.git");
+                    Directory.CreateDirectory(repoPath);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/fail-sib.git",
+                            RelativePath = "../FailSib",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("fail-sib-vessel", "https://github.com/test/fail-sib-vessel.git");
+                    vessel.LocalPath = repoPath;
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("fail-sib-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/fail-sib/msn_fs", "msn_fs").ConfigureAwait(false);
+                    AssertNotNull(dock, "ProvisionAsync must return a valid dock even when a sibling provisioning fails");
+                    AssertNotNull(dock!.WorktreePath, "Primary dock worktree path must be set");
+                    AssertTrue(Directory.Exists(dock.WorktreePath), "Primary dock worktree directory must exist");
+
+                    // The failed sibling must not have produced a worktree creation record with detached=true.
+                    AssertFalse(git.PrimaryWorktrees.Any(w => w.Detached), "Primary dock worktree must not be detached");
+                    AssertEqual(1, git.PrimaryWorktrees.Count, "Exactly one non-detached (primary) worktree should be created");
+                }
+            });
+
+            await RunTest("ProvisionAsync continues to next sibling after one sibling fails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    // The first sibling worktree creation throws; the second must still be attempted.
+                    PartialFailureGitService git = new PartialFailureGitService("FailSib");
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "multi-sib-vessel.git");
+                    Directory.CreateDirectory(repoPath);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/fail-sib.git",
+                            RelativePath = "../FailSib",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        },
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/good-sib.git",
+                            RelativePath = "../GoodSib",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("multi-sib-vessel", "https://github.com/test/multi-sib-vessel.git");
+                    vessel.LocalPath = repoPath;
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("multi-sib-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/multi-sib/msn_ms", "msn_ms").ConfigureAwait(false);
+                    AssertNotNull(dock, "ProvisionAsync must return a valid dock even when an earlier sibling fails");
+
+                    string expectedGood = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../GoodSib"));
+                    WorktreeCreation? goodSib = git.CreatedWorktrees.FirstOrDefault(w => PathEquals(w.WorktreePath, expectedGood));
+                    AssertNotNull(goodSib, "Sibling after the failing one must still be provisioned (loop continues past the failure)");
+                    AssertTrue(goodSib!.Detached, "Recovered sibling worktree must still be detached");
+                    AssertTrue(git.Failures >= 1, "The failing sibling must have raised at least one failure");
+                }
+            });
+
+            await RunTest("ProvisionAsync aborts (returns null) when sibling provisioning is canceled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    // Distinct from the ordinary warn-and-skip path: an OperationCanceledException raised
+                    // while provisioning a sibling must propagate out of the per-sibling loop (not be
+                    // swallowed), so ProvisionAsync's outer handler aborts and returns null.
+                    CancelOnDetachedGitService git = new CancelOnDetachedGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string repoPath = Path.Combine(settings.ReposDirectory, "cancel-sib-vessel.git");
+                    Directory.CreateDirectory(repoPath);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/cancel-sib.git",
+                            RelativePath = "../CancelSib",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("cancel-sib-vessel", "https://github.com/test/cancel-sib-vessel.git");
+                    vessel.LocalPath = repoPath;
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("cancel-sib-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/cancel-sib/msn_cs", "msn_cs").ConfigureAwait(false);
+                    AssertNull(dock, "Cancellation during sibling provisioning must abort the provision (return null), not warn-and-skip");
+                    AssertTrue(git.DetachedAttempted, "The detached sibling creation should have been attempted before cancellation propagated");
                 }
             });
 
@@ -1387,7 +1543,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }
 
-            public virtual async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            public virtual async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
             {
                 int current = Interlocked.Increment(ref _CurrentCreateCalls);
                 if (current > MaxConcurrentCreateCalls)
@@ -1474,7 +1630,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         private class GitInfoGitService : LockingGitService
         {
-            public override Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            public override Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
             {
                 Directory.CreateDirectory(Path.Combine(worktreePath, ".git", "info"));
                 return Task.CompletedTask;
@@ -1490,9 +1646,9 @@ namespace Armada.Test.Unit.Suites.Services
                 _OpenCodeConfig = openCodeConfig ?? throw new ArgumentNullException(nameof(openCodeConfig));
             }
 
-            public override async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            public override async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
             {
-                await base.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, token).ConfigureAwait(false);
+                await base.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token: token).ConfigureAwait(false);
                 await File.WriteAllTextAsync(Path.Combine(worktreePath, "opencode.json"), _OpenCodeConfig, token).ConfigureAwait(false);
             }
         }
@@ -1503,6 +1659,7 @@ namespace Armada.Test.Unit.Suites.Services
             public string WorktreePath { get; set; } = String.Empty;
             public string BranchName { get; set; } = String.Empty;
             public string BaseBranch { get; set; } = String.Empty;
+            public bool Detached { get; set; }
         }
 
         private class RecordingGitService : IGitService
@@ -1519,14 +1676,15 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }
 
-            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
             {
                 CreatedWorktrees.Add(new WorktreeCreation
                 {
                     RepoPath = repoPath,
                     WorktreePath = Path.GetFullPath(worktreePath),
                     BranchName = branchName,
-                    BaseBranch = baseBranch
+                    BaseBranch = baseBranch,
+                    Detached = detached
                 });
                 Directory.CreateDirectory(worktreePath);
                 return Task.CompletedTask;
@@ -1562,6 +1720,191 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult<string?>(null);
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
+            public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => Task.CompletedTask;
+        }
+        /// <summary>
+        /// Git service that records primary (non-detached) worktree creations and throws for detached (sibling) ones.
+        /// </summary>
+        private class ThrowOnDetachedGitService : IGitService
+        {
+            public List<WorktreeCreation> PrimaryWorktrees { get; } = new List<WorktreeCreation>();
+
+            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
+            {
+                Directory.CreateDirectory(localPath);
+                return Task.CompletedTask;
+            }
+
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+            {
+                if (detached)
+                    throw new InvalidOperationException("Simulated sibling provisioning failure");
+                PrimaryWorktrees.Add(new WorktreeCreation
+                {
+                    RepoPath = repoPath,
+                    WorktreePath = Path.GetFullPath(worktreePath),
+                    BranchName = branchName,
+                    BaseBranch = baseBranch,
+                    Detached = detached
+                });
+                Directory.CreateDirectory(Path.Combine(worktreePath, ".git", "info"));
+                return Task.CompletedTask;
+            }
+
+            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(Directory.Exists(path));
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
+            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => Task.CompletedTask;
+            public Task PullAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+            public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult<string?>("main");
+            public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123");
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(false);
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);
+            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);
+            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
+            public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Git service that throws on the detached worktree creation whose path contains a marker
+        /// substring, while recording every other (primary or recovered sibling) worktree creation.
+        /// Used to prove the per-sibling loop continues past a failure to provision later siblings.
+        /// </summary>
+        private class PartialFailureGitService : IGitService
+        {
+            private readonly string _FailMarker;
+
+            public PartialFailureGitService(string failMarker)
+            {
+                _FailMarker = failMarker ?? throw new ArgumentNullException(nameof(failMarker));
+            }
+
+            public List<WorktreeCreation> CreatedWorktrees { get; } = new List<WorktreeCreation>();
+            public int Failures { get; private set; }
+
+            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
+            {
+                Directory.CreateDirectory(localPath);
+                return Task.CompletedTask;
+            }
+
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+            {
+                if (detached && worktreePath.Contains(_FailMarker, StringComparison.OrdinalIgnoreCase))
+                {
+                    Failures++;
+                    throw new InvalidOperationException("Simulated sibling provisioning failure for " + worktreePath);
+                }
+
+                CreatedWorktrees.Add(new WorktreeCreation
+                {
+                    RepoPath = repoPath,
+                    WorktreePath = Path.GetFullPath(worktreePath),
+                    BranchName = branchName,
+                    BaseBranch = baseBranch,
+                    Detached = detached
+                });
+                Directory.CreateDirectory(Path.Combine(worktreePath, ".git", "info"));
+                return Task.CompletedTask;
+            }
+
+            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(Directory.Exists(path));
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
+            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => Task.CompletedTask;
+            public Task PullAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+            public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult<string?>("main");
+            public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123");
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(false);
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(false);
+            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);
+            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
+            public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Git service that raises OperationCanceledException on detached (sibling) worktree creation
+        /// to prove that cancellation propagates out of the per-sibling loop rather than being
+        /// swallowed by the ordinary warn-and-skip handler.
+        /// </summary>
+        private class CancelOnDetachedGitService : IGitService
+        {
+            public bool DetachedAttempted { get; private set; }
+
+            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
+            {
+                Directory.CreateDirectory(localPath);
+                return Task.CompletedTask;
+            }
+
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+            {
+                if (detached)
+                {
+                    DetachedAttempted = true;
+                    throw new OperationCanceledException("Simulated cancellation during sibling provisioning");
+                }
+
+                Directory.CreateDirectory(Path.Combine(worktreePath, ".git", "info"));
+                return Task.CompletedTask;
+            }
+
+            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(Directory.Exists(path));
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
+            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => Task.CompletedTask;
+            public Task PullAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+            public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult<string?>("main");
+            public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123");
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(false);
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(false);
+            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);
+            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
             public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => Task.CompletedTask;
         }

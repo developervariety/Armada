@@ -212,7 +212,7 @@ namespace Armada.Core.Services
 
                 // Create worktree. If the branch already exists, GitService will attach to it
                 // instead of recreating it so downstream pipeline stages and retries preserve work.
-                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token: token).ConfigureAwait(false);
                 await SeedDockMcpConfigAsync(vessel, worktreePath, missionId, token).ConfigureAwait(false);
                 await InstallBoundaryHooksAsync(repoPath, vessel, token).ConfigureAwait(false);
                 await WriteBoundaryConfigAsync(vessel, worktreePath, token).ConfigureAwait(false);
@@ -569,42 +569,56 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                string? siblingRepoPath = await ResolveSiblingRepoPathAsync(sibling, token).ConfigureAwait(false);
-                if (String.IsNullOrEmpty(siblingRepoPath))
+                try
                 {
-                    _Logging.Warn(_Header + "could not resolve source for sibling repo (relativePath=" + sibling.RelativePath + ") on vessel " + vessel.Id);
-                    continue;
-                }
-
-                string siblingWorktreePath = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
-
-                if (Directory.Exists(siblingWorktreePath))
-                {
-                    bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);
-                    if (isRegistered)
+                    string? siblingRepoPath = await ResolveSiblingRepoPathAsync(sibling, token).ConfigureAwait(false);
+                    if (String.IsNullOrEmpty(siblingRepoPath))
                     {
-                        try { await _Git.RemoveWorktreeAsync(siblingWorktreePath, token).ConfigureAwait(false); }
-                        catch (Exception rmEx) { _Logging.Warn(_Header + "git worktree remove failed for sibling " + siblingWorktreePath + ": " + rmEx.Message); }
+                        _Logging.Warn(_Header + "could not resolve source for sibling repo (relativePath=" + sibling.RelativePath + ") on vessel " + vessel.Id);
+                        continue;
                     }
-                    await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
-                }
 
-                // Branch-compat rule: when the strategy is MatchBranchElseDefault and the dock branch
-                // already exists in the sibling repo, check out that same-named branch so the sibling
-                // tracks the dock's work. Otherwise fall back to the sibling's declared default branch
-                // (or "main"). DefaultOnly always uses the fallback.
-                string fallbackBranch = !String.IsNullOrWhiteSpace(sibling.DefaultBranch) ? sibling.DefaultBranch! : "main";
-                string siblingBranch = fallbackBranch;
-                if (sibling.BranchStrategy == SiblingBranchStrategyEnum.MatchBranchElseDefault
-                    && await _Git.BranchExistsAsync(siblingRepoPath, dockBranchName, token).ConfigureAwait(false))
+                    string siblingWorktreePath = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
+
+                    if (Directory.Exists(siblingWorktreePath))
+                    {
+                        bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);
+                        if (isRegistered)
+                        {
+                            try { await _Git.RemoveWorktreeAsync(siblingWorktreePath, token).ConfigureAwait(false); }
+                            catch (Exception rmEx) { _Logging.Warn(_Header + "git worktree remove failed for sibling " + siblingWorktreePath + ": " + rmEx.Message); }
+                        }
+                        await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
+                    }
+
+                    // Branch-compat rule: when the strategy is MatchBranchElseDefault and the dock branch
+                    // already exists in the sibling repo, check out that same-named branch so the sibling
+                    // tracks the dock's work. Otherwise fall back to the sibling's declared default branch
+                    // (or "main"). DefaultOnly always uses the fallback.
+                    string fallbackBranch = !String.IsNullOrWhiteSpace(sibling.DefaultBranch) ? sibling.DefaultBranch! : "main";
+                    string siblingBranch = fallbackBranch;
+                    if (sibling.BranchStrategy == SiblingBranchStrategyEnum.MatchBranchElseDefault
+                        && await _Git.BranchExistsAsync(siblingRepoPath, dockBranchName, token).ConfigureAwait(false))
+                    {
+                        siblingBranch = dockBranchName;
+                    }
+
+                    // Use a detached worktree for siblings so that when another worktree already has
+                    // the same branch checked out (e.g. a parallel dock on the same vessel), git does
+                    // not reject the add with "already checked out".
+                    await _Git.CreateWorktreeAsync(siblingRepoPath, siblingWorktreePath, siblingBranch, fallbackBranch, detached: true, token: token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (branch " + siblingBranch + ") for vessel " + vessel.Id);
+
+                    await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
                 {
-                    siblingBranch = dockBranchName;
+                    throw;
                 }
-
-                await _Git.CreateWorktreeAsync(siblingRepoPath, siblingWorktreePath, siblingBranch, fallbackBranch, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (branch " + siblingBranch + ") for vessel " + vessel.Id);
-
-                await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "failed to provision sibling repo (relativePath=" + sibling.RelativePath + ") for vessel " + vessel.Id + ": " + ex.Message);
+                }
             }
         }
 

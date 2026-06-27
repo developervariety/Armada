@@ -22,8 +22,9 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="worktreePath">Path for the new worktree.</param>
         /// <param name="branchName">Branch name to create and checkout.</param>
         /// <param name="baseBranch">Base branch to create from.</param>
+        /// <param name="detached">When true, create the worktree in detached HEAD state using the existing ref rather than a named branch.</param>
         /// <param name="token">Cancellation token.</param>
-        Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default);
+        Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default);
 
         /// <summary>
         /// Remove a git worktree.
