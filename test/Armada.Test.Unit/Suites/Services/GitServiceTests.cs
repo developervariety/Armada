@@ -1137,6 +1137,51 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("CreateWorktreeAsync Detached MissingBranch FallsBackToBaseCommit", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string worktreeDir = Path.Combine(rootDir, "detached-fallback");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    string baseCommit = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    // Detached request for a branch that exists in neither the bare repo nor origin.
+                    // The detached path must fall back to the base branch ref rather than throw or
+                    // create a named branch, and the resulting worktree must be detached at base HEAD.
+                    await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/never-existed", "main", detached: true).ConfigureAwait(false);
+
+                    string head = (await RunGitAsync(worktreeDir, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual("HEAD", head, "Detached fallback worktree should report HEAD as branch name (no named branch created)");
+
+                    string worktreeCommit = (await RunGitAsync(worktreeDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual(baseCommit, worktreeCommit, "Detached fallback worktree should be checked out at the base branch commit");
+
+                    bool fabricatedBranch = (await RunGitAsync(bareDir, "branch", "--list", "armada/never-existed").ConfigureAwait(false)).Trim().Length > 0;
+                    AssertFalse(fabricatedBranch, "Detached fallback must not fabricate a named branch for the missing ref");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
