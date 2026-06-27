@@ -51,7 +51,7 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
-        public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+        public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
         {
             if (ShouldThrowOnWorktree) throw new InvalidOperationException("Simulated worktree failure");
             ExistingBranches.Add(branchName);

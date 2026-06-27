@@ -1090,6 +1090,53 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("CreateWorktreeAsync Detached AllowsSecondWorktreeForCheckedOutBranch", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string firstWorktree = Path.Combine(rootDir, "first");
+                string secondWorktree = Path.Combine(rootDir, "second");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+
+                    // First worktree checks out main normally (non-detached).
+                    await service.CreateWorktreeAsync(bareDir, firstWorktree, "main").ConfigureAwait(false);
+                    string firstBranch = (await RunGitAsync(firstWorktree, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual("main", firstBranch, "First worktree should be on named branch main");
+
+                    // Second worktree on the same bare repo must use detached to avoid the
+                    // "already checked out" error that git raises when main is checked out in firstWorktree.
+                    await service.CreateWorktreeAsync(bareDir, secondWorktree, "main", "main", detached: true).ConfigureAwait(false);
+
+                    string secondBranch = (await RunGitAsync(secondWorktree, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual("HEAD", secondBranch, "Second worktree created detached should report HEAD as branch name");
+
+                    string firstCommit = (await RunGitAsync(firstWorktree, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    string secondCommit = (await RunGitAsync(secondWorktree, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual(firstCommit, secondCommit, "Both worktrees should point at the same commit");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)

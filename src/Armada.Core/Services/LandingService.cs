@@ -103,7 +103,7 @@ namespace Armada.Core.Services
                     await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
 
                     _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch + " attempt " + (mission.LandingRetryCount + 1));
-                    await _Git.CreateWorktreeAsync(vessel.LocalPath, worktreePath, targetBranch, targetBranch, token).ConfigureAwait(false);
+                    await _Git.CreateWorktreeAsync(vessel.LocalPath, worktreePath, targetBranch, targetBranch, token: token).ConfigureAwait(false);
 
                     await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, targetBranch, commitMessage, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);

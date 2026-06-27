@@ -897,7 +897,7 @@ namespace Armada.Core.Services
             catch (Exception ex) { _Logging.Debug(_Header + "integration branch cleanup skipped for " + integrationBranch + ": " + ex.Message); }
 
             await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
-            await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+            await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token: token).ConfigureAwait(false);
         }
 
         private async Task MergeIntegrationWorktreeAsync(MergeEntry entry, CancellationToken token)
