@@ -570,6 +570,190 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ReclaimAsync keeps shared sibling worktree when another active dock exists", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/shared-sibling.git",
+                            RelativePath = "../SharedSibling",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("shared-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    string firstDockPath = Path.Combine(settings.DocksDirectory, vessel.Name, "first");
+                    string secondDockPath = Path.Combine(settings.DocksDirectory, vessel.Name, "second");
+                    string sharedSiblingPath = Path.GetFullPath(Path.Combine(firstDockPath, "../SharedSibling"));
+                    Directory.CreateDirectory(firstDockPath);
+                    Directory.CreateDirectory(secondDockPath);
+                    Directory.CreateDirectory(sharedSiblingPath);
+                    await File.WriteAllTextAsync(Path.Combine(sharedSiblingPath, "sentinel.txt"), "shared").ConfigureAwait(false);
+
+                    Dock firstDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = firstDockPath,
+                        BranchName = "armada/first",
+                        Active = true
+                    };
+                    firstDock = await testDb.Driver.Docks.CreateAsync(firstDock).ConfigureAwait(false);
+
+                    Dock secondDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = secondDockPath,
+                        BranchName = "armada/second",
+                        Active = true
+                    };
+                    secondDock = await testDb.Driver.Docks.CreateAsync(secondDock).ConfigureAwait(false);
+
+                    await service.ReclaimAsync(firstDock.Id).ConfigureAwait(false);
+
+                    AssertTrue(Directory.Exists(sharedSiblingPath), "Shared sibling worktree should remain while another active dock for the vessel exists");
+                    AssertTrue(File.Exists(Path.Combine(sharedSiblingPath, "sentinel.txt")), "Shared sibling contents should remain intact");
+                    AssertFalse(git.RemovedWorktrees.Any(path => PathEquals(path, sharedSiblingPath)), "Sibling git worktree remove should not be invoked while another active dock owns the shared sibling");
+                }
+            });
+
+            await RunTest("ReclaimAsync removes shared sibling worktree for last active dock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/shared-sibling.git",
+                            RelativePath = "../SharedSibling",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("last-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    string dockPath = Path.Combine(settings.DocksDirectory, vessel.Name, "last");
+                    string inactiveDockPath = Path.Combine(settings.DocksDirectory, vessel.Name, "inactive");
+                    string sharedSiblingPath = Path.GetFullPath(Path.Combine(dockPath, "../SharedSibling"));
+                    Directory.CreateDirectory(dockPath);
+                    Directory.CreateDirectory(inactiveDockPath);
+                    Directory.CreateDirectory(sharedSiblingPath);
+                    await File.WriteAllTextAsync(Path.Combine(sharedSiblingPath, "sentinel.txt"), "shared").ConfigureAwait(false);
+
+                    Dock activeDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = dockPath,
+                        BranchName = "armada/last",
+                        Active = true
+                    };
+                    activeDock = await testDb.Driver.Docks.CreateAsync(activeDock).ConfigureAwait(false);
+
+                    Dock inactiveDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = inactiveDockPath,
+                        BranchName = "armada/inactive",
+                        Active = false
+                    };
+                    await testDb.Driver.Docks.CreateAsync(inactiveDock).ConfigureAwait(false);
+
+                    await service.ReclaimAsync(activeDock.Id).ConfigureAwait(false);
+
+                    AssertFalse(Directory.Exists(sharedSiblingPath), "Last active dock should tear down the shared sibling worktree");
+                    AssertTrue(git.RemovedWorktrees.Any(path => PathEquals(path, sharedSiblingPath)), "Sibling git worktree remove should be invoked for the last active dock");
+                }
+            });
+
+            await RunTest("ProvisionAsync and ReclaimAsync serialize same sibling worktree path", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/shared-sibling.git",
+                            RelativePath = "../SharedSibling",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("serialized-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    string existingDockPath = Path.Combine(settings.DocksDirectory, vessel.Name, "existing");
+                    string sharedSiblingPath = Path.GetFullPath(Path.Combine(existingDockPath, "../SharedSibling"));
+                    Directory.CreateDirectory(existingDockPath);
+                    Directory.CreateDirectory(sharedSiblingPath);
+
+                    SiblingLockProbeGitService git = new SiblingLockProbeGitService(sharedSiblingPath);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    Dock existingDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = existingDockPath,
+                        BranchName = "armada/existing",
+                        Active = true
+                    };
+                    existingDock = await testDb.Driver.Docks.CreateAsync(existingDock).ConfigureAwait(false);
+
+                    Captain captain = new Captain("serialized-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Task reclaim = service.ReclaimAsync(existingDock.Id);
+                    await Task.Delay(25).ConfigureAwait(false);
+                    Task<Dock?> provision = service.ProvisionAsync(vessel, captain, "armada/serialized/msn_new", "msn_new");
+
+                    Dock? dock = await provision.ConfigureAwait(false);
+                    await reclaim.ConfigureAwait(false);
+
+                    AssertNotNull(dock, "Concurrent provision should still produce a dock");
+                    AssertEqual(1, git.MaxConcurrentSiblingCalls, "Provision and reclaim operations against the same sibling path must be serialized");
+                }
+            });
+
             await RunTest("ProvisionAsync provisions declared sibling repos at expected relative paths with branch-compatible refs", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1665,18 +1849,19 @@ namespace Armada.Test.Unit.Suites.Services
         private class RecordingGitService : IGitService
         {
             public List<WorktreeCreation> CreatedWorktrees { get; } = new List<WorktreeCreation>();
+            public List<string> RemovedWorktrees { get; } = new List<string>();
             public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public int CloneBareCalls { get; private set; }
             public int BranchExistsCalls { get; private set; }
 
-            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
+            public virtual Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
             {
                 CloneBareCalls++;
                 Directory.CreateDirectory(localPath);
                 return Task.CompletedTask;
             }
 
-            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+            public virtual Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
             {
                 CreatedWorktrees.Add(new WorktreeCreation
                 {
@@ -1690,7 +1875,11 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }
 
-            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public virtual Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default)
+            {
+                RemovedWorktrees.Add(Path.GetFullPath(worktreePath));
+                return Task.CompletedTask;
+            }
             public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
             public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => Task.CompletedTask;
             public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => Task.FromResult(String.Empty);
@@ -1722,6 +1911,55 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
             public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => Task.CompletedTask;
+        }
+
+        private sealed class SiblingLockProbeGitService : RecordingGitService
+        {
+            private readonly string _SiblingPath;
+            private int _CurrentSiblingCalls;
+
+            public SiblingLockProbeGitService(string siblingPath)
+            {
+                _SiblingPath = Path.GetFullPath(siblingPath ?? throw new ArgumentNullException(nameof(siblingPath)));
+            }
+
+            public int MaxConcurrentSiblingCalls { get; private set; }
+
+            public override async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+            {
+                if (PathEquals(worktreePath, _SiblingPath))
+                {
+                    await RunSiblingProbeAsync(token).ConfigureAwait(false);
+                }
+
+                await base.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token: token).ConfigureAwait(false);
+            }
+
+            public override async Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default)
+            {
+                if (PathEquals(worktreePath, _SiblingPath))
+                {
+                    await RunSiblingProbeAsync(token).ConfigureAwait(false);
+                }
+
+                await base.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+            }
+
+            private async Task RunSiblingProbeAsync(CancellationToken token)
+            {
+                int current = Interlocked.Increment(ref _CurrentSiblingCalls);
+                if (current > MaxConcurrentSiblingCalls)
+                    MaxConcurrentSiblingCalls = current;
+
+                try
+                {
+                    await Task.Delay(100, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _CurrentSiblingCalls);
+                }
+            }
         }
         /// <summary>
         /// Git service that records primary (non-detached) worktree creations and throws for detached (sibling) ones.
