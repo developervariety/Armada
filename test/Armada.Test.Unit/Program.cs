@@ -139,6 +139,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AutonomousObjectiveSelectorTests());
             runner.AddSuite(new ConventionCheckTests());
             runner.AddSuite(new DockBoundaryScannerTests());
+            runner.AddSuite(new DockBoundaryManifestHashTests());
             runner.AddSuite(new DockBoundaryConfigTests());
             runner.AddSuite(new ConventionCheckerSecretPatternsTests());
             runner.AddSuite(new CriticalTriggerEvaluatorTests());

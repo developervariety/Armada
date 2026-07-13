@@ -214,6 +214,9 @@ namespace Armada.Core.Services
                 IReadOnlyList<string> fired = ConventionChecker.CheckSecretLine(addedLine);
                 foreach (string rule in fired)
                 {
+                    // Suppress false positives on SHA-256 content digests in manifest/lockfile lines.
+                    if (ConventionChecker.IsManifestHashAllowed(rule, addedLine, filePath)) continue;
+
                     result.Passed = false;
                     result.Findings.Add(new DockBoundaryFinding
                     {
