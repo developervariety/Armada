@@ -351,6 +351,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "curated opus is high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "curated gpt-5.5 is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "curated gpt-5.6-sol is high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high"), "curated cursor opus alias is high");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6"), "curated sonnet is mid");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.3-codex"), "curated gpt codex is mid");

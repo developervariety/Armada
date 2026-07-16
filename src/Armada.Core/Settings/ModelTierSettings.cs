@@ -235,6 +235,7 @@ namespace Armada.Core.Settings
             {
                 "claude-opus-4-7",
                 "gpt-5.5",
+                "gpt-5.6-sol",
                 "claude-4.6-opus-high"
             };
         }
@@ -259,6 +260,7 @@ namespace Armada.Core.Settings
                 // High-tier: rich telemetry and strong audit reasoning, higher cost.
                 { "claude-opus-4-7", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
                 { "gpt-5.5", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 85, MechanicalThroughput = 60, Cost = 90 } },
+                { "gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
                 { "claude-4.6-opus-high", new ModelCapabilityProfile { TelemetryRichness = 90, AuditReasoningFit = 90, MechanicalThroughput = 55, Cost = 90 } }
             };
         }
