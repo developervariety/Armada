@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// Result produced by the definition-of-done gate after evaluating a Worker mission's
@@ -30,6 +31,11 @@ namespace Armada.Core.Models
         /// Bounded tail of the command output, or null when no command failed.
         /// </summary>
         public string? OutputTail { get; set; }
+
+        /// <summary>
+        /// Structured classification of the failure, or null for passed and skipped results.
+        /// </summary>
+        public DefinitionOfDoneFailureClassEnum? FailureClass { get; set; }
 
         /// <summary>
         /// Non-null when the gate was skipped rather than run (e.g., persona not applicable,
@@ -77,15 +83,21 @@ namespace Armada.Core.Models
         /// <param name="commandLabel">Label of the failing command.</param>
         /// <param name="exitCode">Process exit code of the failing command.</param>
         /// <param name="outputTail">Bounded output tail from the failing command.</param>
+        /// <param name="failureClass">Structured classification of the failure.</param>
         /// <returns>A failing result with the specified details.</returns>
-        public static DefinitionOfDoneResult Fail(string commandLabel, int exitCode, string? outputTail)
+        public static DefinitionOfDoneResult Fail(
+            string commandLabel,
+            int exitCode,
+            string? outputTail,
+            DefinitionOfDoneFailureClassEnum failureClass)
         {
             return new DefinitionOfDoneResult
             {
                 Passed = false,
                 CommandLabel = commandLabel ?? throw new ArgumentNullException(nameof(commandLabel)),
                 ExitCode = exitCode,
-                OutputTail = outputTail
+                OutputTail = outputTail,
+                FailureClass = failureClass
             };
         }
 
