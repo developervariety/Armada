@@ -149,6 +149,67 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(LongRunningJobStatusEnum.Succeeded, secondSnapshot!.Status);
             });
 
+            await RunTest("LongRunningJobService retains active jobs during terminal eviction", async () =>
+            {
+                LongRunningJobService jobs = new LongRunningJobService(1);
+                TaskCompletionSource<bool> activeStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<object?> activeCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                CancellationToken? observedToken = null;
+                LongRunningJob activeAccepted = jobs.Start(
+                    " active_operation ",
+                    async (token) =>
+                    {
+                        observedToken = token;
+                        activeStarted.TrySetResult(true);
+                        return await activeCompletion.Task.ConfigureAwait(false);
+                    });
+
+                await activeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                AssertEqual("active_operation", activeAccepted.Operation);
+                AssertTrue(observedToken.HasValue);
+                CancellationToken executionToken = observedToken.GetValueOrDefault();
+                AssertFalse(executionToken.CanBeCanceled);
+
+                LongRunningJob firstTerminal = jobs.Start(
+                    "first_terminal",
+                    (_) => Task.FromResult<object?>(new { value = 1 }));
+                await WaitForTrackedJobStatusAsync(
+                    jobs,
+                    firstTerminal.JobId,
+                    LongRunningJobStatusEnum.Succeeded).ConfigureAwait(false);
+
+                LongRunningJob secondTerminal = jobs.Start(
+                    "second_terminal",
+                    (_) => Task.FromResult<object?>(new { value = 2 }));
+                await WaitForTrackedJobStatusAsync(
+                    jobs,
+                    secondTerminal.JobId,
+                    LongRunningJobStatusEnum.Succeeded).ConfigureAwait(false);
+
+                AssertTrue(jobs.TryGetStatus(activeAccepted.JobId, out LongRunningJob? activeSnapshot));
+                AssertEqual(LongRunningJobStatusEnum.Running, activeSnapshot!.Status);
+                AssertFalse(jobs.TryGetStatus(firstTerminal.JobId, out LongRunningJob? _));
+
+                activeCompletion.TrySetResult(new { value = 3 });
+                await WaitForTrackedJobStatusAsync(
+                    jobs,
+                    activeAccepted.JobId,
+                    LongRunningJobStatusEnum.Succeeded).ConfigureAwait(false);
+            });
+
+            await RunTest("LongRunningJobService validates start arguments", () =>
+            {
+                LongRunningJobService jobs = new LongRunningJobService();
+
+                AssertThrows<ArgumentException>(() => jobs.Start(
+                    " ",
+                    (_) => Task.FromResult<object?>(null)));
+                AssertThrows<ArgumentNullException>(() => jobs.Start(
+                    "valid_operation",
+                    (Func<CancellationToken, Task<object?>>)null!));
+                AssertFalse(jobs.TryGetStatus(" ", out LongRunningJob? _));
+            });
+
             await RunTest("armada_context_pack delegates and returns prestaged file", async () =>
             {
                 RecordingCodeIndexService service = new RecordingCodeIndexService();
