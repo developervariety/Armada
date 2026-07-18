@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Server;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
 
@@ -44,6 +45,108 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(handlers.ContainsKey("armada_graph_get_node"));
                 AssertTrue(handlers.ContainsKey("armada_graph_get_files"));
                 AssertTrue(handlers.ContainsKey("armada_graph_explore"));
+            });
+
+            await RunTest("armada_index_update returns accepted job before work completes", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                service.UpdateStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                service.UpdateCompletion = new TaskCompletionSource<CodeIndexStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
+                LongRunningJobService jobs = new LongRunningJobService();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterJobHandlers(service, jobs);
+                JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = "vsl_background" });
+
+                object result = await handlers["armada_index_update"](args).ConfigureAwait(false);
+                LongRunningJob accepted = (LongRunningJob)result;
+
+                AssertEqual(LongRunningJobStatusEnum.Accepted, accepted.Status);
+                AssertTrue(accepted.JobId.StartsWith("job_", StringComparison.Ordinal));
+                await service.UpdateStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+                object running = await GetJobStatusAsync(handlers, accepted.JobId).ConfigureAwait(false);
+                AssertContains("\"Status\":\"Running\"", JsonSerializer.Serialize(running));
+
+                service.UpdateCompletion.SetResult(NewStatus("vsl_background"));
+                object succeeded = await WaitForJobStatusAsync(
+                    handlers,
+                    accepted.JobId,
+                    LongRunningJobStatusEnum.Succeeded).ConfigureAwait(false);
+                string succeededJson = JsonSerializer.Serialize(succeeded);
+                AssertContains("\"Status\":\"Succeeded\"", succeededJson);
+                AssertContains("\"Result\"", succeededJson);
+                AssertContains("vsl_background", succeededJson);
+                AssertFalse(succeededJson.Contains("\"Error\"", StringComparison.Ordinal));
+            });
+
+            await RunTest("armada_index_update reports bounded background failure", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService
+                {
+                    UpdateException = new InvalidOperationException("failure-prefix-" + new string('x', 2000))
+                };
+                LongRunningJobService jobs = new LongRunningJobService();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterJobHandlers(service, jobs);
+                JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = "vsl_failure" });
+
+                LongRunningJob accepted = (LongRunningJob)await handlers["armada_index_update"](args).ConfigureAwait(false);
+                object failed = await WaitForJobStatusAsync(
+                    handlers,
+                    accepted.JobId,
+                    LongRunningJobStatusEnum.Failed).ConfigureAwait(false);
+                string failedJson = JsonSerializer.Serialize(failed);
+
+                AssertContains("\"Status\":\"Failed\"", failedJson);
+                AssertContains("failure-prefix-", failedJson);
+                AssertFalse(failedJson.Contains(new string('x', 2000), StringComparison.Ordinal));
+                AssertFalse(failedJson.Contains("\"Result\"", StringComparison.Ordinal));
+            });
+
+            await RunTest("armada_job_status validates missing and unknown job IDs", async () =>
+            {
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterJobHandlers(
+                    new RecordingCodeIndexService(),
+                    new LongRunningJobService());
+
+                object missingArgs = await handlers["armada_job_status"](null).ConfigureAwait(false);
+                AssertContains("missing_job_id", JsonSerializer.Serialize(missingArgs));
+
+                JsonElement missingJobId = JsonSerializer.SerializeToElement(new { jobId = "" });
+                object missingJobIdResult = await handlers["armada_job_status"](missingJobId).ConfigureAwait(false);
+                AssertContains("jobId is required", JsonSerializer.Serialize(missingJobIdResult));
+
+                JsonElement unknownJobId = JsonSerializer.SerializeToElement(new { jobId = "job_unknown" });
+                object unknownResult = await handlers["armada_job_status"](unknownJobId).ConfigureAwait(false);
+                string unknownJson = JsonSerializer.Serialize(unknownResult);
+                AssertContains("job_not_found", unknownJson);
+                AssertContains("job_unknown", unknownJson);
+            });
+
+            await RunTest("LongRunningJobService returns snapshots and evicts oldest terminal job", async () =>
+            {
+                LongRunningJobService jobs = new LongRunningJobService(1);
+                LongRunningJob firstAccepted = jobs.Start(
+                    "first_operation",
+                    (_) => Task.FromResult<object?>(new { value = 1 }));
+                LongRunningJob firstComplete = await WaitForTrackedJobStatusAsync(
+                    jobs,
+                    firstAccepted.JobId,
+                    LongRunningJobStatusEnum.Succeeded).ConfigureAwait(false);
+
+                firstComplete.Status = LongRunningJobStatusEnum.Failed;
+                AssertTrue(jobs.TryGetStatus(firstAccepted.JobId, out LongRunningJob? firstSnapshot));
+                AssertEqual(LongRunningJobStatusEnum.Succeeded, firstSnapshot!.Status);
+
+                LongRunningJob secondAccepted = jobs.Start(
+                    "second_operation",
+                    (_) => Task.FromResult<object?>(new { value = 2 }));
+                await WaitForTrackedJobStatusAsync(
+                    jobs,
+                    secondAccepted.JobId,
+                    LongRunningJobStatusEnum.Succeeded).ConfigureAwait(false);
+
+                AssertFalse(jobs.TryGetStatus(firstAccepted.JobId, out LongRunningJob? _));
+                AssertTrue(jobs.TryGetStatus(secondAccepted.JobId, out LongRunningJob? secondSnapshot));
+                AssertEqual(LongRunningJobStatusEnum.Succeeded, secondSnapshot!.Status);
             });
 
             await RunTest("armada_context_pack delegates and returns prestaged file", async () =>
@@ -832,6 +935,65 @@ namespace Armada.Test.Unit.Suites.Services
             return handlers;
         }
 
+        private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterJobHandlers(
+            RecordingCodeIndexService service,
+            LongRunningJobService jobs)
+        {
+            Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+            McpLongRunningJobTools.Register(
+                (name, _, _, handler) => handlers[name] = handler,
+                jobs);
+            McpCodeIndexTools.Register(
+                (name, _, _, handler) => handlers[name] = handler,
+                service,
+                jobs);
+            return handlers;
+        }
+
+        private static Task<object> GetJobStatusAsync(
+            Dictionary<string, Func<JsonElement?, Task<object>>> handlers,
+            string jobId)
+        {
+            JsonElement args = JsonSerializer.SerializeToElement(new { jobId });
+            return handlers["armada_job_status"](args);
+        }
+
+        private static async Task<object> WaitForJobStatusAsync(
+            Dictionary<string, Func<JsonElement?, Task<object>>> handlers,
+            string jobId,
+            LongRunningJobStatusEnum expectedStatus)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                object result = await GetJobStatusAsync(handlers, jobId).ConfigureAwait(false);
+                string json = JsonSerializer.Serialize(result);
+                if (json.Contains("\"Status\":\"" + expectedStatus + "\"", StringComparison.Ordinal))
+                    return result;
+                await Task.Delay(10).ConfigureAwait(false);
+            }
+
+            throw new TimeoutException("Job did not reach expected status " + expectedStatus + ".");
+        }
+
+        private static async Task<LongRunningJob> WaitForTrackedJobStatusAsync(
+            LongRunningJobService jobs,
+            string jobId,
+            LongRunningJobStatusEnum expectedStatus)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (jobs.TryGetStatus(jobId, out LongRunningJob? job)
+                    && job != null
+                    && job.Status == expectedStatus)
+                    return job;
+                await Task.Delay(10).ConfigureAwait(false);
+            }
+
+            throw new TimeoutException("Tracked job did not reach expected status " + expectedStatus + ".");
+        }
+
         private static CodeIndexStatus NewStatus(string vesselId)
         {
             return new CodeIndexStatus
@@ -878,6 +1040,12 @@ namespace Armada.Test.Unit.Suites.Services
             public string? LastStatusVesselId { get; private set; }
 
             public string? LastUpdateVesselId { get; private set; }
+
+            public TaskCompletionSource<bool>? UpdateStarted { get; set; }
+
+            public TaskCompletionSource<CodeIndexStatus>? UpdateCompletion { get; set; }
+
+            public Exception? UpdateException { get; set; }
 
             public ContextPackResponse ContextPackResponse { get; set; } = new ContextPackResponse
             {
@@ -959,6 +1127,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
             {
                 LastUpdateVesselId = vesselId;
+                UpdateStarted?.TrySetResult(true);
+                if (UpdateException != null) return Task.FromException<CodeIndexStatus>(UpdateException);
+                if (UpdateCompletion != null) return UpdateCompletion.Task;
                 return Task.FromResult(NewStatus(vesselId));
             }
 
