@@ -61,6 +61,8 @@ namespace Armada.Core.Services
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
+        private const string _CreditAuthQuarantineReason =
+            "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
@@ -1143,10 +1145,31 @@ namespace Armada.Core.Services
             // Release the captain to idle only AFTER the handoff and dock reclaim are done,
             // and only if the captain is still assigned to this mission. Orphan recovery can
             // finalize an older mission using a captain record that has already moved on.
+            Mission? releaseMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            bool quarantineForCreditAuthFailure =
+                releaseMission != null &&
+                releaseMission.Status == MissionStatusEnum.Failed &&
+                ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(releaseMission.FailureReason);
             Captain? latestCaptain = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
             if (latestCaptain != null && latestCaptain.CurrentMissionId == mission.Id)
             {
-                await _Captains.ReleaseAsync(latestCaptain, token).ConfigureAwait(false);
+                if (quarantineForCreditAuthFailure)
+                {
+                    DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(
+                        releaseMission!.FailureReason,
+                        DateTime.UtcNow);
+                    await _CaptainQuarantine.QuarantineAsync(
+                        latestCaptain,
+                        _CreditAuthQuarantineReason,
+                        retryAfterUtc,
+                        token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "captain " + captain.Id +
+                        " quarantined after provider credit or authentication failure on mission " + mission.Id);
+                }
+                else
+                {
+                    await _Captains.ReleaseAsync(latestCaptain, token).ConfigureAwait(false);
+                }
             }
             else
             {
