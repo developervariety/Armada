@@ -167,6 +167,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Landing_WhenPushIsIneffective_MarksEntryFailedWithoutReachingLanded", async () =>
+            {
+                string rootDir = NewTempDirectory("armada_landing_sm_noop_push_");
+                try
+                {
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, conflict: false).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings(rootDir);
+                        GitService realGit = new GitService(logging);
+                        MergeEntry entry = await CreateEntryAsync(testDb.Driver, repos, "state-noop-push").ConfigureAwait(false);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, realGit, new MergeFailureClassifier());
+
+                        for (int i = 0; i < 4; i++)
+                        {
+                            await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                        }
+                        await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Pushing).ConfigureAwait(false);
+
+                        string preLandRemoteHead = await ReadRemoteBranchHeadAsync(repos.RemoteDir, "main").ConfigureAwait(false);
+
+                        NoOpPushGitService noOpPushGit = new NoOpPushGitService(realGit);
+                        MergeQueueService resumed = new MergeQueueService(logging, testDb.Driver, settings, noOpPushGit, new MergeFailureClassifier());
+                        await resumed.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+
+                        await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Failed).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Failed).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should exist after an ineffective push");
+                        AssertContains("integration commit", updated!.TestOutput ?? "", "Failure output should identify the missing integration commit delivery");
+
+                        string postAttemptRemoteHead = await ReadRemoteBranchHeadAsync(repos.RemoteDir, "main").ConfigureAwait(false);
+                        AssertEqual(preLandRemoteHead, postAttemptRemoteHead, "Origin target branch must remain unchanged after an ineffective push");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            });
+
             await RunTest("Landing_WhenMergeConflicts_MarksEntryFailed", async () =>
             {
                 string rootDir = NewTempDirectory("armada_landing_sm_conflict_");
@@ -323,6 +366,36 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        private static async Task<string> ReadRemoteBranchHeadAsync(string remoteDir, string branch)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = remoteDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("rev-parse");
+            startInfo.ArgumentList.Add("--verify");
+            startInfo.ArgumentList.Add("refs/heads/" + branch);
+
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                if (process.ExitCode != 0)
+                {
+                    throw new InvalidOperationException("git rev-parse --verify refs/heads/" + branch + " failed: " + stderr);
+                }
+
+                return stdout.Trim();
+            }
+        }
+
         private static string NewTempDirectory(string prefix)
         {
             string path = Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
@@ -394,6 +467,57 @@ namespace Armada.Test.Unit.Suites.Services
                 PushRefSpecCalls++;
                 return _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
             }
+
+            public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => _Inner.SetHeadSymbolicRefAsync(repoPath, targetRef, token);
+
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, fromRef, toRef, token);
+        }
+
+        /// <summary>
+        /// Test double whose PushRefSpecAsync silently no-ops instead of advancing origin,
+        /// simulating an ineffective push that returns without error.
+        /// </summary>
+        private sealed class NoOpPushGitService : IGitService
+        {
+            private readonly IGitService _Inner;
+
+            public NoOpPushGitService(IGitService inner)
+            {
+                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            }
+
+            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => _Inner.CloneBareAsync(repoUrl, localPath, token);
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default) => _Inner.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token: token);
+            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => _Inner.RemoveWorktreeAsync(worktreePath, token);
+            public Task FetchAsync(string repoPath, CancellationToken token = default) => _Inner.FetchAsync(repoPath, token);
+            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => _Inner.PushBranchAsync(worktreePath, remoteName, token);
+            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => _Inner.CreatePullRequestAsync(worktreePath, title, body, token);
+            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => _Inner.RepairWorktreeAsync(worktreePath, token);
+            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => _Inner.IsRepositoryAsync(path, token);
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.DeleteLocalBranchAsync(repoPath, branchName, token);
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.DeleteRemoteBranchAsync(repoPath, branchName, token);
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => _Inner.GetRepositoryHeadRefAsync(repoPath, token);
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.SetRepositoryHeadAsync(repoPath, branchName, token);
+            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => _Inner.PruneWorktreesAsync(repoPath, token);
+            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => _Inner.EnableAutoMergeAsync(worktreePath, prUrl, token);
+            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => _Inner.MergeBranchLocalAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, commitMessage, token);
+            public Task PullAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullAsync(workingDirectory, token);
+            public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullFastForwardOnlyAsync(workingDirectory, token);
+            public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => _Inner.GetCurrentBranchAsync(workingDirectory, token);
+            public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => _Inner.DiffAsync(worktreePath, baseBranch, token);
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => _Inner.GetHeadCommitHashAsync(worktreePath, token);
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => _Inner.GetChangedFilesSinceAsync(worktreePath, startCommit, token);
+            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => _Inner.IsPrMergedAsync(workingDirectory, prUrl, token);
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.BranchExistsAsync(repoPath, branchName, token);
+            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.EnsureLocalBranchAsync(repoPath, branchName, token);
+            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => _Inner.IsWorktreeRegisteredAsync(repoPath, worktreePath, token);
+
+            /// <summary>
+            /// Simulates an ineffective push: returns successfully without delegating to
+            /// the real git service, so origin's target branch is left unchanged.
+            /// </summary>
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
 
             public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => _Inner.SetHeadSymbolicRefAsync(repoPath, targetRef, token);
 
