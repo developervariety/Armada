@@ -904,6 +904,11 @@ namespace Armada.Core.Services
 
             if (await BranchExistsAsync(repoPath, branchName).ConfigureAwait(false))
             {
+                if (!await CanSynchronizeLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false))
+                {
+                    return true;
+                }
+
                 await RunGitAsync(repoPath, "branch", "-f", branchName, "refs/remotes/origin/" + branchName).ConfigureAwait(false);
             }
             else
@@ -912,6 +917,39 @@ namespace Armada.Core.Services
             }
 
             return true;
+        }
+
+        private async Task<bool> CanSynchronizeLocalBranchFromRemoteAsync(string repoPath, string branchName)
+        {
+            string localRef = "refs/heads/" + branchName;
+            string remoteRef = "refs/remotes/origin/" + branchName;
+
+            try
+            {
+                string result = await RunGitAsync(repoPath, "rev-list", "--count", remoteRef + ".." + localRef).ConfigureAwait(false);
+                if (!Int32.TryParse(result.Trim(), out int localCommitCount) || localCommitCount < 0)
+                {
+                    _Logging.Warn(_Header + "ABORTED local branch synchronization for " + branchName +
+                        ": preserving " + localRef + " because the ahead comparison returned an invalid result");
+                    return false;
+                }
+
+                if (localCommitCount > 0)
+                {
+                    _Logging.Warn(_Header + "ABORTED local branch synchronization for " + branchName +
+                        ": preserving " + localRef + " because it contains " + localCommitCount +
+                        " commit(s) not reachable from " + remoteRef);
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "ABORTED local branch synchronization for " + branchName +
+                    ": preserving " + localRef + " because the ahead comparison failed: " + ex.Message);
+                return false;
+            }
         }
 
         private async Task<bool> IsBranchCheckedOutInWorktreeAsync(string repoPath, string branchName)
