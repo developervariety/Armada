@@ -92,6 +92,8 @@ namespace Armada.Core.Services
         private bool _RetryDispatchNeeded = false;
         private DateTime? _LastAuditNotifyUtc = null;
         private readonly object _AuditNotifyLock = new object();
+        private const string _CreditAuthQuarantineReason =
+            "Provider credit, billing, payment, or authentication failure detected during mission execution.";
 
         #endregion
 
@@ -2137,13 +2139,16 @@ namespace Armada.Core.Services
                 runtime = DateTime.UtcNow - mission.StartedUtc.Value;
             }
 
+            bool isCreditAuthFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
             bool isQuotaFailure = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ||
+                isCreditAuthFailure ||
                 ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(exitCode, runtime, failureReason);
 
             if (isQuotaFailure)
             {
                 DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(failureReason, DateTime.UtcNow);
-                await _CaptainQuarantine.QuarantineAsync(captain, failureReason, retryAfterUtc, token).ConfigureAwait(false);
+                string quarantineReason = isCreditAuthFailure ? _CreditAuthQuarantineReason : failureReason;
+                await _CaptainQuarantine.QuarantineAsync(captain, quarantineReason, retryAfterUtc, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after non-retryable quota failure on mission " + missionId);
             }
             else if (IsCaptainUnavailableFailureReason(failureReason))
@@ -2217,10 +2222,13 @@ namespace Armada.Core.Services
 
             // Reclaim the dock before changing captain availability.
             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
-            if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason))
+            bool isCreditAuthFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
+            bool shouldQuarantine = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) || isCreditAuthFailure;
+            if (shouldQuarantine)
             {
                 DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(failureReason, DateTime.UtcNow);
-                await _CaptainQuarantine.QuarantineAsync(captain, failureReason, retryAfterUtc, token).ConfigureAwait(false);
+                string quarantineReason = isCreditAuthFailure ? _CreditAuthQuarantineReason : failureReason;
+                await _CaptainQuarantine.QuarantineAsync(captain, quarantineReason, retryAfterUtc, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after quota failure on requeued mission " + missionId);
             }
             else
@@ -2232,7 +2240,7 @@ namespace Armada.Core.Services
 
             Signal signal = new Signal(SignalTypeEnum.Progress,
                 "Mission " + missionId + " requeued after transient captain failure: " + failureReason +
-                (ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ? " (captain quarantined)" : " (captain stalled)"));
+                (shouldQuarantine ? " (captain quarantined)" : " (captain stalled)"));
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
