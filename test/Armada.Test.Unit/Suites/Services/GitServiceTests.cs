@@ -671,6 +671,64 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("EnsureLocalBranchAsync LocalAheadOfOrigin PreservesUnpushedCommits", async () =>
+            {
+                // Regression: a local branch carrying commits absent from its origin
+                // tracking branch must never be force-reset during synchronization.
+                // The guard preserves refs/heads/<branch> and leaves the ahead commit
+                // reachable while origin remains authoritative for the comparison.
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string workDir = Path.Combine(rootDir, "work");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", bareDir, workDir).ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    string originMainBefore = (await RunGitAsync(workDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+
+                    // Create a local commit on main that is never pushed to origin.
+                    await File.WriteAllTextAsync(Path.Combine(workDir, "README.md"), "base\nlocal only\n").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "commit", "-am", "Local unpushed commit").ConfigureAwait(false);
+                    string aheadCommit = (await RunGitAsync(workDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    // Move off main so it is not checked out anywhere; no worktree holds it.
+                    await RunGitAsync(workDir, "checkout", "-b", "holding").ConfigureAwait(false);
+
+                    bool ensured = await service.EnsureLocalBranchAsync(workDir, "main").ConfigureAwait(false);
+
+                    string postLocalMain = (await RunGitAsync(workDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string originMainAfter = (await RunGitAsync(workDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+
+                    AssertTrue(ensured, "EnsureLocalBranchAsync should report success while preserving the ahead local ref");
+                    AssertEqual(aheadCommit, postLocalMain, "Local ref must be preserved, not force-reset, when it is ahead of origin");
+                    AssertNotEqual(originMainAfter, postLocalMain, "The ahead local commit must remain absent from the origin tracking ref");
+                    AssertEqual(originMainBefore, originMainAfter, "The origin tracking ref must remain authoritative and unchanged for comparison");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("CreateWorktreeAsync ExistingBranch StaysOnNamedBranch", async () =>
             {
                 GitService service = CreateService();

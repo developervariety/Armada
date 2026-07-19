@@ -904,6 +904,14 @@ namespace Armada.Core.Services
 
             if (await BranchExistsAsync(repoPath, branchName).ConfigureAwait(false))
             {
+                if (await LocalBranchHasCommitsAbsentFromRemoteAsync(repoPath, branchName).ConfigureAwait(false))
+                {
+                    _Logging.Warn(_Header + "ABORTING local ref sync for branch " + branchName
+                        + ": local ref refs/heads/" + branchName + " has commits not reachable from origin/" + branchName
+                        + "; preserving local ref to avoid discarding unpushed commits");
+                    return true;
+                }
+
                 await RunGitAsync(repoPath, "branch", "-f", branchName, "refs/remotes/origin/" + branchName).ConfigureAwait(false);
             }
             else
@@ -912,6 +920,38 @@ namespace Armada.Core.Services
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Determines whether the local branch contains commits that are not reachable from its origin tracking branch.
+        /// Fails closed: if the reachability comparison cannot be completed reliably, the method reports that ahead
+        /// commits may exist so callers preserve the local ref instead of force-updating it.
+        /// </summary>
+        private async Task<bool> LocalBranchHasCommitsAbsentFromRemoteAsync(string repoPath, string branchName)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            try
+            {
+                string range = "refs/remotes/origin/" + branchName + "..refs/heads/" + branchName;
+                string output = (await RunGitAsync(repoPath, "rev-list", "--count", range).ConfigureAwait(false)).Trim();
+
+                if (!Int32.TryParse(output, out int aheadCount))
+                {
+                    _Logging.Warn(_Header + "unable to parse ahead-commit count '" + output + "' for branch " + branchName
+                        + "; preserving local ref");
+                    return true;
+                }
+
+                return aheadCount > 0;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "unable to compare local branch " + branchName + " against origin/" + branchName
+                    + ": " + ex.Message + "; preserving local ref");
+                return true;
+            }
         }
 
         private async Task<bool> IsBranchCheckedOutInWorktreeAsync(string repoPath, string branchName)
