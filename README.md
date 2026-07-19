@@ -98,6 +98,7 @@ Built-in pipelines let work move through the right level of review:
 - `WorkerOnly`: one implementation mission.
 - `Reviewed`: Worker followed by Judge.
 - `Tested`: Worker, TestEngineer, then Judge.
+- `ReconciliationTested`: Worker, TestEngineer, then Judge for evidence-based reconciliation of implementation and test drift.
 - `FullPipeline`: Architect, Worker, TestEngineer, then Judge.
 - `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, then Judge.
 - Specialist tested pipelines: DiagnosticProtocol, TenantSecurity, MigrationData, PerformanceMemory, ReferencePorting, and FrontendWorkflow review before tests and Judge.

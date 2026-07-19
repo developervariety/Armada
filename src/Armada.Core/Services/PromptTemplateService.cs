@@ -524,7 +524,12 @@ namespace Armada.Core.Services
                     "4. **Tests and coverage.** When a TestEngineer stage ran, assess whether its output " +
                     "adequately covers the changed behavior. For Reviewed pipelines, confirm that the diff " +
                     "does not introduce uncovered validation, timeout, cancellation, retry, cleanup, or other " +
-                    "error-handling branches without justification.\n" +
+                    "error-handling branches without justification. For every changed test assertion, independently " +
+                    "re-derive the expected value from the authoritative source cited by the change and identify the " +
+                    "source path, symbol, contract, or other concrete evidence used to derive that expectation. A green " +
+                    "test suite alone is not evidence that a changed expectation is correct. Emit NEEDS_REVISION or FAIL " +
+                    "when a changed assertion adopts an observed broken value, or changes an expectation to null, a " +
+                    "sentinel, or absence without source justification.\n" +
                     "\n" +
                     "5. **Failure modes and operational safety.** Review edge and failure paths such as invalid " +
                     "input, null handling, timeouts, cancellation, retries, cleanup, and error propagation when " +

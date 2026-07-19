@@ -121,6 +121,12 @@ namespace Armada.Core.Services
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
+                "ReconciliationTested",
+                "Evidence-based reconciliation of implementation and test drift through Worker, TestEngineer, and Judge review.",
+                new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "TestEngineer"), new PipelineStage(3, "Judge") },
+                token).ConfigureAwait(false);
+
+            await SeedPipelineAsync(
                 "FullPipeline",
                 "Architect then Worker then TestEngineer then Judge.",
                 new List<PipelineStage> { new PipelineStage(1, "Architect"), new PipelineStage(2, "Worker"), new PipelineStage(3, "TestEngineer"), new PipelineStage(4, "Judge") },
