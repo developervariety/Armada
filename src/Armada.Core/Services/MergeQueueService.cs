@@ -1652,7 +1652,7 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "push already reflected on origin/" + entry.TargetBranch + " for " + entry.Id);
                 }
 
-                await SynchronizeTargetBranchAfterPushAsync(entry, repoPath, entry.TargetBranch, token).ConfigureAwait(false);
+                await SynchronizeTargetBranchAfterPushAsync(entry, repoPath, entry.TargetBranch, integrationHead, token).ConfigureAwait(false);
 
                 entry.Status = MergeStatusEnum.Landed;
                 entry.CompletedUtc = DateTime.UtcNow;
@@ -1831,15 +1831,18 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// After a successful push, make the bare repository's local target branch
-        /// match the fetched remote target before advertising the merge as landed.
-        /// When the target branch is checked out in a worktree, the update is skipped
-        /// and a structured event is emitted rather than failing the land.
+        /// After a push attempt, fetch origin and verify the target branch actually resolves
+        /// to the expected integration commit before advertising the merge as landed. A stale
+        /// or ineffective push is rejected here rather than treated as a successful delivery.
+        /// Once verified, make the bare repository's local target branch match the fetched
+        /// remote target. When the target branch is checked out in a worktree, the local
+        /// update is skipped and a structured event is emitted rather than failing the land.
         /// </summary>
-        private async Task SynchronizeTargetBranchAfterPushAsync(MergeEntry entry, string repoPath, string targetBranch, CancellationToken token)
+        private async Task SynchronizeTargetBranchAfterPushAsync(MergeEntry entry, string repoPath, string targetBranch, string expectedIntegrationCommit, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrWhiteSpace(targetBranch)) throw new ArgumentNullException(nameof(targetBranch));
+            if (String.IsNullOrWhiteSpace(expectedIntegrationCommit)) throw new ArgumentNullException(nameof(expectedIntegrationCommit));
 
             await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
 
@@ -1849,6 +1852,12 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(remoteHead))
             {
                 throw new InvalidOperationException("Unable to verify remote target branch " + remoteRef + " after push");
+            }
+
+            if (!String.Equals(remoteHead, expectedIntegrationCommit, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Origin target branch " + remoteRef + " resolved to " + remoteHead +
+                    " instead of expected integration commit " + expectedIntegrationCommit + "; push did not deliver the landed commit");
             }
 
             if (await IsBranchCheckedOutInWorktreeAsync(repoPath, targetBranch, token).ConfigureAwait(false))
