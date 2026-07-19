@@ -643,6 +643,12 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("## Completeness", judgeContent, "Judge prompt should require a Completeness section");
                         AssertContains("## Failure Modes", judgeContent, "Judge prompt should require a Failure Modes section");
                         AssertContains("PASS is not allowed", judgeContent, "Judge prompt should constrain PASS approvals");
+                        AssertContains("For every changed test assertion, independently re-derive", judgeContent, "Generated Judge instructions should require independent derivation for every changed assertion");
+                        AssertContains("source path, symbol, contract, or other concrete evidence", judgeContent, "Generated Judge instructions should require concrete source evidence");
+                        AssertContains("green test suite alone is not evidence", judgeContent, "Generated Judge instructions should reject suite-green reasoning alone");
+                        AssertContains("NEEDS_REVISION or FAIL", judgeContent, "Generated Judge instructions should require rejection of regression-masking assertions");
+                        AssertContains("observed broken value", judgeContent, "Generated Judge instructions should reject observed broken expectations");
+                        AssertContains("null, a sentinel, or absence without source justification", judgeContent, "Generated Judge instructions should reject unjustified null, sentinel, and absent expectations");
 
                         Mission testMission = new Mission();
                         testMission.Title = "Test coverage structure test";

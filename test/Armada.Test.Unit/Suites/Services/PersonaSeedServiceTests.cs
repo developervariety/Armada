@@ -86,6 +86,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed creates selectable ReconciliationTested pipeline idempotently", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? first = await testDb.Driver.Pipelines.ReadByNameAsync("ReconciliationTested").ConfigureAwait(false);
+                    AssertNotNull(first, "ReconciliationTested should be selectable by name after seeding");
+                    AssertTrue(first!.IsBuiltIn, "ReconciliationTested should be built in");
+                    AssertTrue(first.Active, "ReconciliationTested should be active");
+                    AssertEqual(Constants.DefaultTenantId, first.TenantId, "ReconciliationTested should use the default tenant");
+                    AssertContains("Evidence-based reconciliation", first.Description ?? "", "ReconciliationTested should describe its evidence-based purpose");
+                    AssertPipelineStages(
+                        first,
+                        new List<string> { "Worker", "TestEngineer", "Judge" },
+                        "ReconciliationTested");
+
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? second = await testDb.Driver.Pipelines.ReadByNameAsync("ReconciliationTested").ConfigureAwait(false);
+                    AssertNotNull(second, "ReconciliationTested should remain selectable after repeated seeding");
+                    AssertEqual(first.Id, second!.Id, "Repeated seeding should preserve the ReconciliationTested pipeline identity");
+
+                    List<Pipeline> pipelines = await testDb.Driver.Pipelines.EnumerateAsync().ConfigureAwait(false);
+                    int matches = pipelines.Count(p => p.Name == "ReconciliationTested");
+                    AssertEqual(1, matches, "Repeated seeding should not duplicate ReconciliationTested");
+                }
+            });
+
+            await RunTest("Seed reconciles stale ReconciliationTested pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Pipeline existingPipeline = new Pipeline("ReconciliationTested");
+                    existingPipeline.Description = "Stale reconciliation pipeline";
+                    existingPipeline.IsBuiltIn = false;
+                    existingPipeline.Active = false;
+                    existingPipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    await testDb.Driver.Pipelines.CreateAsync(existingPipeline).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ReconciliationTested").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "Stale ReconciliationTested should remain selectable after reconciliation");
+                    AssertTrue(pipeline!.IsBuiltIn, "Reconciled ReconciliationTested should be built in");
+                    AssertTrue(pipeline.Active, "Reconciled ReconciliationTested should be active");
+                    AssertEqual(Constants.DefaultTenantId, pipeline.TenantId, "Reconciled ReconciliationTested should use the default tenant");
+                    AssertContains("Evidence-based reconciliation", pipeline.Description ?? "", "ReconciliationTested description should be canonical after reconciliation");
+                    AssertPipelineStages(
+                        pipeline,
+                        new List<string> { "Worker", "TestEngineer", "Judge" },
+                        "ReconciliationTested");
+                }
+            });
+
             await RunTest("Seed reconciles existing product persona and pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

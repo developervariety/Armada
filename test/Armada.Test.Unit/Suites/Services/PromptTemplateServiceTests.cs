@@ -255,6 +255,12 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("## Completeness", judge!.Content, "Judge template should require a Completeness section");
                     AssertContains("## Failure Modes", judge.Content, "Judge template should require a Failure Modes section");
                     AssertContains("PASS is not allowed", judge.Content, "Judge template should constrain PASS when review is incomplete");
+                    AssertContains("For every changed test assertion, independently re-derive", judge.Content, "Judge template should require independent derivation for every changed assertion");
+                    AssertContains("source path, symbol, contract, or other concrete evidence", judge.Content, "Judge template should require concrete source evidence for changed expectations");
+                    AssertContains("green test suite alone is not evidence", judge.Content, "Judge template should reject suite-green reasoning without source evidence");
+                    AssertContains("NEEDS_REVISION or FAIL", judge.Content, "Judge template should require rejection of regression-masking assertions");
+                    AssertContains("observed broken value", judge.Content, "Judge template should reject expectations copied from broken behavior");
+                    AssertContains("null, a sentinel, or absence without source justification", judge.Content, "Judge template should reject unjustified null, sentinel, and absent expectations");
 
                     PromptTemplate? testEngineer = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
                     AssertNotNull(testEngineer, "Test engineer template should resolve");
