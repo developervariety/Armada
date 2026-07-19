@@ -108,8 +108,23 @@ namespace Armada.Core.Services
                     await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, targetBranch, commitMessage, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
 
-                    await _Git.PushBranchAsync(worktreePath, "origin", token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
+                    // LocalMerge lands into the local repository only -- pushing to a remote is
+                    // the operator's decision, never automatic. Pushing here made every landing
+                    // fail once the local default branch diverged from the remote: git rejects
+                    // the push as non-fast-forward, IsTargetBranchDrift misclassifies that
+                    // rejection as target-branch drift, and the retry loop re-merges and
+                    // re-pushes the same divergence until maxLandingRetries is exhausted. The
+                    // mission is then marked LandingFailed and its branch is left stray even
+                    // though the local merge itself succeeded.
+                    if (vessel.LandingMode != LandingModeEnum.LocalMerge)
+                    {
+                        await _Git.PushBranchAsync(worktreePath, "origin", token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
+                    }
+                    else
+                    {
+                        _Logging.Info(_Header + "landing mode is LocalMerge -- skipping push to origin for mission " + mission.Id);
+                    }
 
                     succeeded = true;
                 }

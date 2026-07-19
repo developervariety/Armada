@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.IO;
     using System.Linq;
     using Armada.Core.Database.Sqlite;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -199,6 +200,44 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(3, git.WorktreeCalls.Count, "Initial attempt plus two retries should be attempted");
                     AssertEqual(2, read!.LandingRetryCount, "Retry count should stop at the configured maximum");
                     AssertContains("target_branch_drift_retry_exhausted", read.FailureReason ?? String.Empty);
+                }
+            });
+
+            await RunTest("MergeInDedicatedWorktreeAsync_LocalMergeVessel_DoesNotPushAndSurvivesRemoteDivergence", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    // Regression: LocalMerge means "land into the local repository"; pushing to a
+                    // remote is the operator's call. When the local default branch had diverged
+                    // from origin, the unconditional push was rejected as non-fast-forward,
+                    // IsTargetBranchDrift misread that as target-branch drift, and the retry loop
+                    // burned maxLandingRetries re-pushing the same divergence -- marking the
+                    // mission LandingFailed and leaving a stray branch even though the local merge
+                    // had succeeded. Standing push failures must not affect a LocalMerge landing.
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxLandingRetries = 2;
+                    StubGitService git = new StubGitService();
+                    git.DriftPushFailuresRemaining = 5;
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    vessel.LandingMode = LandingModeEnum.LocalMerge;
+                    Mission mission = CreateMission("msn_local_merge_no_push");
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    string integrationWorktree = IntegrationWorktreePath(settings, mission);
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(
+                        vessel,
+                        mission,
+                        "main",
+                        "armada/captain/msn_local_merge_no_push",
+                        "Merge armada mission").ConfigureAwait(false);
+
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(result, "LocalMerge landing should succeed without pushing");
+                    AssertFalse(git.PushCalls.Contains(integrationWorktree), "LocalMerge landing must not push to origin");
+                    AssertEqual(1, git.WorktreeCalls.Count, "LocalMerge landing should not retry when no push is attempted");
+                    AssertEqual(0, read!.LandingRetryCount, "LocalMerge landing should not consume landing retries");
+                    AssertTrue(String.IsNullOrEmpty(read.FailureReason), "LocalMerge landing should not record a failure reason");
                 }
             });
 
