@@ -229,6 +229,76 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("CreateAsync rejects a missing incident reference with a specific error", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_missing_incident";
+                string userId = "usr_objective_missing_incident";
+                string missingIncidentId = "inc_objective_missing";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                InvalidOperationException? exception = null;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Objective with missing incident",
+                        IncidentIds = new List<string> { missingIncidentId }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    exception = ex;
+                }
+
+                AssertTrue(exception != null, "Expected missing incident validation to throw.");
+                AssertContains("Incident not found or not accessible: " + missingIncidentId, exception!.Message);
+
+                EnumerationResult<Objective> objectivesAfterFailure = await objectives.EnumerateAsync(auth, new ObjectiveQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 25
+                }).ConfigureAwait(false);
+                AssertEqual(0, objectivesAfterFailure.Objects.Count);
+            }).ConfigureAwait(false);
+
+            await RunTest("LinkIncidentAsync rejects a missing incident without changing the objective", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_link_missing";
+                string userId = "usr_objective_link_missing";
+                string missingIncidentId = "inc_objective_link_missing";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Objective without incident"
+                }).ConfigureAwait(false);
+
+                InvalidOperationException? exception = null;
+                try
+                {
+                    await objectives.LinkIncidentAsync(auth, created.Id, missingIncidentId).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    exception = ex;
+                }
+
+                AssertTrue(exception != null, "Expected missing incident linking to throw.");
+                AssertContains("Incident not found or not accessible: " + missingIncidentId, exception!.Message);
+
+                Objective? persisted = await objectives.ReadAsync(auth, created.Id).ConfigureAwait(false);
+                persisted = NotNull(persisted);
+                AssertEqual(0, persisted.IncidentIds.Count);
+            }).ConfigureAwait(false);
+
             await RunTest("EnumerateAsync backfills latest snapshot into normalized objective storage", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
