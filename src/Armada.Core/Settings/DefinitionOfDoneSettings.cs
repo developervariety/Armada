@@ -61,6 +61,16 @@ namespace Armada.Core.Settings
             set => _OutputTailLines = Math.Max(10, Math.Min(500, value));
         }
 
+        /// <summary>
+        /// Maximum number of leading recognized compiler or test-failure diagnostic lines
+        /// retained from the complete command output. Clamped to [1, 100]. Defaults to 20.
+        /// </summary>
+        public int DiagnosticLines
+        {
+            get => _DiagnosticLines;
+            set => _DiagnosticLines = Math.Max(1, Math.Min(100, value));
+        }
+
         #endregion
 
         #region Private-Members
@@ -68,6 +78,7 @@ namespace Armada.Core.Settings
         private string _DocOnlyMarker = "[DOD:DOC-ONLY]";
         private int _CommandTimeoutSeconds = 600;
         private int _OutputTailLines = 50;
+        private int _DiagnosticLines = 20;
 
         #endregion
     }

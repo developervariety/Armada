@@ -908,12 +908,26 @@ namespace Armada.Core.Services
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         mission.FailureReason = BuildDodFailureReason(dodResult);
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                        _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate: " + mission.FailureReason);
+                        _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
+                            dodResult.FailureClass);
                     }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception dodEx)
                 {
-                    _Logging.Warn(_Header + "error in DoD gate for mission " + mission.Id + ": " + dodEx.Message);
+                    failedForDodGate = true;
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission.FailureReason =
+                        "DoD gate failed: classification=Infra; gate-evaluation command exited -1\n" +
+                        "Gate evaluation could not be completed due to an infrastructure error.";
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "infrastructure error in DoD gate for mission " + mission.Id +
+                        " exceptionType=" + dodEx.GetType().Name);
                 }
             }
 
@@ -4009,7 +4023,10 @@ namespace Armada.Core.Services
         {
             string label = result.CommandLabel ?? "unknown";
             string tail = String.IsNullOrWhiteSpace(result.OutputTail) ? "" : "\n" + result.OutputTail.Trim();
-            return "DoD gate failed: " + label + " command exited " + result.ExitCode + tail;
+            DefinitionOfDoneFailureClassEnum failureClass = result.FailureClass
+                ?? DefinitionOfDoneFailureClassEnum.Infra;
+            return "DoD gate failed: classification=" + failureClass + "; " + label +
+                " command exited " + result.ExitCode + tail;
         }
 
         private static string ApplyReviewFeedback(string? description, string reviewComment)
