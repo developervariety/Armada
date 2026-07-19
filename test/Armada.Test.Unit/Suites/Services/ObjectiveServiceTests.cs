@@ -229,6 +229,215 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("CreateAsync rejects a missing incident reference with a specific error", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_missing_incident";
+                string userId = "usr_objective_missing_incident";
+                string missingIncidentId = "inc_objective_missing";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                InvalidOperationException? exception = null;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Objective with missing incident",
+                        IncidentIds = new List<string> { missingIncidentId }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    exception = ex;
+                }
+
+                AssertTrue(exception != null, "Expected missing incident validation to throw.");
+                AssertContains("Incident not found or not accessible: " + missingIncidentId, exception!.Message);
+
+                EnumerationResult<Objective> objectivesAfterFailure = await objectives.EnumerateAsync(auth, new ObjectiveQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 25
+                }).ConfigureAwait(false);
+                AssertEqual(0, objectivesAfterFailure.Objects.Count);
+            }).ConfigureAwait(false);
+
+            await RunTest("LinkIncidentAsync rejects a missing incident without changing the objective", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_link_missing";
+                string userId = "usr_objective_link_missing";
+                string missingIncidentId = "inc_objective_link_missing";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Objective without incident"
+                }).ConfigureAwait(false);
+
+                InvalidOperationException? exception = null;
+                try
+                {
+                    await objectives.LinkIncidentAsync(auth, created.Id, missingIncidentId).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    exception = ex;
+                }
+
+                AssertTrue(exception != null, "Expected missing incident linking to throw.");
+                AssertContains("Incident not found or not accessible: " + missingIncidentId, exception!.Message);
+
+                Objective? persisted = await objectives.ReadAsync(auth, created.Id).ConfigureAwait(false);
+                persisted = NotNull(persisted);
+                AssertEqual(0, persisted.IncidentIds.Count);
+            }).ConfigureAwait(false);
+
+            await RunTest("LinkVoyageAsync prunes a dangling incident reference and fires the warning callback", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                string tenantId = "ten_objective_prune_dangling";
+                string userId = "usr_objective_prune_dangling";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                List<string> skipped = new List<string>();
+                objectives.OnDanglingIncidentSkipped = id => skipped.Add(id);
+
+                Voyage voyage = new Voyage("Prune Voyage", "Dispatch re-persist voyage")
+                {
+                    TenantId = tenantId,
+                    UserId = userId
+                };
+                await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Objective with dangling incident"
+                }).ConfigureAwait(false);
+
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Dangling Incident"
+                }).ConfigureAwait(false);
+
+                Objective linked = await objectives.LinkIncidentAsync(auth, created.Id, incident.Id).ConfigureAwait(false);
+                AssertTrue(linked.IncidentIds.Contains(incident.Id), "Expected incident to be linked before it dangles.");
+
+                await incidents.DeleteAsync(auth, incident.Id).ConfigureAwait(false);
+
+                Objective dispatched = await objectives.LinkVoyageAsync(auth, created.Id, voyage.Id).ConfigureAwait(false);
+
+                AssertTrue(dispatched.VoyageIds.Contains(voyage.Id), "Expected voyage to be linked despite the dangling incident.");
+                AssertTrue(!dispatched.IncidentIds.Contains(incident.Id), "Expected dangling incident to be pruned.");
+                AssertEqual(0, dispatched.IncidentIds.Count);
+                AssertEqual(1, skipped.Count);
+                AssertEqual(incident.Id, skipped[0]);
+
+                Objective? reread = await objectives.ReadAsync(auth, created.Id).ConfigureAwait(false);
+                reread = NotNull(reread);
+                AssertTrue(!reread.IncidentIds.Contains(incident.Id), "Expected the prune to persist (self-heal).");
+            }).ConfigureAwait(false);
+
+            await RunTest("LinkVoyageAsync retains valid incidents while pruning only the dangling one", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                string tenantId = "ten_objective_prune_mixed";
+                string userId = "usr_objective_prune_mixed";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                List<string> skipped = new List<string>();
+                objectives.OnDanglingIncidentSkipped = id => skipped.Add(id);
+
+                Voyage voyage = new Voyage("Mixed Voyage", "Dispatch re-persist voyage")
+                {
+                    TenantId = tenantId,
+                    UserId = userId
+                };
+                await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Objective with mixed incidents"
+                }).ConfigureAwait(false);
+
+                Incident validIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Valid Incident"
+                }).ConfigureAwait(false);
+                Incident danglingIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Dangling Incident"
+                }).ConfigureAwait(false);
+
+                await objectives.LinkIncidentAsync(auth, created.Id, validIncident.Id).ConfigureAwait(false);
+                await objectives.LinkIncidentAsync(auth, created.Id, danglingIncident.Id).ConfigureAwait(false);
+
+                await incidents.DeleteAsync(auth, danglingIncident.Id).ConfigureAwait(false);
+
+                Objective dispatched = await objectives.LinkVoyageAsync(auth, created.Id, voyage.Id).ConfigureAwait(false);
+
+                AssertTrue(dispatched.VoyageIds.Contains(voyage.Id), "Expected voyage to be linked.");
+                AssertTrue(dispatched.IncidentIds.Contains(validIncident.Id), "Expected valid incident to be retained.");
+                AssertTrue(!dispatched.IncidentIds.Contains(danglingIncident.Id), "Expected dangling incident to be pruned.");
+                AssertEqual(1, dispatched.IncidentIds.Count);
+                AssertEqual(1, skipped.Count);
+                AssertEqual(danglingIncident.Id, skipped[0]);
+            }).ConfigureAwait(false);
+
+            await RunTest("LinkVoyageAsync succeeds when the only incident reference is dangling", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                string tenantId = "ten_objective_prune_only";
+                string userId = "usr_objective_prune_only";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                Voyage voyage = new Voyage("Only Voyage", "Dispatch re-persist voyage")
+                {
+                    TenantId = tenantId,
+                    UserId = userId
+                };
+                await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Objective with only a dangling incident"
+                }).ConfigureAwait(false);
+
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Sole Dangling Incident"
+                }).ConfigureAwait(false);
+
+                await objectives.LinkIncidentAsync(auth, created.Id, incident.Id).ConfigureAwait(false);
+                await incidents.DeleteAsync(auth, incident.Id).ConfigureAwait(false);
+
+                Objective dispatched = await objectives.LinkVoyageAsync(auth, created.Id, voyage.Id).ConfigureAwait(false);
+
+                AssertTrue(dispatched.VoyageIds.Contains(voyage.Id), "Expected voyage to be linked.");
+                AssertEqual(0, dispatched.IncidentIds.Count);
+            }).ConfigureAwait(false);
+
             await RunTest("EnumerateAsync backfills latest snapshot into normalized objective storage", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -20,6 +20,14 @@ namespace Armada.Core.Services
         /// </summary>
         public Action<Objective>? OnObjectiveChanged { get; set; }
 
+        /// <summary>
+        /// Optional callback invoked with the identifier of a dangling incident reference that was
+        /// pruned from an objective during the shared re-persist path. Mirrors the optional-callback
+        /// pattern of <see cref="OnObjectiveChanged"/> so a warning can be surfaced without adding a
+        /// logging constructor dependency.
+        /// </summary>
+        public Action<string>? OnDanglingIncidentSkipped { get; set; }
+
         private readonly DatabaseDriver _Database;
         private readonly SemaphoreSlim _BackfillLock = new SemaphoreSlim(1, 1);
         private bool _BackfillCompleted = false;
@@ -1072,10 +1080,36 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task PruneDanglingIncidentReferencesAsync(AuthContext auth, Objective objective, CancellationToken token)
+        {
+            if (objective.IncidentIds == null || objective.IncidentIds.Count == 0)
+                return;
+
+            List<string> retained = new List<string>(objective.IncidentIds.Count);
+            foreach (string id in new List<string>(objective.IncidentIds))
+            {
+                if (await ReadIncidentAsync(auth, id, token).ConfigureAwait(false))
+                {
+                    retained.Add(id);
+                }
+                else
+                {
+                    OnDanglingIncidentSkipped?.Invoke(id);
+                }
+            }
+
+            if (retained.Count != objective.IncidentIds.Count)
+            {
+                objective.IncidentIds.Clear();
+                objective.IncidentIds.AddRange(retained);
+            }
+        }
+
         private async Task<Objective> PersistLinkedObjectiveAsync(AuthContext auth, Objective objective, CancellationToken token)
         {
             objective.LastUpdateUtc = DateTime.UtcNow;
             SanitizeObjective(objective);
+            await PruneDanglingIncidentReferencesAsync(auth, objective, token).ConfigureAwait(false);
             await ValidateLinksAsync(auth, objective, token).ConfigureAwait(false);
             ApplyLifecycleTimestamps(objective);
             await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
