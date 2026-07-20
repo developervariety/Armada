@@ -580,17 +580,6 @@ namespace Armada.Core.Services
 
                     string siblingWorktreePath = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
 
-                    if (Directory.Exists(siblingWorktreePath))
-                    {
-                        bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);
-                        if (isRegistered)
-                        {
-                            try { await _Git.RemoveWorktreeAsync(siblingWorktreePath, token).ConfigureAwait(false); }
-                            catch (Exception rmEx) { _Logging.Warn(_Header + "git worktree remove failed for sibling " + siblingWorktreePath + ": " + rmEx.Message); }
-                        }
-                        await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
-                    }
-
                     // Branch-compat rule: when the strategy is MatchBranchElseDefault and the dock branch
                     // already exists in the sibling repo, check out that same-named branch so the sibling
                     // tracks the dock's work. Otherwise fall back to the sibling's declared default branch
@@ -601,6 +590,54 @@ namespace Armada.Core.Services
                         && await _Git.BranchExistsAsync(siblingRepoPath, dockBranchName, token).ConfigureAwait(false))
                     {
                         siblingBranch = dockBranchName;
+                    }
+
+                    // The sibling path is SHARED across every dock on this vessel: RelativePath is
+                    // "../<name>", so it resolves out of the mission dock into the vessel dock root
+                    // (docks/<vessel>/msn_X + "../j1939mitm" => docks/<vessel>/j1939mitm). Removing
+                    // and recreating it here therefore destroys the sibling that a CONCURRENT dock
+                    // may be mid-build against: the victim build fails with MSB3030 "could not copy
+                    // ... because it was not found" and CS0006 "metadata file could not be found",
+                    // which reads as a code error rather than infrastructure. Observed 2026-07-19
+                    // when an Architect dock provisioned while a Worker dock was compiling.
+                    // A healthy registered worktree is therefore REUSED, never rebuilt.
+                    if (Directory.Exists(siblingWorktreePath))
+                    {
+                        bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);
+
+                        // Registration alone is not enough to call this a live checkout: earlier
+                        // provisioning steps (OpenCode permission seeding) pre-create the sibling
+                        // directory empty. Only a populated checkout can be one another dock is
+                        // building against, so only that is reused; an empty shell is rebuilt.
+                        bool hasContent = false;
+                        foreach (string unused in Directory.EnumerateFileSystemEntries(siblingWorktreePath))
+                        {
+                            hasContent = true;
+                            break;
+                        }
+
+                        if (isRegistered && hasContent)
+                        {
+                            if (!String.Equals(siblingBranch, fallbackBranch, StringComparison.Ordinal))
+                            {
+                                // Another dock owns this shared checkout. Re-pointing it at a
+                                // dock-specific branch would corrupt that dock's build, so keep
+                                // what is there and make the compromise visible.
+                                _Logging.Warn(_Header + "sibling " + siblingWorktreePath
+                                    + " is shared and already provisioned; not re-pointing it at branch "
+                                    + siblingBranch + " for vessel " + vessel.Id);
+                            }
+                            else
+                            {
+                                _Logging.Info(_Header + "reusing existing sibling worktree " + siblingWorktreePath + " for vessel " + vessel.Id);
+                            }
+
+                            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        // Not a registered worktree -- a stale or foreign leftover, safe to clear.
+                        await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
                     }
 
                     // Use a detached worktree for siblings so that when another worktree already has

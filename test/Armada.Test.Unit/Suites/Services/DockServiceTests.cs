@@ -518,6 +518,73 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync reuses an existing sibling checkout instead of destroying a concurrent dock's build", async () =>
+            {
+                // Regression: sibling RelativePath is "../<name>", so it resolves OUT of the mission
+                // dock into the shared vessel dock root (docks/<vessel>/msn_X + "../SibA" =>
+                // docks/<vessel>/SibA). Provisioning a second dock used to remove and recreate that
+                // shared directory, deleting the sibling a concurrent dock was mid-build against.
+                // The victim failed with MSB3030 "could not copy ... because it was not found" and
+                // CS0006 "metadata file could not be found" -- infrastructure damage that reads as a
+                // code error. Observed 2026-07-19 (Architect dock provisioned while Worker compiled).
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibA.git",
+                            RelativePath = "../SibA",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("sib-race-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captainOne = await testDb.Driver.Captains.CreateAsync(new Captain("captain-race-1")).ConfigureAwait(false);
+                    Captain captainTwo = await testDb.Driver.Captains.CreateAsync(new Captain("captain-race-2")).ConfigureAwait(false);
+
+                    Dock? first = await service.ProvisionAsync(vessel, captainOne, "armada/captain-race-1/msn_one", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(first, "first dock should be provisioned");
+
+                    string siblingPath = Path.GetFullPath(Path.Combine(first!.WorktreePath!, "../SibA"));
+                    AssertTrue(Directory.Exists(siblingPath), "sibling checkout should exist after the first dock");
+
+                    // Stand in for build output the first dock is actively compiling against.
+                    string buildArtifact = Path.Combine(siblingPath, "bin-artifact.marker");
+                    File.WriteAllText(buildArtifact, "in-flight build output");
+
+                    int creationsBefore = git.CreatedWorktrees.Count(x =>
+                        String.Equals(x.WorktreePath, siblingPath, StringComparison.OrdinalIgnoreCase));
+
+                    Dock? second = await service.ProvisionAsync(vessel, captainTwo, "armada/captain-race-2/msn_two", "msn_two").ConfigureAwait(false);
+                    AssertNotNull(second, "second dock should be provisioned");
+
+                    AssertTrue(
+                        File.Exists(buildArtifact),
+                        "provisioning a second dock must NOT delete the shared sibling a concurrent dock is building against");
+
+                    int creationsAfter = git.CreatedWorktrees.Count(x =>
+                        String.Equals(x.WorktreePath, siblingPath, StringComparison.OrdinalIgnoreCase));
+                    AssertEqual(creationsBefore, creationsAfter, "a healthy sibling checkout should be reused, not recreated");
+                }
+            });
+
             await RunTest("ReclaimAsync does not delete worktree path owned by newer active dock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
