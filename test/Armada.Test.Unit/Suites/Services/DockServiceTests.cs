@@ -585,6 +585,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ReclaimAsync preserves the dock branch in the bare before destroying the worktree", async () =>
+            {
+                // Regression: a mission that fails its DoD gate still has real committed work, but
+                // nothing pushed its branch to the bare -- the commits survived only as unreferenced
+                // objects inside a dock that was about to be deleted. On 2026-07-19 commit 08e95bec
+                // passed its target gate 6/6 and was recoverable only because it was spotted before
+                // GC. Recovery must not depend on the dock working tree surviving.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("preserve-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-preserve")).ConfigureAwait(false);
+
+                    string dockBranch = "armada/captain-preserve/msn_gatefail";
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, dockBranch, "msn_gatefail").ConfigureAwait(false);
+                    AssertNotNull(dock, "dock should be provisioned");
+
+                    await service.ReclaimAsync(dock!.Id).ConfigureAwait(false);
+
+                    RefSpecPush? preserved = git.PushedRefSpecs.FirstOrDefault(p =>
+                        p.DestRef == "refs/armada-preserved/" + dockBranch);
+                    AssertNotNull(preserved, "dock branch must be mirrored into the bare before teardown");
+                    AssertFalse(
+                        Directory.Exists(dock.WorktreePath!),
+                        "worktree should still be torn down after preservation");
+                }
+            });
+
             await RunTest("ReclaimAsync does not delete worktree path owned by newer active dock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1729,9 +1770,17 @@ namespace Armada.Test.Unit.Suites.Services
             public bool Detached { get; set; }
         }
 
+        private class RefSpecPush
+        {
+            public string RepoPath { get; set; } = String.Empty;
+            public string SrcRef { get; set; } = String.Empty;
+            public string DestRef { get; set; } = String.Empty;
+        }
+
         private class RecordingGitService : IGitService
         {
             public List<WorktreeCreation> CreatedWorktrees { get; } = new List<WorktreeCreation>();
+            public List<RefSpecPush> PushedRefSpecs { get; } = new List<RefSpecPush>();
             public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public int CloneBareCalls { get; private set; }
             public int BranchExistsCalls { get; private set; }
@@ -1765,7 +1814,11 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(Directory.Exists(path));
             public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
             public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
-            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+            {
+                PushedRefSpecs.Add(new RefSpecPush { RepoPath = repoPath, SrcRef = srcRef, DestRef = destRef });
+                return Task.CompletedTask;
+            }
             public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");
             public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
             public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;

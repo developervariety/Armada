@@ -300,6 +300,16 @@ namespace Armada.Core.Services
                     try
                     {
                         Vessel? vessel = await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
+
+                        // Preserve the captain's commits BEFORE the worktree is destroyed. A mission
+                        // that fails its DoD gate (often for an infrastructure reason) still has real
+                        // committed work, but nothing pushes its branch to the bare, so the commits
+                        // survive only as unreferenced objects in the dock -- and the dock is about to
+                        // be deleted. Observed 2026-07-19: commit 08e95bec passed its target gate 6/6
+                        // and was recoverable only because it happened to be spotted before GC.
+                        // Mirroring the branch into the bare makes recovery independent of the dock.
+                        await PreserveDockBranchAsync(vessel, dock, token).ConfigureAwait(false);
+
                         bool isRegistered = !String.IsNullOrEmpty(vessel?.LocalPath) &&
                             await _Git.IsWorktreeRegisteredAsync(vessel.LocalPath, dock.WorktreePath, token).ConfigureAwait(false);
 
@@ -556,6 +566,36 @@ namespace Armada.Core.Services
         /// vessel (by ID then name) or a raw git URL, cloned bare once into the repos directory, and
         /// checked out as a worktree at the path the consumer's parent-probe arithmetic expects.
         /// </summary>
+        /// <summary>
+        /// Mirrors a dock's branch into the vessel bare under refs/armada-preserved/&lt;branch&gt; before
+        /// the dock is torn down, so a captain's committed work is recoverable even when the mission
+        /// failed and the working tree is deleted. Best-effort: never throws, never blocks reclaim.
+        /// </summary>
+        private async Task PreserveDockBranchAsync(Vessel? vessel, Dock dock, CancellationToken token)
+        {
+            if (vessel == null || String.IsNullOrEmpty(vessel.LocalPath)) return;
+            if (String.IsNullOrWhiteSpace(dock.BranchName)) return;
+            if (String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath)) return;
+
+            try
+            {
+                string destRef = "refs/armada-preserved/" + dock.BranchName;
+                await _Git.PushRefSpecAsync(dock.WorktreePath, "HEAD", destRef, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "preserved dock branch " + dock.BranchName +
+                    " as " + destRef + " for dock " + dock.Id);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Preservation is a safety net; losing it must not prevent the dock being reclaimed.
+                _Logging.Warn(_Header + "could not preserve dock branch " + dock.BranchName +
+                    " for dock " + dock.Id + ": " + ex.Message);
+            }
+        }
+
         private async Task ProvisionSiblingReposAsync(Vessel vessel, string worktreePath, string dockBranchName, CancellationToken token)
         {
             List<SiblingRepo> siblings = vessel.GetSiblingRepos();
