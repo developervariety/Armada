@@ -38,7 +38,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="onStopCaptain">Optional callback invoked when a captain is stopped.</param>
         /// <param name="agentLifecycle">Optional lifecycle handler used for model validation.</param>
         /// <param name="logging">Optional logging module for structured warning output.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null)
+        /// <param name="captainQuarantine">Optional quarantine service; when supplied the bench and unbench tools are registered.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null)
         {
             register(
                 "armada_get_captain",
@@ -230,6 +231,91 @@ namespace Armada.Server.Mcp.Tools
                     return (object)new { Status = "stopped", CaptainId = captainId };
                 });
 
+            if (captainQuarantine != null)
+            {
+                register(
+                    "armada_bench_captain",
+                    "Bench (quarantine) a captain so the dispatcher stops assigning it work. Records an operator reason and an expiry, honored live without a restart. Use for a provider that is out of balance or otherwise unusable.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" },
+                            reason = new { type = "string", description = "Operator-visible reason the captain is being benched" },
+                            untilUtc = new { type = "string", description = "Optional ISO-8601 UTC instant the bench expires; takes precedence over durationMinutes" },
+                            durationMinutes = new { type = "integer", description = "Optional bench duration in minutes from now; used when untilUtc is omitted" }
+                        },
+                        required = new[] { "captainId", "reason" }
+                    },
+                    async (args) =>
+                    {
+                        CaptainBenchArgs request = JsonSerializer.Deserialize<CaptainBenchArgs>(args!.Value, _JsonOptions)!;
+                        if (String.IsNullOrWhiteSpace(request.CaptainId))
+                            return CreateToolErrorResponse("captainId is required.");
+                        if (String.IsNullOrWhiteSpace(request.Reason))
+                            return CreateToolErrorResponse("reason is required so the bench is auditable.");
+
+                        Captain? existing = await database.Captains.ReadAsync(request.CaptainId).ConfigureAwait(false);
+                        if (existing == null)
+                            return CreateToolErrorResponse("Captain not found: " + request.CaptainId);
+
+                        // A Working captain owns a live mission and dock; benching would null those
+                        // out underneath the running process. Recall it first so the mission is
+                        // released through the normal path.
+                        if (existing.State == CaptainStateEnum.Working)
+                            return CreateToolErrorResponse(
+                                "Cannot bench captain while state is Working. Stop it first with armada_stop_captain, then bench.");
+
+                        DateTime? untilUtc = ResolveBenchExpiry(request);
+                        Captain? benched = await captainQuarantine.BenchAsync(
+                            request.CaptainId, request.Reason, untilUtc).ConfigureAwait(false);
+                        if (benched == null)
+                            return CreateToolErrorResponse("Captain not found: " + request.CaptainId);
+
+                        return (object)new
+                        {
+                            Status = "benched",
+                            CaptainId = benched.Id,
+                            benched.Name,
+                            State = benched.State.ToString(),
+                            BenchReason = benched.QuarantineReason,
+                            BenchUntilUtc = benched.QuarantineUntilUtc
+                        };
+                    });
+
+                register(
+                    "armada_unbench_captain",
+                    "Restore a benched (quarantined) captain to idle so the dispatcher can assign it work again.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" }
+                        },
+                        required = new[] { "captainId" }
+                    },
+                    async (args) =>
+                    {
+                        CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
+                        if (String.IsNullOrWhiteSpace(request.CaptainId))
+                            return CreateToolErrorResponse("captainId is required.");
+
+                        Captain? restored = await captainQuarantine.UnbenchAsync(request.CaptainId).ConfigureAwait(false);
+                        if (restored == null)
+                            return CreateToolErrorResponse("Captain not found: " + request.CaptainId);
+
+                        return (object)new
+                        {
+                            Status = "restored",
+                            CaptainId = restored.Id,
+                            restored.Name,
+                            State = restored.State.ToString()
+                        };
+                    });
+            }
+
             register(
                 "armada_stop_all",
                 "Emergency stop all running captains",
@@ -372,6 +458,22 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { CaptainId = captainId, Log = log, Lines = slice.Length, TotalLines = totalLines };
                     });
             }
+        }
+
+        /// <summary>
+        /// Resolves the requested bench expiry. An explicit UntilUtc wins; otherwise a positive
+        /// DurationMinutes is applied from now. Null lets the quarantine service fall back to its
+        /// configured default backoff.
+        /// </summary>
+        private static DateTime? ResolveBenchExpiry(CaptainBenchArgs request)
+        {
+            if (request.UntilUtc.HasValue)
+                return request.UntilUtc.Value.ToUniversalTime();
+
+            if (request.DurationMinutes.HasValue && request.DurationMinutes.Value > 0)
+                return DateTime.UtcNow.AddMinutes(request.DurationMinutes.Value);
+
+            return null;
         }
 
         private static object CreateToolErrorResponse(string error)

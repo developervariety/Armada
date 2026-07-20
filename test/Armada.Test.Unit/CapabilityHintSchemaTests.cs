@@ -177,8 +177,24 @@ namespace Armada.Test.Unit
             AssertEqual(1, capabilityMigrations.Count, backendName + " should define exactly one capabilityhint migration");
 
             SchemaMigration capabilityMigration = capabilityMigrations[0];
-            int currentHead = migrations.Max(m => m.Version);
-            AssertEqual(currentHead, capabilityMigration.Version, backendName + " capabilityhint migration should be at schema head");
+
+            // Deliberately NOT asserting that capabilityhint sits at the schema head. That invariant
+            // could only ever hold until the next migration landed, so it failed the moment
+            // workflow_profiles.containerless_unit_test_command was added -- a false alarm about a
+            // perfectly valid additive migration. What actually matters is that the migration exists
+            // exactly once (checked above), that it advances by one from its predecessor (checked
+            // below), and that no two migrations share a version, which is the real corruption risk
+            // when several changes add migrations around the same time.
+            HashSet<int> seenVersions = new HashSet<int>();
+            int previousVersion = 0;
+            for (int i = 0; i < migrations.Count; i++)
+            {
+                AssertTrue(seenVersions.Add(migrations[i].Version),
+                    backendName + " defines duplicate schema migration version " + migrations[i].Version);
+                AssertTrue(migrations[i].Version > previousVersion,
+                    backendName + " schema migrations must be declared in strictly increasing version order");
+                previousVersion = migrations[i].Version;
+            }
 
             int priorHead = 0;
             for (int i = 0; i < migrations.Count; i++)

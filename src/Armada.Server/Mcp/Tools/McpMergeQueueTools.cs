@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Server;
 
     /// <summary>
     /// Registers MCP tools for merge queue operations (get, enqueue, cancel, process, delete, purge).
@@ -25,7 +26,12 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="mergeQueue">Merge queue service for queue operations.</param>
-        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue)
+        /// <param name="jobs">
+        /// Optional long-running job registry. When supplied, queue processing returns an accepted
+        /// job handle immediately instead of blocking the caller for the length of an integration
+        /// build and test run; null preserves the original synchronous behavior.
+        /// </param>
+        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue, LongRunningJobService? jobs = null)
         {
             register(
                 "armada_get_merge_entry",
@@ -104,7 +110,9 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_process_merge_entry",
-                "Process a single merge queue entry by ID: creates integration branch, runs tests, and lands if passing",
+                jobs == null
+                    ? "Process a single merge queue entry by ID: creates integration branch, runs tests, and lands if passing"
+                    : "Start processing a single merge queue entry (integration branch, tests, land if passing) and immediately return an accepted job handle. Use armada_job_status to retrieve completion or failure.",
                 new
                 {
                     type = "object",
@@ -118,6 +126,18 @@ namespace Armada.Server.Mcp.Tools
                 {
                     MergeEntryIdArgs request = JsonSerializer.Deserialize<MergeEntryIdArgs>(args!.Value, _JsonOptions)!;
                     string entryId = request.EntryId;
+                    if (jobs != null)
+                    {
+                        // Resolve the entry synchronously so an unknown id is still a fast, specific
+                        // error rather than a job the caller has to poll only to learn it never existed.
+                        MergeEntry? existing = await mergeQueue.GetAsync(entryId).ConfigureAwait(false);
+                        if (existing == null) return (object)new { Error = "Merge entry not found" };
+
+                        return (object)jobs.Start(
+                            "merge_entry_process",
+                            async (token) => (object?)await mergeQueue.ProcessSingleAsync(entryId, null, token).ConfigureAwait(false));
+                    }
+
                     MergeEntry? entry = await mergeQueue.ProcessSingleAsync(entryId).ConfigureAwait(false);
                     if (entry == null) return (object)new { Error = "Merge entry not found or not in Queued status" };
                     return (object)entry;
@@ -125,10 +145,23 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_process_merge_queue",
-                "Process the merge queue: creates integration branches, runs tests, and lands passing batches",
+                jobs == null
+                    ? "Process the merge queue: creates integration branches, runs tests, and lands passing batches"
+                    : "Start processing the merge queue (integration branches, tests, land passing batches) and immediately return an accepted job handle. Use armada_job_status to retrieve completion or failure.",
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
+                    if (jobs != null)
+                    {
+                        return (object)jobs.Start(
+                            "merge_queue_process",
+                            async (token) =>
+                            {
+                                await mergeQueue.ProcessQueueAsync(token).ConfigureAwait(false);
+                                return (object)new { Status = "processed" };
+                            });
+                    }
+
                     await mergeQueue.ProcessQueueAsync().ConfigureAwait(false);
                     return (object)new { Status = "processed" };
                 });

@@ -66,6 +66,7 @@ namespace Armada.Server.Mcp
         /// <param name="runbookService">Optional runbook service for guided operational workflows.</param>
         /// <param name="incidentService">Optional incident service for operational incident workflows.</param>
         /// <param name="objectiveScheduler">Optional autonomous objective scheduler for scheduler control tools.</param>
+        /// <param name="captainQuarantine">Optional captain quarantine service enabling the bench and unbench tools.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -92,7 +93,8 @@ namespace Armada.Server.Mcp
             DeploymentService? deploymentService = null,
             RunbookService? runbookService = null,
             IncidentService? incidentService = null,
-            AutonomousObjectiveScheduler? objectiveScheduler = null)
+            AutonomousObjectiveScheduler? objectiveScheduler = null,
+            ICaptainQuarantineService? captainQuarantine = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -104,15 +106,15 @@ namespace Armada.Server.Mcp
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
-            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService);
+            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain);
-            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging);
+            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
-            if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue);
+            if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs);
             if (checkRunService != null) McpCheckRunTools.Register(register, database, checkRunService);
             if (objectiveService != null) McpObjectiveTools.Register(register, database, objectiveService, planningSessionCoordinator, objectiveRefinementCoordinator);
             if (releaseService != null) McpReleaseTools.Register(register, releaseService);

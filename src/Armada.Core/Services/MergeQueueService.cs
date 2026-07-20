@@ -909,10 +909,24 @@ namespace Armada.Core.Services
 
             if (!alreadyMerged)
             {
-                MergeAttemptResult mergeAttempt = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
+                // A branch that has the integration HEAD as an ancestor is a strict descendant, so it
+                // lands as a fast-forward: a pure ref update with no merge commit and no tree work.
+                // Forcing --no-ff there only manufactures a commit that can fail for reasons that are
+                // not conflicts at all (absent committer identity, signing), which the caller below
+                // then reported as a merge conflict on a branch that had nothing to conflict with.
+                bool canFastForward = await IsAncestorAsync(integrationPath, "HEAD", entry.BranchName, token).ConfigureAwait(false);
+                MergeAttemptResult mergeAttempt = canFastForward
+                    ? await FastForwardBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false)
+                    : await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
                 if (!mergeAttempt.Ok)
                 {
-                    _Logging.Warn(_Header + "merge conflict for " + entryTag);
+                    // git exits 1 when the merge stopped on conflicting content and 128 for fatal
+                    // errors (bad identity, signing, corrupt ref). Only the former is a conflict.
+                    // The worktree has already been reset by `merge --abort`, so the exit code is
+                    // the reliable discriminator rather than the conflicted-file listing.
+                    bool isContentConflict = mergeAttempt.GitExitCode == 1;
+                    _Logging.Warn(_Header + (isContentConflict ? "merge conflict for " : "merge failed (not a conflict) for ") +
+                        entryTag + " gitExitCode=" + mergeAttempt.GitExitCode);
 
                     List<string> conflictedFiles = await CollectConflictedFilesAsync(integrationPath, token).ConfigureAwait(false);
                     int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
@@ -927,7 +941,11 @@ namespace Armada.Core.Services
                     ApplyClassification(entry, mergeContext);
 
                     entry.Status = MergeStatusEnum.Failed;
-                    entry.TestOutput = "Merge conflict with " + entry.TargetBranch;
+                    entry.TestOutput = isContentConflict
+                        ? "Merge conflict with " + entry.TargetBranch
+                        : "Merge of " + entry.BranchName + " into " + entry.TargetBranch +
+                          " failed without conflicting content (git exit " + mergeAttempt.GitExitCode + "): " +
+                          SummarizeGitFailure(mergeAttempt);
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
@@ -2035,6 +2053,37 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "failed to reconcile mission " + missionId + " to " + targetStatus + ": " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Land a branch that is a strict descendant of the integration HEAD by fast-forwarding.
+        /// Uses --ff-only so git refuses rather than silently creating a merge commit if the
+        /// ancestry check and the actual repository state ever disagree.
+        /// </summary>
+        private async Task<MergeAttemptResult> FastForwardBranchAsync(string worktreePath, string branchName, CancellationToken token)
+        {
+            GitProcessResult result = await RunGitCapturingAsync(worktreePath, token, "merge", "--ff-only", branchName).ConfigureAwait(false);
+            if (result.ExitCode == 0)
+            {
+                return new MergeAttemptResult(true, result.ExitCode, result.StandardOutput, result.StandardError);
+            }
+
+            // A refused fast-forward means the branch was not actually a descendant; fall back to a
+            // real merge so genuine divergence is still surfaced through the normal conflict path.
+            return await MergeBranchAsync(worktreePath, branchName, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Build a single-line summary of a non-conflict git merge failure for the entry record.
+        /// </summary>
+        private static string SummarizeGitFailure(MergeAttemptResult attempt)
+        {
+            string text = !String.IsNullOrWhiteSpace(attempt.StandardError)
+                ? attempt.StandardError
+                : attempt.StandardOutput ?? String.Empty;
+            string[] lines = text.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length == 0) return "(no git output)";
+            return lines[0].Trim();
         }
 
         private async Task<MergeAttemptResult> MergeBranchAsync(string worktreePath, string branchName, CancellationToken token)

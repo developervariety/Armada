@@ -34,6 +34,26 @@ namespace Armada.Core.Services.Interfaces
         Task ClearQuarantineAsync(Captain captain, CancellationToken token = default);
 
         /// <summary>
+        /// Benches a captain by identifier with an operator-supplied reason and optional expiry.
+        /// Unlike the quota-triggered path this takes an id rather than a hydrated captain, so an
+        /// operator tool can bench an idle captain without reading or editing the database directly.
+        /// </summary>
+        /// <param name="captainId">Identifier of the captain to bench.</param>
+        /// <param name="reason">Operator-visible reason the captain is being benched.</param>
+        /// <param name="untilUtc">UTC instant the bench expires; null uses the configured default backoff.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The benched captain, or null when no captain has that identifier.</returns>
+        Task<Captain?> BenchAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default);
+
+        /// <summary>
+        /// Restores a benched captain by identifier, clearing its bench reason and expiry.
+        /// </summary>
+        /// <param name="captainId">Identifier of the captain to restore.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The restored captain, or null when no captain has that identifier.</returns>
+        Task<Captain?> UnbenchAsync(string captainId, CancellationToken token = default);
+
+        /// <summary>
         /// Restores captains whose quarantine window has elapsed.
         /// </summary>
         /// <param name="token">Cancellation token.</param>

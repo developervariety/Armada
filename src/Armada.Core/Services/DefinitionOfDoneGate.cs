@@ -10,6 +10,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using SyslogLogging;
 
@@ -27,6 +28,7 @@ namespace Armada.Core.Services
         private readonly DefinitionOfDoneSettings _Settings;
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
+        private readonly IContainerRuntimeProbe? _ContainerRuntimeProbe;
         private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
 
         private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
@@ -47,14 +49,21 @@ namespace Armada.Core.Services
         /// <param name="settings">Gate configuration.</param>
         /// <param name="database">Database driver for resolving vessel and workflow profile data.</param>
         /// <param name="logging">Logging module.</param>
+        /// <param name="containerRuntimeProbe">
+        /// Optional container-runtime probe. When supplied and a vessel declares a containerless
+        /// unit-test command, the gate falls back to that command if no runtime is available.
+        /// Null disables the pre-flight and preserves the original behavior.
+        /// </param>
         public DefinitionOfDoneGate(
             DefinitionOfDoneSettings settings,
             DatabaseDriver database,
-            LoggingModule logging)
+            LoggingModule logging,
+            IContainerRuntimeProbe? containerRuntimeProbe = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _ContainerRuntimeProbe = containerRuntimeProbe;
         }
 
         #endregion
@@ -124,8 +133,23 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrWhiteSpace(testCommand))
             {
-                string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(testCommand) : testCommand;
-                DefinitionOfDoneResult testResult = await RunCommandAsync("unit-test", effectiveTest, worktreePath, token).ConfigureAwait(false);
+                // Container pre-flight. Without a runtime, every container-backed fixture fails and the
+                // gate spends its whole timeout proving the environment is missing. When the vessel has
+                // declared a containerless variant, run that instead so the gate still verifies
+                // everything that does not need containers rather than reporting a blanket failure.
+                string selectedTest = testCommand!;
+                string testLabel = "unit-test";
+                if (!String.IsNullOrWhiteSpace(profile?.ContainerlessUnitTestCommand)
+                    && _ContainerRuntimeProbe != null
+                    && !await _ContainerRuntimeProbe.IsAvailableAsync(worktreePath, token).ConfigureAwait(false))
+                {
+                    selectedTest = profile!.ContainerlessUnitTestCommand!;
+                    testLabel = "unit-test (containerless)";
+                    _Logging.Warn(_Header + "no container runtime detected; running the vessel's containerless unit-test command");
+                }
+
+                string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
+                DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token).ConfigureAwait(false);
                 if (!testResult.Passed)
                     return testResult;
             }

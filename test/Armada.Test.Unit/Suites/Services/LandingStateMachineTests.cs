@@ -231,13 +231,28 @@ namespace Armada.Test.Unit.Suites.Services
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Pushing).ConfigureAwait(false);
 
                         string preLandRemoteHead = await ReadRemoteBranchHeadAsync(repos.RemoteDir, "main").ConfigureAwait(false);
-                        string divergentCommit = await ReadRemoteBranchHeadAsync(repos.RemoteDir, repos.CaptainBranch).ConfigureAwait(false);
-                        AssertNotEqual(preLandRemoteHead, divergentCommit, "Divergent commit must differ from the pre-land target head for this test to be meaningful");
 
-                        // Push a real but wrong commit (the captain branch tip) to the target instead of the
-                        // integration merge commit, so origin advances to a non-empty ref that is not the
-                        // expected integration head.
-                        WrongCommitPushGitService wrongPushGit = new WrongCommitPushGitService(realGit, repos.CaptainBranch);
+                        // Build a decoy commit that is unrelated to the integration head. The captain
+                        // branch tip cannot serve as the "wrong" commit here: this fixture's branch is a
+                        // strict descendant of main, so it lands as a fast-forward and the integration head
+                        // IS the branch tip -- pushing it would deliver exactly the right commit and the
+                        // test would silently stop testing anything.
+                        string decoyBranch = "decoy-divergent";
+                        await RunGitAsync(repos.WorkingDir, "checkout", "-b", decoyBranch).ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(repos.WorkingDir, "decoy.txt"), "decoy\n").ConfigureAwait(false);
+                        await RunGitAsync(repos.WorkingDir, "add", "decoy.txt").ConfigureAwait(false);
+                        await RunGitAsync(repos.WorkingDir, "commit", "-m", "Decoy divergent commit").ConfigureAwait(false);
+                        await RunGitAsync(repos.WorkingDir, "push", "origin", decoyBranch).ConfigureAwait(false);
+                        await RunGitAsync(repos.BareDir, "fetch", "origin", decoyBranch + ":" + decoyBranch).ConfigureAwait(false);
+
+                        string divergentCommit = await ReadRemoteBranchHeadAsync(repos.RemoteDir, decoyBranch).ConfigureAwait(false);
+                        string integrationCommit = await ReadRemoteBranchHeadAsync(repos.RemoteDir, repos.CaptainBranch).ConfigureAwait(false);
+                        AssertNotEqual(preLandRemoteHead, divergentCommit, "Divergent commit must differ from the pre-land target head for this test to be meaningful");
+                        AssertNotEqual(integrationCommit, divergentCommit, "Divergent commit must differ from the commit the landing would legitimately deliver");
+
+                        // Push a real but wrong commit to the target instead of the integration head, so
+                        // origin advances to a non-empty ref that is not the expected integration commit.
+                        WrongCommitPushGitService wrongPushGit = new WrongCommitPushGitService(realGit, decoyBranch);
                         MergeQueueService resumed = new MergeQueueService(logging, testDb.Driver, settings, wrongPushGit, new MergeFailureClassifier());
                         await resumed.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
 

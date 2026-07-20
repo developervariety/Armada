@@ -667,6 +667,136 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Gate runs the vessel's containerless test command when no container runtime is available", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    // The normal unit-test command FAILS (stands in for container fixtures with no
+                    // runtime); the containerless variant succeeds. With the runtime reported down the
+                    // gate must select the containerless command and therefore pass.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_noctr", "vsl_noctr",
+                        worktreePath, SuccessCommand(), FailCommand(),
+                        containerlessTestCommand: SuccessCommand()).ConfigureAwait(false);
+
+                    StubContainerRuntimeProbe probe = new StubContainerRuntimeProbe(false);
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging,
+                        probe);
+
+                    Mission mission = CreateWorkerMission("ten_noctr", "vsl_noctr");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed,
+                        "With no container runtime the gate must run the scoped containerless command and pass");
+                    AssertTrue(probe.CallCount > 0, "The gate must actually consult the container-runtime probe");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate keeps the normal test command when a container runtime is available", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    // Same profile, but the runtime IS available: the containerless fallback must NOT
+                    // be substituted, so the failing container-backed command still fails the gate.
+                    // This is what stops the fallback from quietly becoming the default and hiding
+                    // real container test failures.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_ctr", "vsl_ctr",
+                        worktreePath, SuccessCommand(), FailCommand(),
+                        containerlessTestCommand: SuccessCommand()).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging,
+                        new StubContainerRuntimeProbe(true));
+
+                    Mission mission = CreateWorkerMission("ten_ctr", "vsl_ctr");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed,
+                        "With a working container runtime the real test command must run and its failure must stand");
+                    AssertEqual("unit-test", result.CommandLabel,
+                        "The unscoped label proves the containerless variant was not substituted");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate ignores the container pre-flight when the vessel configures no containerless command", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    // No per-vessel containerless command configured: behavior is unchanged from
+                    // before the pre-flight existed, and the probe is never consulted.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_noopt", "vsl_noopt",
+                        worktreePath, SuccessCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    StubContainerRuntimeProbe probe = new StubContainerRuntimeProbe(false);
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging,
+                        probe);
+
+                    Mission mission = CreateWorkerMission("ten_noopt", "vsl_noopt");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "Gate should pass normally when both commands succeed");
+                    AssertEqual(0, probe.CallCount,
+                        "Without a containerless command there is nothing to fall back to, so the probe must not be paid for");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("WorkflowProfile round-trips ContainerlessUnitTestCommand through the database", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_rt", "vsl_rt",
+                        worktreePath, SuccessCommand(), "dotnet test All.sln",
+                        containerlessTestCommand: "dotnet test All.sln --filter Category!=Container").ConfigureAwait(false);
+
+                    List<WorkflowProfile> profiles = await testDb.Driver.WorkflowProfiles.EnumerateAllAsync(
+                        new WorkflowProfileQuery { TenantId = "ten_rt", PageNumber = 1, PageSize = 10 }).ConfigureAwait(false);
+
+                    AssertTrue(profiles.Count > 0, "The profile should be readable back");
+                    AssertEqual("dotnet test All.sln --filter Category!=Container", profiles[0].ContainerlessUnitTestCommand,
+                        "The per-vessel containerless command must survive a write/read round trip");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Settings defaults: RunRestoreBeforeBuild true, CommandTimeoutSeconds 600, RestoreCommand absent", async () =>
             {
                 DefinitionOfDoneSettings defaults = new DefinitionOfDoneSettings();
@@ -684,6 +814,27 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         #region Private-Methods
+
+        /// <summary>
+        /// Hand-rolled container-runtime probe double returning a fixed verdict.
+        /// </summary>
+        private sealed class StubContainerRuntimeProbe : Armada.Core.Services.Interfaces.IContainerRuntimeProbe
+        {
+            internal int CallCount { get; private set; }
+
+            private readonly bool _Available;
+
+            internal StubContainerRuntimeProbe(bool available)
+            {
+                _Available = available;
+            }
+
+            public Task<bool> IsAvailableAsync(string workingDirectory, CancellationToken token = default)
+            {
+                CallCount++;
+                return Task.FromResult(_Available);
+            }
+        }
 
         private static LoggingModule CreateLogging()
         {
@@ -774,7 +925,8 @@ namespace Armada.Test.Unit.Suites.Services
             string vesselId,
             string worktreePath,
             string? buildCommand,
-            string? testCommand)
+            string? testCommand,
+            string? containerlessTestCommand = null)
         {
             await EnsureVesselOnlyAsync(testDb, tenantId, vesselId, worktreePath).ConfigureAwait(false);
 
@@ -786,6 +938,7 @@ namespace Armada.Test.Unit.Suites.Services
                 VesselId = vesselId,
                 BuildCommand = buildCommand,
                 UnitTestCommand = testCommand,
+                ContainerlessUnitTestCommand = containerlessTestCommand,
                 IsDefault = true,
                 Active = true
             };

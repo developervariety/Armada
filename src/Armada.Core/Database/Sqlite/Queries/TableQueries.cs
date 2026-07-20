@@ -997,6 +997,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                         lint_command TEXT,
                         build_command TEXT,
                         unit_test_command TEXT,
+                        containerless_unit_test_command TEXT,
                         integration_test_command TEXT,
                         e2e_test_command TEXT,
                         package_command TEXT,
@@ -1285,6 +1286,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(56, "Add capabilityhint column to missions",
                     @"ALTER TABLE missions ADD COLUMN capabilityhint TEXT;"
+                ),
+                new SchemaMigration(57, "Add containerless_unit_test_command column to workflow_profiles",
+                    @"ALTER TABLE workflow_profiles ADD COLUMN containerless_unit_test_command TEXT;"
                 )
             };
         }

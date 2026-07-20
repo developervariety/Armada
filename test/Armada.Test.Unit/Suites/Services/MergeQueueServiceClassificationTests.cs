@@ -91,6 +91,74 @@ namespace Armada.Test.Unit.Suites.Services
             return new ConflictRepoSetup(remoteDir, bareDir, captainBranch);
         }
 
+        /// <summary>
+        /// Build a local git repo where the captain branch is a strict descendant of main --
+        /// main never diverges, so the branch is a clean fast-forward. The local bare repo is
+        /// given <c>user.useConfigOnly</c> with no identity on purpose: creating a merge commit
+        /// there fails with git exit 128 regardless of the host's global git config, which is the
+        /// exact condition that used to be reported as a merge conflict. A real fast-forward
+        /// creates no commit and so must still land.
+        /// </summary>
+        private async Task<ConflictRepoSetup> CreateFastForwardReposAsync(string rootDir)
+        {
+            string remoteDir = Path.Combine(rootDir, "remote.git");
+            string sourceDir = Path.Combine(rootDir, "source");
+            string bareDir = Path.Combine(rootDir, "bare.git");
+
+            Directory.CreateDirectory(sourceDir);
+            await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "config", "receive.denyCurrentBranch", "ignore").ConfigureAwait(false);
+
+            string sharedFile = Path.Combine(sourceDir, "shared.txt");
+            await File.WriteAllTextAsync(sharedFile, "original line\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "shared.txt").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+            // Captain branch adds a brand-new file on top of main and main is never advanced,
+            // so the branch is a strict descendant: a textbook fast-forward.
+            string captainBranch = "armada/captain-fastforward/msn_test002";
+            await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, "added.txt"), "captain addition\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "added.txt").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "commit", "-m", "Captain adds a file").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "remote", "add", "origin", remoteDir).ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "push", "origin", "main").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "push", "origin", captainBranch).ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", "--bare", remoteDir, bareDir).ConfigureAwait(false);
+            await RunGitAsync(bareDir, "config", "user.useConfigOnly", "true").ConfigureAwait(false);
+
+            return new ConflictRepoSetup(remoteDir, bareDir, captainBranch);
+        }
+
+        /// <summary>Run git as a subprocess and return trimmed stdout.</summary>
+        private static async Task<string> RunGitCaptureAsync(string workingDir, params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (string arg in args) startInfo.ArgumentList.Add(arg);
+
+            using (Process proc = new Process { StartInfo = startInfo })
+            {
+                proc.Start();
+                string stdout = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                await proc.WaitForExitAsync().ConfigureAwait(false);
+                return stdout.Trim();
+            }
+        }
+
         /// <summary>Run git as a subprocess (synchronous wait, stderr captured via exception).</summary>
         private static async Task RunGitAsync(string workingDir, params string[] args)
         {
@@ -173,6 +241,78 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("Recording classifier: text conflict", updated.MergeFailureSummary,
                             "MergeFailureSummary must match classifier output");
                         AssertNotNull(updated.ConflictedFiles, "ConflictedFiles must be persisted");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntry_CleanFastForward_LandsWithoutFalseMergeConflict", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_ff_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    ConflictRepoSetup repos = await CreateFastForwardReposAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+                        RecordingMergeFailureClassifier classifier = new RecordingMergeFailureClassifier(
+                            new MergeFailureClassification(
+                                MergeFailureClassEnum.TextConflict,
+                                "Recording classifier: text conflict",
+                                new List<string> { "shared.txt" }));
+
+                        Vessel vessel = new Vessel("fastforward-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, classifier);
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "entry should still exist after a fast-forward merge");
+
+                        // The teeth: with --no-ff the merge commit fails (exit 128 under
+                        // user.useConfigOnly) and the old code reported that as a conflict.
+                        AssertEqual(0, classifier.CallCount,
+                            "a clean fast-forward must never reach the merge-failure classifier");
+                        AssertNull(updated!.MergeFailureClass,
+                            "a clean fast-forward must not persist a merge failure classification");
+                        AssertFalse(
+                            updated.TestOutput != null && updated.TestOutput.Contains("Merge conflict"),
+                            "a clean fast-forward must not be reported as a merge conflict");
+                        AssertEqual(MergeStatusEnum.Landed, updated.Status,
+                            "a clean fast-forward must land rather than fail");
+
+                        // The real regression teeth. A true fast-forward moves the target ref onto the
+                        // branch tip verbatim. The previous --no-ff path instead built a merge commit,
+                        // so the target would be a NEW commit with two parents and would NOT equal the
+                        // branch tip. Reverting the fix flips both assertions below.
+                        string branchTip = await RunGitCaptureAsync(repos.BareDir, "rev-parse", repos.CaptainBranch).ConfigureAwait(false);
+                        string landedMain = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
+                        AssertEqual(branchTip, landedMain,
+                            "a fast-forward must move main onto the branch tip itself, not onto a merge commit");
+
+                        string parents = await RunGitCaptureAsync(repos.BareDir, "rev-list", "--parents", "-n", "1", "main").ConfigureAwait(false);
+                        AssertEqual(2, parents.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length,
+                            "the landed commit must be the captain's single-parent commit, not a two-parent merge commit");
                     }
                 }
                 finally

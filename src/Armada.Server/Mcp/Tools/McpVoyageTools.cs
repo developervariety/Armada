@@ -59,7 +59,8 @@ namespace Armada.Server.Mcp.Tools
             Func<string, Task>? onStopCaptain = null,
             LoggingModule? logging = null,
             ICodeIndexService? codeIndexService = null,
-            ObjectiveService? objectiveService = null)
+            ObjectiveService? objectiveService = null,
+            LongRunningJobService? jobs = null)
         {
             register(
                 "armada_dispatch",
@@ -171,6 +172,24 @@ namespace Armada.Server.Mcp.Tools
                         codeIndexService,
                         objectiveService,
                         settings);
+
+                    if (jobs != null)
+                    {
+                        // Validate synchronously so a bad request still fails fast with its specific
+                        // code (vessel_not_found, pipeline_not_found, ...) rather than being accepted
+                        // as a job. Only the expensive tail -- per-mission context packs, dock
+                        // creation, captain spawn -- runs in the background, so a client deadline can
+                        // no longer turn a live dispatch into an indistinguishable internal error.
+                        VoyageDispatchResult? invalid = await dispatchService
+                            .ValidatePreconditionsAsync(dispatchRequest).ConfigureAwait(false);
+                        if (invalid != null) return invalid.Value;
+
+                        return (object)jobs.Start(
+                            "voyage_dispatch",
+                            async (token) => (object?)(await dispatchService
+                                .DispatchAsync(dispatchRequest, token).ConfigureAwait(false)).Value);
+                    }
+
                     VoyageDispatchResult result = await dispatchService.DispatchAsync(dispatchRequest).ConfigureAwait(false);
                     return result.Value;
                 });

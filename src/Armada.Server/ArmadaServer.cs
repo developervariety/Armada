@@ -54,6 +54,7 @@ namespace Armada.Server
         private IDockService _Docks = null!;
         private IAdmiralService _Admiral = null!;
         private IBuildDriftService _BuildDriftService = null!;
+        private ICaptainQuarantineService _CaptainQuarantine = null!;
         private AgentRuntimeFactory _RuntimeFactory = null!;
 
         private Webserver _App = null!;
@@ -190,6 +191,9 @@ namespace Armada.Server
             await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
 
             CaptainQuarantineService captainQuarantineService = new CaptainQuarantineService(_Database, _Settings, _Logging, new ProviderResetQuotaProbe());
+            // Held as a field so the bench/unbench MCP tools mutate the same instance the
+            // dispatcher consults, keeping an operator bench effective without a restart.
+            _CaptainQuarantine = captainQuarantineService;
             MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService);
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
@@ -318,7 +322,11 @@ namespace Armada.Server
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
             if (_Settings.DefinitionOfDone.Enabled)
             {
-                missionService.DefinitionOfDone = new DefinitionOfDoneGate(_Settings.DefinitionOfDone, _Database, _Logging);
+                missionService.DefinitionOfDone = new DefinitionOfDoneGate(
+                    _Settings.DefinitionOfDone,
+                    _Database,
+                    _Logging,
+                    new DockerCliContainerRuntimeProbe());
             }
             MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(_RemoteTriggerService, _Logging);
             missionService.OnMissionOutcome = async (Mission mission, bool willInvokeLanding) =>
@@ -1188,7 +1196,8 @@ namespace Armada.Server
                 deploymentService: _DeploymentService,
                 runbookService: _RunbookService,
                 incidentService: _IncidentService,
-                objectiveScheduler: _ObjectiveScheduler);
+                objectiveScheduler: _ObjectiveScheduler,
+                captainQuarantine: _CaptainQuarantine);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

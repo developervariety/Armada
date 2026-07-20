@@ -755,6 +755,136 @@ namespace Armada.Test.Unit.Suites.Services
                     await probe.HasRecoveredAsync(noDeadline).ConfigureAwait(false),
                     "absent a published deadline there is nothing to wait on; treat as recovered");
             });
+
+            await RunTest("BenchAsync_IdleCaptain_RecordsReasonAndExpiry_AndDispatcherSkipsItLive", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Vessel vessel = new Vessel("bench-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/bench.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.DefaultBranch = "main";
+                    await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // An ordinary IDLE captain -- the case the operator tool must handle and the one
+                    // armada_stop_captain cannot bench. It is the ONLY captain, so if the bench did not
+                    // take effect the mission below would assign and this test would fail.
+                    Captain idle = new Captain("idle-out-of-balance-worker");
+                    idle.State = CaptainStateEnum.Idle;
+                    await db.Captains.CreateAsync(idle).ConfigureAwait(false);
+
+                    DateTime expiry = DateTime.UtcNow.AddMinutes(45);
+                    Captain? benched = await quarantine.BenchAsync(idle.Id, "provider out of balance", expiry).ConfigureAwait(false);
+
+                    AssertNotNull(benched, "benching an existing captain must return the captain");
+                    Captain? stored = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, stored!.State, "a benched captain must persist as Quarantined");
+                    AssertEqual("provider out of balance", stored.QuarantineReason, "the operator reason must be recorded");
+                    AssertNotNull(stored.QuarantineUntilUtc, "the bench expiry must be recorded");
+                    AssertTrue(
+                        Math.Abs((stored.QuarantineUntilUtc!.Value - expiry).TotalSeconds) < 5,
+                        "the explicit operator expiry must be honored rather than the default backoff");
+
+                    Mission mission = new Mission("Must not reach a benched captain", "Bench is honored live.");
+                    mission.VesselId = vessel.Id;
+                    mission.Status = MissionStatusEnum.Pending;
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "a benched captain must not receive work");
+                    Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNull(updated!.CaptainId, "no captain may be assigned while the only candidate is benched");
+                }
+            });
+
+            await RunTest("UnbenchAsync_RestoresCaptain_AndDispatcherAssignsItAgain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Vessel vessel = new Vessel("unbench-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/unbench.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.DefaultBranch = "main";
+                    await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain idle = new Captain("restorable-worker");
+                    idle.State = CaptainStateEnum.Idle;
+                    await db.Captains.CreateAsync(idle).ConfigureAwait(false);
+
+                    await quarantine.BenchAsync(idle.Id, "temporarily parked", DateTime.UtcNow.AddHours(6)).ConfigureAwait(false);
+                    Captain? restored = await quarantine.UnbenchAsync(idle.Id).ConfigureAwait(false);
+
+                    AssertNotNull(restored, "restoring an existing captain must return the captain");
+                    Captain? stored = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, stored!.State, "an unbenched captain returns to Idle");
+                    AssertNull(stored.QuarantineUntilUtc, "the bench expiry must be cleared on restore");
+                    AssertNull(stored.QuarantineReason, "the bench reason must be cleared on restore");
+
+                    Mission mission = new Mission("Reaches the restored captain", "Restore is honored live.");
+                    mission.VesselId = vessel.Id;
+                    mission.Status = MissionStatusEnum.Pending;
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertTrue(assigned, "a restored captain must be assignable again without a restart");
+                    Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(idle.Id, updated!.CaptainId, "the restored captain should take the mission");
+                }
+            });
+
+            await RunTest("BenchAsync_DefaultsToConfiguredBackoff_AndRejectsUnknownCaptainOrMissingReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+
+                    Captain idle = new Captain("default-backoff-worker");
+                    idle.State = CaptainStateEnum.Idle;
+                    await db.Captains.CreateAsync(idle).ConfigureAwait(false);
+
+                    // No expiry supplied -> the configured default backoff (120s in CreateSettings) applies.
+                    await quarantine.BenchAsync(idle.Id, "no expiry given", null).ConfigureAwait(false);
+                    Captain? stored = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
+                    AssertNotNull(stored!.QuarantineUntilUtc, "a bench without an explicit expiry still records one");
+                    AssertTrue(
+                        stored.QuarantineUntilUtc!.Value > DateTime.UtcNow.AddSeconds(30),
+                        "the default backoff window must be in the future");
+
+                    // A missing captain is reported as not-found rather than throwing, so the tool
+                    // can return a specific error instead of a generic internal failure.
+                    Captain? missing = await quarantine.BenchAsync("cpt_does_not_exist", "reason", null).ConfigureAwait(false);
+                    AssertNull(missing, "benching an unknown captain must report not-found");
+
+                    Captain? missingRestore = await quarantine.UnbenchAsync("cpt_does_not_exist").ConfigureAwait(false);
+                    AssertNull(missingRestore, "restoring an unknown captain must report not-found");
+
+                    bool threw = false;
+                    try
+                    {
+                        await quarantine.BenchAsync(idle.Id, "   ", null).ConfigureAwait(false);
+                    }
+                    catch (ArgumentException)
+                    {
+                        threw = true;
+                    }
+                    AssertTrue(threw, "a bench without a reason must be rejected so every bench is auditable");
+                }
+            });
         }
 
         /// <summary>Hand-rolled quota probe double returning a fixed recovery verdict.</summary>

@@ -97,6 +97,15 @@ namespace Armada.Core.Models
         public string? UnitTestCommand { get; set; } = null;
 
         /// <summary>
+        /// Unit-test command used when no container runtime is available in the dock. Lets a vessel
+        /// scope container-dependent test assemblies out (for example a category filter or an
+        /// explicit project list) so the gate still verifies everything that does not need
+        /// containers, instead of running fixtures that are guaranteed to fail. Null means no
+        /// containerless variant is configured.
+        /// </summary>
+        public string? ContainerlessUnitTestCommand { get; set; } = null;
+
+        /// <summary>
         /// Integration-test command.
         /// </summary>
         public string? IntegrationTestCommand { get; set; } = null;

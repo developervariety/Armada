@@ -118,6 +118,60 @@ namespace Armada.Server
         /// <param name="request">Dispatch request.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Dispatch result.</returns>
+        /// <summary>
+        /// Run every cheap, deterministic precondition a dispatch must satisfy and return the failing
+        /// result, or null when the request is dispatchable. Callers that hand dispatch to a background
+        /// job call this FIRST so a bad request still fails fast and specifically, instead of being
+        /// accepted as a job the caller must poll only to discover the vesselId was a typo.
+        /// <see cref="DispatchAsync"/> also calls it, so validation has exactly one implementation.
+        /// </summary>
+        /// <param name="request">Dispatch request to validate.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The failing result, or null when all preconditions pass.</returns>
+        public async Task<VoyageDispatchResult?> ValidatePreconditionsAsync(SharedVoyageDispatchRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            VoyageDispatchResult? validation = ValidateRequest(request.Title, request.Missions);
+            if (validation != null) return validation;
+
+            string vesselId = request.VesselId;
+            Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
+            if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
+            {
+                Error = "Vessel not found: " + vesselId,
+                Code = "vessel_not_found",
+                Reason = "Vessel " + vesselId + " does not exist in this admiral.",
+                Action = "Register the vessel via armada_add_vessel or verify the vesselId.",
+                VesselId = vesselId
+            });
+
+            VoyageDispatchResult? objectiveValidation = await ValidateObjectiveAsync(
+                NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext).ConfigureAwait(false);
+            if (objectiveValidation != null) return objectiveValidation;
+
+            object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                _CodeIndexService,
+                vesselId,
+                "armada_dispatch").ConfigureAwait(false);
+            if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);
+
+            string? resolvedPipelineId = await ResolvePipelineIdAsync(request.PipelineId, request.Pipeline).ConfigureAwait(false);
+            if (String.Equals(resolvedPipelineId, "__pipeline_not_found__", StringComparison.Ordinal))
+            {
+                return VoyageDispatchResult.BadRequest(new
+                {
+                    Error = "Pipeline not found: " + request.Pipeline,
+                    Code = "pipeline_not_found",
+                    Reason = "Pipeline named \"" + request.Pipeline + "\" does not exist in this admiral.",
+                    Action = "Verify the pipeline name via armada_enumerate(entityType=\"pipelines\").",
+                    Pipeline = request.Pipeline
+                });
+            }
+
+            return null;
+        }
+
         public async Task<VoyageDispatchResult> DispatchAsync(SharedVoyageDispatchRequest request, CancellationToken token = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -129,8 +183,8 @@ namespace Armada.Server
             List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
             string? objectiveId = NormalizeEmpty(request.ObjectiveId);
 
-            VoyageDispatchResult? validation = ValidateRequest(title, missions);
-            if (validation != null) return validation;
+            VoyageDispatchResult? preconditions = await ValidatePreconditionsAsync(request, token).ConfigureAwait(false);
+            if (preconditions != null) return preconditions;
 
             Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
@@ -142,29 +196,9 @@ namespace Armada.Server
                 VesselId = vesselId
             });
 
-            VoyageDispatchResult? objectiveValidation = await ValidateObjectiveAsync(objectiveId, request.ObjectiveAuthContext).ConfigureAwait(false);
-            if (objectiveValidation != null) return objectiveValidation;
-
             List<SelectedPlaybook> mergedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(dispatchVessel.GetDefaultPlaybooks(), callerPlaybooks);
 
-            object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
-                _CodeIndexService,
-                vesselId,
-                "armada_dispatch").ConfigureAwait(false);
-            if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);
-
             string? pipelineId = await ResolvePipelineIdAsync(request.PipelineId, request.Pipeline).ConfigureAwait(false);
-            if (String.Equals(pipelineId, "__pipeline_not_found__", StringComparison.Ordinal))
-            {
-                return VoyageDispatchResult.BadRequest(new
-                {
-                    Error = "Pipeline not found: " + request.Pipeline,
-                    Code = "pipeline_not_found",
-                    Reason = "Pipeline named \"" + request.Pipeline + "\" does not exist in this admiral.",
-                    Action = "Verify the pipeline name via armada_enumerate(entityType=\"pipelines\").",
-                    Pipeline = request.Pipeline
-                });
-            }
 
             List<DeferredCodeContext> deferredBuilds = new List<DeferredCodeContext>();
             string? codeContextError = await PrepareDispatchCodeContextAsync(
@@ -804,7 +838,19 @@ namespace Armada.Server
             if (_ObjectiveService == null) return;
 
             AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
-            await _ObjectiveService.LinkVoyageAsync(auth, objectiveId, voyage.Id).ConfigureAwait(false);
+            try
+            {
+                await _ObjectiveService.LinkVoyageAsync(auth, objectiveId, voyage.Id).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // This runs AFTER the voyage exists and its missions are dispatched. Letting a
+                // bookkeeping failure escape here turned a live voyage into a generic internal error
+                // (HTTP 500 / JSON-RPC -32603) with no voyage id returned to the caller, so the work
+                // was running but unreachable. Record the voyage; report the link failure separately.
+                _Logging?.Warn("[VoyageDispatchService] voyage " + voyage.Id + " dispatched but could not be linked to objective " +
+                    objectiveId + ": " + ex.Message);
+            }
         }
 
         private async Task<object> DispatchWithAliasesAsync(

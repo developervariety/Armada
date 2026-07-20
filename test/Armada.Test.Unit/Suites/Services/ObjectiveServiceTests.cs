@@ -752,6 +752,81 @@ namespace Armada.Test.Unit.Suites.Services
                 Objective? deletedRead = await rehydrated.ReadAsync(auth, deleted.Id).ConfigureAwait(false);
                 AssertNull(deletedRead);
             }).ConfigureAwait(false);
+
+            await RunTest("Incident links are validated at write time but tolerated when already dangling", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                string tenantId = "ten_incident_link";
+                string userId = "usr_incident_link";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                // AC1 + AC3: linking an incident that does not exist is rejected, and the error names
+                // the offending id rather than surfacing as a generic internal failure.
+                Objective target = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Objective with incident lineage"
+                }).ConfigureAwait(false);
+
+                string missingIncidentId = "inc_does_not_exist";
+                string linkError = "";
+                try
+                {
+                    await objectives.LinkIncidentAsync(auth, target.Id, missingIncidentId).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    linkError = ex.Message;
+                }
+                AssertContains("not found or not accessible", linkError, "A missing incident must be rejected with a specific message");
+                AssertContains(missingIncidentId, linkError, "The rejection must name the offending incident id");
+
+                // AC1: the same strictness applies on the ordinary write path.
+                string writeError = "";
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Objective naming a missing incident",
+                        IncidentIds = new List<string> { missingIncidentId }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    writeError = ex.Message;
+                }
+                AssertContains(missingIncidentId, writeError, "Creating an objective that names a missing incident must be rejected");
+
+                // AC2: an incident that WAS valid and later disappeared must not block an unrelated
+                // link operation. This is the dispatch path: LinkVoyageAsync runs after the voyage
+                // already exists, so throwing here stranded a live voyage behind an internal error.
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Transient incident",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium
+                }).ConfigureAwait(false);
+
+                Objective linked = await objectives.LinkIncidentAsync(auth, target.Id, incident.Id).ConfigureAwait(false);
+                AssertTrue(linked.IncidentIds.Contains(incident.Id), "Incident link should be recorded while the incident exists");
+
+                await incidents.DeleteAsync(auth, incident.Id).ConfigureAwait(false);
+
+                Voyage voyage = new Voyage("Voyage over a dangling incident link");
+                voyage.TenantId = tenantId;
+                voyage.UserId = userId;
+                await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                Objective afterVoyageLink = await objectives.LinkVoyageAsync(auth, target.Id, voyage.Id).ConfigureAwait(false);
+
+                AssertTrue(afterVoyageLink.VoyageIds.Contains(voyage.Id),
+                    "Linking a voyage must succeed even though the objective carries a dangling incident reference");
+                AssertTrue(afterVoyageLink.IncidentIds.Contains(incident.Id),
+                    "The stale incident id is left in place, not silently pruned, because a read can also miss on scoping");
+            }).ConfigureAwait(false);
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)

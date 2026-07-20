@@ -9,6 +9,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using SyslogLogging;
 
     /// <summary>
     /// Event-backed objective records that capture scoped work before and alongside execution.
@@ -21,6 +22,8 @@ namespace Armada.Core.Services
         public Action<Objective>? OnObjectiveChanged { get; set; }
 
         private readonly DatabaseDriver _Database;
+        private readonly LoggingModule? _Logging;
+        private const string _Header = "[ObjectiveService] ";
         private readonly SemaphoreSlim _BackfillLock = new SemaphoreSlim(1, 1);
         private bool _BackfillCompleted = false;
         private const string _ObjectiveDeletedEventType = "objective.deleted";
@@ -33,9 +36,12 @@ namespace Armada.Core.Services
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public ObjectiveService(DatabaseDriver database)
+        /// <param name="database">Database driver.</param>
+        /// <param name="logging">Optional logging module used to warn about tolerated dangling links.</param>
+        public ObjectiveService(DatabaseDriver database, LoggingModule? logging = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _Logging = logging;
         }
 
         /// <summary>
@@ -791,7 +797,19 @@ namespace Armada.Core.Services
                 .ToList();
         }
 
-        private async Task ValidateLinksAsync(AuthContext auth, Objective objective, CancellationToken token)
+        /// <summary>
+        /// Validate every outbound reference on an objective.
+        /// </summary>
+        /// <param name="tolerateDanglingIncidents">
+        /// When true, an incident reference that no longer resolves is logged and skipped instead of
+        /// throwing. Set only on link-time paths (attaching a voyage, mission, check, and so on),
+        /// where the incident ids are PRE-EXISTING data the caller did not supply and cannot fix:
+        /// letting a stale one throw there aborts an operation that has nothing to do with incidents.
+        /// Write paths that actually accept incident ids stay strict so a bad link is still rejected.
+        /// The stale id is left in place rather than pruned, because a read can also miss for tenant
+        /// or permission scoping and silently dropping the link would lose real data.
+        /// </param>
+        private async Task ValidateLinksAsync(AuthContext auth, Objective objective, CancellationToken token, bool tolerateDanglingIncidents = false)
         {
             if (!String.IsNullOrWhiteSpace(objective.ParentObjectiveId)
                 && !await ReadObjectiveExistsAsync(auth, objective.ParentObjectiveId, token).ConfigureAwait(false))
@@ -809,7 +827,18 @@ namespace Armada.Core.Services
             await ValidateIdsAsync(objective.CheckRunIds, async id => await ReadCheckRunAsync(auth, id, token).ConfigureAwait(false), "Check run").ConfigureAwait(false);
             await ValidateIdsAsync(objective.ReleaseIds, async id => await ReadReleaseAsync(auth, id, token).ConfigureAwait(false), "Release").ConfigureAwait(false);
             await ValidateIdsAsync(objective.DeploymentIds, async id => await ReadDeploymentAsync(auth, id, token).ConfigureAwait(false), "Deployment").ConfigureAwait(false);
-            await ValidateIdsAsync(objective.IncidentIds, async id => await ReadIncidentAsync(auth, id, token).ConfigureAwait(false), "Incident").ConfigureAwait(false);
+            if (tolerateDanglingIncidents)
+            {
+                await SkipMissingIdsWithWarningAsync(
+                    objective.IncidentIds,
+                    async id => await ReadIncidentAsync(auth, id, token).ConfigureAwait(false),
+                    "Incident",
+                    objective.Id).ConfigureAwait(false);
+            }
+            else
+            {
+                await ValidateIdsAsync(objective.IncidentIds, async id => await ReadIncidentAsync(auth, id, token).ConfigureAwait(false), "Incident").ConfigureAwait(false);
+            }
 
             if (!String.IsNullOrWhiteSpace(objective.SuggestedPipelineId)
                 && !await ReadPipelineAsync(objective.SuggestedPipelineId, token).ConfigureAwait(false))
@@ -828,6 +857,27 @@ namespace Armada.Core.Services
                 bool present = await exists(id).ConfigureAwait(false);
                 if (!present)
                     throw new InvalidOperationException(label + " not found or not accessible: " + id);
+            }
+        }
+
+        /// <summary>
+        /// Report references that no longer resolve without throwing, so a stale link cannot abort an
+        /// unrelated operation. Used only by link-time paths; write paths use ValidateIdsAsync.
+        /// </summary>
+        private async Task SkipMissingIdsWithWarningAsync(
+            IEnumerable<string> ids,
+            Func<string, Task<bool>> exists,
+            string label,
+            string objectiveId)
+        {
+            foreach (string id in ids)
+            {
+                bool present = await exists(id).ConfigureAwait(false);
+                if (!present)
+                {
+                    _Logging?.Warn(_Header + "objective " + objectiveId + " references a " + label.ToLowerInvariant() +
+                        " that is no longer resolvable: " + id + "; skipping it rather than failing this operation");
+                }
             }
         }
 
@@ -1076,7 +1126,10 @@ namespace Armada.Core.Services
         {
             objective.LastUpdateUtc = DateTime.UtcNow;
             SanitizeObjective(objective);
-            await ValidateLinksAsync(auth, objective, token).ConfigureAwait(false);
+            // Link-time path: the incident ids here are pre-existing state, not caller input. A stale
+            // one must not abort attaching a voyage/mission/check -- that surfaced as a generic
+            // internal error AFTER the voyage had already been created and dispatched.
+            await ValidateLinksAsync(auth, objective, token, tolerateDanglingIncidents: true).ConfigureAwait(false);
             ApplyLifecycleTimestamps(objective);
             await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
             OnObjectiveChanged?.Invoke(objective);

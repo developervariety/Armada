@@ -712,6 +712,51 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("_briefing/context-pack.md", mission.PrestagedFiles[0].DestPath);
                 }
             });
+
+            await RunTest("ValidatePreconditions_RejectsBadRequestsSoBackgroundDispatchStillFailsFast", async () =>
+            {
+                // armada_dispatch hands the expensive tail to a background job. That is only safe if a
+                // bad request is still rejected SYNCHRONOUSLY with its specific code -- otherwise a
+                // typo'd vesselId would be accepted as a job the caller must poll to discover the
+                // mistake. These assertions pin that contract.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    VoyageDispatchService service = NewService(testDb);
+
+                    VoyageDispatchResult? missingTitle = await service.ValidatePreconditionsAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "",
+                        VesselId = "vsl_whatever",
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    }).ConfigureAwait(false);
+                    AssertNotNull(missingTitle, "an empty title must be rejected before any work is scheduled");
+                    AssertEqual(400, missingTitle!.StatusCode);
+
+                    VoyageDispatchResult? missingVessel = await service.ValidatePreconditionsAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = "vsl_does_not_exist",
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    }).ConfigureAwait(false);
+                    AssertNotNull(missingVessel, "an unknown vessel must be rejected before any work is scheduled");
+                    AssertEqual(404, missingVessel!.StatusCode);
+                    AssertContains("vessel_not_found", JsonSerializer.Serialize(missingVessel.Value),
+                        "the rejection must keep its specific code rather than degrade to a generic error");
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("preflight-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    VoyageDispatchResult? dispatchable = await service.ValidatePreconditionsAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "valid",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+                    }).ConfigureAwait(false);
+                    AssertNull(dispatchable, "a dispatchable request must pass preconditions so it can be backgrounded");
+                }
+            });
         }
 
         private static VoyageDispatchService NewService(TestDatabase testDb)

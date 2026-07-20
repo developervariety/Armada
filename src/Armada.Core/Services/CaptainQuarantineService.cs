@@ -65,6 +65,31 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<Captain?> BenchAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentException("Captain id is required.", nameof(captainId));
+            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentException("Bench reason is required.", nameof(reason));
+
+            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (captain == null) return null;
+
+            await QuarantineAsync(captain, reason, untilUtc, token).ConfigureAwait(false);
+            return captain;
+        }
+
+        /// <inheritdoc />
+        public async Task<Captain?> UnbenchAsync(string captainId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentException("Captain id is required.", nameof(captainId));
+
+            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (captain == null) return null;
+
+            await ClearQuarantineAsync(captain, token).ConfigureAwait(false);
+            return captain;
+        }
+
+        /// <inheritdoc />
         public async Task RestoreExpiredQuarantinesAsync(CancellationToken token = default)
         {
             List<Captain> quarantinedCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Quarantined, token).ConfigureAwait(false);
