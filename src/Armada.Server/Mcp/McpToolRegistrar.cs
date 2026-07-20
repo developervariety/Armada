@@ -97,8 +97,10 @@ namespace Armada.Server.Mcp
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
                 ?? new ReflectionDispatcher(database, admiral, effectiveSettings, new ReflectionMemoryService(database));
+            LongRunningJobService longRunningJobs = new LongRunningJobService();
 
             McpStatusTools.Register(register, admiral, onStop);
+            McpLongRunningJobTools.Register(register, longRunningJobs);
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
@@ -126,7 +128,7 @@ namespace Armada.Server.Mcp
             McpAuditTools.Register(register, database, remoteTriggerService, effectiveReflectionDispatcher);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
             McpReflectionTools.Register(register, database, effectiveReflectionDispatcher, effectiveSettings);
-            if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService);
+            if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
         }
 
         /// <summary>

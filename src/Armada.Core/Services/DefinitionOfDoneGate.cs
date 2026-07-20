@@ -4,7 +4,6 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Linq;
-    using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
@@ -28,6 +27,11 @@ namespace Armada.Core.Services
         private readonly DefinitionOfDoneSettings _Settings;
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
+        private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
+
+        private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
+        private const int _MAX_SECTION_CHARS = 7800;
+        private const int _MAX_LINE_CHARS = 2000;
 
         private static readonly Regex _SecretLikePattern = new Regex(
             @"(?:password|passwd|secret|token|key|credential|auth|api_key|apikey|access_key|private_key)\s*[=:]\s*\S+",
@@ -86,7 +90,14 @@ namespace Armada.Core.Services
 
             string? worktreePath = dock.WorktreePath;
             if (String.IsNullOrWhiteSpace(worktreePath))
-                return DefinitionOfDoneResult.Fail("dock-setup", -1, "Dock has no WorktreePath; cannot run in-dock checks.");
+            {
+                string diagnostic = BuildDiagnosticText("Dock has no WorktreePath; cannot run in-dock checks.");
+                return DefinitionOfDoneResult.Fail(
+                    "dock-setup",
+                    -1,
+                    diagnostic,
+                    DefinitionOfDoneFailureClassEnum.Infra);
+            }
 
             WorkflowProfile? profile = await ResolveProfileAsync(mission, token).ConfigureAwait(false);
             string? buildCommand = profile?.BuildCommand;
@@ -97,9 +108,10 @@ namespace Armada.Core.Services
                 return DefinitionOfDoneResult.Fail(
                     "missing-commands",
                     -1,
-                    "No BuildCommand or UnitTestCommand is configured on the vessel's workflow profile. " +
+                    BuildDiagnosticText("No BuildCommand or UnitTestCommand is configured on the vessel's workflow profile. " +
                     "Add a workflow profile for this vessel, or add '" + _Settings.DocOnlyMarker +
-                    "' to the mission description to opt out of in-dock verification.");
+                    "' to the mission description to opt out of in-dock verification."),
+                    DefinitionOfDoneFailureClassEnum.Infra);
             }
 
             if (!String.IsNullOrWhiteSpace(buildCommand))
@@ -191,7 +203,7 @@ namespace Armada.Core.Services
             string workingDir,
             CancellationToken token)
         {
-            _Logging.Info(_Header + "running " + label + " command in " + workingDir + ": " + command);
+            _Logging.Info(_Header + "running " + label + " command");
 
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
@@ -208,39 +220,71 @@ namespace Armada.Core.Services
                 TimeSpan.FromSeconds(_Settings.CommandTimeoutSeconds));
             using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
 
-            // Declare outside the try block so the catch block can kill the process on timeout.
+            Task<string>? stdoutTask = null;
+            Task<string>? stderrTask = null;
+
+            // Declare outside the try block so catch blocks can kill the process.
             using Process process = new Process { StartInfo = startInfo };
             try
             {
-                process.Start();
+                if (!process.Start())
+                    throw new InvalidOperationException("The command process did not start.");
 
                 // Read both streams concurrently with the linked token so a hanging process
-                // is interrupted when the timeout fires, and a full stderr pipe cannot
-                // deadlock the stdout read.
-                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCts.Token);
-                Task<string> stderrTask = process.StandardError.ReadToEndAsync(linkedCts.Token);
+                // cannot fill either redirected pipe while the process is running.
+                stdoutTask = process.StandardOutput.ReadToEndAsync();
+                stderrTask = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
                 await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
 
-                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-
-                string combined = stdoutTask.Result;
-                if (!String.IsNullOrEmpty(stderrTask.Result))
-                    combined += "\n--- STDERR ---\n" + stderrTask.Result;
+                string combined = CombineOutput(stdoutTask.Result, stderrTask.Result);
 
                 int exitCode = process.ExitCode;
-                _Logging.Info(_Header + label + " command exited " + exitCode + " for mission in " + workingDir);
+                _Logging.Info(_Header + label + " command exited " + exitCode);
 
                 if (exitCode == 0)
                     return DefinitionOfDoneResult.Pass();
 
-                return DefinitionOfDoneResult.Fail(label, exitCode, TailAndRedact(combined));
+                DefinitionOfDoneFailureClassEnum failureClass = _FailureClassifier.Classify(
+                    label,
+                    exitCode,
+                    combined);
+                return DefinitionOfDoneResult.Fail(
+                    label,
+                    exitCode,
+                    BuildDiagnosticText(combined),
+                    failureClass);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                TryKillProcess(process);
+                throw;
             }
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
             {
                 TryKillProcess(process);
                 string message = label + " command timed out after " + _Settings.CommandTimeoutSeconds + " seconds.";
-                _Logging.Warn(_Header + message + " workingDir=" + workingDir);
-                return DefinitionOfDoneResult.Fail(label, -1, message);
+                string partialOutput = await CaptureOutputAsync(stdoutTask, stderrTask).ConfigureAwait(false);
+                string combined = String.IsNullOrWhiteSpace(partialOutput) ? message : message + "\n" + partialOutput;
+                _Logging.Warn(_Header + message);
+                return DefinitionOfDoneResult.Fail(
+                    label,
+                    -1,
+                    BuildDiagnosticText(combined),
+                    _FailureClassifier.Classify(label, -1, combined, true));
+            }
+            catch (Exception ex)
+            {
+                TryKillProcess(process);
+                string partialOutput = await CaptureOutputAsync(stdoutTask, stderrTask).ConfigureAwait(false);
+                string message = label + " command could not be started or completed: " + ex.Message;
+                string combined = String.IsNullOrWhiteSpace(partialOutput) ? message : message + "\n" + partialOutput;
+                _Logging.Warn(_Header + label + " command infrastructure failure");
+                return DefinitionOfDoneResult.Fail(
+                    label,
+                    -1,
+                    BuildDiagnosticText(combined),
+                    DefinitionOfDoneFailureClassEnum.Infra);
             }
         }
 
@@ -252,31 +296,128 @@ namespace Armada.Core.Services
             }
             catch (Exception killEx)
             {
-                _Logging.Warn(_Header + "could not kill timed-out process: " + killEx.Message);
+                _Logging.Warn(_Header + "could not kill command process exceptionType=" + killEx.GetType().Name);
             }
         }
 
-        private string TailAndRedact(string output)
+        private static string CombineOutput(string? stdout, string? stderr)
         {
-            if (String.IsNullOrEmpty(output)) return "";
+            string combined = stdout ?? String.Empty;
+            if (!String.IsNullOrEmpty(stderr))
+                combined += "\n--- STDERR ---\n" + stderr;
+            return combined;
+        }
 
-            string[] lines = output.Split('\n');
-            int tailCount = Math.Min(lines.Length, _Settings.OutputTailLines);
-            int startIndex = lines.Length - tailCount;
-
-            StringBuilder sb = new StringBuilder();
-            for (int i = startIndex; i < lines.Length; i++)
+        private static async Task<string> CaptureOutputAsync(
+            Task<string>? stdoutTask,
+            Task<string>? stderrTask)
+        {
+            try
             {
-                string redacted = _SecretLikePattern.Replace(lines[i], m =>
-                {
-                    int eqIdx = m.Value.IndexOfAny(new char[] { '=', ':' });
-                    if (eqIdx < 0) return m.Value;
-                    return m.Value.Substring(0, eqIdx + 1) + " [REDACTED]";
-                });
-                sb.AppendLine(redacted);
+                string stdout = stdoutTask == null ? String.Empty : await stdoutTask.ConfigureAwait(false);
+                string stderr = stderrTask == null ? String.Empty : await stderrTask.ConfigureAwait(false);
+                return CombineOutput(stdout, stderr);
+            }
+            catch
+            {
+                return String.Empty;
+            }
+        }
+
+        private string BuildDiagnosticText(string output)
+        {
+            string[] lines = (output ?? String.Empty).Split('\n');
+            HashSet<string> retained = new HashSet<string>(StringComparer.Ordinal);
+            List<string> diagnosticLines = new List<string>();
+
+            foreach (string line in lines)
+            {
+                if (diagnosticLines.Count >= _Settings.DiagnosticLines)
+                    break;
+                if (!DefinitionOfDoneFailureClassifier.IsActionableDiagnosticLine(line))
+                    continue;
+
+                string redacted = RedactAndBoundLine(line);
+                if (!String.IsNullOrWhiteSpace(redacted) && retained.Add(redacted))
+                    diagnosticLines.Add(redacted);
             }
 
-            return sb.ToString().TrimEnd();
+            int tailCount = Math.Min(lines.Length, _Settings.OutputTailLines);
+            int startIndex = lines.Length - tailCount;
+            List<string> reversedTailLines = new List<string>();
+            for (int i = lines.Length - 1; i >= startIndex; i--)
+            {
+                string redacted = RedactAndBoundLine(lines[i]);
+                if (!String.IsNullOrWhiteSpace(redacted) && retained.Add(redacted))
+                    reversedTailLines.Add(redacted);
+            }
+            reversedTailLines.Reverse();
+
+            string diagnostics = diagnosticLines.Count == 0
+                ? "(none recognized)"
+                : BuildBoundedSection(diagnosticLines, false);
+            string tail = reversedTailLines.Count == 0
+                ? "(no additional output)"
+                : BuildBoundedSection(reversedTailLines, true);
+
+            string result = "--- ACTIONABLE DIAGNOSTICS ---\n" + diagnostics
+                + "\n--- OUTPUT TAIL ---\n" + tail;
+            if (result.Length > _MAX_DIAGNOSTIC_TEXT_CHARS)
+                return result.Substring(0, _MAX_DIAGNOSTIC_TEXT_CHARS);
+            return result;
+        }
+
+        private static string RedactAndBoundLine(string line)
+        {
+            string normalized = line.TrimEnd('\r');
+            string redacted = _SecretLikePattern.Replace(normalized, match =>
+            {
+                int separatorIndex = match.Value.IndexOfAny(new char[] { '=', ':' });
+                if (separatorIndex < 0) return match.Value;
+                return match.Value.Substring(0, separatorIndex + 1) + " [REDACTED]";
+            });
+
+            if (redacted.Length <= _MAX_LINE_CHARS)
+                return redacted;
+            return redacted.Substring(0, _MAX_LINE_CHARS) + "...(line truncated)";
+        }
+
+        private static string BuildBoundedSection(IReadOnlyList<string> lines, bool keepEnd)
+        {
+            const string truncatedMarker = "...(section truncated)";
+            int contentBudget = _MAX_SECTION_CHARS - truncatedMarker.Length - 1;
+            List<string> selected = new List<string>();
+            int usedCharacters = 0;
+
+            if (keepEnd)
+            {
+                for (int i = lines.Count - 1; i >= 0; i--)
+                {
+                    int required = lines[i].Length + 1;
+                    if (usedCharacters + required > contentBudget)
+                        break;
+                    selected.Add(lines[i]);
+                    usedCharacters += required;
+                }
+                selected.Reverse();
+                if (selected.Count < lines.Count)
+                    selected.Insert(0, truncatedMarker);
+            }
+            else
+            {
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    int required = lines[i].Length + 1;
+                    if (usedCharacters + required > contentBudget)
+                        break;
+                    selected.Add(lines[i]);
+                    usedCharacters += required;
+                }
+                if (selected.Count < lines.Count)
+                    selected.Add(truncatedMarker);
+            }
+
+            return String.Join("\n", selected);
         }
 
         /// <summary>

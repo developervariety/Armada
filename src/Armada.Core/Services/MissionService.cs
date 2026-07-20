@@ -61,6 +61,8 @@ namespace Armada.Core.Services
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
+        private const string _CreditAuthQuarantineReason =
+            "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
@@ -906,12 +908,26 @@ namespace Armada.Core.Services
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         mission.FailureReason = BuildDodFailureReason(dodResult);
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                        _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate: " + mission.FailureReason);
+                        _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
+                            dodResult.FailureClass);
                     }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception dodEx)
                 {
-                    _Logging.Warn(_Header + "error in DoD gate for mission " + mission.Id + ": " + dodEx.Message);
+                    failedForDodGate = true;
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission.FailureReason =
+                        "DoD gate failed: classification=Infra; gate-evaluation command exited -1\n" +
+                        "Gate evaluation could not be completed due to an infrastructure error.";
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "infrastructure error in DoD gate for mission " + mission.Id +
+                        " exceptionType=" + dodEx.GetType().Name);
                 }
             }
 
@@ -1143,10 +1159,31 @@ namespace Armada.Core.Services
             // Release the captain to idle only AFTER the handoff and dock reclaim are done,
             // and only if the captain is still assigned to this mission. Orphan recovery can
             // finalize an older mission using a captain record that has already moved on.
+            Mission? releaseMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            bool quarantineForCreditAuthFailure =
+                releaseMission != null &&
+                releaseMission.Status == MissionStatusEnum.Failed &&
+                ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(releaseMission.FailureReason);
             Captain? latestCaptain = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
             if (latestCaptain != null && latestCaptain.CurrentMissionId == mission.Id)
             {
-                await _Captains.ReleaseAsync(latestCaptain, token).ConfigureAwait(false);
+                if (quarantineForCreditAuthFailure)
+                {
+                    DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(
+                        releaseMission!.FailureReason,
+                        DateTime.UtcNow);
+                    await _CaptainQuarantine.QuarantineAsync(
+                        latestCaptain,
+                        _CreditAuthQuarantineReason,
+                        retryAfterUtc,
+                        token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "captain " + captain.Id +
+                        " quarantined after provider credit or authentication failure on mission " + mission.Id);
+                }
+                else
+                {
+                    await _Captains.ReleaseAsync(latestCaptain, token).ConfigureAwait(false);
+                }
             }
             else
             {
@@ -3986,7 +4023,10 @@ namespace Armada.Core.Services
         {
             string label = result.CommandLabel ?? "unknown";
             string tail = String.IsNullOrWhiteSpace(result.OutputTail) ? "" : "\n" + result.OutputTail.Trim();
-            return "DoD gate failed: " + label + " command exited " + result.ExitCode + tail;
+            DefinitionOfDoneFailureClassEnum failureClass = result.FailureClass
+                ?? DefinitionOfDoneFailureClassEnum.Infra;
+            return "DoD gate failed: classification=" + failureClass + "; " + label +
+                " command exited " + result.ExitCode + tail;
         }
 
         private static string ApplyReviewFeedback(string? description, string reviewComment)

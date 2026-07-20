@@ -25,6 +25,29 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="codeIndex">Code index service.</param>
         public static void Register(RegisterToolDelegate register, ICodeIndexService codeIndex)
         {
+            RegisterInternal(register, codeIndex, null);
+        }
+
+        /// <summary>
+        /// Register code index MCP tools with request-independent index updates.
+        /// </summary>
+        /// <param name="register">Tool registration delegate.</param>
+        /// <param name="codeIndex">Code index service.</param>
+        /// <param name="jobs">Shared process-local job service.</param>
+        public static void Register(
+            RegisterToolDelegate register,
+            ICodeIndexService codeIndex,
+            LongRunningJobService jobs)
+        {
+            if (jobs == null) throw new ArgumentNullException(nameof(jobs));
+            RegisterInternal(register, codeIndex, jobs);
+        }
+
+        private static void RegisterInternal(
+            RegisterToolDelegate register,
+            ICodeIndexService codeIndex,
+            LongRunningJobService? jobs)
+        {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (codeIndex == null) throw new ArgumentNullException(nameof(codeIndex));
 
@@ -50,7 +73,9 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_index_update",
-                "Refresh the Admiral-owned code index for a vessel's default branch.",
+                jobs == null
+                    ? "Refresh the Admiral-owned code index for a vessel's default branch."
+                    : "Start a background refresh of the Admiral-owned code index and immediately return an accepted job handle. Use armada_job_status to retrieve completion or failure.",
                 new
                 {
                     type = "object",
@@ -65,6 +90,12 @@ namespace Armada.Server.Mcp.Tools
                     if (!args.HasValue) return (object)new { Error = "missing args" };
                     VesselIdArgs request = JsonSerializer.Deserialize<VesselIdArgs>(args.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (jobs != null)
+                    {
+                        return (object)jobs.Start(
+                            "code_index_update",
+                            async (token) => (object)await codeIndex.UpdateAsync(request.VesselId, token).ConfigureAwait(false));
+                    }
                     return (object)await codeIndex.UpdateAsync(request.VesselId).ConfigureAwait(false);
                 });
 
