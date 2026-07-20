@@ -1169,8 +1169,9 @@ namespace Armada.Core.Services
             {
                 if (quarantineForCreditAuthFailure)
                 {
-                    DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(
+                    DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(
                         releaseMission!.FailureReason,
+                        latestCaptain.Runtime,
                         DateTime.UtcNow);
                     await _CaptainQuarantine.QuarantineAsync(
                         latestCaptain,

@@ -2146,7 +2146,7 @@ namespace Armada.Core.Services
 
             if (isQuotaFailure)
             {
-                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(failureReason, DateTime.UtcNow);
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow);
                 string quarantineReason = isCreditAuthFailure ? _CreditAuthQuarantineReason : failureReason;
                 await _CaptainQuarantine.QuarantineAsync(captain, quarantineReason, retryAfterUtc, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after non-retryable quota failure on mission " + missionId);
@@ -2226,7 +2226,7 @@ namespace Armada.Core.Services
             bool shouldQuarantine = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) || isCreditAuthFailure;
             if (shouldQuarantine)
             {
-                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(failureReason, DateTime.UtcNow);
+                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow);
                 string quarantineReason = isCreditAuthFailure ? _CreditAuthQuarantineReason : failureReason;
                 await _CaptainQuarantine.QuarantineAsync(captain, quarantineReason, retryAfterUtc, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after quota failure on requeued mission " + missionId);
