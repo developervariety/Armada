@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -21,6 +22,71 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Classify treats a dead container runtime as Infra, not a test failure", () =>
+            {
+                // Regression: with no container runtime in the dock, every container-backed fixture
+                // fails and the runner prints ordinary test-failure text ("Failed: 12"). Matching on
+                // that first blamed the code for a missing environment, so a Worker was failed and
+                // its downstream personas cancelled over infrastructure.
+                DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();
+
+                string output =
+                    "  Starting test execution, please wait...\r\n" +
+                    "  Docker.DotNet.DockerApiException: Cannot connect to the Docker daemon at npipe://./pipe/docker_engine. Is the docker daemon running?\r\n" +
+                    "Failed!  - Failed:    12, Passed:     0, Skipped:     0, Total:    12";
+
+                AssertEqual(
+                    DefinitionOfDoneFailureClassEnum.Infra,
+                    classifier.Classify("unit-test", 1, output),
+                    "container-runtime unavailability must outrank the test-failure text it produces");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Classify treats a unix docker socket failure as Infra", () =>
+            {
+                DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();
+                string output =
+                    "Testcontainers: could not connect to /var/run/docker.sock\r\n" +
+                    "Failed!  - Failed:     3, Passed:    40";
+
+                AssertEqual(
+                    DefinitionOfDoneFailureClassEnum.Infra,
+                    classifier.Classify("unit-test", 1, output),
+                    "a missing docker socket is infrastructure, not a failing test");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Classify still reports a genuine test failure as TestFail", () =>
+            {
+                // The container guard must not swallow real failures: without container signals a
+                // failing assertion is still the code's fault.
+                DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();
+                string output =
+                    "  Failed MyProject.Tests.WidgetTests.Add_Returns_Sum [12 ms]\r\n" +
+                    "  Assert.Equal() Failure: Values differ\r\n" +
+                    "Failed!  - Failed:     1, Passed:   204";
+
+                AssertEqual(
+                    DefinitionOfDoneFailureClassEnum.TestFail,
+                    classifier.Classify("unit-test", 1, output),
+                    "a real assertion failure must remain TestFail");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Classify reports a timeout as Timeout and never as a test failure", () =>
+            {
+                // Acceptance criterion: a ceiling hit is an infra timeout, not a test failure --
+                // even when the partial output already contains test-failure text.
+                DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();
+                string output = "Failed!  - Failed:     2, Passed:     9";
+
+                AssertEqual(
+                    DefinitionOfDoneFailureClassEnum.Timeout,
+                    classifier.Classify("unit-test", -1, output, timedOut: true),
+                    "an exceeded timeout must classify as Timeout regardless of partial output");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("Gate passes when both build and unit-test commands succeed", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
