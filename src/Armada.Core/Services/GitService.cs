@@ -885,6 +885,30 @@ namespace Armada.Core.Services
             return null;
         }
 
+        /// <summary>
+        /// Counts commits reachable from <paramref name="tipRef"/> but not from
+        /// <paramref name="baseRef"/>. Returns 0 when either ref is missing or the count cannot be
+        /// parsed, so callers fail toward "not ahead" only when the comparison is meaningless.
+        /// </summary>
+        private async Task<int> CountCommitsAheadAsync(string repoPath, string baseRef, string tipRef)
+        {
+            try
+            {
+                string output = await RunGitAsync(
+                    repoPath,
+                    "rev-list",
+                    "--count",
+                    baseRef + ".." + tipRef).ConfigureAwait(false);
+
+                return Int32.TryParse(output.Trim(), out int count) ? count : 0;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not count commits ahead for " + tipRef + " in " + repoPath + ": " + ex.Message);
+                return 0;
+            }
+        }
+
         private async Task<bool> SyncLocalBranchFromRemoteAsync(string repoPath, string branchName)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
@@ -904,6 +928,24 @@ namespace Armada.Core.Services
 
             if (await BranchExistsAsync(repoPath, branchName).ConfigureAwait(false))
             {
+                // NEVER discard local-only commits. "branch -f" resets the local ref to the remote
+                // one, so any commit that landed locally but has not reached the upstream mirror is
+                // destroyed silently. That is a real loss mode for a LocalMerge vessel, whose whole
+                // model is landing locally and pushing only when the operator chooses: its bare is
+                // legitimately ahead of the remote almost all the time.
+                int aheadCount = await CountCommitsAheadAsync(
+                    repoPath,
+                    "refs/remotes/origin/" + branchName,
+                    branchName).ConfigureAwait(false);
+
+                if (aheadCount > 0)
+                {
+                    _Logging.Warn(_Header + "refusing to reset " + branchName + " in " + repoPath +
+                        " to refs/remotes/origin/" + branchName + ": the local branch is ahead by " +
+                        aheadCount + " commit(s) that are not on the remote and would be discarded");
+                    return true;
+                }
+
                 await RunGitAsync(repoPath, "branch", "-f", branchName, "refs/remotes/origin/" + branchName).ConfigureAwait(false);
             }
             else

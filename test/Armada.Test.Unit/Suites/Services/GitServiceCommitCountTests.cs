@@ -1,6 +1,8 @@
 ﻿namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.Diagnostics;
+    using System.IO;
     using Armada.Core.Services;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -150,6 +152,101 @@
                 Console.WriteLine("  SKIP  GitServiceCommitCountTests (git-backed cases) -- git not found on PATH");
                 return;
             }
+
+            await RunTest("EnsureLocalBranchAsync_BareAheadOfUpstream_DoesNotDiscardLocalCommits", async () =>
+            {
+                // Regression: SyncLocalBranchFromRemoteAsync used to run
+                //   git branch -f <branch> refs/remotes/origin/<branch>
+                // unconditionally, resetting the bare's branch to the remote and silently
+                // destroying any commit that had landed locally but not reached the upstream.
+                // For a LocalMerge vessel -- which lands locally and pushes only when the operator
+                // chooses -- the bare is legitimately ahead of the remote nearly all the time.
+                string root = Path.Combine(Path.GetTempPath(), "armada_ahead_" + Guid.NewGuid().ToString("N"));
+                string upstream = Path.Combine(root, "upstream.git");
+                string bare = Path.Combine(root, "bare.git");
+                string work = Path.Combine(root, "work");
+                Directory.CreateDirectory(root);
+
+                try
+                {
+                    // Upstream with a single commit on main.
+                    Directory.CreateDirectory(work);
+                    await RunGitAsync(work, "init", "--initial-branch=main").ConfigureAwait(false);
+                    await RunGitAsync(work, "config", "user.email", "t@example.com").ConfigureAwait(false);
+                    await RunGitAsync(work, "config", "user.name", "t").ConfigureAwait(false);
+                    File.WriteAllText(Path.Combine(work, "a.txt"), "a");
+                    await RunGitAsync(work, "add", "-A").ConfigureAwait(false);
+                    await RunGitAsync(work, "commit", "-m", "upstream commit").ConfigureAwait(false);
+                    await RunGitAsync(root, "clone", "--bare", work, upstream).ConfigureAwait(false);
+
+                    // Bare mirror of upstream, then a LOCAL-ONLY commit on top of main.
+                    await RunGitAsync(root, "clone", "--bare", upstream, bare).ConfigureAwait(false);
+                    await RunGitAsync(bare, "fetch", "origin", "+refs/heads/*:refs/remotes/origin/*").ConfigureAwait(false);
+
+                    File.WriteAllText(Path.Combine(work, "b.txt"), "b");
+                    await RunGitAsync(work, "add", "-A").ConfigureAwait(false);
+                    await RunGitAsync(work, "commit", "-m", "local-only landing").ConfigureAwait(false);
+                    string localOnly = (await RunGitAsync(work, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await RunGitAsync(bare, "fetch", work, "main:main").ConfigureAwait(false);
+
+                    string beforeSync = (await RunGitAsync(bare, "rev-parse", "main").ConfigureAwait(false)).Trim();
+                    AssertEqual(localOnly, beforeSync, "bare main should carry the local-only commit before sync");
+
+                    // This is the path that used to reset the branch to origin/main.
+                    await service.EnsureLocalBranchAsync(bare, "main").ConfigureAwait(false);
+
+                    string afterSync = (await RunGitAsync(bare, "rev-parse", "main").ConfigureAwait(false)).Trim();
+                    AssertEqual(
+                        localOnly,
+                        afterSync,
+                        "a bare branch ahead of its upstream must never be reset to the remote ref");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(root);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("EnsureLocalBranchAsync_BareBehindUpstream_StillFastForwards", async () =>
+            {
+                // The guard must only protect ahead-of-upstream branches: a branch that is purely
+                // behind must still sync, or docks would be cut from stale refs.
+                string root = Path.Combine(Path.GetTempPath(), "armada_behind_" + Guid.NewGuid().ToString("N"));
+                string upstream = Path.Combine(root, "upstream.git");
+                string bare = Path.Combine(root, "bare.git");
+                string work = Path.Combine(root, "work");
+                Directory.CreateDirectory(root);
+
+                try
+                {
+                    Directory.CreateDirectory(work);
+                    await RunGitAsync(work, "init", "--initial-branch=main").ConfigureAwait(false);
+                    await RunGitAsync(work, "config", "user.email", "t@example.com").ConfigureAwait(false);
+                    await RunGitAsync(work, "config", "user.name", "t").ConfigureAwait(false);
+                    File.WriteAllText(Path.Combine(work, "a.txt"), "a");
+                    await RunGitAsync(work, "add", "-A").ConfigureAwait(false);
+                    await RunGitAsync(work, "commit", "-m", "first").ConfigureAwait(false);
+                    await RunGitAsync(root, "clone", "--bare", work, upstream).ConfigureAwait(false);
+                    await RunGitAsync(root, "clone", "--bare", upstream, bare).ConfigureAwait(false);
+
+                    // Advance upstream only; the bare stays behind.
+                    File.WriteAllText(Path.Combine(work, "c.txt"), "c");
+                    await RunGitAsync(work, "add", "-A").ConfigureAwait(false);
+                    await RunGitAsync(work, "commit", "-m", "second").ConfigureAwait(false);
+                    string advanced = (await RunGitAsync(work, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await RunGitAsync(upstream, "fetch", work, "main:main").ConfigureAwait(false);
+                    await RunGitAsync(bare, "fetch", "origin", "+refs/heads/*:refs/remotes/origin/*").ConfigureAwait(false);
+
+                    await service.EnsureLocalBranchAsync(bare, "main").ConfigureAwait(false);
+
+                    string afterSync = (await RunGitAsync(bare, "rev-parse", "main").ConfigureAwait(false)).Trim();
+                    AssertEqual(advanced, afterSync, "a behind-only branch should still fast-forward to the remote");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(root);
+                }
+            }).ConfigureAwait(false);
 
             await RunTest("GetCommitCountBetweenAsync_AtoC_Returns2", async () =>
             {
