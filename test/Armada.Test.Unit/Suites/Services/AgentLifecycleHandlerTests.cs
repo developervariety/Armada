@@ -72,7 +72,12 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 using (CursorShimScope shim = CursorShimScope.Create())
                 {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    // The hang-model shim blocks ~10s. The production ceiling is 30s, so with the
+                    // default this validation SUCCEEDS and the timeout path is never reached -- which
+                    // is why this test could not pass on any platform since it was written. Drive a
+                    // short ceiling instead of making the fake runtime outlast 30 seconds.
+                    AgentLifecycleHandler handler = CreateHandler(
+                        testDb.Driver, out _, TimeSpan.FromSeconds(2));
                     Captain captain = new Captain("timeout-captain", AgentRuntimeEnum.Cursor)
                     {
                         Model = "hang-model"
@@ -567,7 +572,7 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings)
+        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
@@ -584,7 +589,8 @@ namespace Armada.Test.Unit.Suites.Services
                 templateService,
                 null,
                 null,
-                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask,
+                modelValidationTimeout);
         }
 
         private static LoggingModule CreateLogging()

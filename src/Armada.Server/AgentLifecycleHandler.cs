@@ -31,7 +31,7 @@ namespace Armada.Server
         private IPromptTemplateService? _PromptTemplateService;
         private ArmadaWebSocketHub? _WebSocketHub;
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
-        private readonly TimeSpan _ModelValidationTimeout = TimeSpan.FromSeconds(30);
+        private readonly TimeSpan _ModelValidationTimeout;
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
 
         /// <summary>
@@ -115,8 +115,12 @@ namespace Armada.Server
             IMessageTemplateService templateService,
             IPromptTemplateService? promptTemplateService,
             ArmadaWebSocketHub? webSocketHub,
-            Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync)
+            Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync,
+            TimeSpan? modelValidationTimeout = null)
         {
+            // Overridable so a test can drive the timeout path in seconds rather than needing a fake
+            // runtime that outlasts the production ceiling. Defaults to the production value.
+            _ModelValidationTimeout = modelValidationTimeout ?? TimeSpan.FromSeconds(30);
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -481,9 +485,15 @@ namespace Armada.Server
             }
 
             TimeSpan interval = TimeSpan.FromSeconds(Math.Max(5, _Settings.HeartbeatIntervalSeconds));
+
+            // Read the token HERE, while the source is guaranteed alive. Reading cts.Token inside the
+            // task body raced with StopProcessLivenessHeartbeat disposing the source: the property
+            // throws ObjectDisposedException, and because it sat outside the try block the
+            // fire-and-forget task faulted with nobody observing it, so the exception resurfaced from
+            // the finalizer thread. A CancellationToken captured before disposal stays usable.
+            CancellationToken token = cts.Token;
             _ = Task.Run(async () =>
             {
-                CancellationToken token = cts.Token;
                 try
                 {
                     while (!token.IsCancellationRequested)
