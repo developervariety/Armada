@@ -9,7 +9,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Git operations via the git CLI.
     /// </summary>
-    public class GitService : IGitService
+    public class GitService : IGitService, IBranchInventory
     {
         #region Public-Members
 
@@ -606,6 +606,56 @@ namespace Armada.Core.Services
             {
                 string result = await RunGitAsync(repoPath, "branch", "--list", branchName).ConfigureAwait(false);
                 return !String.IsNullOrWhiteSpace(result);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<string>> EnumerateLocalBranchesAsync(string repoPath, string? branchPrefix = null, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+
+            List<string> branches = new List<string>();
+            string output;
+            try
+            {
+                output = await RunGitAsync(repoPath, "for-each-ref", "--format=%(refname:short)", "refs/heads/").ConfigureAwait(false);
+            }
+            catch
+            {
+                // An unreadable or non-existent repository reports nothing rather than throwing, so a
+                // reporting caller can degrade to "unknown" for one vessel instead of failing overall.
+                return branches;
+            }
+
+            foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string branch = line.Trim();
+                if (String.IsNullOrEmpty(branch)) continue;
+                if (!String.IsNullOrEmpty(branchPrefix) && !branch.StartsWith(branchPrefix, StringComparison.Ordinal)) continue;
+                branches.Add(branch);
+            }
+
+            return branches;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(ancestorRef)) throw new ArgumentNullException(nameof(ancestorRef));
+            if (String.IsNullOrEmpty(descendantRef)) throw new ArgumentNullException(nameof(descendantRef));
+
+            try
+            {
+                // `merge-base --is-ancestor` communicates through the exit code: 0 yes, 1 no. RunGitAsync
+                // throws on a non-zero exit, so "no" and "ref missing" both land in the catch. Callers
+                // treat that as not-merged, which is the safe direction for a report about unlanded work.
+                await RunGitAsync(repoPath, "merge-base", "--is-ancestor", ancestorRef, descendantRef).ConfigureAwait(false);
+                return true;
             }
             catch
             {

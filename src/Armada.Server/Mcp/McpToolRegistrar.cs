@@ -67,6 +67,7 @@ namespace Armada.Server.Mcp
         /// <param name="incidentService">Optional incident service for operational incident workflows.</param>
         /// <param name="objectiveScheduler">Optional autonomous objective scheduler for scheduler control tools.</param>
         /// <param name="captainQuarantine">Optional captain quarantine service enabling the bench and unbench tools.</param>
+        /// <param name="unlandedBranches">Optional unlanded-branch reporting service enabling armada_unlanded_branches.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -94,7 +95,8 @@ namespace Armada.Server.Mcp
             RunbookService? runbookService = null,
             IncidentService? incidentService = null,
             AutonomousObjectiveScheduler? objectiveScheduler = null,
-            ICaptainQuarantineService? captainQuarantine = null)
+            ICaptainQuarantineService? captainQuarantine = null,
+            UnlandedBranchService? unlandedBranches = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -110,6 +112,7 @@ namespace Armada.Server.Mcp
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain);
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
+            if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
             McpDockTools.Register(register, database, dockService);

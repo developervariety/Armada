@@ -262,6 +262,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DefinitionOfDoneGateTests());
             runner.AddSuite(new DockBoundaryHookExecutionTests());
             runner.AddSuite(new DockBoundaryHookCoverageTests());
+            runner.AddSuite(new UnlandedBranchServiceTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;

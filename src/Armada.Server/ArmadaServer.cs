@@ -1197,7 +1197,8 @@ namespace Armada.Server
                 runbookService: _RunbookService,
                 incidentService: _IncidentService,
                 objectiveScheduler: _ObjectiveScheduler,
-                captainQuarantine: _CaptainQuarantine);
+                captainQuarantine: _CaptainQuarantine,
+                unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging));
         }
 
         private async Task EmitEventAsync(string eventType, string message,
