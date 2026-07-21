@@ -206,7 +206,14 @@ namespace Armada.Test.Unit.Suites.Services
                     blockedBy: new List<string> { "multi-blocker-a", "multi-blocker-b" });
                 List<Objective> result = AutonomousObjectiveSelector.SelectEligible(
                     new List<Objective> { blockerA, blockerB, blocked });
-                AssertEqual(0, result.Count, "All blockers must be Completed before objective is eligible");
+                // The BLOCKED objective must be excluded while any blocker is incomplete. blockerB is
+                // itself Scoped and auto-dispatchable with no blockers of its own, so it is correctly
+                // eligible -- the original assertion of an empty result overlooked that and did not
+                // actually test the exclusion it is named for.
+                AssertFalse(result.Exists(o => o.Id == "multi-blocked"),
+                    "Objective must stay blocked while one of its blockers is not Completed");
+                AssertEqual(1, result.Count, "Only the incomplete blocker itself should be eligible");
+                AssertEqual("multi-blocker-b", result[0].Id, "The incomplete blocker is dispatchable on its own");
                 return Task.CompletedTask;
             });
 

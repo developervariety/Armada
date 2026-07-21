@@ -140,8 +140,12 @@ namespace Armada.Test.Unit.Suites.Services
                     AuthContext ctx = await svc.AuthenticateAsync(null, null, "testkey");
 
                     AssertTrue(ctx.IsAuthenticated, "Should be authenticated with valid API key");
-                    AssertEqual(Constants.SystemTenantId, ctx.TenantId);
-                    AssertEqual(Constants.SystemUserId, ctx.UserId);
+                    // API-key auth resolves to the DEFAULT tenant, not the system tenant. ten_system is
+                    // an internal seeded tenant (AuthRoutes deliberately skips its users when listing);
+                    // real records live under "default", so an API-key admin must operate there. This
+                    // assertion predates that change and asserted the original multi-tenancy cut.
+                    AssertEqual(Constants.DefaultTenantId, ctx.TenantId);
+                    AssertEqual(Constants.DefaultUserId, ctx.UserId);
                     AssertTrue(ctx.IsAdmin, "API key auth should grant admin");
                     AssertEqual("ApiKey", ctx.AuthMethod);
                 }
