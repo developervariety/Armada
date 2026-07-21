@@ -268,11 +268,17 @@ namespace Armada.Core.Services
             if (request.CheckRunIds != null) objective.CheckRunIds = DistinctNormalized(request.CheckRunIds);
             if (request.ReleaseIds != null) objective.ReleaseIds = DistinctNormalized(request.ReleaseIds);
             if (request.DeploymentIds != null) objective.DeploymentIds = DistinctNormalized(request.DeploymentIds);
+            // Whether the CALLER supplied incident ids decides how strictly they are validated below.
+            bool callerSuppliedIncidentIds = request.IncidentIds != null;
             if (request.IncidentIds != null) objective.IncidentIds = DistinctNormalized(request.IncidentIds);
             objective.LastUpdateUtc = DateTime.UtcNow;
 
             SanitizeObjective(objective);
-            await ValidateLinksAsync(auth, objective, token).ConfigureAwait(false);
+            // Supplying a bad incident id is still rejected. But when the caller did not touch
+            // incidents at all, a pre-existing dangling reference must not block an unrelated edit --
+            // that made objectives carrying a stale incident permanently uneditable, including the
+            // retag that surfaced this.
+            await ValidateLinksAsync(auth, objective, token, tolerateDanglingIncidents: !callerSuppliedIncidentIds).ConfigureAwait(false);
             ApplyLifecycleTimestamps(objective);
             await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
             OnObjectiveChanged?.Invoke(objective);

@@ -826,6 +826,33 @@ namespace Armada.Test.Unit.Suites.Services
                     "Linking a voyage must succeed even though the objective carries a dangling incident reference");
                 AssertTrue(afterVoyageLink.IncidentIds.Contains(incident.Id),
                     "The stale incident id is left in place, not silently pruned, because a read can also miss on scoping");
+
+                // An edit that does not touch incidents must not be blocked by the stale one. Found in
+                // real use: retagging this objective's vessels failed with
+                // "Incident not found or not accessible", making any objective that carried a dangling
+                // incident permanently uneditable.
+                Objective retagged = await objectives.UpdateAsync(auth, target.Id, new ObjectiveUpsertRequest
+                {
+                    Tags = new List<string> { "retagged" }
+                }).ConfigureAwait(false);
+                AssertTrue(retagged.Tags.Contains("retagged"),
+                    "An update that never mentions incidents must succeed despite a pre-existing dangling incident");
+
+                // ...but supplying a bad incident id explicitly is still rejected.
+                string suppliedError = "";
+                try
+                {
+                    await objectives.UpdateAsync(auth, target.Id, new ObjectiveUpsertRequest
+                    {
+                        IncidentIds = new List<string> { "inc_definitely_missing" }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    suppliedError = ex.Message;
+                }
+                AssertContains("inc_definitely_missing", suppliedError,
+                    "Explicitly supplying a missing incident id must still be rejected on update");
             }).ConfigureAwait(false);
         }
 
