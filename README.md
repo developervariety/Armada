@@ -287,6 +287,24 @@ For dependency aliases, assign `alias` to the upstream mission and reference it 
 }
 ```
 
+### Run on system startup
+
+To keep the Admiral running across reboots, use the scripted startup workflow. It publishes
+`Armada.Server` into `~/.armada/bin`, deploys the dashboard, registers a platform service
+definition, and verifies health on boot. Full guide:
+[docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md).
+
+Install the local deployment:
+
+| Platform | Install | Update | Health check |
+|---|---|---|---|
+| Linux (`systemd --user`) | `scripts/linux/install-systemd-user.sh` | `scripts/linux/update-systemd-user.sh` | `scripts/linux/healthcheck-server.sh` |
+| macOS (`launchd`) | `scripts/macos/install-launchd-agent.sh` | `scripts/macos/update-launchd-agent.sh` | `scripts/macos/healthcheck-server.sh` |
+| Windows (scheduled task) | `scripts/windows/install-windows-task.bat` | `scripts/windows/update-windows-task.bat` | `scripts/windows/healthcheck-server.bat` |
+
+Run the install script once, then use the update script after each rebuild to republish the
+server and restart the service. The health-check helper verifies the dashboard responds.
+
 ---
 
 ## MCP Integration
