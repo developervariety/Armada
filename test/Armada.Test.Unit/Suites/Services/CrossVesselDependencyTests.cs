@@ -169,8 +169,21 @@ namespace Armada.Test.Unit.Suites.Services
                     downstream = await testDb.Driver.Missions.CreateAsync(downstream).ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(downstream, vessel).ConfigureAwait(false);
-                    AssertFalse(assigned,
-                        "Same-vessel WorkProduced dep without handoff prep must still defer (existing behaviour)");
+
+                    // Behaviour changed deliberately in "reliably release rescue
+                    // Worker->TestEngineer->Judge handoff" (2026-06-16): a same-vessel dependency in a
+                    // handoff-eligible status whose handoff context was never propagated is now
+                    // SELF-HEALED and assigned in the same pass, instead of parking at
+                    // WaitingForDependency forever. That case arises when a rescue dependent row is
+                    // created after the upstream already reached WorkProduced. This test predates that
+                    // change; it now pins the self-heal rather than the superseded defer-always rule.
+                    AssertTrue(assigned,
+                        "Same-vessel WorkProduced dep without handoff prep must self-heal and assign, not park forever");
+
+                    Mission? healed = await testDb.Driver.Missions.ReadAsync(downstream.Id).ConfigureAwait(false);
+                    AssertNotNull(healed, "downstream should still be readable after self-healing");
+                    AssertEqual(upstream.BranchName, healed!.BranchName,
+                        "self-heal must stamp the upstream branch onto the dependent, which is what makes the assignment safe");
                 }
             });
 

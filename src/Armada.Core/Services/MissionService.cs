@@ -235,6 +235,19 @@ namespace Armada.Core.Services
                     }
                 }
 
+                // A vessel whose bare-repo LocalPath is the SAME directory as the operator's
+                // WorkingDirectory cannot be provisioned safely: dock creation would operate inside
+                // the working checkout. Refuse the assignment and leave the mission Pending so the
+                // misconfiguration is fixed rather than silently destroying the checkout.
+                if (UsesSharedLocalAndWorkingDirectory(vessel))
+                {
+                    _Logging.Warn(_Header + "vessel " + vessel.Id +
+                        " uses the same path for LocalPath and WorkingDirectory (" +
+                        (vessel.WorkingDirectory ?? vessel.LocalPath ?? "unknown") +
+                        ") -- skipping mission assignment because dock provisioning requires a separate bare repository path");
+                    return false;
+                }
+
             // Check pipeline dependency -- skip if the mission depends on another that hasn't completed
             // or if the downstream handoff has not yet populated the mission's branch/context.
             // dependencyIsCrossVessel is captured here and consumed by branch-inheritance logic
@@ -4018,6 +4031,32 @@ namespace Armada.Core.Services
         private static string BuildReviewDeniedFailureReason(string comment)
         {
             return "Review denied: " + comment;
+        }
+
+        /// <summary>
+        /// True when the vessel's bare-repo path and the operator's working checkout resolve to the
+        /// same directory. Compared on fully-resolved paths so ".." segments, trailing separators and
+        /// case differences cannot hide the collision; falls back to a trimmed comparison when the
+        /// path cannot be resolved.
+        /// </summary>
+        private static bool UsesSharedLocalAndWorkingDirectory(Vessel vessel)
+        {
+            if (vessel == null) return false;
+            if (String.IsNullOrWhiteSpace(vessel.LocalPath) || String.IsNullOrWhiteSpace(vessel.WorkingDirectory))
+                return false;
+
+            try
+            {
+                string localPath = Path.GetFullPath(vessel.LocalPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string workingDirectory = Path.GetFullPath(vessel.WorkingDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return String.Equals(localPath, workingDirectory, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return String.Equals(vessel.LocalPath.Trim(), vessel.WorkingDirectory.Trim(), StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         private static string BuildDodFailureReason(DefinitionOfDoneResult result)
