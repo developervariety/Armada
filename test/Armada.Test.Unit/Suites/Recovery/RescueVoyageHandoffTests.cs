@@ -486,7 +486,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     UserId = "usr_xvessel",
                     Name = "vessel-a",
                     RepoUrl = "file:///tmp/a.git",
-                    LocalPath = "C:\\tmp\\a",
+                    LocalPath = "C:\\tmp\\a.git",
                     WorkingDirectory = "C:\\tmp\\a",
                     DefaultBranch = "main"
                 }).ConfigureAwait(false);
@@ -497,7 +497,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     UserId = "usr_xvessel",
                     Name = "vessel-b",
                     RepoUrl = "file:///tmp/b.git",
-                    LocalPath = "C:\\tmp\\b",
+                    LocalPath = "C:\\tmp\\b.git",
                     WorkingDirectory = "C:\\tmp\\b",
                     DefaultBranch = "main"
                 }).ConfigureAwait(false);
@@ -1074,8 +1074,8 @@ namespace Armada.Test.Unit.Suites.Recovery
                 UserId = userId,
                 Name = "rescue-handoff-vessel",
                 RepoUrl = "file:///tmp/rescue.git",
-                LocalPath = Path.Combine(Path.GetTempPath(), "rescue-repos"),
-                WorkingDirectory = Path.Combine(Path.GetTempPath(), "rescue-repos"),
+                LocalPath = Path.Combine(Path.GetTempPath(), "rescue-repos.git"),
+                WorkingDirectory = Path.Combine(Path.GetTempPath(), "rescue-work"),
                 DefaultBranch = "main"
             }).ConfigureAwait(false);
         }
