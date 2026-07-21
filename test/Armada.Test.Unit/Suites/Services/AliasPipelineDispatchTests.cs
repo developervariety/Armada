@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp.Tools;
@@ -55,7 +56,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
 
                     // Two MDs, M1 -> M2, dispatched with the Reviewed pipeline.
@@ -150,7 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -205,7 +206,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -280,7 +281,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         logging);
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
@@ -388,7 +389,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -463,7 +464,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -542,7 +543,8 @@ namespace Armada.Test.Unit.Suites.Services
                     McpVoyageTools.Register(
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
-                        admiralDouble);
+                        admiralDouble,
+                        LegacyContextSettings());
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -618,7 +620,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -712,7 +714,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -794,7 +796,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -961,5 +963,21 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
                 => Task.FromResult<ContextPackResponse?>(CachedResponse);
         }
+
+        /// <summary>
+        /// Settings for tests that exercise dispatch mechanics rather than context-pack policy.
+        /// RequireContextPackWhenEnabled defaults to TRUE (see CodeIndexSettings), so dispatch
+        /// hard-fails in auto or force mode when a pack cannot be staged -- deliberate, introduced by
+        /// "guarantee context-pack staging or hard-fail", and covered by ContextPackStagingHardFailTests.
+        /// These tests predate that change and assert the earlier best-effort contract, so they opt
+        /// into it explicitly instead of silently depending on the old default.
+        /// </summary>
+        private static ArmadaSettings LegacyContextSettings()
+        {
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.CodeIndex.RequireContextPackWhenEnabled = false;
+            return settings;
+        }
+
     }
 }

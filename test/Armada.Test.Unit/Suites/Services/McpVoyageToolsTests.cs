@@ -44,7 +44,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
 
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
 
@@ -106,7 +106,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
 
                     AssertNotNull(dispatchHandler);
 
@@ -160,7 +160,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         null,
@@ -213,7 +213,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -278,7 +278,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -322,7 +322,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -363,7 +363,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -404,7 +404,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
@@ -578,7 +578,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -627,7 +627,7 @@ namespace Armada.Test.Unit.Suites.Services
                             (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                             testDb.Driver,
                             admiralDouble,
-                            null,
+                            LegacyContextSettings(),
                             null,
                             null,
                             codeIndex);
@@ -673,7 +673,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -719,7 +719,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -762,7 +762,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -886,7 +886,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
 
                     AssertNotNull(dispatchHandler);
 
@@ -925,7 +925,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null);
+                        LegacyContextSettings());
 
                     AssertNotNull(dispatchHandler);
 
@@ -996,7 +996,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -1045,7 +1045,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -1105,7 +1105,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -1268,7 +1268,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -1325,7 +1325,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -1404,7 +1404,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -1466,7 +1466,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
                         testDb.Driver,
                         admiralDouble,
-                        null,
+                        LegacyContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -2208,5 +2208,21 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.FromResult<ContextPackResponse?>(SecondCacheLookupResponse);
             }
         }
+
+        /// <summary>
+        /// Settings for tests that exercise dispatch mechanics rather than context-pack policy.
+        /// RequireContextPackWhenEnabled defaults to TRUE (see CodeIndexSettings), so dispatch
+        /// hard-fails in auto or force mode when a pack cannot be staged -- deliberate, introduced by
+        /// "guarantee context-pack staging or hard-fail", and covered by ContextPackStagingHardFailTests.
+        /// These tests predate that change and assert the earlier best-effort contract, so they opt
+        /// into it explicitly instead of silently depending on the old default.
+        /// </summary>
+        private static ArmadaSettings LegacyContextSettings()
+        {
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.CodeIndex.RequireContextPackWhenEnabled = false;
+            return settings;
+        }
+
     }
 }
