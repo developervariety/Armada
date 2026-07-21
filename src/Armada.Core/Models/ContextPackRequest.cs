@@ -20,7 +20,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Approximate token budget for the markdown pack.
         /// </summary>
-        public int TokenBudget { get; set; } = 3000;
+        public int TokenBudget { get; set; } = 5000;
 
         /// <summary>
         /// Optional maximum result count.

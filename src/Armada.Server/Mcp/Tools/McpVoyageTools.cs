@@ -124,7 +124,7 @@ namespace Armada.Server.Mcp.Tools
                             }
                         },
                         codeContextMode = new { type = "string", description = "Code context mode for this dispatch: auto (default), off, or force. Mission-level codeContextMode overrides this value." },
-                        codeContextTokenBudget = new { type = "integer", description = "Optional token budget for each generated context pack. Defaults to a conservative 3000 tokens." },
+                        codeContextTokenBudget = new { type = "integer", description = "Optional token budget for each generated context pack. Defaults to a conservative 5000 tokens." },
                         codeContextMaxResults = new { type = "integer", description = "Optional maximum number of code-index evidence results per context pack. Omit to use CodeIndex settings." },
                         pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" },
                         pipeline = new { type = "string", description = "Pipeline name to use (convenience alias for pipelineId -- resolves by name)" },

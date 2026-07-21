@@ -35,7 +35,7 @@ namespace Armada.Server
         private const string _CodeContextModeAuto = "auto";
         private const string _CodeContextModeOff = "off";
         private const string _CodeContextModeForce = "force";
-        private const int _DefaultCodeContextTokenBudget = 3000;
+        private const int _DefaultCodeContextTokenBudget = 5000;
         private static readonly HashSet<string> _ImplementingPersonas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Worker",

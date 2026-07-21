@@ -28,7 +28,7 @@ namespace Armada.Server.Mcp.Tools
         private const string CodeContextModeAuto = "auto";
         private const string CodeContextModeOff = "off";
         private const string CodeContextModeForce = "force";
-        private const int DefaultCodeContextTokenBudget = 3000;
+        private const int DefaultCodeContextTokenBudget = 5000;
         private const int MaxSpecExcerptChars = 2500;
 
         /// <summary>Registers Architect MCP tools with the server.</summary>
@@ -60,7 +60,7 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Target vessel for the Architect captain and downstream Worker missions" },
                         preferredModel = new { type = "string", description = "Architect complexity tier. Use 'low', 'mid', or 'high'. Default 'high'." },
                         codeContextMode = new { type = "string", description = "Code context mode: auto (default), off, or force." },
-                        codeContextTokenBudget = new { type = "integer", description = "Optional token budget for the generated context pack. Defaults to 3000 tokens." },
+                        codeContextTokenBudget = new { type = "integer", description = "Optional token budget for the generated context pack. Defaults to 5000 tokens." },
                         codeContextMaxResults = new { type = "integer", description = "Optional maximum number of code-index evidence results. Omit to use CodeIndex settings." },
                         codeContextQuery = new { type = "string", description = "Optional code search query. Defaults to spec filename, architect description, and a bounded spec excerpt." },
                         selectedPlaybooks = new
