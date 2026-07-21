@@ -49,6 +49,32 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(worker.Id, mergeQueue.EnqueueCalls[0].MissionId, "Enqueue should target the Worker mission.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_MemoryConsolidatorWorkProduced_CompletesWithoutEnqueue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // A reflection mission that stayed WorkProduced (its landing short-circuit never ran)
+                // must NOT be enqueued by the drain: enqueuing would create an unmergeable entry that
+                // reconciles the mission to a spurious LandingFailed. It must complete instead.
+                Mission consolidator = await CreateWorkProducedMissionAsync(
+                    testDb, vessel, voyage, "armada/reflection-1", "MemoryConsolidator").ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, mergeQueue.EnqueueCalls.Count, "MemoryConsolidator mission must never be enqueued for git landing.");
+
+                Mission? updated = await testDb.Driver.Missions.ReadAsync(consolidator.Id).ConfigureAwait(false);
+                AssertNotNull(updated);
+                AssertEqual(MissionStatusEnum.Complete, updated!.Status, "MemoryConsolidator mission must complete without landing.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_JudgeProgressSignalPass_WorkProduced_EnqueuesBranch", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -287,6 +287,28 @@ namespace Armada.Server
                 .OrderBy(item => item.LastUpdateUtc))
             {
                 if (IsReviewerPersona(summary.Persona)) continue;
+
+                // MemoryConsolidator (reflection) missions never git-land: their output is a
+                // DB playbook proposal applied via accept_memory_proposal, not a merge. If one
+                // reaches the drain still in WorkProduced (its landing short-circuit never ran),
+                // enqueuing it would create an unmergeable entry that the merge queue reconciles
+                // to a spurious LandingFailed. Complete it directly -- mirroring
+                // MissionLandingHandler's short-circuit -- and skip enqueue.
+                if (String.Equals(summary.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
+                {
+                    Mission? consolidator = await ReadMissionAsync(summary.TenantId, summary.Id, token).ConfigureAwait(false);
+                    if (consolidator != null && consolidator.Status != MissionStatusEnum.Complete)
+                    {
+                        DateTime completedUtc = DateTime.UtcNow;
+                        consolidator.Status = MissionStatusEnum.Complete;
+                        consolidator.CompletedUtc = completedUtc;
+                        consolidator.LastUpdateUtc = completedUtc;
+                        await _Database.Missions.UpdateAsync(consolidator).ConfigureAwait(false);
+                        _Logging.Info(_Header + "landing-drain completed MemoryConsolidator mission " + summary.Id + " without enqueue (DB-applied, never git-landed)");
+                    }
+                    continue;
+                }
+
                 if (!await IsReviewerChainPassedAsync(summaries, summary.Id, token).ConfigureAwait(false)) continue;
 
                 Mission? mission = await ReadMissionAsync(summary.TenantId, summary.Id, token).ConfigureAwait(false);
