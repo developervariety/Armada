@@ -225,7 +225,11 @@ namespace Armada.Core.Settings
                 "gpt-5.3-codex",
                 "claude-4.6-sonnet-medium",
                 "gemini-3.1-pro",
-                "opencode-go/kimi-k2.7-code"
+                "opencode-go/kimi-k2.7-code",
+                // Eligible for mid-tier dispatch but deliberately NOT in WithinTierPreferenceOrder:
+                // unproven and free-tier (rate-limited), so it is only selected when explicitly
+                // forced or when the preferred mid-tier captains are unavailable.
+                "opencode/laguna-s-2.1-free"
             };
         }
 
@@ -257,6 +261,9 @@ namespace Armada.Core.Settings
                 { "gpt-5.3-codex", new ModelCapabilityProfile { TelemetryRichness = 50, AuditReasoningFit = 55, MechanicalThroughput = 70, Cost = 55 } },
                 { "claude-4.6-sonnet-medium", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 75, MechanicalThroughput = 55, Cost = 60 } },
                 { "gemini-3.1-pro", new ModelCapabilityProfile { TelemetryRichness = 55, AuditReasoningFit = 55, MechanicalThroughput = 60, Cost = 45 } },
+                // PROVISIONAL pending head-to-head evaluation vs claude-sonnet-4-6; free tier, so
+                // Cost is near-zero but throughput is rate-limited in practice. Revise once measured.
+                { "opencode/laguna-s-2.1-free", new ModelCapabilityProfile { TelemetryRichness = 50, AuditReasoningFit = 50, MechanicalThroughput = 60, Cost = 5 } },
                 // High-tier: rich telemetry and strong audit reasoning, higher cost.
                 { "claude-opus-4-7", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
                 { "gpt-5.5", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 85, MechanicalThroughput = 60, Cost = 90 } },

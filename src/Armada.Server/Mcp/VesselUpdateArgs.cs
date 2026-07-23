@@ -43,6 +43,13 @@ namespace Armada.Server.Mcp
         public string? WorkingDirectory { get; set; }
 
         /// <summary>
+        /// New path to the local bare repository that Armada cuts dock worktrees from. Set this when
+        /// the bare repo is renamed or relocated (for example onto another drive); otherwise
+        /// DockService keeps resolving the stale path and re-clones from RepoUrl into it.
+        /// </summary>
+        public string? LocalPath { get; set; }
+
+        /// <summary>
         /// Whether to allow multiple concurrent missions on this vessel.
         /// </summary>
         public bool? AllowConcurrentMissions { get; set; }

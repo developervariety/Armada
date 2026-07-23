@@ -234,6 +234,7 @@ namespace Armada.Server.Mcp.Tools
                         projectContext = new { type = "string", description = "New project context" },
                         styleGuide = new { type = "string", description = "New style guide" },
                         workingDirectory = new { type = "string", description = "New local directory where completed mission changes will be pulled after merge" },
+                        localPath = new { type = "string", description = "New path to the local bare repository Armada cuts dock worktrees from. Set this when the bare repo is renamed or relocated (e.g. onto another drive); otherwise DockService keeps resolving the stale path and re-clones from repoUrl into it." },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel" },
                         enableModelContext = new { type = "boolean", description = "Enable or disable legacy model context injection and learned-fact proposal routing" },
                         modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; mission discoveries should use [LEARNED-FACT-PROPOSAL]" },
@@ -316,6 +317,8 @@ namespace Armada.Server.Mcp.Tools
                         vessel.StyleGuide = request.StyleGuide;
                     if (request.WorkingDirectory != null)
                         vessel.WorkingDirectory = request.WorkingDirectory;
+                    if (request.LocalPath != null)
+                        vessel.LocalPath = request.LocalPath;
                     if (request.AllowConcurrentMissions.HasValue)
                         vessel.AllowConcurrentMissions = request.AllowConcurrentMissions.Value;
                     if (request.EnableModelContext.HasValue)
