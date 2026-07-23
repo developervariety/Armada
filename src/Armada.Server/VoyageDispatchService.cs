@@ -153,7 +153,8 @@ namespace Armada.Server
             object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
                 _CodeIndexService,
                 vesselId,
-                "armada_dispatch").ConfigureAwait(false);
+                "armada_dispatch",
+                LogCodeContextWarning).ConfigureAwait(false);
             if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);
 
             string? resolvedPipelineId = await ResolvePipelineIdAsync(request.PipelineId, request.Pipeline).ConfigureAwait(false);
@@ -395,7 +396,13 @@ namespace Armada.Server
                 try
                 {
                     Stopwatch totalWatch = Stopwatch.StartNew();
-                    ContextPackResponse? cached = await _CodeIndexService.TryGetCachedContextPackAsync(contextRequest).ConfigureAwait(false);
+                    LogCodeContextInfo(
+                        "code context phase start for mission '" + mission.Title + "' vessel " + vesselId
+                        + " mode=" + mode + " timeoutMs=" + ((int)GetCodeContextTimeout().TotalMilliseconds));
+                    ContextPackResponse? cached = await RunCodeIndexCallWithTimeoutAsync(
+                        "code context cache probe",
+                        cancellationToken => _CodeIndexService.TryGetCachedContextPackAsync(contextRequest, cancellationToken))
+                        .ConfigureAwait(false);
 
                     if (cached != null && cached.PrestagedFiles != null && cached.PrestagedFiles.Count > 0)
                     {
@@ -426,9 +433,18 @@ namespace Armada.Server
 
                     LogCodeContextInfo(
                         "code context for mission '" + mission.Title + "': cache_miss; warming baseline cache for vessel " + vesselId);
-                    await _CodeIndexService.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
+                    await RunCodeIndexCallWithTimeoutAsync(
+                        "code context baseline warm",
+                        async cancellationToken =>
+                        {
+                            await _CodeIndexService.WarmBaselineCacheAsync(vesselId, cancellationToken).ConfigureAwait(false);
+                            return true;
+                        }).ConfigureAwait(false);
 
-                    cached = await _CodeIndexService.TryGetCachedContextPackAsync(contextRequest).ConfigureAwait(false);
+                    cached = await RunCodeIndexCallWithTimeoutAsync(
+                        "code context cache probe after warm",
+                        cancellationToken => _CodeIndexService.TryGetCachedContextPackAsync(contextRequest, cancellationToken))
+                        .ConfigureAwait(false);
                     if (cached != null && cached.PrestagedFiles != null && cached.PrestagedFiles.Count > 0)
                     {
                         totalWatch.Stop();
@@ -461,6 +477,20 @@ namespace Armada.Server
                     }
 
                     MergeGeneratedPrestagedFiles(mission, contextPack.PrestagedFiles);
+                }
+                catch (TimeoutException ex)
+                {
+                    // A stalled index/embedding backend must never block dispatch. Force/require
+                    // callers get a specific actionable error; auto callers degrade to no pack.
+                    // Keep the established "code context generation failed" prefix -- it is an error
+                    // contract callers match on -- and append the actionable timeout remedy.
+                    if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
+                        return "code context generation failed for mission '" + mission.Title + "': " + ex.Message
+                            + " (raise " + CodeContextTimeouts.TimeoutEnvVar + " or dispatch with codeContextMode=off)";
+
+                    LogCodeContextWarning(
+                        "code context phase end for mission '" + mission.Title + "': DEGRADED to no pack after timeout -- "
+                        + ex.Message + "; dispatch continues");
                 }
                 catch (Exception ex)
                 {
@@ -665,6 +695,66 @@ namespace Armada.Server
         private static TimeSpan GetCodeContextTimeout()
         {
             return CodeContextTimeouts.Resolve(CodeContextTimeouts.DefaultDispatchTimeoutMs);
+        }
+
+        /// <summary>
+        /// Bound an arbitrary code-index call on the dispatch path with the shared code-context
+        /// timeout. Only BuildContextPackAsync was previously time-boxed; the cache-probe, baseline
+        /// warm, and index-status calls ran with no timeout and no token, so a stalled index or
+        /// embedding backend blocked armada_dispatch indefinitely with no voyage and no log line.
+        /// </summary>
+        /// <typeparam name="T">Result type of the bounded operation.</typeparam>
+        /// <param name="operationName">Short name used in the timeout message and logs.</param>
+        /// <param name="operation">Factory receiving the cancellation token to pass through.</param>
+        /// <returns>The operation result.</returns>
+        /// <exception cref="TimeoutException">Thrown when the operation exceeds the resolved bound.</exception>
+        private static async Task<T> RunCodeIndexCallWithTimeoutAsync<T>(
+            string operationName,
+            Func<CancellationToken, Task<T>> operation)
+        {
+            TimeSpan timeout = GetCodeContextTimeout();
+            CancellationTokenSource timeoutCts = new CancellationTokenSource();
+            Task<T> operationTask;
+
+            try
+            {
+                operationTask = operation(timeoutCts.Token);
+            }
+            catch
+            {
+                timeoutCts.Dispose();
+                throw;
+            }
+
+            Task completed = await Task.WhenAny(operationTask, Task.Delay(timeout)).ConfigureAwait(false);
+            if (completed != operationTask)
+            {
+                try { timeoutCts.Cancel(); }
+                catch (ObjectDisposedException) { }
+
+                // Observe the abandoned task's exception so it does not surface as unobserved.
+                _ = operationTask.ContinueWith(
+                    task =>
+                    {
+                        _ = task.Exception;
+                        timeoutCts.Dispose();
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+
+                throw new TimeoutException(
+                    operationName + " exceeded " + timeout.TotalSeconds.ToString("F0") + " seconds");
+            }
+
+            try
+            {
+                return await operationTask.ConfigureAwait(false);
+            }
+            finally
+            {
+                timeoutCts.Dispose();
+            }
         }
 
         private static bool TryNormalizeCodeContextMode(string? value, string fallback, out string normalized)

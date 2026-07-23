@@ -1161,10 +1161,18 @@ namespace Armada.Core.Services
                 startInfo.ArgumentList.Add(arg);
             }
 
-            // 120s timeout: clone/push/fetch of large repos over slow connections
-            // can easily exceed 30s, especially in CI or container environments.
-            using CancellationTokenSource timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+            // Configurable process bound (default 120s): clone/push/fetch of large repos over slow
+            // connections can easily exceed 30s, especially in CI or container environments.
+            // Override with ARMADA_GIT_TIMEOUT_MS.
+            TimeSpan processTimeout = GitProcessTimeouts.Resolve();
+            using CancellationTokenSource timeoutCts = new CancellationTokenSource(processTimeout);
             using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+
+            // Elapsed-ms instrumentation: without this a stalled git invocation is indistinguishable
+            // from a slow one in the admiral log, which made a multi-minute dispatch hang invisible.
+            Stopwatch processWatch = Stopwatch.StartNew();
+            _Logging.Debug(_Header + "git process start: " + command + " " + String.Join(" ", args)
+                + " timeoutMs=" + ((int)processTimeout.TotalMilliseconds));
 
             using Process process = new Process { StartInfo = startInfo };
             process.Start();
@@ -1183,9 +1191,29 @@ namespace Armada.Core.Services
             }
             catch (OperationCanceledException)
             {
+                processWatch.Stop();
                 try { process.Kill(entireProcessTree: true); } catch { }
-                throw new TimeoutException(command + " timed out after 120 seconds");
+
+                // A caller-initiated cancel is not a timeout -- surface it as cancellation so the
+                // caller-cancel-wins semantics are preserved and the log is not misleading.
+                if (token.IsCancellationRequested)
+                {
+                    _Logging.Debug(_Header + "git process cancelled by caller: " + command
+                        + " elapsedMs=" + processWatch.ElapsedMilliseconds);
+                    throw;
+                }
+
+                _Logging.Warn(_Header + "git process TIMED OUT: " + command + " " + String.Join(" ", args)
+                    + " elapsedMs=" + processWatch.ElapsedMilliseconds
+                    + " timeoutMs=" + ((int)processTimeout.TotalMilliseconds));
+                throw new TimeoutException(
+                    command + " timed out after " + processTimeout.TotalSeconds.ToString("F0") + " seconds");
             }
+
+            processWatch.Stop();
+            _Logging.Debug(_Header + "git process end: " + command
+                + " exit=" + process.ExitCode
+                + " elapsedMs=" + processWatch.ElapsedMilliseconds);
 
             if (process.ExitCode != 0)
             {

@@ -259,6 +259,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());
             runner.AddSuite(new ArchitectSettingsTests());
             runner.AddSuite(new VesselLocalPathAndLagunaTierTests());
+            runner.AddSuite(new DispatchFailFastTests());
             runner.AddSuite(new McpObjectiveSchedulerToolsTests());
             runner.AddSuite(new DefinitionOfDoneGateTests());
             runner.AddSuite(new DockBoundaryHookExecutionTests());
