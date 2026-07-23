@@ -194,11 +194,27 @@ namespace Armada.Core.Settings
             {
                 {
                     "mid",
+                    // CORRECTED 2026-07-22. The previous list named ONLY prior-generation ids
+                    // (kimi-k2.7-code, claude-sonnet-4-6, composer-2.5) -- none of which any live
+                    // captain carries -- so within-tier preference silently steered nothing in
+                    // production. Fix: list CURRENT-generation ids first, keeping the prior
+                    // generation of the same family immediately after as a generation fallback.
+                    // Family order (kimi -> sonnet -> composer) is preserved from the original
+                    // config; the owner designated kimi primary with sonnet + composer as fallback
+                    // and did not rank sonnet against composer.
                     new List<string>
                     {
+                        // PRIMARY (owner decision 2026-07-22): promoted by direction, not by
+                        // measurement -- the bake-off in obj_mrwv5yh5 still applies to it.
+                        "opencode-go/kimi-k3",
                         "opencode-go/kimi-k2.7-code",
+                        // FALLBACK pool, used when the primary family is saturated.
+                        "claude-sonnet-5",
                         "claude-sonnet-4-6",
+                        "composer-2-fast",
                         "composer-2.5"
+                        // NEXT: if the bake-off shows laguna matching/beating the fallbacks, promote
+                        // "opencode/laguna-s-2.1-free" to sit beside kimi-k3 above.
                     }
                 }
             };
@@ -229,7 +245,19 @@ namespace Armada.Core.Settings
                 // Eligible for mid-tier dispatch but deliberately NOT in WithinTierPreferenceOrder:
                 // unproven and free-tier (rate-limited), so it is only selected when explicitly
                 // forced or when the preferred mid-tier captains are unavailable.
-                "opencode/laguna-s-2.1-free"
+                "opencode/laguna-s-2.1-free",
+                // Challenger pool registered 2026-07-22 pending a head-to-head bake-off. Same rule:
+                // ELIGIBLE for dispatch, but intentionally absent from WithinTierPreferenceOrder so
+                // the proven mid-tier captains stay first-choice until these are measured on this
+                // codebase's non-negotiables (source-backed vectors, no silencing). Both provider
+                // variants are listed because ContainsModel matches the exact qualified id.
+                // Grok runs under the CURSOR harness (owner decision 2026-07-22), and Cursor uses
+                // BARE model ids (cf. composer-2-fast, gpt-5.6-sol) -- not provider-qualified ones.
+                // ContainsModel is exact-match, so the opencode/* forms would never resolve.
+                "grok-4.5",
+                "opencode-go/kimi-k3",
+                "opencode/glm-5.2",
+                "opencode-go/glm-5.2"
             };
         }
 
@@ -264,6 +292,13 @@ namespace Armada.Core.Settings
                 // PROVISIONAL pending head-to-head evaluation vs claude-sonnet-4-6; free tier, so
                 // Cost is near-zero but throughput is rate-limited in practice. Revise once measured.
                 { "opencode/laguna-s-2.1-free", new ModelCapabilityProfile { TelemetryRichness = 50, AuditReasoningFit = 50, MechanicalThroughput = 60, Cost = 5 } },
+                // Challenger pool -- ALL PROVISIONAL placeholders, not measurements. These exist so
+                // within-tier capability-hint routing has something to score; they must be revised
+                // from bake-off results before any of these models is promoted to first-choice.
+                { "grok-4.5", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 60, Cost = 55 } },
+                { "opencode-go/kimi-k3", new ModelCapabilityProfile { TelemetryRichness = 35, AuditReasoningFit = 35, MechanicalThroughput = 85, Cost = 25 } },
+                { "opencode/glm-5.2", new ModelCapabilityProfile { TelemetryRichness = 45, AuditReasoningFit = 45, MechanicalThroughput = 70, Cost = 30 } },
+                { "opencode-go/glm-5.2", new ModelCapabilityProfile { TelemetryRichness = 45, AuditReasoningFit = 45, MechanicalThroughput = 70, Cost = 30 } },
                 // High-tier: rich telemetry and strong audit reasoning, higher cost.
                 { "claude-opus-4-7", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
                 { "gpt-5.5", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 85, MechanicalThroughput = 60, Cost = 90 } },

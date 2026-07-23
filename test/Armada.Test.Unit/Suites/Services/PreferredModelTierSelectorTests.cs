@@ -606,10 +606,20 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default preference order contains mid tier");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual(3, midOrder.Count, "default mid preference order has three entries");
-                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[0], "default mid preference order starts with K2.7");
-                AssertEqual("claude-sonnet-4-6", midOrder[1], "default mid preference order second is sonnet");
-                AssertEqual("composer-2.5", midOrder[2], "default mid preference order third is composer");
+                // UPDATED 2026-07-22 -- deliberate default change, NOT a blind re-baseline.
+                // The order previously listed only PRIOR-generation ids (k2.7 / sonnet-4-6 /
+                // composer-2.5), none of which any live captain carries, so within-tier preference
+                // steered nothing in production. Current-generation ids now lead each family, with
+                // the prior generation retained behind as a generation fallback. Family order
+                // (kimi -> sonnet -> composer) is intentionally unchanged, so the behavioural
+                // fallback tests below still assert the same contract.
+                AssertEqual(6, midOrder.Count, "default mid preference order lists current + prior generation per family");
+                AssertEqual("opencode-go/kimi-k3", midOrder[0], "starts with current-generation Kimi (K3), the designated primary");
+                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[1], "prior-generation Kimi follows as a generation fallback");
+                AssertEqual("claude-sonnet-5", midOrder[2], "sonnet family second, current generation first");
+                AssertEqual("claude-sonnet-4-6", midOrder[3], "prior-generation sonnet follows");
+                AssertEqual("composer-2-fast", midOrder[4], "composer family third, current generation first");
+                AssertEqual("composer-2.5", midOrder[5], "prior-generation composer follows");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
@@ -778,14 +788,20 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("ModelTierSettings_WithinTierPreferenceOrder_K2_7FirstPreserved", () =>
             {
-                // The default mid preference order must keep K2.7 first, then sonnet, then
-                // composer, and must be overridable through settings.
+                // The default mid preference order must keep the Kimi family first, then sonnet,
+                // then composer, and must be overridable through settings.
+                // UPDATED 2026-07-22: the leading id per family moved to the CURRENT generation
+                // (k2.7 -> k3, sonnet-4-6 -> sonnet-5, composer-2.5 -> composer-2-fast) because the
+                // previous ids matched no live captain and therefore steered nothing. The prior
+                // generation is retained directly behind its successor, so family precedence --
+                // which is what this test really guards -- is unchanged.
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default contains mid preference order");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[0], "default mid order starts with K2.7");
-                AssertEqual("claude-sonnet-4-6", midOrder[1], "default mid order second is sonnet");
-                AssertEqual("composer-2.5", midOrder[2], "default mid order third is composer");
+                AssertEqual("opencode-go/kimi-k3", midOrder[0], "default mid order starts with current-generation Kimi");
+                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[1], "prior-generation Kimi immediately follows");
+                AssertEqual("claude-sonnet-5", midOrder[2], "sonnet family is second");
+                AssertEqual("composer-2-fast", midOrder[4], "composer family is third");
 
                 List<Captain> captains = new List<Captain>
                 {
