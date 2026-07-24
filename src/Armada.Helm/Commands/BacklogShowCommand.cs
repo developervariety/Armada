@@ -26,7 +26,7 @@ namespace Armada.Helm.Commands
         /// <summary>
         /// Executes the backlog show command.
         /// </summary>
-        public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
         {
             await EnsureServerAsync().ConfigureAwait(false);
             Objective? objective = await BacklogCommandSupport.ResolveBacklogItemAsync(GetApiClient(), settings.Backlog, cancellationToken).ConfigureAwait(false);

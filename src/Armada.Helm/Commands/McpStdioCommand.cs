@@ -24,7 +24,7 @@ namespace Armada.Helm.Commands
     public class McpStdioCommand : AsyncCommand<McpStdioSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, McpStdioSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, McpStdioSettings settings, CancellationToken cancellationToken)
         {
             // Load settings using Armada's configured serializer/options so camelCase settings.json is honored.
             ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);

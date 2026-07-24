@@ -17,7 +17,7 @@ namespace Armada.Helm.Commands
     public class CaptainAddCommand : BaseCommand<CaptainAddSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, CaptainAddSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, CaptainAddSettings settings, CancellationToken cancellationToken)
         {
             string runtimeValue = settings.Runtime?.ToLowerInvariant() switch
             {
