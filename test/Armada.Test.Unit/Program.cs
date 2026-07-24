@@ -147,6 +147,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CriticalTriggerEvaluatorTests());
             runner.AddSuite(new AutoLandLandingHandlerTests());
             runner.AddSuite(new WorkerNoOpFailureGuardTests());
+            runner.AddSuite(new ProcessExitFailureReasonTests());
             runner.AddSuite(new AutoLandSafetyNetIntegrationTests());
             runner.AddSuite(new AutoLandCalibrationTests());
             runner.AddSuite(new PrestagedFilesTests());

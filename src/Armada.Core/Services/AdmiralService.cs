@@ -2057,6 +2057,40 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Whether a mission-log line is a genuine failure signal rather than a line that merely
+        /// CONTAINS the substring "error". An agent's own success report frequently includes text
+        /// like "0 Errors" / "no errors" (often a markdown build-summary table row); scraping such a
+        /// line as the exit failure reason produced false-Failed missions that cascade-cancelled good
+        /// work (obj_mrwvb10w). Strong, unambiguous markers are always accepted; a bare "error"/"errors"
+        /// is rejected when the immediately preceding token indicates a zero/none count.
+        /// </summary>
+        internal static bool IsGenuineErrorSignal(string line)
+        {
+            if (String.IsNullOrEmpty(line)) return false;
+
+            if (line.Contains("API Error:", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("overloaded_error", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("[stderr]", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("exception", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            int idx = line.IndexOf("error", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return false;
+
+            // Inspect the token immediately before "error"/"errors". "0 errors", "no errors",
+            // "zero errors", "without errors" are success/informational -- not a failure.
+            string before = line.Substring(0, idx).TrimEnd();
+            int lastSpace = before.LastIndexOf(' ');
+            string token = (lastSpace >= 0 ? before.Substring(lastSpace + 1) : before)
+                .Trim('*', '`', '|', ':', ',', '-', '.', '(', ')', '_', ' ')
+                .ToLowerInvariant();
+
+            return token != "0" && token != "no" && token != "zero" && token != "without";
+        }
+
         private async Task<string> BuildProcessExitFailureReasonAsync(string missionId, int? exitCode, CancellationToken token)
         {
             string logPath = Path.Combine(_Settings.LogDirectory, "missions", missionId + ".log");
@@ -2069,11 +2103,7 @@ namespace Armada.Core.Services
                     {
                         string line = lines[i].Trim();
                         if (String.IsNullOrEmpty(line)) continue;
-                        if (line.Contains("API Error:", StringComparison.OrdinalIgnoreCase) ||
-                            line.Contains("overloaded_error", StringComparison.OrdinalIgnoreCase) ||
-                            line.Contains("[stderr]", StringComparison.OrdinalIgnoreCase) ||
-                            line.Contains("error", StringComparison.OrdinalIgnoreCase) ||
-                            line.Contains("exception", StringComparison.OrdinalIgnoreCase))
+                        if (IsGenuineErrorSignal(line))
                         {
                             return NormalizeProcessExitFailureReason(line);
                         }
