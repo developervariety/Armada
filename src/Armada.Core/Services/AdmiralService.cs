@@ -1244,12 +1244,21 @@ namespace Armada.Core.Services
                 _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion");
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
             }
+            else if (await AgentDeclaredExplicitSuccessAsync(missionId, token).ConfigureAwait(false))
+            {
+                // A non-zero/lost exit code alone must not override the agent's EXPLICIT terminal
+                // success verdict. When the agent declared [ARMADA:RESULT] COMPLETE, honor it and run
+                // the normal completion flow -- the DoD gates then verify the work -- rather than
+                // mislabeling good work as Failed and cascade-cancelling the voyage (obj_mrwvb10w).
+                _Logging.Info(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId + " but declared [ARMADA:RESULT] COMPLETE — honoring the explicit success verdict and handling completion");
+                await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+            }
             else
             {
-                // Non-zero or unknown exit code — fail the mission deterministically.
-                // Process exits should not bounce between recovery paths; preserve the
-                // captured runtime error, halt the voyage, and only stall the captain
-                // when the failure indicates the runtime itself is unavailable.
+                // Non-zero or unknown exit code with no explicit success verdict — fail the mission
+                // deterministically. Process exits should not bounce between recovery paths; preserve
+                // the captured runtime error, halt the voyage, and only stall the captain when the
+                // failure indicates the runtime itself is unavailable.
                 _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId);
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
@@ -2089,6 +2098,56 @@ namespace Armada.Core.Services
                 .ToLowerInvariant();
 
             return token != "0" && token != "no" && token != "zero" && token != "without";
+        }
+
+        /// <summary>
+        /// Whether the agent output declared an explicit terminal success verdict: a Worker's
+        /// <c>[ARMADA:RESULT] COMPLETE</c> or a reviewer's <c>[ARMADA:VERDICT] PASS</c>. Scans the tail
+        /// of the output (where the terminal marker appears). Pure/testable core of
+        /// <see cref="AgentDeclaredExplicitSuccessAsync"/>. NEEDS_REVISION/FAILED are intentionally not
+        /// success -- they are handled by the existing reviewer-chain / failure logic.
+        /// </summary>
+        internal static bool HasExplicitSuccessVerdict(string[] lines)
+        {
+            if (lines == null || lines.Length == 0) return false;
+            for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 200; i--)
+            {
+                ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(lines[i]);
+                if (signal == null || signal.Value == null) continue;
+                string value = signal.Value.Trim();
+                if (String.Equals(signal.Type, "result", StringComparison.Ordinal)
+                    && String.Equals(value, "COMPLETE", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                if (String.Equals(signal.Type, "verdict", StringComparison.Ordinal)
+                    && String.Equals(value, "PASS", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Whether the mission log records an explicit <c>[ARMADA:RESULT] COMPLETE</c> verdict. Used to
+        /// avoid mislabeling good work as Failed when the agent process exits non-zero/lost after
+        /// declaring success (obj_mrwvb10w).
+        /// </summary>
+        private async Task<bool> AgentDeclaredExplicitSuccessAsync(string missionId, CancellationToken token)
+        {
+            string logPath = Path.Combine(_Settings.LogDirectory, "missions", missionId + ".log");
+            if (!File.Exists(logPath)) return false;
+            try
+            {
+                string[] lines = await File.ReadAllLinesAsync(logPath, token).ConfigureAwait(false);
+                return HasExplicitSuccessVerdict(lines);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not inspect mission log for explicit success verdict on " + missionId + ": " + ex.Message);
+                return false;
+            }
         }
 
         private async Task<string> BuildProcessExitFailureReasonAsync(string missionId, int? exitCode, CancellationToken token)

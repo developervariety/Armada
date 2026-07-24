@@ -36,6 +36,22 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(AdmiralService.IsGenuineErrorSignal("API Error: overloaded"), "API Error is a failure");
                 AssertTrue(AdmiralService.IsGenuineErrorSignal("[stderr] fatal: not a git repository"), "a stderr line is a failure");
             });
+
+            await RunTest("ExplicitSuccessVerdicts_AreHonored", () =>
+            {
+                AssertTrue(AdmiralService.HasExplicitSuccessVerdict(new[] { "doing work", "[ARMADA:RESULT] COMPLETE", "cleanup" }), "a Worker [ARMADA:RESULT] COMPLETE must be honored");
+                AssertTrue(AdmiralService.HasExplicitSuccessVerdict(new[] { "  [armada:result]   complete  " }), "case/whitespace-insensitive");
+                AssertTrue(AdmiralService.HasExplicitSuccessVerdict(new[] { "review done", "[ARMADA:VERDICT] PASS" }), "a reviewer [ARMADA:VERDICT] PASS must be honored (the obj_mrwvb10w evidence was a reviewer)");
+            });
+
+            await RunTest("NoOrNonSuccessVerdict_IsNotHonored", () =>
+            {
+                AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new[] { "build succeeded", "0 Errors", "done" }), "prose success without the marker is not an explicit verdict");
+                AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new[] { "[ARMADA:RESULT] FAILED" }), "an explicit FAILED result is not success");
+                AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new[] { "[ARMADA:VERDICT] NEEDS_REVISION" }), "NEEDS_REVISION is not a success (handled by reviewer-chain logic)");
+                AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new[] { "[ARMADA:STATUS] Complete" }), "a STATUS marker is not a RESULT/VERDICT verdict (status is handled during the run)");
+                AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new string[0]), "empty output is not success");
+            });
         }
     }
 }
