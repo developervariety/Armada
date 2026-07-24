@@ -23,7 +23,7 @@
 
   <ItemGroup>
     <PackageReference Include="Watson" Version="7.0.15" />
-    <PackageReference Include="Voltaic" Version="0.2.0" />
+    <PackageReference Include="Voltaic" Version="0.4.0" />
     <PackageReference Include="SyslogLogging" Version="2.1.0" />
   </ItemGroup>
 

@@ -10,6 +10,7 @@ namespace Armada.Server
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
     using Voltaic;
+    using Voltaic.Mcp;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
