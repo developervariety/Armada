@@ -344,6 +344,11 @@ namespace Armada.Server
             bool landingAttempted = false;
             string? landingFailureReason = null;
             bool rescueProducedNoCommits = false;
+            // A code-producing Worker mission that lands an empty diff has not done its job. It must
+            // NOT be reconciled to Complete (that manufactures a false success that corrupts ranking
+            // and can false-close objectives). Legitimate no-op personas (Architect emits markers;
+            // reviewers approve/reject without committing) are unaffected. See obj_mryxzgl9.
+            bool workerProducedNoCommits = false;
 
             try
             {
@@ -496,21 +501,37 @@ namespace Armada.Server
 
                     if (!hasChanges)
                     {
-                        // No code changes -- skip merge and mark as complete.
-                        // If the branch still exists, clean it up so successful no-op
-                        // missions do not leak stale local or remote branches.
                         landingAttempted = true;
-                        landingSucceeded = true;
-                        if (branchExists && !String.IsNullOrEmpty(dock.BranchName))
+                        // Only Worker (the primary code producer) is REQUIRED to produce a diff.
+                        // Architect emits stdout markers and reviewer personas (Judge, TestEngineer,
+                        // *Analyst, *Reviewer) approve/reject without committing -- for them an empty
+                        // diff is a legitimate successful no-op. A Worker that produced nothing is a
+                        // hard failure routed through the same no-commits path as a rescue no-op.
+                        if (PersonaMustProduceChanges(mission.Persona))
                         {
-                            await CleanupMissionBranchAsync(
-                                vessel.LocalPath,
-                                vessel.WorkingDirectory,
-                                dock.BranchName,
-                                cleanupPolicy,
-                                "after successful no-op landing",
-                                mission.Id,
-                                dock.WorktreePath).ConfigureAwait(false);
+                            landingSucceeded = false;
+                            workerProducedNoCommits = true;
+                            landingFailureReason = "worker_produced_no_commits";
+                            // Preserve the branch (do not clean up) for inspection/retry.
+                            _Logging.Warn(_Header + "worker mission " + mission.Id + " produced no changes -- treating as failure, not a no-op landing");
+                        }
+                        else
+                        {
+                            // No code changes from a legitimately code-free persona -- skip merge and
+                            // mark complete. If the branch still exists, clean it up so successful
+                            // no-op missions do not leak stale local or remote branches.
+                            landingSucceeded = true;
+                            if (branchExists && !String.IsNullOrEmpty(dock.BranchName))
+                            {
+                                await CleanupMissionBranchAsync(
+                                    vessel.LocalPath,
+                                    vessel.WorkingDirectory,
+                                    dock.BranchName,
+                                    cleanupPolicy,
+                                    "after successful no-op landing",
+                                    mission.Id,
+                                    dock.WorktreePath).ConfigureAwait(false);
+                            }
                         }
                     }
                     else
@@ -794,33 +815,37 @@ namespace Armada.Server
                         _Logging.Warn(_Header + "error emitting mission.completed event for " + mission.Id + ": " + evtEx.Message);
                     }
                 }
-                else if (rescueProducedNoCommits)
+                else if (rescueProducedNoCommits || workerProducedNoCommits)
                 {
-                    // An auto-rescue that emitted zero commits (captain branch HEAD == target HEAD)
-                    // is a hard failure, not a landing retry: there is nothing to land and the
-                    // rescue must not be reconciled to Complete. Fail the mission so the linked
-                    // incident reflects it via the recovery orchestrators that match by ParentMissionId.
+                    // A mission that emitted zero commits (auto-rescue with branch HEAD == target HEAD,
+                    // or a Worker whose landed diff is empty) is a hard failure, not a landing retry:
+                    // there is nothing to land and it must NOT be reconciled to Complete. Fail the
+                    // mission so recovery orchestrators (matching by ParentMissionId) and objective
+                    // reconciliation reflect the true outcome instead of a false success. See obj_mryxzgl9.
+                    string noCommitsReason = rescueProducedNoCommits ? "rescue_produced_no_commits" : "worker_produced_no_commits";
                     mission.Status = MissionStatusEnum.Failed;
-                    mission.FailureReason = "rescue_produced_no_commits";
+                    mission.FailureReason = noCommitsReason;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    _Logging.Warn(_Header + "auto-rescue mission " + mission.Id + " produced no commits, status set to Failed");
+                    _Logging.Warn(_Header + "mission " + mission.Id + " produced no commits (" + noCommitsReason + "), status set to Failed");
 
-                    // Emit mission.rescue_no_commits event
+                    // Emit no-commits event
                     try
                     {
-                        ArmadaEvent rescueNoOpEvent = new ArmadaEvent("mission.rescue_no_commits", "Auto-rescue produced no commits: " + mission.Title);
-                        rescueNoOpEvent.EntityType = "mission";
-                        rescueNoOpEvent.EntityId = mission.Id;
-                        rescueNoOpEvent.CaptainId = mission.CaptainId;
-                        rescueNoOpEvent.MissionId = mission.Id;
-                        rescueNoOpEvent.VesselId = mission.VesselId;
-                        rescueNoOpEvent.VoyageId = mission.VoyageId;
-                        await _Database.Events.CreateAsync(rescueNoOpEvent).ConfigureAwait(false);
+                        string noCommitsEventType = rescueProducedNoCommits ? "mission.rescue_no_commits" : "mission.worker_no_commits";
+                        string noCommitsEventMsg = (rescueProducedNoCommits ? "Auto-rescue produced no commits: " : "Worker produced no changes: ") + mission.Title;
+                        ArmadaEvent noCommitsEvent = new ArmadaEvent(noCommitsEventType, noCommitsEventMsg);
+                        noCommitsEvent.EntityType = "mission";
+                        noCommitsEvent.EntityId = mission.Id;
+                        noCommitsEvent.CaptainId = mission.CaptainId;
+                        noCommitsEvent.MissionId = mission.Id;
+                        noCommitsEvent.VesselId = mission.VesselId;
+                        noCommitsEvent.VoyageId = mission.VoyageId;
+                        await _Database.Events.CreateAsync(noCommitsEvent).ConfigureAwait(false);
                     }
                     catch (Exception evtEx)
                     {
-                        _Logging.Warn(_Header + "error emitting mission.rescue_no_commits event for " + mission.Id + ": " + evtEx.Message);
+                        _Logging.Warn(_Header + "error emitting no-commits event for " + mission.Id + ": " + evtEx.Message);
                     }
                 }
                 else
@@ -1157,6 +1182,25 @@ namespace Armada.Server
         {
             return !String.IsNullOrWhiteSpace(mission.ParentMissionId)
                 || (mission.Description ?? String.Empty).Contains(_AutoRescueMarker, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Whether a mission with this persona is REQUIRED to produce a code diff, so that an empty
+        /// landed diff is a hard failure rather than a legitimate no-op. Only the Worker persona (the
+        /// primary code producer, and the null/default per <see cref="Mission.Persona"/>) must produce
+        /// changes. Architect emits stdout mission markers, and reviewer personas (Judge, TestEngineer,
+        /// *Analyst, *Reviewer, etc.) approve or reject without committing, so an empty diff from them
+        /// is a legitimate successful no-op. Prevents the false-success where a Worker that commits
+        /// nothing is reconciled to Complete (obj_mryxzgl9).
+        /// </summary>
+        internal static bool PersonaMustProduceChanges(string? persona)
+        {
+            // A null or blank persona defaults to Worker (see Mission.Persona), and an unknown/blank
+            // persona must fail-safe as "must produce changes" so a missing persona cannot re-open the
+            // false-success hole.
+            if (String.IsNullOrWhiteSpace(persona)) return true;
+            string normalized = persona.Trim().ToLowerInvariant().Replace(" ", "");
+            return normalized == "worker";
         }
 
         private sealed record MergeQueueNoOpDecision(bool TreatAsSuccess, string Reason, bool RescueProducedNoCommits);
