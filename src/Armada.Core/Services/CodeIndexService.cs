@@ -51,6 +51,15 @@ namespace Armada.Core.Services
         private const int _MaxGraphDepth = 8;
         private const int _MaxGraphResults = 200;
 
+        // Search-cost bounds. A dispatch-time context pack passes the ENTIRE mission title+description
+        // as the search Goal; a multi-KB structured brief would otherwise blow up SplitQueryTerms into
+        // hundreds of distinct terms and drive an O(records x terms x contentLength) lexical scan, so a
+        // large brief could hang the caller. These caps make lexical scoring cost independent of brief
+        // size: at most _MaxQueryTerms distinct terms are scanned, and the whole-query Contains needle
+        // is only run when the query is short enough to be cheap per record.
+        internal const int _MaxQueryTerms = 48;
+        internal const int _MaxQueryContainsLength = 256;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -2901,13 +2910,18 @@ namespace Armada.Core.Services
             };
         }
 
-        private string[] SplitQueryTerms(string query)
+        internal static string[] SplitQueryTerms(string query)
         {
+            // Cap the distinct-term set so lexical scoring cost stays independent of query size. A
+            // multi-KB brief used as a search Goal would otherwise yield hundreds of terms, each driving
+            // a full-content IndexOf scan across every record. The first _MaxQueryTerms distinct terms
+            // preserve the most relevant leading signal (title + opening of the description).
             return (query ?? "")
                 .Split(new[] { ' ', '\t', '\r', '\n', '.', ',', ';', ':', '(', ')', '[', ']', '{', '}', '/', '\\', '-', '_' },
                     StringSplitOptions.RemoveEmptyEntries)
                 .Where(t => t.Length > 1)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(_MaxQueryTerms)
                 .ToArray();
         }
 
@@ -2945,13 +2959,17 @@ namespace Armada.Core.Services
             return semanticScore * codeIndex.SemanticWeight + lexicalNormalized * codeIndex.LexicalWeight;
         }
 
-        private static double ComputeLexicalScore(CodeIndexRecord record, string query, string[] terms)
+        internal static double ComputeLexicalScore(CodeIndexRecord record, string query, string[] terms)
         {
             double score = 0;
             string content = record.Content ?? "";
             string path = record.Path ?? "";
 
-            if (!String.IsNullOrWhiteSpace(query))
+            // The whole-query Contains needle is O(contentLength x queryLength) per record. A short query
+            // (a real search phrase or a capped Goal) is cheap; a multi-KB brief is not, and it can never
+            // usefully match a full file's content as one contiguous substring anyway. Gate the needle on
+            // query length so a large brief degrades to per-term scoring instead of a pathological scan.
+            if (!String.IsNullOrWhiteSpace(query) && query.Length <= _MaxQueryContainsLength)
             {
                 if (content.Contains(query, StringComparison.OrdinalIgnoreCase)) score += 8;
                 if (path.Contains(query, StringComparison.OrdinalIgnoreCase)) score += 12;

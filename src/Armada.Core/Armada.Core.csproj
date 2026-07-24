@@ -5,6 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Lets the unit suite exercise internal search-cost guards (SplitQueryTerms term cap,
+         ComputeLexicalScore whole-query needle length gate) directly. -->
+    <InternalsVisibleTo Include="Test.Unit" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Resources\ArchitectSystemPrompt.md" />
   </ItemGroup>
 

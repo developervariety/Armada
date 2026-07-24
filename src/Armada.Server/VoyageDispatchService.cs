@@ -184,8 +184,15 @@ namespace Armada.Server
             List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
             string? objectiveId = NormalizeEmpty(request.ObjectiveId);
 
+            // Per-step elapsed logging: a prior regression let dispatch hang with no voyage and no log
+            // line at all, making the stalled step invisible. These markers are cheap and pinpoint which
+            // step is slow if a future stall recurs.
+            Stopwatch dispatchWatch = Stopwatch.StartNew();
+            LogDispatchInfo("dispatch start vessel " + vesselId + " missions=" + (missions?.Count ?? 0));
+
             VoyageDispatchResult? preconditions = await ValidatePreconditionsAsync(request, token).ConfigureAwait(false);
             if (preconditions != null) return preconditions;
+            LogDispatchInfo("dispatch step preconditions_ok elapsedMs=" + dispatchWatch.ElapsedMilliseconds);
 
             Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
@@ -209,6 +216,8 @@ namespace Armada.Server
                 request.CodeContextMaxResults,
                 missions,
                 deferredBuilds).ConfigureAwait(false);
+            LogDispatchInfo("dispatch step code_context_prepared elapsedMs=" + dispatchWatch.ElapsedMilliseconds
+                + " deferredBuilds=" + deferredBuilds.Count);
             if (codeContextError != null) return VoyageDispatchResult.BadRequest(new { Error = codeContextError });
 
             bool hasAliases = missions.Any(m =>
@@ -251,6 +260,7 @@ namespace Armada.Server
                 request.CodeContextMaxResults);
 
             await LinkObjectiveToVoyageAsync(objectiveId, request.ObjectiveAuthContext, voyage).ConfigureAwait(false);
+            LogDispatchInfo("dispatch complete voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds);
             return VoyageDispatchResult.Success(voyage);
         }
 
@@ -861,6 +871,12 @@ namespace Armada.Server
         }
 
         private void LogCodeContextInfo(string message)
+        {
+            if (_Logging == null) return;
+            _Logging.Info("[VoyageDispatchService] " + message);
+        }
+
+        private void LogDispatchInfo(string message)
         {
             if (_Logging == null) return;
             _Logging.Info("[VoyageDispatchService] " + message);

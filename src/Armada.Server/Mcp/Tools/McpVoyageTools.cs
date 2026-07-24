@@ -149,7 +149,9 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    logging?.Debug("[MCP-PROBE] armada_dispatch handler ENTER argsPresent=" + args.HasValue);
                     VoyageDispatchArgs request = JsonSerializer.Deserialize<VoyageDispatchArgs>(args!.Value, _JsonOptions)!;
+                    logging?.Debug("[MCP-PROBE] armada_dispatch DESERIALIZED title='" + (request.Title ?? "?") + "' descLen=" + (request.Description?.Length ?? 0) + " missions=" + (request.Missions?.Count ?? 0));
                     SharedVoyageDispatchRequest dispatchRequest = new SharedVoyageDispatchRequest
                     {
                         Title = request.Title,
