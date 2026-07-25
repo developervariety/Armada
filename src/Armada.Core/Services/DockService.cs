@@ -49,7 +49,7 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
-        public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default)
+        public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
@@ -212,7 +212,9 @@ namespace Armada.Core.Services
 
                 // Create worktree. If the branch already exists, GitService will attach to it
                 // instead of recreating it so downstream pipeline stages and retries preserve work.
-                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token: token).ConfigureAwait(false);
+                // A detached checkout is used for personas that never commit, so they can share the
+                // mission branch's commit with a stage that still holds the branch attached.
+                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, detached: detachedWorktree, token: token).ConfigureAwait(false);
                 await SeedDockMcpConfigAsync(vessel, worktreePath, missionId, token).ConfigureAwait(false);
                 await InstallBoundaryHooksAsync(repoPath, vessel, token).ConfigureAwait(false);
                 await WriteBoundaryConfigAsync(vessel, worktreePath, token).ConfigureAwait(false);

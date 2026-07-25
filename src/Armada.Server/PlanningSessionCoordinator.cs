@@ -127,7 +127,7 @@ namespace Armada.Server
             try
             {
                 string branchName = Constants.BranchPrefix + "planning/" + session.Id;
-                Dock? dock = await _Docks.ProvisionAsync(vessel, captain, branchName, session.Id, token).ConfigureAwait(false);
+                Dock? dock = await _Docks.ProvisionAsync(vessel, captain, branchName, session.Id, token: token).ConfigureAwait(false);
                 if (dock == null)
                     throw new InvalidOperationException("Dock provisioning failed for planning session " + session.Id + ".");
 

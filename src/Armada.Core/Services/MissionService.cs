@@ -136,6 +136,10 @@ namespace Armada.Core.Services
         /// </summary>
         private const int _MaxMissingJudgeVerdictRetries = 2;
 
+        // Character budget for the code-retrieval goal quoted in mission instructions. Long enough to
+        // carry the title and opening intent, short enough that the brief is not repeated wholesale.
+        private const int _MaxCodeRetrievalGoalLength = 300;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -416,12 +420,24 @@ namespace Armada.Core.Services
             mission.AssignmentState = MissionAssignmentStateEnum.Provisioning;
             mission.LastUpdateUtc = DateTime.UtcNow;
 
+            // Persist Provisioning before the dock call. Provisioning can take seconds (worktree
+            // creation, sibling checkouts), and without this write the mission row kept advertising
+            // its pre-assignment state for that whole window -- so neither an operator nor the
+            // assignment-state tests could observe Provisioning while it was actually happening.
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
             // Provision dock (worktree) and launch agent
             Dock? dock;
             try
             {
                 _Logging.Info(_Header + "provisioning dock for mission " + mission.Id + " on vessel " + vessel.Id + " with captain " + captain.Id);
-                dock = await _Docks.ProvisionAsync(vessel, captain, branchName, mission.Id, token).ConfigureAwait(false);
+                dock = await _Docks.ProvisionAsync(
+                    vessel,
+                    captain,
+                    branchName,
+                    mission.Id,
+                    detachedWorktree: !PersonaRequiresBranchAttachment(mission.Persona),
+                    token: token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1463,13 +1479,42 @@ namespace Armada.Core.Services
             return content;
         }
 
-        private static string BuildCodeRetrievalGoal(Mission mission)
+        /// <summary>
+        /// Builds the code-retrieval goal quoted in the Code Index instructions. This is a semantic
+        /// search query, not a restatement of the brief: the full description already appears verbatim
+        /// under Mission Instructions, so embedding it here repeated the entire brief in every captain's
+        /// prompt and diluted the retrieval signal with acceptance criteria and non-goals. Capped to the
+        /// leading intent, single-line.
+        /// </summary>
+        /// <param name="mission">Mission whose retrieval goal is being built.</param>
+        internal static string BuildCodeRetrievalGoal(Mission mission)
         {
-            string title = mission.Title ?? "";
-            string description = mission.Description ?? "";
-            if (String.IsNullOrWhiteSpace(description)) return title.Trim();
-            if (String.IsNullOrWhiteSpace(title)) return description.Trim();
-            return (title.Trim() + " -- " + description.Trim()).Replace("\r", " ").Replace("\n", " ");
+            string title = (mission.Title ?? "").Trim();
+            string description = (mission.Description ?? "").Trim();
+
+            string goal;
+            if (String.IsNullOrWhiteSpace(description)) goal = title;
+            else if (String.IsNullOrWhiteSpace(title)) goal = description;
+            else goal = title + " -- " + description;
+
+            goal = goal.Replace("\r", " ").Replace("\n", " ");
+            return TruncateRetrievalGoal(goal, _MaxCodeRetrievalGoalLength);
+        }
+
+        /// <summary>
+        /// Truncates a retrieval goal at a word boundary when one falls in the back half of the budget,
+        /// otherwise hard-cuts. Returns the input unchanged when it already fits.
+        /// </summary>
+        /// <param name="goal">Goal text.</param>
+        /// <param name="maxLength">Maximum characters to keep.</param>
+        internal static string TruncateRetrievalGoal(string? goal, int maxLength)
+        {
+            if (String.IsNullOrEmpty(goal)) return "";
+            if (goal!.Length <= maxLength) return goal;
+
+            int cut = goal.LastIndexOf(' ', Math.Min(maxLength, goal.Length - 1));
+            if (cut < maxLength / 2) cut = maxLength;
+            return goal.Substring(0, cut).TrimEnd() + " ...";
         }
 
         /// <summary>
@@ -1507,6 +1552,11 @@ namespace Armada.Core.Services
             for (int i = 0; i < snapshots.Count; i++)
             {
                 MissionPlaybookSnapshot snapshot = snapshots[i];
+
+                // A playbook whose body is only a heading, or a "no accepted notes yet"
+                // placeholder, costs the captain a read (or prompt tokens) to learn nothing.
+                if (!HasSubstantivePlaybookContent(snapshot.Content)) continue;
+
                 string header = "### " + snapshot.FileName;
                 string? description = String.IsNullOrWhiteSpace(snapshot.Description) ? null : snapshot.Description.Trim();
 
@@ -1562,6 +1612,71 @@ namespace Armada.Core.Services
             }
 
             return String.Join("\n\n", sections);
+        }
+
+        /// <summary>
+        /// Returns true when a persona must hold the mission branch attached, because it commits its
+        /// work there. Git allows only one worktree per branch, so an attached stage that provisions
+        /// while an earlier stage still holds the branch fails with exit 128 -- the collision behind
+        /// the downstream-persona dock race. Personas that only read (Judge, Architect, the specialist
+        /// reviewers) can run detached at the same commit instead, which is also what lets same-stage
+        /// personas such as dual-Judge run concurrently.
+        ///
+        /// Unknown or blank personas default to attached: the worst case is today's behavior, whereas
+        /// wrongly detaching a committing persona would orphan its commits.
+        /// </summary>
+        /// <param name="persona">Mission persona name.</param>
+        internal static bool PersonaRequiresBranchAttachment(string? persona)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return true;
+
+            switch (persona.Trim().ToLowerInvariant())
+            {
+                case "judge":
+                case "architect":
+                case "product manager":
+                case "usability engineer":
+                case "diagnosticprotocolreviewer":
+                case "tenantsecurityreviewer":
+                case "migrationdatareviewer":
+                case "performancememoryreviewer":
+                case "portingreferenceanalyst":
+                case "frontendworkflowreviewer":
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>
+        /// Returns true when a playbook body carries instruction a captain can act on. A snapshot
+        /// holding only headings, rules, or the reflection scaffolding placeholder (emitted for a
+        /// playbook that has never had an accepted reflection) is not staged or referenced.
+        /// </summary>
+        /// <param name="content">Captured playbook markdown.</param>
+        internal static bool HasSubstantivePlaybookContent(string? content)
+        {
+            if (String.IsNullOrWhiteSpace(content)) return false;
+
+            string[] lines = content.Replace("\r\n", "\n").Split('\n');
+            foreach (string rawLine in lines)
+            {
+                string line = rawLine.Trim();
+                if (line.Length == 0) continue;
+                if (line.StartsWith("#", StringComparison.Ordinal)) continue;
+                if (line.StartsWith("---", StringComparison.Ordinal)) continue;
+                if (IsPlaybookPlaceholderLine(line)) continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsPlaybookPlaceholderLine(string line)
+        {
+            string trimmed = line.TrimEnd('.').Trim();
+            return trimmed.StartsWith("No accepted ", StringComparison.OrdinalIgnoreCase)
+                && trimmed.EndsWith(" yet", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<string> MaterializeReferencePlaybookAsync(

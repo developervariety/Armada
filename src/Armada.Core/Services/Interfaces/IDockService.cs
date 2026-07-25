@@ -16,9 +16,16 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="captain">Captain that will use the dock.</param>
         /// <param name="branchName">Branch name for the worktree.</param>
         /// <param name="missionId">Optional mission ID for per-mission dock paths.</param>
+        /// <param name="detachedWorktree">
+        /// When true, check the worktree out detached at the branch tip instead of attaching it to the
+        /// branch. Git allows only one worktree to hold a branch, so a stage that provisions while an
+        /// earlier stage still holds the shared mission branch fails with exit 128. Read-only personas
+        /// (Judge, Architect, reviewers) do not commit, so they can coexist detached at the same commit;
+        /// committing personas must stay attached.
+        /// </param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The created dock, or null if provisioning failed.</returns>
-        Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default);
+        Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default);
 
         /// <summary>
         /// Reclaim a dock by removing the worktree.

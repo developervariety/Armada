@@ -261,7 +261,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             public int ReclaimCalls { get; private set; } = 0;
 
-            public Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default)
+            public Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
             {
                 throw new NotImplementedException();
             }

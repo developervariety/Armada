@@ -90,12 +90,12 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
 
                     IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
-                    DelayingDockService delayingDock = new DelayingDockService(realDock, delayMs: 500);
-                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, delayingDock);
+                    GatedDockService gatedDock = new GatedDockService(realDock);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, gatedDock);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, gatedDock, captainService);
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
-                    IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, delayingDock);
+                    IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, gatedDock);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
 
                     Vessel vessel = new Vessel("transition-vessel", "https://github.com/test/repo.git");
@@ -117,29 +117,35 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(voyageMissions.Count == 1, "Voyage should have one mission");
                     string missionId = voyageMissions[0].Id;
 
-                    bool sawProvisioning = false;
+                    // The gate holds provisioning open, so observing Provisioning is deterministic
+                    // instead of a race between a wall-clock delay and the poll interval.
+                    Task entered = await Task.WhenAny(gatedDock.Entered, Task.Delay(30000)).ConfigureAwait(false);
+                    AssertTrue(entered == gatedDock.Entered, "Dock provisioning must start within 30s");
+
+                    Mission? provisioning = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    AssertTrue(provisioning != null, "Mission must exist while the dock is provisioning");
+                    AssertTrue(provisioning!.AssignmentState == MissionAssignmentStateEnum.Provisioning,
+                        "Mission must be persisted as AssignmentState=Provisioning while the dock provisions; was " + provisioning.AssignmentState);
+
+                    gatedDock.Release();
+
+                    // Assigned is terminal for this flow, so waiting for it is not a transient-window race.
                     bool sawAssigned = false;
                     Stopwatch poll = Stopwatch.StartNew();
 
-                    while (poll.ElapsedMilliseconds < 5000)
+                    while (poll.ElapsedMilliseconds < 30000)
                     {
                         Mission? m = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
-                        if (m == null) break;
-
-                        if (m.AssignmentState == MissionAssignmentStateEnum.Provisioning)
-                            sawProvisioning = true;
-
-                        if (m.AssignmentState == MissionAssignmentStateEnum.Assigned)
+                        if (m != null && m.AssignmentState == MissionAssignmentStateEnum.Assigned)
                         {
                             sawAssigned = true;
                             break;
                         }
 
-                        await Task.Delay(50).ConfigureAwait(false);
+                        await Task.Delay(25).ConfigureAwait(false);
                     }
 
-                    AssertTrue(sawAssigned, "Mission must reach AssignmentState=Assigned within 5s");
-                    AssertTrue(sawProvisioning, "Mission must pass through AssignmentState=Provisioning (500ms delay makes it observable)");
+                    AssertTrue(sawAssigned, "Mission must reach AssignmentState=Assigned after the dock gate is released");
                 }
             });
 
@@ -1106,10 +1112,54 @@ namespace Armada.Test.Unit.Suites.Services
                 _DelayMs = delayMs;
             }
 
-            public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default)
+            public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
             {
                 await Task.Delay(_DelayMs, CancellationToken.None).ConfigureAwait(false);
-                return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, token).ConfigureAwait(false);
+                return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, detachedWorktree, token).ConfigureAwait(false);
+            }
+
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.ReclaimAsync(dockId, tenantId, token);
+
+            public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.RepairAsync(dockId, tenantId, token);
+
+            public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.DeleteAsync(dockId, tenantId, token);
+
+            public Task PurgeAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.PurgeAsync(dockId, tenantId, token);
+        }
+
+        /// <summary>
+        /// Dock service that blocks inside ProvisionAsync until the test releases it. Holding the
+        /// provisioning window open makes AssignmentState=Provisioning deterministically observable,
+        /// where a fixed delay only made it observable if the poll happened to land inside the window.
+        /// </summary>
+        private sealed class GatedDockService : IDockService
+        {
+            private readonly IDockService _Inner;
+            private readonly TaskCompletionSource _EnteredSource =
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource _ReleaseSource =
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public GatedDockService(IDockService inner)
+            {
+                _Inner = inner;
+            }
+
+            /// <summary>Completes once provisioning has started and is waiting at the gate.</summary>
+            public Task Entered => _EnteredSource.Task;
+
+            /// <summary>Allow provisioning to proceed.</summary>
+            public void Release() => _ReleaseSource.TrySetResult();
+
+            public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
+            {
+                _EnteredSource.TrySetResult();
+                await _ReleaseSource.Task.ConfigureAwait(false);
+                return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, detachedWorktree, token).ConfigureAwait(false);
             }
 
             public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
@@ -1139,13 +1189,13 @@ namespace Armada.Test.Unit.Suites.Services
                 _Inner = inner;
             }
 
-            public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default)
+            public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
             {
                 int call = Interlocked.Increment(ref _CallCount);
                 if (call == 1)
                     throw new InvalidOperationException("Simulated dock provisioning failure (first attempt)");
 
-                return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, token).ConfigureAwait(false);
+                return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, detachedWorktree, token).ConfigureAwait(false);
             }
 
             public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)

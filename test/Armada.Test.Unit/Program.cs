@@ -148,6 +148,10 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AutoLandLandingHandlerTests());
             runner.AddSuite(new WorkerNoOpFailureGuardTests());
             runner.AddSuite(new ProcessExitFailureReasonTests());
+            runner.AddSuite(new PlaybookContentGateTests());
+            runner.AddSuite(new ReflectionSweeperTests());
+            runner.AddSuite(new PersonaBranchAttachmentTests());
+            runner.AddSuite(new CodeRetrievalGoalTests());
             runner.AddSuite(new AutoLandSafetyNetIntegrationTests());
             runner.AddSuite(new AutoLandCalibrationTests());
             runner.AddSuite(new PrestagedFilesTests());

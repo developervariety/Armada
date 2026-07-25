@@ -73,6 +73,7 @@ namespace Armada.Server
         private ICodeIndexService _CodeIndex = null!;
         private IReflectionMemoryService _ReflectionMemory = null!;
         private ReflectionDispatcher _ReflectionDispatcher = null!;
+        private ReflectionSweeper _ReflectionSweeper = null!;
         private IReflectionMemoryBootstrapService _ReflectionBootstrap = null!;
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
@@ -278,6 +279,7 @@ namespace Armada.Server
             PackUsageMiner packUsageMiner = new PackUsageMiner(missionLogDirectory);
             HabitPatternMiner habitPatternMiner = new HabitPatternMiner(_Database, packUsageMiner);
             _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory, packUsageMiner, habitPatternMiner);
+            _ReflectionSweeper = new ReflectionSweeper(_Database, _ReflectionDispatcher, _Settings, _Logging);
 
             ArchitectPersonaSyncService architectSync = new ArchitectPersonaSyncService(_Database, _Logging);
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);
@@ -1285,6 +1287,7 @@ namespace Armada.Server
                 _AutonomousRecovery.TriggerBackgroundSweep(token);
                 _IncidentLifecycle.TriggerBackgroundSweep(token);
                 _ObjectiveScheduler.TriggerBackgroundSweep(token);
+                _ReflectionSweeper.TriggerBackgroundSweep(token);
                 _Logging.Info(_Header + "startup health check completed");
             }
             catch (Exception ex)
@@ -1302,6 +1305,7 @@ namespace Armada.Server
                     _AutonomousRecovery.TriggerBackgroundSweep(token);
                     _IncidentLifecycle.TriggerBackgroundSweep(token);
                     _ObjectiveScheduler.TriggerBackgroundSweep(token);
+                    _ReflectionSweeper.TriggerBackgroundSweep(token);
 
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;
