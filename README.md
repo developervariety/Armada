@@ -7,16 +7,17 @@
 <p align="center">
   <strong>Multi-agent orchestration for scaling human developers with AI coding captains.</strong>
   <br />
-  <em>v0.8.0 alpha - APIs and schemas may change</em>
+  <em>Private fork of <a href="https://github.com/jchristn/Armada">jchristn/Armada</a> — v0.8.0 alpha, APIs and schemas may change</em>
 </p>
 
 <p align="center">
   <a href="#why-armada">Why Armada</a> |
-  <a href="#fork-features-vs-upstream">Fork Features</a> |
+  <a href="#what-this-fork-adds-over-upstream">What This Fork Adds</a> |
   <a href="#features">Features</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#mcp-integration">MCP</a> |
-  <a href="#architecture">Architecture</a>
+  <a href="#architecture">Architecture</a> |
+  <a href="#license-and-attribution">License</a>
 </p>
 
 ---
@@ -53,28 +54,68 @@ Armada is intentionally vocabulary-heavy because the model mirrors the operating
 
 ---
 
-## Fork features vs upstream
+## What This Fork Adds Over Upstream
 
-Last upstream sync: `e9e3021f` (21 upstream commits absorbed) on 2026-05-24.
+This is a private fork of [`jchristn/Armada`](https://github.com/jchristn/Armada). It tracks upstream (last sync: merge-base `e9e3021f`, 21 upstream commits absorbed) and preserves upstream's v0.8.0 delivery-management model, while adding several subsystems that turn Armada from a captain launcher into an autonomous, retrieval-aware delivery platform.
 
-This fork (`developervariety/Armada`) is based on `jchristn/Armada`. It keeps upstream v0.8.0 delivery-management surfaces while adding deeper orchestration, recovery, code-index, reflection-memory, and multi-runtime captain workflows.
+The additions below are grouped by subsystem. Except where noted, each subsystem is fork-original — the corresponding services, models, and MCP tools do not exist upstream.
 
-### Fork-only features
+### Pipelines, personas, and autonomous planning
 
-- Durable multi-runtime orchestration: Claude Code, Codex, Cursor, Gemini, and OpenCode (Kimi K2.7) captains can be scheduled through the same mission, voyage, dock, and merge-queue model. (`cec36fa6`, `db9439c`, `34574c5f`)
-- Pipeline and persona expansion: built-in Worker, Architect, TestEngineer, Judge, Product Manager, Usability Engineer, MemoryConsolidator, and specialist reviewer personas support WorkerOnly, Reviewed, Tested, FullPipeline, ProductDevelopment, specialist-tested, and reflection pipelines. (`60781f72`, `e5fe494d`, `5e2a993f`)
-- Model-tier routing: `low`, `mid`, and `high` routing picks eligible captains by tier, reserves high-tier capacity for specialist personas, and supports per-stage routing. (`5ae0ce4b`, `fc48ea41`, `b5088b0d`)
-- Code-index retrieval: context packs, fleet search, hybrid lexical/semantic search, symbol graph sidecars, caller/callee queries, impact search, affected-test suggestions, and background refresh after landing. (`d242cc7b`, `c2ec68f1`, `86724a1d`, `9716f670`)
-- Landing automation: merge queue, pull-request fallback, local merge, no-auto-land mode, protected paths, branch cleanup, recovery routing, target-drift retry, and PR reconciliation. (`0b6ace6`, `9494b62`, `3276aa5b`, `02e52f6`)
-- Reflection memory: accepted mission evidence can update vessel, persona, captain, pack, and fleet learned playbooks through reviewable memory-consolidation missions. (`30855c67`, `7266a77a`, `eec40778`)
-- Structured operations: objectives/backlog, planning and refinement sessions, workflow profiles, check runs, releases, deployments, incidents, runbooks, and historical timeline surfaces are wired into the fork's orchestration flow. (`efcc8221`, `adfdc3b3`, `6335f4eb`)
-- AgentWake and remote orchestration: wake signals can resume a local orchestrator session or emit MCP notification signals when missions need attention. (`35054fcd`, `48125adc`)
-- Memory and lifecycle hardening: capped logs, lightweight mission summaries, captain diagnostics, launch cleanup, dock cleanup, and status projections keep large deployments operable. (`0fe4411c`, `22869d01`, `7cf460e9`)
+- **In-dock Definition-of-Done gate.** Each Worker mission's build and unit-test commands run inside the mission's own isolated checkout before the mission is accepted, with structured failure classification (Compile / TestFail / Timeout / Infra) and bounded, secret-redacted diagnostics. Upstream missions are not build/test-verified in-dock before acceptance.
+- **Hardened Architect decomposition.** A pure structured parser turns an Architect plan into N missions with Blocked / StructuralFailure / OverCap verdicts, a dedicated system prompt, MCP decompose tools, and a configurable per-vessel mission cap (default 8, clamped 1–50). Upstream ships the Architect persona but no parser, settings, over-cap verdict, or cap.
+- **Autonomous objective scheduler.** A background sweep selects eligible objectives under guardrails and a max-concurrent-voyages cap, auto-dispatches each through the Admiral, links the resulting voyage, and reconciles objectives to Completed when their linked voyage finishes. Upstream persists objectives but dispatches them manually.
+- **Automatic Check-run gate resolution.** A bounded background orchestrator resolves pending Check gates (Build, UnitTest, and others) as work lands, tying results into releases and incidents so a voyage cannot land without its attached Checks passing. Upstream persists Check records but has no background resolver.
+- **Expanded persona and pipeline set.** Built-in personas (Worker, Architect, Product Manager, Usability Engineer, Judge, TestEngineer, MemoryConsolidator, and specialist reviewers) drive WorkerOnly, Reviewed, Tested, FullPipeline, ProductDevelopment, specialist-tested, and reflection pipelines. Personas are stored records, not hardcoded prompt strings, so custom personas and templates can be added via REST or MCP.
+- **Domain-neutral framing.** Persona prompts, system resources, and test literals are kept generic so the fork ships no private-domain wording.
 
-### Upstream features in-tree but not actively wired
+### Code index, semantic search, and context packs
 
-- Mux runtime is present in-tree, but the active default captain pool for this fork is Claude Code, Codex, Cursor, Gemini, and OpenCode. Configure Mux captains explicitly before relying on them.
-- Some upstream planning and workspace UX remains available as operator-facing dashboard functionality, while the fork's main automation path runs through durable MCP dispatch, objective linkage, pipelines, and merge-queue landing.
+- **Admiral-owned per-vessel code index.** The Admiral extracts each vessel's repo at a commit, chunks source files, and persists an inline index plus status metadata, powering search, symbol graphs, and context packs. Upstream has no code index at all.
+- **Hybrid lexical + semantic search.** Search blends a lexical/regex score with cosine similarity over per-chunk embedding vectors, weighted by configurable semantic/lexical weights, using a pluggable OpenAI-compatible embedding client. Lexical search remains the always-on fallback when semantic search is disabled.
+- **Dispatch-ready context packs.** A mission-goal-scoped evidence bundle (ranked files, symbol-graph context, prestaged files, metrics) is written to `_briefing/context-pack.md` and auto-attached to a dock at dispatch. A missing query or unavailable index hard-fails the dispatch rather than silently shipping a code-blind mission.
+- **Caching and budgets.** A baseline context pack is pre-warmed after each index refresh and keyed to the indexed commit SHA; large vessels take a cheaper search-only fast-pack path; summarization and pack build are time-boxed so slow inference falls back to raw evidence instead of blocking dispatch.
+- **Symbol-graph sidecars.** A dependency-free extractor emits per-vessel symbol/edge sidecars across many languages plus framework endpoint patterns, exposing callers, callees, bounded impact traversal, and affected-test suggestions, with matching symbols additively boosting search ranking.
+- **Incremental post-land refresh.** When a voyage lands, a per-vessel debounce scheduler coalesces an incremental refresh (unchanged chunks reuse prior embeddings and sidecars). Dispatch is gated while a refresh is in progress, but the guard is timeout-bounded so a stalled index backend never blocks dispatch.
+- **Fleet-wide search and packs.** Search and context-pack assembly can span every vessel in a fleet, prefixing files with their vessel id while preserving the per-vessel metric shape.
+- **Reflection-driven pack curation.** A reflections pipeline mines completed-mission captain logs into pack-usage buckets and proposes persisted per-vessel pre-selection hints that the context pack applies before ranking.
+
+### Model-tier routing and preferredModel abstraction
+
+- **Three-tier routing.** Dispatchers pass an abstract `low` / `mid` / `high` tier instead of a concrete model name; a pure selector resolves the tier to an eligible idle captain at dispatch time, with an upward-only fallback chain so strong captains aren't consumed by cheap work. Upstream has no tier concept and pins concrete models only.
+- **Config-driven tier membership.** Tier lists live in settings, but classification also matches anchored model-family regexes so routine version bumps auto-register into the right tier without editing config.
+- **Within-tier preference order.** A per-tier ordered list picks the first listed model with an eligible idle captain, falling back to random for unlisted models.
+- **Capability-aware selection.** Each model carries a 0–100 capability profile (telemetry richness, audit/reasoning fit, mechanical throughput, cost); a mission's optional capability hint (audit / reasoning-heavy / mechanical / doc-only) re-sorts eligible models by best fit before the preference step. The hint is persisted across all four database backends.
+- **Specialist high-tier reservation.** Specialist personas are reserved to high-tier captains and have their preferred model upgraded at create time; the scheduler additionally holds back reserved high-tier slots from Worker dispatch, with an in-flight-demand deadlock guard so a high-tier-only fleet still primes.
+- **Per-stage overrides.** Each pipeline stage can carry its own preferred model that overrides mission-level routing, so a single dispatched voyage can route different stages to different tiers.
+
+### Recovery, incidents, reflection, and dispatch hardening
+
+- **Autonomous mission recovery.** A policy service classifies failed and landing-failed missions, opens and links an incident, records a recovery runbook, and dispatches bounded rescue missions for recoverable non-landing failures — while leaving auth, quota, review, protected-path, dependency, and exhausted failures as open incidents for humans. A revise-retest-rejudge loop handles Judge failures.
+- **Evidence-driven incident lifecycle.** Incidents move Open → Mitigated → RolledBack → Closed purely from Armada evidence: failed checks open incidents linked to the failed check; later passing checks, successful rescues, shipped releases, verified deployments, or completed rollbacks mitigate and close them after a quiet window; new matching failures reopen and raise severity.
+- **Reflection memory.** Accepted mission evidence becomes reviewable per-scope learned-facts playbooks (vessel, persona, captain, pack, fleet) via MemoryConsolidator reflection missions, with a parser/verdict pipeline, duplicate-dispatch suppression by evidence window, and a write-side land of accepted facts.
+- **Queryable long-running jobs.** Long operations run as request-independent background jobs with a sortable id and Accepted / Running / Succeeded / Failed status, so callers poll status instead of blocking a request.
+- **Dispatch hardening.** Centralized configurable timeouts for admiral git processes and code-context/index queries, plus a non-blocking dispatch guard, make a stalled dependency, index backend, or pack build fail fast (or warn and proceed) instead of hanging dispatch before a voyage row exists.
+- **Merge-failure classification and recovery routing.** A pure router maps a classified merge failure plus a per-mission recovery-attempt count to a terminal action — redispatch off a fresh tip, spin up a rebase-captain mission, or surface for human resolution — with a bounded attempt cap for back-pressure.
+
+### Delivery: docks, merge queue, and landing
+
+- **Dock-boundary scanner.** A pre-land scanner evaluates a dock's diff and changed-path set against protected-path globs, secret patterns, and per-vessel private-identifier denylists for public repos, returning structured blocking findings without echoing secret bytes. Upstream lands captain diffs without a boundary scan.
+- **AutoLand predicate.** A per-vessel predicate (enabled, max files, max added lines, allow/deny path globs) plus a pure evaluator parses the unified diff and decides whether a passing mission auto-lands or is held for review, wired into landing and exposed via REST/MCP.
+- **Durable landing-job recovery.** Landing is a persisted job with a full state machine (Queued → Rebasing → Merging → Testing → Passed → Pushing/CreatingPR → Landed/PullRequestOpen/Failed/Cancelled), bounded drift retries, and restart-safe integration-worktree merges, so a landing interrupted mid-flight resumes instead of corrupting the target.
+- **Sibling-repo and artifact dock provisioning.** Each vessel-declared sibling repository and declared extraction/reference artifact is provisioned into the captain's worktree at declared relative paths, using detached sibling worktrees that skip failed siblings and never destroy a concurrent dock's checkout.
+- **Branch preservation and cleanup.** On dock reclaim, the captain's branch is mirrored into a preserved ref in the vessel bare before the worktree is destroyed (best-effort, never blocking), and the bare HEAD is restored to the default branch after cleanup so later git ops don't see a dangling ref.
+- **Merge queue with PR fallback.** The queue lands sequentially per vessel and target branch, landing each success immediately to avoid cascade failures. It classifies failures at fail-time, routes audit-critical or failed entries to a pull request instead of auto-land, unblocks dependent entries at PullRequestOpen, and refreshes the code index after each land.
+- **LocalMerge no-push landing.** LocalMerge lands by merging into the local working directory and never pushes to origin; push-based modes verify the remote target commit after push; terminal mission branches are reliably deleted per the branch-cleanup policy, surfacing cleanup failures.
+
+### Captains, runtimes, and interfaces
+
+- **Multi-runtime captain pool.** Claude Code, Codex, Cursor, Gemini, and OpenCode (Kimi K2.7) captains schedule through the same mission, voyage, dock, and merge-queue model. OpenCode is a fork-added fifth runtime with JSONL event parsing, standalone operation, tier registration, and a permission-config builder wired into dock provisioning. (Upstream's Mux runtime remains in-tree but is not part of the fork's default pool — configure it explicitly before relying on it.)
+- **Captain health and quarantine.** Captains are auto-quarantined on provider quota / usage-limit and credit/auth signals (honoring per-provider reset times), and a health monitor detects near-instant crash loops, so tier selection only ever hands out live captains. Upstream has no quarantine state or health monitor.
+- **Cross-runtime hardening.** Role/persona context is injected uniformly into every runtime's prompt, provider usage-limit crash signatures are detected across runtimes, and MSBuild node-reuse is disabled on captain launch.
+- **Expanded MCP surface.** The `armada_*` tool catalog grows substantially, adding whole tool families for code-index retrieval, reflection memory, incidents, audits, Architect decomposition, agent-wake, long-running jobs, the objective scheduler, captain diagnostics, and unlanded branches.
+- **Shared REST/MCP dispatch parity.** Voyage dispatch is consolidated onto a single path shared by REST and MCP, mapping validation failures to structured MCP errors so orchestrator agents get the same semantics as REST clients.
+- **Remote control over the relay tunnel.** Focused remote-control queries and management actions route through the existing outbound dashboard-relay tunnel, letting an operator inspect and control an Admiral remotely without exposing the full REST surface. (The relay/tunnel transport itself is upstream; the structured query/control layer over it is fork-only.)
 
 ---
 
@@ -100,10 +141,10 @@ Built-in pipelines let work move through the right level of review:
 - `Tested`: Worker, TestEngineer, then Judge.
 - `FullPipeline`: Architect, Worker, TestEngineer, then Judge.
 - `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, then Judge.
-- Specialist tested pipelines: DiagnosticProtocol, TenantSecurity, MigrationData, PerformanceMemory, ReferencePorting, and FrontendWorkflow review before tests and Judge.
+- Specialist-tested pipelines add a domain reviewer before tests and Judge.
 - Reflection pipelines: MemoryConsolidator alone or MemoryConsolidator with parallel Judges.
 
-Personas are stored records, not hardcoded prompt strings. Built-ins include Worker, Architect, Product Manager, Usability Engineer, Judge, TestEngineer, DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer, PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer, and MemoryConsolidator. Custom personas and prompt templates can be added through REST or MCP and then referenced by custom pipeline stages.
+Personas are stored records, not hardcoded prompt strings. Custom personas and prompt templates can be added through REST or MCP and then referenced by custom pipeline stages.
 
 ### Model-Tier Routing
 
@@ -112,8 +153,8 @@ Dispatchers can use `preferredModel` as routing guidance:
 - `low`, `mid`, and `high` select among available captains in a complexity tier.
 - Literal model names remain available for direct pins.
 - Pipeline stages can override mission-level routing with their own `PreferredModel`.
-- Specialist personas such as Judge, Architect, TestEngineer, MemoryConsolidator, and specialist reviewers are reserved for high-tier captains by default.
-- `ReservedHighTierSlots` keeps high-tier capacity available for downstream specialist work instead of consuming every strong captain on first-stage Worker missions.
+- Specialist personas such as Judge, Architect, TestEngineer, and MemoryConsolidator are reserved for high-tier captains by default.
+- Reserved high-tier slots keep strong captains available for downstream specialist work instead of being consumed on first-stage Worker missions.
 
 ### Code Index, Context Packs, and Graph Search
 
@@ -134,11 +175,11 @@ Armada can leave work for manual inspection or land it through configured modes:
 | Mode | Behavior |
 |---|---|
 | `MergeQueue` | Enqueue work, create a temporary integration worktree, run validation, push, reconcile, and clean up branches sequentially per vessel and target branch. |
-| `LocalMerge` | Merge the mission branch directly into the configured local working directory. |
+| `LocalMerge` | Merge the mission branch directly into the configured local working directory, without pushing to origin. |
 | `PullRequest` | Push the branch and open a PR/MR; the mission remains `PullRequestOpen` until the PR is merged. |
 | `None` | Stop at `WorkProduced`; the branch remains available for manual integration. |
 
-Landing features include auto-land predicates, protected path checks, convention and critical-trigger gates, PR fallback, target-branch-drift retry, durable landing jobs, restart recovery, branch cleanup policies, pull-request reconciliation, and merge-queue purge/cancel tools.
+Landing features include auto-land predicates, protected-path checks, convention and critical-trigger gates, PR fallback, target-branch-drift retry, durable landing jobs, restart recovery, branch cleanup policies, pull-request reconciliation, and merge-queue purge/cancel tools.
 
 ### Structured Delivery Operations
 
@@ -158,10 +199,10 @@ Armada is not only a captain launcher. It also keeps delivery records connected 
 
 The Admiral tracks captain state and health so a busy fleet remains debuggable:
 
-- Captains move through idle, assigned, in-progress, planning, stopped, and failure states.
+- Captains move through idle, assigned, in-progress, planning, stopped, quarantined, and failure states.
 - Health checks reclaim stale captains and docks after restarts.
 - Diagnostics report active mission timing, dock git status, uncommitted files, launch/log hints, and code-index freshness.
-- Quarantine and lifecycle controls prevent unhealthy captains from repeatedly taking work until an operator intervenes.
+- Quarantine and lifecycle controls prevent unhealthy captains — including those hitting provider quota or usage limits — from repeatedly taking work until an operator or reset window intervenes.
 - Stop, recall, stop-all, and emergency controls are exposed through MCP, REST, dashboard, and WebSocket flows.
 
 ### Playbooks and Persistent Memory
@@ -321,10 +362,10 @@ Common MCP tool groups:
 - Dispatch, architect decomposition, mission status, voyage status, logs, diffs, and status transitions.
 - Merge queue enqueue, process, retry, cancel, purge, and PR reconciliation.
 - Code index status, update, search, context pack, fleet context pack, graph symbols, callers, callees, impact, and affected tests.
-- Objective/backlog CRUD, refinement, planning, and dispatch linkage.
+- Objective/backlog CRUD, refinement, planning, dispatch linkage, and the autonomous objective scheduler.
 - Check run, release, deployment, incident, and runbook operations.
-- Playbook management and mission playbook snapshots.
-- Captain diagnostics, AgentWake registration, and wake notifications.
+- Playbook management, mission playbook snapshots, and reflection memory.
+- Captain diagnostics, quarantine controls, AgentWake registration, long-running-job status, and wake notifications.
 
 ---
 
@@ -354,14 +395,14 @@ Useful REST areas include:
 
 ```text
 src/
-  Armada.Core       Domain models, settings, database drivers, services, and interfaces
+  Armada.Core       Domain models, settings, database drivers, services, code index, and interfaces
   Armada.Runtimes   Runtime adapters for Claude Code, Codex, Cursor, Gemini, OpenCode, and extensible agents
-  Armada.Server     Admiral REST/MCP/WebSocket server and dashboard host
+  Armada.Server     Admiral REST/MCP/WebSocket server, orchestrators, and dashboard host
   Armada.Helm       CLI for config, server start, and MCP setup
   Armada.Dashboard  React/Vite operator dashboard
 ```
 
-The server constructs most services directly in `ArmadaServer.cs`. Database drivers cover SQLite, PostgreSQL, MySQL, and SQL Server. Runtime adapters implement the shared captain process contract while preserving each CLI's launch and environment requirements.
+The server constructs most services directly in `ArmadaServer.cs` and runs the fork's background orchestrators (objective scheduler, automatic check runs, autonomous recovery, incident lifecycle, code-index refresh) off the health loop. Database drivers cover SQLite, PostgreSQL, MySQL, and SQL Server. Runtime adapters implement the shared captain process contract while preserving each CLI's launch and environment requirements.
 
 ---
 
@@ -391,6 +432,8 @@ from `src/Armada.Dashboard`.
 
 ---
 
-## License
+## License and Attribution
+
+Armada was created by [jchristn](https://github.com/jchristn) as [`jchristn/Armada`](https://github.com/jchristn/Armada). This repository is a private fork that builds on that work; all upstream copyright and attribution are retained.
 
 Armada is licensed under the terms in [LICENSE.md](LICENSE.md).
