@@ -931,6 +931,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v57 statements adding the mission stage order used to identify parallel stage groups.
+        /// </summary>
+        public static readonly string[] MigrationV57Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN stage_order INT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

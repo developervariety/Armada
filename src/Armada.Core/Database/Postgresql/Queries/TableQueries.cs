@@ -693,6 +693,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(56, "Add capabilityhint column to missions",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS capabilityhint TEXT;"
                 )
+                ,
+                new SchemaMigration(57, "Add stage_order to missions so parallel sibling stages form an identifiable group",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS stage_order INTEGER;"
+                )
             };
         }
 

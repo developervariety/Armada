@@ -1289,6 +1289,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(57, "Add containerless_unit_test_command column to workflow_profiles",
                     @"ALTER TABLE workflow_profiles ADD COLUMN containerless_unit_test_command TEXT;"
+                ),
+                new SchemaMigration(58, "Add stage_order to missions so parallel sibling stages form an identifiable group",
+                    @"ALTER TABLE missions ADD COLUMN stage_order INTEGER;"
                 )
             };
         }

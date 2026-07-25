@@ -274,9 +274,7 @@ namespace Armada.Core.Services
                     && !String.IsNullOrEmpty(mission.VesselId)
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
 
-                if (dependency.Status != MissionStatusEnum.Complete &&
-                    dependency.Status != MissionStatusEnum.WorkProduced &&
-                    dependency.Status != MissionStatusEnum.PullRequestOpen)
+                if (!IsDependencySatisfyingStatus(dependency.Status))
                 {
                     // Dependency not yet satisfied -- don't assign. PullRequestOpen unblocks
                     // dependents per the breaking-change PR-fallback design: the captain
@@ -285,6 +283,22 @@ namespace Armada.Core.Services
                     mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                    return false;
+                }
+
+                // Parallel-stage barrier. Same-order stages dispatch as siblings sharing one upstream
+                // dependency, but DependsOnMissionId names only ONE of them -- so without this the next
+                // order would start as soon as that single sibling finished while the rest of its group
+                // was still running, letting a Judge review a diff its sibling reviewers had not
+                // finished contributing to. The group is keyed on StageOrder, not on the shared parent
+                // alone: Architect fan-out clones whole downstream chains whose stages also share a
+                // parent but must run independently, and keying on the parent alone deadlocks them.
+                if (!await DependencyGroupSatisfiedAsync(mission, dependency, token).ConfigureAwait(false))
+                {
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " +
+                        mission.AssignmentState + " (parallel sibling stages still running)");
                     return false;
                 }
 
@@ -1615,6 +1629,70 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Returns true when a mission status satisfies a downstream dependency. PullRequestOpen
+        /// counts because the captain branch is finalized and pushed at PR-open time.
+        /// </summary>
+        /// <param name="status">Upstream mission status.</param>
+        internal static bool IsDependencySatisfyingStatus(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Complete
+                || status == MissionStatusEnum.WorkProduced
+                || status == MissionStatusEnum.PullRequestOpen;
+        }
+
+        /// <summary>
+        /// Returns true when a sibling belongs to the same parallel stage group as the dependency:
+        /// same voyage, same upstream dependency, and the same pipeline stage order. All three are
+        /// required. Architect fan-out clones downstream chains whose stages share both voyage and
+        /// upstream dependency, so StageOrder is what separates "parallel stages of one chain" from
+        /// "cloned chains that must run independently". A mission with no StageOrder did not come from
+        /// a pipeline stage and never participates in a barrier.
+        /// </summary>
+        /// <param name="sibling">Candidate sibling mission.</param>
+        /// <param name="dependency">The mission named by the dependent's DependsOnMissionId.</param>
+        internal static bool IsParallelStageSibling(Mission sibling, Mission dependency)
+        {
+            if (sibling == null || dependency == null) return false;
+            if (!dependency.StageOrder.HasValue || !sibling.StageOrder.HasValue) return false;
+            if (sibling.StageOrder.Value != dependency.StageOrder.Value) return false;
+            if (!String.Equals(sibling.VoyageId, dependency.VoyageId, StringComparison.Ordinal)) return false;
+            return String.Equals(sibling.DependsOnMissionId, dependency.DependsOnMissionId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Returns true when every sibling in the dependency's parallel stage group has reached a
+        /// satisfying status. The dependency itself is checked by the caller. Sequential pipelines put
+        /// one stage per order, so their groups have a single member and this is always true.
+        /// </summary>
+        /// <param name="mission">Mission awaiting assignment.</param>
+        /// <param name="dependency">The mission named by DependsOnMissionId.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task<bool> DependencyGroupSatisfiedAsync(Mission mission, Mission dependency, CancellationToken token)
+        {
+            if (!dependency.StageOrder.HasValue || String.IsNullOrEmpty(dependency.VoyageId)) return true;
+
+            List<Mission> voyageMissions = await _Database.Missions
+                .EnumerateByVoyageAsync(dependency.VoyageId, token).ConfigureAwait(false);
+
+            foreach (Mission sibling in voyageMissions)
+            {
+                if (sibling == null) continue;
+                if (String.Equals(sibling.Id, dependency.Id, StringComparison.Ordinal)) continue;
+                if (String.Equals(sibling.Id, mission.Id, StringComparison.Ordinal)) continue;
+                if (!IsParallelStageSibling(sibling, dependency)) continue;
+
+                if (!IsDependencySatisfyingStatus(sibling.Status))
+                {
+                    _Logging.Debug(_Header + "mission " + mission.Id + " waiting on parallel sibling " +
+                        sibling.Id + " (stage " + sibling.StageOrder + ", " + sibling.Status + ")");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Returns true when a persona must hold the mission branch attached, because it commits its
         /// work there. Git allows only one worktree per branch, so an attached stage that provisions
         /// while an earlier stage still holds the branch fails with exit 128 -- the collision behind
@@ -2623,6 +2701,11 @@ namespace Armada.Core.Services
                 clonedStage.VesselId = templateChild.VesselId;
                 clonedStage.Persona = templateChild.Persona;
                 clonedStage.DependsOnMissionId = newDependency.Id;
+                // Deliberately NOT inherited. StageOrder identifies a parallel stage group, and every
+                // cloned chain is an independent line of work that happens to share the template's
+                // shape. Copying it would group the clones together and make each chain's downstream
+                // wait on every other chain's stage of the same order -- a fan-out-wide deadlock.
+                clonedStage.StageOrder = null;
                 clonedStage.BranchName = null;
                 clonedStage = await _Database.Missions.CreateAsync(clonedStage, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "architect created chained stage " + clonedStage.Id +

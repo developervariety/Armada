@@ -332,6 +332,7 @@ namespace Armada.Core.Services
                         mission.VesselId = vesselId;
                         mission.Persona = stage.PersonaName;
                         mission.DependsOnMissionId = groupDependencyId;
+                        mission.StageOrder = stage.Order;
                         mission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
                             stage.PreferredModel ?? md.PreferredModel,
                             stage.PersonaName,
@@ -485,6 +486,7 @@ namespace Armada.Core.Services
                             mission.VesselId = vesselId;
                             mission.Persona = stage.PersonaName;
                             mission.DependsOnMissionId = groupDependencyId;
+                            mission.StageOrder = stage.Order;
                             mission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
                                 stage.PreferredModel ?? md.PreferredModel,
                                 stage.PersonaName,

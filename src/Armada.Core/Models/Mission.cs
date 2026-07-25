@@ -138,6 +138,15 @@ namespace Armada.Core.Models
         public string? DependsOnMissionId { get; set; } = null;
 
         /// <summary>
+        /// Pipeline stage order this mission was created from, or null when it did not come from a
+        /// pipeline stage. Same-order stages dispatch as parallel siblings, so this is what identifies
+        /// a parallel group at scheduling time. Without it a group cannot be told apart from Architect
+        /// fan-out's cloned chains, whose stages also share an upstream dependency but must run
+        /// independently of each other.
+        /// </summary>
+        public int? StageOrder { get; set; } = null;
+
+        /// <summary>
         /// Optional captain Model filter for mission assignment. When set, dispatch
         /// considers only idle captains whose <see cref="Captain.Model"/> matches this
         /// value (case-insensitive) before applying persona-preference logic.

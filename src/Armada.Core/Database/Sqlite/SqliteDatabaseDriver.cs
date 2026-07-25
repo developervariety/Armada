@@ -601,6 +601,7 @@ namespace Armada.Core.Database.Sqlite
             mission.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
+            try { object sv = reader["stage_order"]; mission.StageOrder = (sv == null || sv == DBNull.Value) ? (int?)null : Convert.ToInt32(sv); } catch { }
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
             try { mission.PrestagedFiles = Implementations.MissionMethods.DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }

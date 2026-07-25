@@ -643,7 +643,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(
                     56,
                     "Add capabilityhint column to missions",
-                    @"IF COL_LENGTH('missions', 'capabilityhint') IS NULL ALTER TABLE missions ADD capabilityhint NVARCHAR(MAX);"
+                    @"IF COL_LENGTH('missions', 'capabilityhint') IS NULL ALTER TABLE missions ADD capabilityhint NVARCHAR(MAX);"),
+                new SchemaMigration(
+                    57,
+                    "Add stage_order to missions so parallel sibling stages form an identifiable group",
+                    @"IF COL_LENGTH('missions', 'stage_order') IS NULL ALTER TABLE missions ADD stage_order INT;"
                 )
             };
         }

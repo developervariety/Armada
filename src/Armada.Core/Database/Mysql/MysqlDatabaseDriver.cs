@@ -596,6 +596,11 @@ namespace Armada.Core.Database.Mysql
                     56,
                     "Add capabilityhint column to missions",
                     TableQueries.MigrationV56Statements
+                ),
+                new SchemaMigration(
+                    57,
+                    "Add stage_order to missions so parallel sibling stages form an identifiable group",
+                    TableQueries.MigrationV57Statements
                 )
             };
         }
