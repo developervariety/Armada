@@ -65,6 +65,13 @@ namespace Armada.Server.Mcp
         public string? ModelContext { get; set; }
 
         /// <summary>
+        /// Orchestrator/operator opt-in permitting a direct <see cref="ModelContext"/> write. Captains must
+        /// NOT set this -- they emit [CLAUDE.MD-PROPOSAL] / [LEARNED-FACT-PROPOSAL] instead and the
+        /// orchestrator applies approved edits with this flag.
+        /// </summary>
+        public bool OperatorOverride { get; set; }
+
+        /// <summary>
         /// Default pipeline ID for dispatches to this vessel (ppl_ prefix).
         /// </summary>
         public string? DefaultPipelineId { get; set; }

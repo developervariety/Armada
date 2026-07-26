@@ -237,7 +237,8 @@ namespace Armada.Server.Mcp.Tools
                         localPath = new { type = "string", description = "New path to the local bare repository Armada cuts dock worktrees from. Set this when the bare repo is renamed or relocated (e.g. onto another drive); otherwise DockService keeps resolving the stale path and re-clones from repoUrl into it." },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel" },
                         enableModelContext = new { type = "boolean", description = "Enable or disable legacy model context injection and learned-fact proposal routing" },
-                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; mission discoveries should use [LEARNED-FACT-PROPOSAL]" },
+                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; mission discoveries should use [LEARNED-FACT-PROPOSAL]. Writing it requires operatorOverride=true." },
+                        operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit. Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] / [LEARNED-FACT-PROPOSAL] instead." },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         protectedPaths = new
                         {
@@ -301,8 +302,8 @@ namespace Armada.Server.Mcp.Tools
                 {
                     VesselUpdateArgs request = JsonSerializer.Deserialize<VesselUpdateArgs>(args!.Value, _JsonOptions)!;
                     string vesselId = request.VesselId;
-                    if (!String.IsNullOrEmpty(request.ModelContext))
-                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals." };
+                    if (!String.IsNullOrEmpty(request.ModelContext) && !request.OperatorOverride)
+                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals with operatorOverride=true." };
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     if (request.Name != null)
@@ -315,6 +316,8 @@ namespace Armada.Server.Mcp.Tools
                         vessel.ProjectContext = request.ProjectContext;
                     if (request.StyleGuide != null)
                         vessel.StyleGuide = request.StyleGuide;
+                    if (request.ModelContext != null && request.OperatorOverride)
+                        vessel.ModelContext = request.ModelContext;
                     if (request.WorkingDirectory != null)
                         vessel.WorkingDirectory = request.WorkingDirectory;
                     if (request.LocalPath != null)
@@ -506,7 +509,8 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
                         projectContext = new { type = "string", description = "Project context describing architecture, key files, and dependencies" },
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
-                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; do not use for mission-discovered learned facts" }
+                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; do not use for mission-discovered learned facts. Writing it requires operatorOverride=true." },
+                        operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit (or clear it with an empty string). Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] / [LEARNED-FACT-PROPOSAL] instead." }
                     },
                     required = new[] { "vesselId" }
                 },
@@ -514,14 +518,16 @@ namespace Armada.Server.Mcp.Tools
                 {
                     VesselContextArgs request = JsonSerializer.Deserialize<VesselContextArgs>(args!.Value, _JsonOptions)!;
                     string vesselId = request.VesselId;
-                    if (!String.IsNullOrEmpty(request.ModelContext))
-                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals." };
+                    if (!String.IsNullOrEmpty(request.ModelContext) && !request.OperatorOverride)
+                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals with operatorOverride=true." };
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     if (request.ProjectContext != null)
                         vessel.ProjectContext = request.ProjectContext;
                     if (request.StyleGuide != null)
                         vessel.StyleGuide = request.StyleGuide;
+                    if (request.ModelContext != null && request.OperatorOverride)
+                        vessel.ModelContext = request.ModelContext;
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });

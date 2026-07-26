@@ -138,6 +138,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProviderQuotaLimitDetectorTests());
             runner.AddSuite(new MissionFailureCreditQuarantineTests());
             runner.AddSuite(new CaptainBenchPersistenceTests());
+            runner.AddSuite(new McpVesselToolsTests());
             runner.AddSuite(new AutonomousObjectiveSelectorTests());
             runner.AddSuite(new ConventionCheckTests());
             runner.AddSuite(new DockBoundaryScannerTests());
