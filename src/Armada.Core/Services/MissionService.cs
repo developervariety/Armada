@@ -2636,7 +2636,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task UpdateVoyageTerminalStatusAsync(string? voyageId, CancellationToken token)
+        internal async Task UpdateVoyageTerminalStatusAsync(string? voyageId, CancellationToken token)
         {
             if (String.IsNullOrEmpty(voyageId)) return;
 
@@ -2670,11 +2670,70 @@ namespace Armada.Core.Services
                 m.Status == MissionStatusEnum.Failed ||
                 m.Status == MissionStatusEnum.LandingFailed);
 
+            // Real-signal completion gate: a Judge PASS is the agent's own self-report. A voyage may
+            // only reach Complete (which authorizes landing) when its Checks -- the Build/UnitTest run
+            // from real command output -- reflect that. A failed Check overrides a Judge PASS;
+            // unresolved Checks hold completion. Voyages with no Checks are unaffected (backward compatible).
+            if (!anyFailed)
+            {
+                VoyageCheckGate gate = await EvaluateVoyageChecksAsync(voyageId, missions, token).ConfigureAwait(false);
+                if (gate == VoyageCheckGate.HasFailed)
+                {
+                    anyFailed = true;
+                    _Logging.Warn(_Header + "voyage " + voyageId + " has a failed Check -- overriding Judge verdict to Failed (real-signal gate)");
+                }
+                else if (gate == VoyageCheckGate.HasPending)
+                {
+                    _Logging.Info(_Header + "voyage " + voyageId + " missions are done but its Checks are not green yet -- holding completion until Checks resolve (real-signal gate)");
+                    return;
+                }
+            }
+
             voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
             voyage.CompletedUtc = DateTime.UtcNow;
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
             _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status + " during mission completion");
+        }
+
+        /// <summary>Outcome of evaluating a voyage's Checks for the real-signal completion gate.</summary>
+        private enum VoyageCheckGate
+        {
+            /// <summary>No (non-canceled) Checks attached -- gate does not apply.</summary>
+            NoChecks,
+            /// <summary>All Checks are Passed.</summary>
+            AllGreen,
+            /// <summary>At least one Check Failed.</summary>
+            HasFailed,
+            /// <summary>At least one Check is still Pending/Running (unresolved).</summary>
+            HasPending
+        }
+
+        /// <summary>
+        /// Evaluates the Checks attached to a voyage and its missions to decide whether the real
+        /// signal permits the voyage to complete. Canceled Checks are ignored. This is the
+        /// enforcement point for "a Judge PASS must be backed by green independent Checks".
+        /// </summary>
+        private async Task<VoyageCheckGate> EvaluateVoyageChecksAsync(
+            string voyageId, List<Mission> missions, CancellationToken token)
+        {
+            Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>();
+            EnumerationResult<CheckRun> byVoyage = await _Database.CheckRuns
+                .EnumerateAsync(new CheckRunQuery { VoyageId = voyageId }, token).ConfigureAwait(false);
+            foreach (CheckRun c in byVoyage.Objects) checks[c.Id] = c;
+            foreach (Mission m in missions)
+            {
+                EnumerationResult<CheckRun> byMission = await _Database.CheckRuns
+                    .EnumerateAsync(new CheckRunQuery { MissionId = m.Id }, token).ConfigureAwait(false);
+                foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
+            }
+
+            List<CheckRun> active = checks.Values
+                .Where(c => c.Status != CheckRunStatusEnum.Canceled).ToList();
+            if (active.Count == 0) return VoyageCheckGate.NoChecks;
+            if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return VoyageCheckGate.HasFailed;
+            if (active.Any(c => c.Status == CheckRunStatusEnum.Pending || c.Status == CheckRunStatusEnum.Running)) return VoyageCheckGate.HasPending;
+            return VoyageCheckGate.AllGreen;
         }
 
         private async Task CloneDependentChainAsync(
