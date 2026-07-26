@@ -2475,10 +2475,12 @@ namespace Armada.Core.Services
                 handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + agentOutput + "\n```\n";
             }
 
-            // Include the diff snapshot if available
+            // Include the diff snapshot if available, scoped so a large generated-output diff (e.g. a
+            // regenerated data-file snapshot) cannot overflow the reviewing model's context.
             if (!String.IsNullOrEmpty(completedMission.DiffSnapshot))
             {
-                handoffContext += "\n### Diff from prior stage\n```diff\n" + completedMission.DiffSnapshot + "\n```\n";
+                handoffContext += "\n### Diff from prior stage\n```diff\n" +
+                    BuildReviewDiff(completedMission.DiffSnapshot!, _MaxReviewDiffChars) + "\n```\n";
             }
             else
             {
@@ -2505,6 +2507,69 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "pipeline handoff: prepared mission " + nextMission.Id +
                 " (" + nextMission.Persona + ") with context from " + completedMission.Id +
                 " (" + completedMission.Persona + ")");
+        }
+
+        // Max characters of prior-stage diff embedded into the next stage's brief. A large generated-output diff
+        // (e.g. a regenerated data-file snapshot with hundreds of files) can otherwise overflow the reviewing
+        // model's context ("Prompt is too long"). The full change always remains on the branch for inspection.
+        private const int _MaxReviewDiffChars = 60000;
+
+        /// <summary>
+        /// Scopes a git diff so it fits a reviewing model's context. Under the budget it is returned unchanged.
+        /// Over the budget, per-file sections are kept whole smallest-first (so small CODE diffs survive intact)
+        /// and the largest files (typically bulk generated DATA) are elided to their header + a line-count note --
+        /// so the reviewer still sees WHICH files changed and by how much, without the overflowing content.
+        /// </summary>
+        internal static string BuildReviewDiff(string diff, int maxChars)
+        {
+            if (String.IsNullOrEmpty(diff) || diff.Length <= maxChars) return diff;
+
+            const string marker = "diff --git ";
+            int first = diff.IndexOf(marker, StringComparison.Ordinal);
+            if (first < 0)
+            {
+                // Not a standard git diff -- hard-truncate as a last resort.
+                return diff.Substring(0, Math.Max(0, maxChars - 40)) + "\n...(diff truncated to fit review context)";
+            }
+
+            List<string> sections = new List<string>();
+            if (first > 0) sections.Add(diff.Substring(0, first));
+            int idx = first;
+            while (idx >= 0)
+            {
+                int next = diff.IndexOf("\n" + marker, idx + marker.Length, StringComparison.Ordinal);
+                sections.Add(next < 0 ? diff.Substring(idx) : diff.Substring(idx, next + 1 - idx));
+                idx = next < 0 ? -1 : next + 1;
+            }
+
+            // Greedily keep whole sections, smallest-first, until the budget is exhausted.
+            List<int> order = Enumerable.Range(0, sections.Count).OrderBy(i => sections[i].Length).ToList();
+            HashSet<int> keepWhole = new HashSet<int>();
+            int used = 0;
+            foreach (int i in order)
+            {
+                if (used + sections[i].Length <= maxChars) { keepWhole.Add(i); used += sections[i].Length; }
+            }
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            int elided = 0;
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (keepWhole.Contains(i)) { sb.Append(sections[i]); continue; }
+                string section = sections[i];
+                int nl = section.IndexOf('\n');
+                string header = nl < 0 ? section : section.Substring(0, nl);
+                int lines = section.Count(c => c == '\n');
+                sb.Append(header).Append("\n... (").Append(lines)
+                    .Append(" lines elided to fit review context; full change is on the branch)\n");
+                elided++;
+            }
+            if (elided > 0)
+            {
+                sb.Append("\n[note] ").Append(elided)
+                    .Append(" large file diff(s) were summarized above to keep the review within context; inspect them on the branch if the change is not obvious from the code diffs and file list.\n");
+            }
+            return sb.ToString();
         }
 
         /// <summary>
