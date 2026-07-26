@@ -61,6 +61,32 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsManifestHashAllowed_BundleSha256Digest_IsExempted", () =>
+            {
+                const string hex64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+                string line = "  \"BundleSha256\": \"" + hex64 + "\",";
+                // BundleSha256 / SourceTreeSha256 are hash fields (embedded "Sha256"), and manifest.json is a
+                // known manifest -- a genuine 64-hex digest must not false-positive as a secret.
+                AssertTrue(ConventionChecker.IsManifestHashAllowed("CORE_RULE_5_base64_chunk", line,
+                    "src/OtrPerformanceDeobfuscator/Output/otr-export/manifest.json"),
+                    "a 64-hex BundleSha256 digest in manifest.json must be exempted");
+                AssertTrue(ConventionChecker.IsManifestHashAllowed("CORE_RULE_5_base64_chunk",
+                    "  \"SourceTreeSha256\": \"" + hex64 + "\",", "output/otr-export/manifest.json"),
+                    "SourceTreeSha256 digest must be exempted too");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsManifestHashAllowed_RealBase64Secret_IsNotExempted", () =>
+            {
+                // A base64 blob (upper/lower/+/=, not 64-hex) is not a SHA-256 digest -> must NOT be exempted,
+                // even inside manifest.json, so a real leaked secret is still caught.
+                string line = "  \"seedKeyBlob\": \"QUJDRGVmZ2hJSktMbW5vUHFyU3R1Vld4WXowMTIzNDU2Nzg5K2Yv\",";
+                AssertFalse(ConventionChecker.IsManifestHashAllowed("CORE_RULE_5_base64_chunk", line,
+                    "src/OtrPerformanceDeobfuscator/Output/otr-export/manifest.json"),
+                    "a real base64 secret must NOT be exempted by the manifest-hash allowance");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Check_SpecRef_Fires_CoreRule12", () =>
             {
                 ConventionChecker sut = new ConventionChecker();

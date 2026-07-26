@@ -24,8 +24,11 @@ namespace Armada.Core.Services
             new Regex(@"sha256-[A-Za-z0-9+/]{43,44}={0,2}", RegexOptions.Compiled);
 
         // Hash-related field keyword indicating the line is a content-digest declaration.
+        // "sha256" matches embedded (BundleSha256, SourceTreeSha256, ...), not just as a standalone word --
+        // manifest hash fields commonly qualify the digest name. The digest-value gate still requires a genuine
+        // 64-hex SHA-256, so a real base64 secret is never exempted by this.
         private static readonly Regex _HashFieldKeywordPattern =
-            new Regex(@"\b(?:sha256|integrity|hash|digest|checksum)\b",
+            new Regex(@"(?:sha-?256|\b(?:integrity|hash|digest|checksum)\b)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly (string Rule, Regex Pattern)[] _Rules = new (string, Regex)[]
@@ -138,7 +141,10 @@ namespace Armada.Core.Services
                 "npm-shrinkwrap.json",
                 "go.sum",
                 "pnpm-lock.yaml",
-                "pnpm-lock.yml"
+                "pnpm-lock.yml",
+                // Extractor bundle manifests carry per-file/bundle SHA-256 digests (Sha256, BundleSha256,
+                // SourceTreeSha256). Still gated to a genuine 64-hex value below, so no real secret is exempted.
+                "manifest.json"
             };
 
             foreach (string name in knownNames)
