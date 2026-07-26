@@ -22,6 +22,37 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsProviderSafeguardBlockSignal_ProviderContentGates_ReturnTrue_ModelNeutral", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(
+                        "API Error: claude-opus-5 has safety measures that flagged this message for a cybersecurity topic"),
+                    "the Claude cyber-safeguard block must be detected");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(
+                        "Error code: 400 - {'error': {'code': 'content_policy_violation'}}"),
+                    "a generic provider content-policy block must be detected (provider-neutral)");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(
+                        "The request was refused: the safety system blocked this response"),
+                    "a generic safety-system block must be detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsProviderSafeguardBlockSignal_OrdinaryAndQuotaFailures_ReturnFalse", () =>
+            {
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal("Build failed: CS0103 the name 'foo' does not exist"),
+                    "an ordinary build failure must NOT be treated as a safeguard block");
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal("You've hit your usage limit; rate limit exceeded"),
+                    "a quota/rate-limit failure must NOT be treated as a safeguard block");
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(null),
+                    "null text must not be a safeguard block");
+                return Task.CompletedTask;
+            });
+
             await RunTest("TryParseRetryAfterUtc_DatedCodexUsageLimit_ReturnsThatDateNotToday", () =>
             {
                 // Regression: this is the verbatim Codex message seen 2026-07-19. The clock-only

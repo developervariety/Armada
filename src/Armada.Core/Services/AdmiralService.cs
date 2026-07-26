@@ -95,6 +95,16 @@ namespace Armada.Core.Services
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
 
+        // Provider safeguard-block re-routing: how many times a single mission may be re-routed to a different
+        // provider before we stop and hand the routing decision to the operator (never loop). Sized to comfortably
+        // walk past same-provider siblings and try each distinct high-tier provider once.
+        private const int _SafeguardMaxReroutes = 5;
+
+        // How long a captain that hit a provider safeguard block is benched. The window only needs to outlast the
+        // re-dispatch so a same-provider sibling is not immediately reselected; the block itself is content-
+        // deterministic, not transient, so the exact duration is not load-bearing.
+        private static readonly TimeSpan _SafeguardRerouteWindow = TimeSpan.FromMinutes(30);
+
         #endregion
 
         #region Constructors-and-Factories
@@ -2187,6 +2197,15 @@ namespace Armada.Core.Services
             string failureReason,
             CancellationToken token)
         {
+            // A PROVIDER SAFEGUARD BLOCK (the provider's content/cyber safety gate refused the request) is not a
+            // defect and not tied to any one provider. Bench the captain that blocked and re-route the mission to a
+            // different-provider peer instead of cascade-cancelling the voyage. Model-neutral by construction.
+            if (mission != null && ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(failureReason))
+            {
+                await HandleSafeguardBlockRerouteAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+                return;
+            }
+
             // Transient captain-unavailable / completion-verification failures are recoverable:
             // requeue the mission for reassignment instead of marking it Failed and halting the
             // voyage. Only genuine unrecoverable failures fall through to HaltVoyageAsync below.
@@ -2343,6 +2362,101 @@ namespace Armada.Core.Services
             else
             {
                 _Logging.Warn(_Header + "mission " + missionId + " requeued but has no vessel id; relying on health-check retry sweep");
+                _RetryDispatchNeeded = true;
+            }
+        }
+
+        /// <summary>
+        /// Handles a PROVIDER SAFEGUARD BLOCK (a provider content/cyber safety gate that refused the request) on a
+        /// mission. The blocking captain is quarantined so the mission re-dispatches to a different-provider
+        /// tier-peer, and the mission is requeued while the voyage stays alive. This is model-neutral: whichever
+        /// provider blocks is the one benched -- no model name is hardcoded, so it survives another provider later
+        /// adopting the same safeguard. Bounded by <see cref="Mission.RecoveryAttempts"/>: once re-routes are
+        /// exhausted (every eligible provider has blocked), the mission FAILS with an operator-actionable reason
+        /// rather than looping. Callers must have confirmed <see cref="ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal"/>.
+        /// </summary>
+        private async Task HandleSafeguardBlockRerouteAsync(
+            Captain captain,
+            Mission mission,
+            string missionId,
+            string failureReason,
+            CancellationToken token)
+        {
+            string? vesselId = mission.VesselId;
+            string? voyageId = mission.VoyageId;
+
+            // Re-route budget exhausted: every eligible provider has safeguard-blocked. Fail with an
+            // operator-actionable reason instead of looping (never silence, never loop).
+            if (mission.RecoveryAttempts >= _SafeguardMaxReroutes)
+            {
+                mission.Status = MissionStatusEnum.Failed;
+                mission.FailureReason = "Provider safeguard block persisted after " + mission.RecoveryAttempts +
+                    " re-routes across providers; an operator routing decision is required (route this vessel's " +
+                    "seed-key / security-review stage to a non-blocked provider, or use a Worker-only + Judge " +
+                    "pipeline so no specialist reads the gated source). Last block: " + failureReason;
+                mission.ProcessId = null;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "mission " + missionId + " failed: provider safeguard block persisted after " +
+                    mission.RecoveryAttempts + " re-routes");
+
+                await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
+                await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                await EmitEventAsync("mission.failed",
+                    "Mission failed (provider safeguard block, all providers exhausted): " + mission.Title,
+                    entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,
+                    vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(voyageId))
+                {
+                    await HaltVoyageAsync(voyageId!, mission.Id, mission.FailureReason, token).ConfigureAwait(false);
+                }
+                return;
+            }
+
+            // Requeue the mission for re-routing to a different-provider captain.
+            mission.Status = MissionStatusEnum.Pending;
+            mission.AssignmentState = MissionAssignmentStateEnum.Pending;
+            mission.FailureReason = failureReason;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.RecoveryAttempts = mission.RecoveryAttempts + 1;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + missionId + " re-routing after provider safeguard block (attempt " +
+                mission.RecoveryAttempts + "/" + _SafeguardMaxReroutes + ")");
+
+            await EmitEventAsync("mission.safeguard_rerouted",
+                "Mission re-routed after provider safeguard block: " + mission.Title,
+                entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,
+                vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+
+            // Reclaim the dock, then quarantine the blocking captain so the immediate re-dispatch cannot reselect
+            // it. Walking past same-provider siblings this way converges on a different-provider peer.
+            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            await _CaptainQuarantine.QuarantineAsync(captain,
+                "provider safeguard block (content/cyber gate) -- benched so mission " + missionId +
+                " re-routes to a non-blocked provider",
+                DateTime.UtcNow.Add(_SafeguardRerouteWindow), token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after provider safeguard block on mission " + missionId);
+
+            Signal signal = new Signal(SignalTypeEnum.Progress,
+                "Mission " + missionId + " re-routed after provider safeguard block (captain quarantined, attempt " +
+                mission.RecoveryAttempts + ")");
+            signal.FromCaptainId = captain.Id;
+            await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+
+            if (!String.IsNullOrEmpty(vesselId))
+            {
+                QueueVoyageAssignments(voyageId, vesselId!, new List<string> { mission.Id });
+            }
+            else
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " re-routed but has no vessel id; relying on health-check retry sweep");
                 _RetryDispatchNeeded = true;
             }
         }

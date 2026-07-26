@@ -56,6 +56,36 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Returns true when <paramref name="text"/> is a PROVIDER SAFEGUARD BLOCK -- the model provider's own
+        /// content/safety gate refused the request (e.g. a cyber-topic or content-policy block) rather than the
+        /// model producing a defect. This is provider-neutral by design: it matches the block phrasing, never a
+        /// specific provider or model name, so a safeguard-aware re-route can bench whichever provider blocked and
+        /// route to a peer. Add new providers' safeguard signatures here as they appear; never key routing off a
+        /// provider name.
+        /// </summary>
+        /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
+        /// <returns>True when the text indicates a provider content/safety safeguard block.</returns>
+        public static bool IsProviderSafeguardBlockSignal(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            string normalized = Normalize(text);
+            return normalized.Contains("safety measures that flagged this message", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("flagged this message for a cybersecurity topic", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("flagged for a cybersecurity topic", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("content_policy_violation", StringComparison.OrdinalIgnoreCase) ||
+                (normalized.Contains("cybersecurity", StringComparison.OrdinalIgnoreCase) &&
+                    normalized.Contains("flagged", StringComparison.OrdinalIgnoreCase)) ||
+                (normalized.Contains("safety system", StringComparison.OrdinalIgnoreCase) &&
+                    (normalized.Contains("blocked", StringComparison.OrdinalIgnoreCase) ||
+                        normalized.Contains("flagged", StringComparison.OrdinalIgnoreCase) ||
+                        normalized.Contains("refused", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        /// <summary>
         /// Detects the codex CLI usage-limit crash signature: a very short run that exits code 1
         /// and prints a ChatGPT usage-limit message. The usage-limit text is the discriminator;
         /// exit code and runtime are corroborating evidence so ordinary build/test failures are
