@@ -214,7 +214,23 @@ namespace Armada.Core.Services
             return existing + "\n\n## Required Output Contract\n" + outputContract;
         }
 
-        private static string GetPersonaOutputContract(string? persona)
+        /// <summary>
+        /// Anti-Goodhart guidance appended to every Judge prompt: review through three DISTINCT lenses
+        /// (redundant identical verifiers share a blind spot), and only block on a real, corpus-present
+        /// affected case (hypothetical patterns that cannot manifest are follow-ups, not blockers -- this
+        /// is what prevents an adversarial Judge treadmill of ever-more-exotic non-occurring defects).
+        /// </summary>
+        internal const string JudgeLensAndBoundedRule =
+            " Review through THREE distinct lenses, not one identical pass: (1) CORRECTNESS -- does it do" +
+            " what was asked, with hidden bugs surfaced; (2) SAFETY & BLAST-RADIUS -- what breaks if this" +
+            " is wrong (weigh terminal/command/write frames, seed-key, and cross-tenant/secret exposure" +
+            " highest); (3) SOURCE-FIDELITY -- ported values, frames, and test vectors must be corroborated" +
+            " to real source, never synthetic. BOUNDED-JUDGE RULE: to BLOCK (FAIL or NEEDS_REVISION) you" +
+            " must exhibit a REAL, corpus-present affected case -- concrete inputs or state where the defect" +
+            " actually manifests. A hypothetical pattern that cannot occur in the actual code/corpus is a" +
+            " tracked follow-up note in your review, NOT a blocker.";
+
+        internal static string GetPersonaOutputContract(string? persona)
         {
             return PersonaCatalog.NormalizeName(persona) switch
             {
@@ -229,7 +245,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.TestEngineer =>
                     "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Judge =>
-                    "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict`. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. If a verdict is not emitted before you exit, the review is discarded and re-run.",
+                    "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict`. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. If a verdict is not emitted before you exit, the review is discarded and re-run." + JudgeLensAndBoundedRule,
                 _ => String.Empty
             };
         }
@@ -243,7 +259,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.UsabilityEngineer => "You are an Armada usability engineer agent. Improve the work through the lens of usability, consistency, and edge-case handling, include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Worker => "You are an Armada worker agent. Implement the requested code changes carefully, stay within scope, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.TestEngineer => "You are an Armada test engineer agent. Write tests for the current mission scope, cover negative and edge paths for validation, timeout, cancellation, retry, cleanup, and error-handling changes when applicable, include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.Judge => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line.",
+                PersonaCatalog.Judge => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line." + JudgeLensAndBoundedRule,
                 _ => "You are an Armada captain executing a mission. Follow these instructions carefully."
             };
         }
