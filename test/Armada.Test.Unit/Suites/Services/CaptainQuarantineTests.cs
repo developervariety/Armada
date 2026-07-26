@@ -385,7 +385,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("RestoreExpiredQuarantines_NullDeadline_RestoresImmediately", async () =>
+            await RunTest("RestoreExpiredQuarantines_NullDeadline_TreatedAsIndefiniteHold", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -394,17 +394,21 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = CreateLogging();
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
 
+                    // A null deadline is an indefinite operator hold (quota/backoff benches always carry a
+                    // finite window). The restore sweep must NOT auto-clear it; only an explicit unbench does,
+                    // so an operator-benched captain is never un-benched mid-voyage.
                     Captain captain = new Captain("no-deadline");
                     captain.State = CaptainStateEnum.Quarantined;
                     captain.QuarantineUntilUtc = null;
-                    captain.QuarantineReason = "quota";
+                    captain.QuarantineReason = "operator hold";
                     await db.Captains.CreateAsync(captain).ConfigureAwait(false);
 
                     await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
 
                     Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
-                    AssertEqual(CaptainStateEnum.Idle, after!.State, "quarantine with no deadline should be treated as expired");
-                    AssertNull(after.QuarantineReason, "quarantine reason should be cleared");
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "a null-deadline hold is indefinite and must not be auto-restored");
+                    AssertNull(after.QuarantineUntilUtc, "the indefinite hold keeps its null window");
+                    AssertEqual("operator hold", after.QuarantineReason, "the bench reason is retained while held");
                 }
             });
 
@@ -844,7 +848,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("BenchAsync_DefaultsToConfiguredBackoff_AndRejectsUnknownCaptainOrMissingReason", async () =>
+            await RunTest("BenchAsync_NoExpiry_HoldsIndefinitely_AndRejectsUnknownCaptainOrMissingReason", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -853,17 +857,16 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = CreateLogging();
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
 
-                    Captain idle = new Captain("default-backoff-worker");
+                    Captain idle = new Captain("indefinite-hold-worker");
                     idle.State = CaptainStateEnum.Idle;
                     await db.Captains.CreateAsync(idle).ConfigureAwait(false);
 
-                    // No expiry supplied -> the configured default backoff (120s in CreateSettings) applies.
+                    // No expiry supplied -> an indefinite operator hold with a null window that the restore
+                    // sweep never auto-clears (unlike a quota/backoff bench, which always carries a deadline).
                     await quarantine.BenchAsync(idle.Id, "no expiry given", null).ConfigureAwait(false);
                     Captain? stored = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
-                    AssertNotNull(stored!.QuarantineUntilUtc, "a bench without an explicit expiry still records one");
-                    AssertTrue(
-                        stored.QuarantineUntilUtc!.Value > DateTime.UtcNow.AddSeconds(30),
-                        "the default backoff window must be in the future");
+                    AssertEqual(CaptainStateEnum.Quarantined, stored!.State, "an operator bench quarantines the captain");
+                    AssertNull(stored.QuarantineUntilUtc, "a bench without an explicit expiry is an indefinite hold (null window), not a coerced backoff");
 
                     // A missing captain is reported as not-found rather than throwing, so the tool
                     // can return a specific error instead of a generic internal failure.

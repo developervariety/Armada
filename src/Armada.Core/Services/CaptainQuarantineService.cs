@@ -37,17 +37,9 @@ namespace Armada.Core.Services
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentException("Quarantine reason is required.", nameof(reason));
 
-            DateTime untilUtc = ResolveRetryAfterUtc(retryAfterUtc);
-            captain.State = CaptainStateEnum.Quarantined;
-            captain.QuarantineUntilUtc = untilUtc;
-            captain.QuarantineReason = reason.Trim();
-            captain.CurrentMissionId = null;
-            captain.CurrentDockId = null;
-            captain.ProcessId = null;
-            captain.LastUpdateUtc = DateTime.UtcNow;
-
-            await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-            _Logging.Warn(_Header + "captain quarantined captainId=" + captain.Id + " untilUtc=" + untilUtc.ToString("O"));
+            // Quota/backoff quarantines always carry a finite retry window (coerced to a default
+            // backoff when the provider gave no retry-after) so the restore sweep can auto-recover them.
+            await ApplyQuarantineAsync(captain, reason, ResolveRetryAfterUtc(retryAfterUtc), token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -73,7 +65,18 @@ namespace Armada.Core.Services
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
             if (captain == null) return null;
 
-            await QuarantineAsync(captain, reason, untilUtc, token).ConfigureAwait(false);
+            if (untilUtc.HasValue)
+            {
+                // Operator gave an explicit expiry: a timed bench that auto-restores when the window elapses.
+                await QuarantineAsync(captain, reason, untilUtc, token).ConfigureAwait(false);
+            }
+            else
+            {
+                // No expiry: an indefinite operator hold with a null window. The restore sweep never
+                // auto-clears an indefinite hold, so it persists until an explicit UnbenchAsync.
+                await ApplyQuarantineAsync(captain, reason, null, token).ConfigureAwait(false);
+            }
+
             return captain;
         }
 
@@ -103,6 +106,14 @@ namespace Armada.Core.Services
 
             foreach (Captain captain in quarantinedCaptains)
             {
+                if (!captain.QuarantineUntilUtc.HasValue)
+                {
+                    // An indefinite manual hold (null window) is an operator bench, not a quota/backoff
+                    // condition. Never auto-restore it and never probe it; only an explicit UnbenchAsync
+                    // clears it. This keeps operator benches from being un-benched mid-voyage.
+                    continue;
+                }
+
                 if (probeEnabled)
                 {
                     // Probe-driven restore: a successful probe can return the captain to service
@@ -111,7 +122,7 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                if (captain.QuarantineUntilUtc.HasValue && captain.QuarantineUntilUtc.Value > nowUtc)
+                if (captain.QuarantineUntilUtc.Value > nowUtc)
                 {
                     continue;
                 }
@@ -174,6 +185,20 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private async Task ApplyQuarantineAsync(Captain captain, string reason, DateTime? untilUtc, CancellationToken token)
+        {
+            captain.State = CaptainStateEnum.Quarantined;
+            captain.QuarantineUntilUtc = untilUtc; // null = indefinite manual hold (cleared only by explicit unbench)
+            captain.QuarantineReason = reason.Trim();
+            captain.CurrentMissionId = null;
+            captain.CurrentDockId = null;
+            captain.ProcessId = null;
+            captain.LastUpdateUtc = DateTime.UtcNow;
+
+            await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "captain quarantined captainId=" + captain.Id + " untilUtc=" + (untilUtc.HasValue ? untilUtc.Value.ToString("O") : "indefinite"));
+        }
 
         private DateTime ResolveRetryAfterUtc(DateTime? retryAfterUtc)
         {
