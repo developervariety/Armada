@@ -205,7 +205,7 @@ namespace Armada.Core.Settings
                     new List<string>
                     {
                         // PRIMARY (owner decision 2026-07-22): promoted by direction, not by
-                        // measurement -- the bake-off in obj_mrwv5yh5 still applies to it.
+                        // measurement -- the bake-off still applies to it.
                         "opencode-go/kimi-k3",
                         "opencode-go/kimi-k2.7-code",
                         // FALLBACK pool, used when the primary family is saturated.

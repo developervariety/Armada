@@ -22,7 +22,7 @@ namespace Armada.Runtimes
     /// reports mission complete with an empty diff. Root cause is a PATH / CWD / stdin / Cursor
     /// IDE auth-state mismatch in the headless process context spawned by Armada; the
     /// cursor-agent.cmd bootstrap probes fail before any agent logic runs. Observed on voyages
-    /// vyg_moq2qawf (composer-2-fast) and vyg_moq2qxhz (gemini-3.5-pro). A runtime-level fix
+    /// two Cursor voyages (composer-2-fast and gemini-3.5-pro). A runtime-level fix
     /// is in progress in a separate session.
     ///
     /// Windows install path: <c>%LOCALAPPDATA%\cursor-agent\cursor-agent.cmd</c> (official

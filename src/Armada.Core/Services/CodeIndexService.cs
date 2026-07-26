@@ -1478,7 +1478,7 @@ namespace Armada.Core.Services
                 GraphTraversalStep current = queue.Dequeue();
                 if (current.Depth >= maxDepth) continue;
 
-                // Hard backstop so a pathological graph can never run away (see obj_mq8o9r9v).
+                // Hard backstop so a pathological graph can never run away.
                 if (++expansions > maxExpansions)
                 {
                     _Logging.Warn(_Header + "graph traversal expansion budget (" + maxExpansions + ") exceeded for seed symbol '" + symbol + "'; truncating impact traversal to bound memory");
@@ -1496,7 +1496,7 @@ namespace Armada.Core.Services
                     // depth. Only re-expand on a strictly shorter path (existingDepth > nextDepth),
                     // which is bounded (a node's recorded depth only decreases). The previous '<'
                     // let nodes re-enqueue at equal depth -> exponential PATH (not node) enumeration
-                    // on cyclic/dense graphs, the 10GB+ String blow-up. See obj_mq8o9r9v.
+                    // on cyclic/dense graphs, the 10GB+ String blow-up.
                     if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth <= nextDepth)
                     {
                         continue;

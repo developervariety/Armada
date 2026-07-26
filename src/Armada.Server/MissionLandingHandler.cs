@@ -347,7 +347,7 @@ namespace Armada.Server
             // A code-producing Worker mission that lands an empty diff has not done its job. It must
             // NOT be reconciled to Complete (that manufactures a false success that corrupts ranking
             // and can false-close objectives). Legitimate no-op personas (Architect emits markers;
-            // reviewers approve/reject without committing) are unaffected. See obj_mryxzgl9.
+            // reviewers approve/reject without committing) are unaffected.
             bool workerProducedNoCommits = false;
 
             try
@@ -821,7 +821,7 @@ namespace Armada.Server
                     // or a Worker whose landed diff is empty) is a hard failure, not a landing retry:
                     // there is nothing to land and it must NOT be reconciled to Complete. Fail the
                     // mission so recovery orchestrators (matching by ParentMissionId) and objective
-                    // reconciliation reflect the true outcome instead of a false success. See obj_mryxzgl9.
+                    // reconciliation reflect the true outcome instead of a false success.
                     string noCommitsReason = rescueProducedNoCommits ? "rescue_produced_no_commits" : "worker_produced_no_commits";
                     mission.Status = MissionStatusEnum.Failed;
                     mission.FailureReason = noCommitsReason;
@@ -1191,7 +1191,7 @@ namespace Armada.Server
         /// changes. Architect emits stdout mission markers, and reviewer personas (Judge, TestEngineer,
         /// *Analyst, *Reviewer, etc.) approve or reject without committing, so an empty diff from them
         /// is a legitimate successful no-op. Prevents the false-success where a Worker that commits
-        /// nothing is reconciled to Complete (obj_mryxzgl9).
+        /// nothing is reconciled to Complete.
         /// </summary>
         internal static bool PersonaMustProduceChanges(string? persona)
         {

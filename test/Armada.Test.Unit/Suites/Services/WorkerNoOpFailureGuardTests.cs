@@ -5,7 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Guards the empty-diff false-success fix (obj_mryxzgl9). A Worker mission that lands an empty
+    /// Guards the empty-diff false-success fix. A Worker mission that lands an empty
     /// diff must be treated as a hard failure (not reconciled to Complete), while legitimately
     /// code-free personas -- Architect (emits stdout markers) and reviewer personas (Judge,
     /// TestEngineer, *Analyst) -- keep the successful no-op path.

@@ -1251,7 +1251,7 @@ namespace Armada.Core.Services
                 // A non-zero/lost exit code alone must not override the agent's EXPLICIT terminal
                 // success verdict. When the agent declared [ARMADA:RESULT] COMPLETE, honor it and run
                 // the normal completion flow -- the DoD gates then verify the work -- rather than
-                // mislabeling good work as Failed and cascade-cancelling the voyage (obj_mrwvb10w).
+                // mislabeling good work as Failed and cascade-cancelling the voyage.
                 _Logging.Info(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId + " but declared [ARMADA:RESULT] COMPLETE — honoring the explicit success verdict and handling completion");
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
             }
@@ -2073,7 +2073,7 @@ namespace Armada.Core.Services
         /// CONTAINS the substring "error". An agent's own success report frequently includes text
         /// like "0 Errors" / "no errors" (often a markdown build-summary table row); scraping such a
         /// line as the exit failure reason produced false-Failed missions that cascade-cancelled good
-        /// work (obj_mrwvb10w). Strong, unambiguous markers are always accepted; a bare "error"/"errors"
+        /// work. Strong, unambiguous markers are always accepted; a bare "error"/"errors"
         /// is rejected when the immediately preceding token indicates a zero/none count.
         /// </summary>
         internal static bool IsGenuineErrorSignal(string line)
@@ -2134,7 +2134,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Whether the mission log records an explicit <c>[ARMADA:RESULT] COMPLETE</c> verdict. Used to
         /// avoid mislabeling good work as Failed when the agent process exits non-zero/lost after
-        /// declaring success (obj_mrwvb10w).
+        /// declaring success.
         /// </summary>
         private async Task<bool> AgentDeclaredExplicitSuccessAsync(string missionId, CancellationToken token)
         {

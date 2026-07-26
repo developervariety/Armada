@@ -5,7 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Guards obj_mrwvb10w: the process-exit failure-reason extractor must not scrape an agent's own
+    /// Guards the process-exit failure-reason extractor must not scrape an agent's own
     /// SUCCESS report line (e.g. a "0 Errors" build-summary table row) as the failure reason, which
     /// previously produced false-Failed missions that cascade-cancelled good work.
     /// </summary>
@@ -19,7 +19,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             await RunTest("SuccessReportLines_AreNotGenuineErrors", () =>
             {
-                // The exact obj_mrwvb10w evidence line.
+                // The exact evidence line.
                 AssertTrue(!AdmiralService.IsGenuineErrorSignal("| `dotnet build -c Release` | **0 Warnings, 0 Errors** |"), "a 0-Errors build-summary row must not be a failure signal");
                 AssertTrue(!AdmiralService.IsGenuineErrorSignal("Build succeeded -- 0 Errors, 0 Warnings"), "0 Errors is success");
                 AssertTrue(!AdmiralService.IsGenuineErrorSignal("no errors found"), "no errors is success");
@@ -41,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 AssertTrue(AdmiralService.HasExplicitSuccessVerdict(new[] { "doing work", "[ARMADA:RESULT] COMPLETE", "cleanup" }), "a Worker [ARMADA:RESULT] COMPLETE must be honored");
                 AssertTrue(AdmiralService.HasExplicitSuccessVerdict(new[] { "  [armada:result]   complete  " }), "case/whitespace-insensitive");
-                AssertTrue(AdmiralService.HasExplicitSuccessVerdict(new[] { "review done", "[ARMADA:VERDICT] PASS" }), "a reviewer [ARMADA:VERDICT] PASS must be honored (the obj_mrwvb10w evidence was a reviewer)");
+                AssertTrue(AdmiralService.HasExplicitSuccessVerdict(new[] { "review done", "[ARMADA:VERDICT] PASS" }), "a reviewer [ARMADA:VERDICT] PASS must be honored (the evidence was a reviewer)");
             });
 
             await RunTest("NoOrNonSuccessVerdict_IsNotHonored", () =>
