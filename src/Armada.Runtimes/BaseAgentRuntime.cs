@@ -208,6 +208,13 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrEmpty(e.Data))
                 {
                     string outputLine = TransformOutputLine(e.Data);
+
+                    // A runtime may transform a structured event to empty to SUPPRESS it from
+                    // the mission log (e.g. OpenCode tool_use / step events). Writing an empty
+                    // string would emit a blank log line, so skip suppressed lines entirely --
+                    // this keeps the log tight and has no markers to detect anyway.
+                    if (String.IsNullOrEmpty(outputLine)) return;
+
                     _Logging.Debug(_Header + "[stdout] " + outputLine);
                     try { logWriter?.WriteLine(outputLine); }
                     catch (ObjectDisposedException) { }
