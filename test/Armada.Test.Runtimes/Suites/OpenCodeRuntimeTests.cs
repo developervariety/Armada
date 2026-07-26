@@ -454,150 +454,32 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(String.Empty, result, "Empty input must be returned unchanged");
             });
 
-            // --- OpenCode build-agent tool-call narration ---
+            // --- OpenCode tool-call suppression (match Codex/ClaudeCode: no per-tool log lines) ---
 
-            await RunTest("TransformOutputLine_ToolUseEvent_ReturnsConciseNarration", () =>
+            await RunTest("TransformOutputLine_ToolUseRead_IsSuppressed", () =>
             {
-                // Real opencode 1.17.7 build-agent stream emits tool_use events with nested
-                // part.type="tool" and part.tool. Those must be narrated, not suppressed, so
-                // the mission log shows what the captain did instead of blank lines.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"timestamp\":1,\"sessionID\":\"s1\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"callID\":\"read_0\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"C:\\\\path\\\\file.txt\"}}}}";
+                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"src/File.cs\"}}}}";
                 string result = runtime.TransformLine(line);
-                AssertEqual("[tool: read] C:\\path\\file.txt", result, "tool_use event must include compact read args");
+                AssertEqual(string.Empty, result, "tool_use events are suppressed from the mission log");
             });
 
-            await RunTest("TransformOutputLine_ToolUseBash_ReturnsCommandNarration", () =>
+            await RunTest("TransformOutputLine_ToolUseBash_IsSuppressed", () =>
             {
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"bash_0\",\"state\":{\"input\":{\"command\":\"dotnet build src/Armada.sln -c Debug\"}}}}";
+                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"dotnet build\"},\"output\":\"build ok\"}}}";
                 string result = runtime.TransformLine(line);
-                AssertEqual("[tool: bash] dotnet build src/Armada.sln -c Debug", result, "bash tool_use event must include the command");
+                AssertEqual(string.Empty, result, "tool_use events (including any output) are suppressed from the mission log");
             });
 
-            await RunTest("TransformOutputLine_ToolUseGrep_ReturnsPatternAndPathNarration", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"grep\",\"state\":{\"input\":{\"pattern\":\"BuildToolNarration\",\"path\":\"src/Armada.Runtimes\"}}}}";
-                string result = runtime.TransformLine(line);
-                AssertEqual("[tool: grep] \"BuildToolNarration\" in src/Armada.Runtimes", result, "grep tool_use event must include pattern and path");
-            });
-
-            await RunTest("TransformOutputLine_ToolUseGlob_ReturnsPatternNarration", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"glob\",\"state\":{\"input\":{\"pattern\":\"**/*.cs\"}}}}";
-                string result = runtime.TransformLine(line);
-                AssertEqual("[tool: glob] **/*.cs", result, "glob tool_use event must include the glob pattern");
-            });
-
-            await RunTest("TransformOutputLine_ToolUseTodoWrite_ReturnsItemCountNarration", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"todowrite\",\"state\":{\"input\":{\"todos\":[{\"content\":\"one\"},{\"content\":\"two\"},{\"content\":\"three\"}]}}}}";
-                string result = runtime.TransformLine(line);
-                AssertEqual("[tool: todowrite] 3 items", result, "todowrite tool_use event must include the item count");
-            });
-
-            await RunTest("TryExtractAssistantResult_ToolUseOnly_ReturnsTrueAndNarration", () =>
-            {
-                // A stream that contains only tool_use events (no assistant text) is still real
-                // captain work and must not be treated as an empty run.
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                List<string> lines = new List<string>
-                {
-                    "{\"type\":\"step_start\"}",
-                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"src/Armada.Runtimes/OpenCodeRuntime.cs\"}}}}",
-                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"dotnet test\"}}}}",
-                    "{\"type\":\"step_finish\"}"
-                };
-                bool found = runtime.ExtractAssistantResult(lines, out string text);
-                AssertTrue(found, "Tool-only stream must yield content so it is not mis-classified as empty");
-                AssertEqual("[tool: read] src/Armada.Runtimes/OpenCodeRuntime.cs[tool: bash] dotnet test", text, "Tool narrations must be concatenated in stream order");
-            });
-
-            await RunTest("TryExtractAssistantResult_ToolUseThenText_ConcatenatesInOrder", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                List<string> lines = new List<string>
-                {
-                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"CODEX.md\"}}}}",
-                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Done\"}}"
-                };
-                bool found = runtime.ExtractAssistantResult(lines, out string text);
-                AssertTrue(found, "Mixed tool+text stream must yield content");
-                AssertEqual("[tool: read] CODEX.mdDone", text, "Tool narration and assistant text must be concatenated in stream order");
-            });
-
-            await RunTest("TransformOutputLine_ToolUseEvent_OutputsShortSnippet", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"notes.txt\"},\"output\":\"first line\\nsecond line\"}}}";
-                string result = runtime.TransformLine(line);
-                AssertEqual("[tool: read] notes.txt -> first line second line", result, "short tool output must be included as a one-line snippet");
-            });
-
-            await RunTest("TransformOutputLine_ToolUseEvent_TruncatesLongOutputSnippet", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string output = String.Join(" ", Enumerable.Range(1, 60).Select(i => "chunk" + i)) + " tail";
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"long command\"},\"output\":\"" + output + "\"}}}";
-                string result = runtime.TransformLine(line);
-                AssertContains("[truncated]", result);
-                AssertFalse(result.Contains("tail"), "long output tail must not be logged");
-            });
-
-            await RunTest("TransformOutputLine_ToolUseEvent_MissingOutputOmitsSnippet", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"pwd\"}}}}";
-                string result = runtime.TransformLine(line);
-                AssertEqual("[tool: bash] pwd", result, "missing output must degrade gracefully without a snippet");
-            });
-
-            await RunTest("TransformOutputLine_ToolUseEvent_RedactsSecretArgsAndOutput", () =>
+            await RunTest("TransformOutputLine_ToolUseEvent_DoesNotLeakRawJsonOrSecrets", () =>
             {
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string secretValue = "1234567890123456789012345678901234567890";
-                string line = "{\"type\":\"tool_use\",\"timestamp\":1,\"sessionID\":\"s1\",\"part\":{\"type\":\"tool\",\"tool\":\"unknown\",\"callID\":\"u_0\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"secret.txt\",\"token\":\"" + secretValue + "\"},\"output\":\"password=" + secretValue + "\"}}}";
+                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"cat\",\"token\":\"" + secretValue + "\"},\"output\":\"password=" + secretValue + "\"}}}";
                 string result = runtime.TransformLine(line);
-                AssertFalse(result.Contains("\"type\""), "Transformed tool event must not contain raw JSON keys");
-                AssertFalse(result.Contains("\"part\""), "Transformed tool event must not contain raw JSON 'part' key");
-                AssertFalse(result.Contains(secretValue), "Transformed tool event must not leak secret value bytes");
-                AssertContains("filePath=secret.txt", result, "file path structure must remain visible");
-                AssertContains("token=<redacted len=40>", result, "token arg value must be redacted with structural length");
-                AssertContains("password=<redacted len=40>", result, "password output value must be redacted with structural length");
-            });
-
-            await RunTest("TransformOutputLine_ToolUseEvent_DoesNotRedactStructuralCommand", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"rg token src/Armada.Runtimes\"}}}}";
-                string result = runtime.TransformLine(line);
-                AssertEqual("[tool: bash] rg token src/Armada.Runtimes", result, "structural command text must not be redacted");
-            });
-
-            await RunTest("TransformOutputLine_UnknownTool_ReturnsBestEffortSummary", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"inspect\",\"state\":{\"input\":{\"pattern\":\"*.cs\",\"path\":\"src\"}}}}";
-                string result = runtime.TransformLine(line);
-                AssertEqual("[tool: inspect] pattern=*.cs, path=src", result, "unknown tools must degrade to best-effort known fields");
-            });
-
-            await RunTest("TryExtractAssistantResult_ToolReasoningInterleave_PreservesOrder", () =>
-            {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                List<string> lines = new List<string>
-                {
-                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"src/file.cs\"}}}}",
-                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Thinking through the result.\"}}",
-                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"grep\",\"state\":{\"input\":{\"pattern\":\"needle\",\"path\":\"src\"}}}}"
-                };
-                bool found = runtime.ExtractAssistantResult(lines, out string text);
-                AssertTrue(found, "Interleaved tool and reasoning text stream must yield content");
-                AssertEqual("[tool: read] src/file.csThinking through the result.[tool: grep] \"needle\" in src", text, "Tool narrations and reasoning text must remain in stream order");
-                AssertFalse(text.Contains("\"type\""), "Extracted content must not leak raw JSON");
+                AssertEqual(string.Empty, result, "suppressed tool_use must emit nothing -- no JSON, args, output, or secrets");
+                AssertFalse(result.Contains(secretValue), "suppressed tool_use must not leak secret bytes");
             });
 
             await RunTest("TransformOutputLine_ReasoningEvent_ReturnsRedactedText", () =>
@@ -611,53 +493,61 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(result.Contains("\"type\""), "Reasoning event must not leak raw JSON");
             });
 
-            await RunTest("TransformOutputLine_ToolUseEvent_RedactsPrivateKeyOutput", () =>
+            await RunTest("TryExtractAssistantResult_ToolUseOnly_ReturnsNoContent", () =>
             {
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string keyBody = "supersecretprivatekeybodythatshouldnotappear";
-                string output = "-----BEGIN OPENSSH PRIVATE KEY-----\\n" + keyBody + "\\n-----END OPENSSH PRIVATE KEY-----";
-                string line = "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"cat key.pem\"},\"output\":\"" + output + "\"}}}";
-                string result = runtime.TransformLine(line);
-                AssertContains("[tool: bash] cat key.pem -> <redacted len=", result);
-                AssertFalse(result.Contains(keyBody), "private key material must not leak from tool output snippets");
-                AssertFalse(result.Contains("BEGIN OPENSSH PRIVATE KEY"), "private key boundaries must not leak from tool output snippets");
-            });
-
-            // --- Real opencode-go/kimi-k2.7-code captured sample coverage ---
-
-            await RunTest("RealJsonl_ToolUseEvent_SurfacesConciseNarration", () =>
-            {
-                // Verbatim tool_use line from a live opencode-go/kimi-k2.7-code --format json
-                // --agent build run. The full raw JSON must not leak; only concise args and
-                // a bounded snippet may surface.
-                InspectableOpenCodeRuntime runtime = CreateRuntime();
-                string line = "{\"type\":\"tool_use\",\"timestamp\":1781834748604,\"sessionID\":\"ses_1225f7f54ffedAIRuL84rhAsEQ\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"callID\":\"read_0\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"C:\\\\Users\\\\Owner\\\\.armada\\\\docks\\\\armada\\\\msn_mqka9h5i_6TB501knMef\"},\"output\":\"<path>...</path>\"},\"title\":\"\"}}";
-                string result = runtime.TransformLine(line);
-                AssertContains("[tool: read] C:\\Users\\Owner\\.armada\\docks\\armada\\msn_mqka9h5i_6TB501knMef", result, "Live tool_use event must include concise read args");
-                AssertContains("<path>...</path>", result, "Live tool_use event must include bounded output snippet");
-                AssertFalse(result.Contains("\"type\""), "Live tool_use event must not leak raw JSON");
-            });
-
-            await RunTest("RealJsonl_TextAndToolUseStream_SurfacesTextAndNarration", () =>
-            {
-                // Full captured stream from a live opencode-go/kimi-k2.7-code run: step_start,
-                // tool_use, step_finish, step_start, text, step_finish. The transformed output
-                // must contain the tool narration and the assistant text, with no raw JSON.
+                // Tool calls are non-content; a stream that is only tool calls yields no
+                // assistant result text.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 List<string> lines = new List<string>
                 {
-                    "{\"type\":\"step_start\",\"timestamp\":1781834750703,\"sessionID\":\"ses_1225f7f54ffedAIRuL84rhAsEQ\",\"part\":{\"type\":\"step-start\"}}",
-                    "{\"type\":\"tool_use\",\"timestamp\":1781834748604,\"sessionID\":\"ses_1225f7f54ffedAIRuL84rhAsEQ\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"callID\":\"read_0\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"C:\\\\Users\\\\Owner\\\\.armada\\\\docks\\\\armada\\\\msn_mqka9h5i_6TB501knMef\"}}}}",
-                    "{\"type\":\"step_finish\",\"timestamp\":1781834748798,\"sessionID\":\"ses_1225f7f54ffedAIRuL84rhAsEQ\",\"part\":{\"reason\":\"tool-calls\",\"type\":\"step-finish\"}}",
-                    "{\"type\":\"step_start\",\"timestamp\":1781834750703,\"sessionID\":\"ses_1225f7f54ffedAIRuL84rhAsEQ\",\"part\":{\"type\":\"step-start\"}}",
-                    "{\"type\":\"text\",\"timestamp\":1781834755848,\"sessionID\":\"ses_1225f7f54ffedAIRuL84rhAsEQ\",\"part\":{\"type\":\"text\",\"text\":\"Here are the entries\"}}",
-                    "{\"type\":\"step_finish\",\"timestamp\":1781834756023,\"sessionID\":\"ses_1225f7f54ffedAIRuL84rhAsEQ\",\"part\":{\"reason\":\"stop\",\"type\":\"step-finish\"}}"
+                    "{\"type\":\"step_start\"}",
+                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"src/File.cs\"}}}}",
+                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"input\":{\"command\":\"dotnet test\"}}}}",
+                    "{\"type\":\"step_finish\"}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertFalse(found, "A tool-only stream has no assistant content");
+                AssertEqual(string.Empty, text, "Tool calls contribute no result text");
+            });
+
+            await RunTest("TryExtractAssistantResult_ToolUseThenText_ReturnsOnlyAssistantText", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"CODEX.md\"}}}}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Done\"}}"
+                };
+                bool found = runtime.ExtractAssistantResult(lines, out string text);
+                AssertTrue(found, "Stream with assistant text must yield content");
+                AssertEqual("Done", text, "Only assistant text is included; tool calls are suppressed");
+            });
+
+            // --- Real opencode-go captured sample coverage ---
+
+            await RunTest("RealJsonl_ToolUseEvent_IsSuppressed", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                string line = "{\"type\":\"tool_use\",\"timestamp\":1781834748604,\"sessionID\":\"ses_x\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"callID\":\"read_0\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"src/File.cs\"},\"output\":\"<path>...</path>\"},\"title\":\"\"}}";
+                string result = runtime.TransformLine(line);
+                AssertEqual(string.Empty, result, "Live tool_use event must be suppressed with no raw JSON or content leak");
+            });
+
+            await RunTest("RealJsonl_TextAndToolUseStream_SurfacesTextOnly", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                List<string> lines = new List<string>
+                {
+                    "{\"type\":\"step_start\",\"part\":{\"type\":\"step-start\"}}",
+                    "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"input\":{\"filePath\":\"src/File.cs\"}}}}",
+                    "{\"type\":\"step_finish\",\"part\":{\"reason\":\"tool-calls\",\"type\":\"step-finish\"}}",
+                    "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Here are the entries\"}}",
+                    "{\"type\":\"step_finish\",\"part\":{\"reason\":\"stop\",\"type\":\"step-finish\"}}"
                 };
                 bool found = runtime.ExtractAssistantResult(lines, out string text);
                 AssertTrue(found, "Live mixed stream must yield content");
-                AssertTrue(text.Contains("[tool: read] C:\\Users\\Owner\\.armada\\docks\\armada\\msn_mqka9h5i_6TB501knMef"), "Tool narration must be present in extracted content");
-                AssertTrue(text.Contains("Here are the entries"), "Assistant text must be present in extracted content");
-                AssertFalse(text.Contains("\"type\""), "Extracted content must not leak raw JSON");
+                AssertEqual("Here are the entries", text, "Only assistant text is surfaced; tool calls are suppressed");
+                AssertFalse(text.Contains("[tool:"), "No tool narration may appear in extracted content");
             });
 
             await RunTest("RealJsonl_ArmadaMarkerInText_DetectableAfterTransform", () =>

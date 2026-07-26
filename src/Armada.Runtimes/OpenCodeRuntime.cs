@@ -49,8 +49,6 @@ namespace Armada.Runtimes
             PropertyNameCaseInsensitive = true
         };
 
-        private const int _ToolOutputSnippetLimit = 200;
-
         private readonly OpenCodeConnection _Connection;
 
         private readonly LoggingModule _Logging;
@@ -181,8 +179,8 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Parse a single opencode --format json stdout line and return the inner
-        /// assistant text, a concise tool-call narration, empty text for recognized
-        /// non-content events, or the original line when the line is not valid JSON.
+        /// assistant text, empty text for recognized non-content events, or the original
+        /// line when the line is not valid JSON.
         ///
         /// WHY: opencode --format json wraps all assistant output in typed JSON event
         /// objects with nested text parts. If raw JSON lines were
@@ -191,10 +189,10 @@ namespace Armada.Runtimes
         /// the admiral's mission-status detection. Reducing each event to its text
         /// content restores the plain-text contract subscribers depend on.
         ///
-        /// The build agent frequently emits <c>tool_use</c> events before (or instead of)
-        /// assistant text. Those events are reduced to a concise <c>[tool: name]</c> line
-        /// so an operator can follow what the captain did without leaking raw JSON or full
-        /// tool output into the mission log.
+        /// The build agent frequently emits <c>tool_use</c> events. Those are SUPPRESSED
+        /// from the mission log (return empty) so OpenCode captains read the same as
+        /// Codex/ClaudeCode captains -- assistant text and the final result only, with no
+        /// per-tool-call dumps and no raw tool output in the log.
         ///
         /// Non-parseable lines (progress bars, debug noise, blank lines) fall through
         /// unchanged so they are not silently dropped from the mission log. Recognized
@@ -223,8 +221,11 @@ namespace Armada.Runtimes
 
             if (evt != null && IsToolUseEvent(evt))
             {
-                _SawContent = true;
-                return BuildToolNarration(evt);
+                // Tool calls are suppressed from the mission log so OpenCode captains read the
+                // same as Codex/ClaudeCode captains (assistant text + final message only, no
+                // per-tool-call dumps). Treated as non-content noise, like step events: a valid
+                // run still emits its assistant [ARMADA:RESULT] text, which sets _SawContent.
+                return string.Empty;
             }
 
             if (evt != null && IsRecognizedNonContentEvent(evt))
@@ -287,170 +288,6 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Build a concise, secret-safe plaintext narration of a tool_use event for the mission log.
-        /// </summary>
-        private static string BuildToolNarration(OpenCodeEvent evt)
-        {
-            OpenCodeEventPart part = evt.Part!;
-            string tool = part.Tool ?? "unknown";
-            StringBuilder builder = new StringBuilder();
-            builder.Append("[tool: ");
-            builder.Append(tool);
-            builder.Append("]");
-
-            string summary = BuildToolArgSummary(tool, part.State?.Input);
-            if (!String.IsNullOrEmpty(summary))
-            {
-                builder.Append(" ");
-                builder.Append(summary);
-            }
-
-            string snippet = BuildToolOutputSnippet(part.State?.Output);
-            if (!String.IsNullOrEmpty(snippet))
-            {
-                builder.Append(" -> ");
-                builder.Append(snippet);
-            }
-
-            return builder.ToString();
-        }
-
-        /// <summary>
-        /// Build a compact argument summary for the tool types OpenCode emits.
-        /// </summary>
-        private static string BuildToolArgSummary(string tool, OpenCodeToolInput? input)
-        {
-            if (input == null)
-            {
-                return String.Empty;
-            }
-
-            if (String.Equals(tool, "read", StringComparison.Ordinal))
-            {
-                return NormalizeOneLine(input.FilePath);
-            }
-
-            if (String.Equals(tool, "bash", StringComparison.Ordinal))
-            {
-                return NormalizeOneLine(input.Command);
-            }
-
-            if (String.Equals(tool, "grep", StringComparison.Ordinal))
-            {
-                string pattern = NormalizeOneLine(input.Pattern);
-                string path = NormalizeOneLine(input.Path);
-                if (String.IsNullOrEmpty(path))
-                {
-                    path = NormalizeOneLine(input.Include);
-                }
-
-                if (!String.IsNullOrEmpty(pattern) && !String.IsNullOrEmpty(path))
-                {
-                    return "\"" + pattern + "\" in " + path;
-                }
-
-                return !String.IsNullOrEmpty(pattern) ? "\"" + pattern + "\"" : path;
-            }
-
-            if (String.Equals(tool, "glob", StringComparison.Ordinal))
-            {
-                return NormalizeOneLine(input.Pattern);
-            }
-
-            if (String.Equals(tool, "todowrite", StringComparison.Ordinal))
-            {
-                int count = input.Todos?.Count ?? input.Items?.Count ?? 0;
-                return count.ToString() + " items";
-            }
-
-            return BuildUnknownToolArgSummary(input);
-        }
-
-        /// <summary>
-        /// Build a best-effort argument summary for future or unknown tool names.
-        /// </summary>
-        private static string BuildUnknownToolArgSummary(OpenCodeToolInput input)
-        {
-            List<string> parts = new List<string>();
-            AddKnownSummary(parts, "filePath", NormalizeOneLine(input.FilePath), false);
-            AddKnownSummary(parts, "command", NormalizeOneLine(input.Command), false);
-            AddKnownSummary(parts, "pattern", NormalizeOneLine(input.Pattern), false);
-            AddKnownSummary(parts, "path", NormalizeOneLine(input.Path), false);
-            AddKnownSummary(parts, "include", NormalizeOneLine(input.Include), false);
-            AddKnownSummary(parts, "token", NormalizeOneLine(input.Token), true);
-            AddKnownSummary(parts, "password", NormalizeOneLine(input.Password), true);
-            AddKnownSummary(parts, "secret", NormalizeOneLine(input.Secret), true);
-            AddKnownSummary(parts, "key", NormalizeOneLine(input.Key), true);
-            AddKnownSummary(parts, "seed", NormalizeOneLine(input.Seed), true);
-            AddKnownSummary(parts, "privateKey", NormalizeOneLine(input.PrivateKey), true);
-
-            if (input.Todos != null)
-            {
-                parts.Add("todos=" + input.Todos.Count + " items");
-            }
-            else if (input.Items != null)
-            {
-                parts.Add("items=" + input.Items.Count + " items");
-            }
-
-            return String.Join(", ", parts);
-        }
-
-        /// <summary>
-        /// Add a known field to an unknown-tool summary.
-        /// </summary>
-        private static void AddKnownSummary(List<string> parts, string name, string value, bool sensitive)
-        {
-            if (String.IsNullOrEmpty(value))
-            {
-                return;
-            }
-
-            string safeValue = sensitive ? RedactByFieldName(value) : RedactSecretValues(value);
-            parts.Add(name + "=" + safeValue);
-        }
-
-        /// <summary>
-        /// Build a bounded single-line tool output snippet.
-        /// </summary>
-        private static string BuildToolOutputSnippet(string? output)
-        {
-            string normalized = RedactSecretValues(NormalizeOneLine(output));
-            if (String.IsNullOrEmpty(normalized))
-            {
-                return String.Empty;
-            }
-
-            if (normalized.Length <= _ToolOutputSnippetLimit)
-            {
-                return normalized;
-            }
-
-            return normalized.Substring(0, _ToolOutputSnippetLimit) + " [truncated]";
-        }
-
-        /// <summary>
-        /// Normalize streamed text to one log line.
-        /// </summary>
-        private static string NormalizeOneLine(string? value)
-        {
-            if (String.IsNullOrEmpty(value))
-            {
-                return String.Empty;
-            }
-
-            return value.Replace("\r", " ").Replace("\n", " ").Trim();
-        }
-
-        /// <summary>
-        /// Redact values whose field names are already known to be sensitive.
-        /// </summary>
-        private static string RedactByFieldName(string value)
-        {
-            return "<redacted len=" + value.Length + ">";
-        }
-
-        /// <summary>
         /// Redact token/password/key-shaped material while preserving structural text.
         /// </summary>
         private static string RedactSecretValues(string value)
@@ -502,8 +339,8 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// True when the event is structured OpenCode noise that should not be logged raw.
-        /// tool_use is NOT noise: it is narrated by <see cref="BuildToolNarration"/>. Other
-        /// tool-prefixed events (tool_call, etc.) remain suppressed as structured noise.
+        /// tool_use is handled (suppressed from the log) separately in TransformOutputLine, so it
+        /// is excluded here. Other tool-prefixed events (tool_call, etc.) are structured noise.
         /// </summary>
         private static bool IsRecognizedNonContentEvent(OpenCodeEvent evt)
         {
@@ -554,11 +391,8 @@ namespace Armada.Runtimes
                         builder.Append(BuildAssistantContent(evt));
                         sawContent = true;
                     }
-                    else if (evt != null && IsToolUseEvent(evt))
-                    {
-                        builder.Append(BuildToolNarration(evt));
-                        sawContent = true;
-                    }
+
+                    // tool_use events are suppressed (non-content), so they are not counted here.
                 }
             }
 
