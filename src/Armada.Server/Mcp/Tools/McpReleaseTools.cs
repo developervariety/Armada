@@ -3,6 +3,7 @@ namespace Armada.Server.Mcp.Tools
     using System;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
 
@@ -74,43 +75,46 @@ namespace Armada.Server.Mcp.Tools
                     return (object)await releaseService.CreateAsync(auth, request).ConfigureAwait(false);
                 });
 
-            register(
-                "armada_update_release",
-                "Update one release record without dropping to REST.",
-                new
+            object updateReleaseSchema = new
+            {
+                type = "object",
+                properties = new
                 {
-                    type = "object",
-                    properties = new
-                    {
-                        releaseId = new { type = "string", description = "Release ID (rel_ prefix)" },
-                        vesselId = new { type = "string", description = "Optional vessel ID (vsl_ prefix)" },
-                        workflowProfileId = new { type = "string", description = "Optional workflow profile override (wfp_ prefix)" },
-                        title = new { type = "string", description = "Optional release title override" },
-                        version = new { type = "string", description = "Optional version label" },
-                        tagName = new { type = "string", description = "Optional git tag or image tag" },
-                        summary = new { type = "string", description = "Optional short release summary" },
-                        notes = new { type = "string", description = "Optional long-form release notes" },
-                        status = new { type = "string", description = "Draft, Candidate, Shipped, Failed, or RolledBack" },
-                        voyageIds = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" },
-                        missionIds = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" },
-                        checkRunIds = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" }
-                    },
-                    required = new[] { "releaseId" }
+                    releaseId = new { type = "string", description = "Release ID (rel_ prefix)" },
+                    vesselId = new { type = "string", description = "Optional vessel ID (vsl_ prefix)" },
+                    workflowProfileId = new { type = "string", description = "Optional workflow profile override (wfp_ prefix)" },
+                    title = new { type = "string", description = "Optional release title override" },
+                    version = new { type = "string", description = "Optional version label" },
+                    tagName = new { type = "string", description = "Optional git tag or image tag" },
+                    summary = new { type = "string", description = "Optional short release summary" },
+                    notes = new { type = "string", description = "Optional long-form release notes" },
+                    status = new { type = "string", description = "Draft, Candidate, Shipped, Failed, or RolledBack" },
+                    voyageIds = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" },
+                    missionIds = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" },
+                    checkRunIds = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" }
                 },
-                async (args) =>
+                required = new[] { "releaseId" }
+            };
+
+            Func<JsonElement?, Task<object>> updateReleaseHandler = async (args) =>
+            {
+                ReleaseUpdateArgs request = JsonSerializer.Deserialize<ReleaseUpdateArgs>(args!.Value, _JsonOptions)
+                    ?? throw new InvalidOperationException("Could not deserialize ReleaseUpdateArgs.");
+                AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                try
                 {
-                    ReleaseUpdateArgs request = JsonSerializer.Deserialize<ReleaseUpdateArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize ReleaseUpdateArgs.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    try
-                    {
-                        return (object)await releaseService.UpdateAsync(auth, request.ReleaseId, request.ToUpsertRequest()).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
-                    {
-                        return (object)new { Error = ex.Message, ValidStatusValues = Enum.GetNames<Armada.Core.Enums.ReleaseStatusEnum>() };
-                    }
-                });
+                    return (object)await releaseService.UpdateAsync(auth, request.ReleaseId, request.ToUpsertRequest()).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
+                {
+                    return (object)new { Error = ex.Message, ValidStatusValues = Enum.GetNames<Armada.Core.Enums.ReleaseStatusEnum>() };
+                }
+            };
+
+            // update_release is the family-consistent name (matches create_release / get_release).
+            // armada_update_release is kept as a back-compat alias (2026-07-26 prefix normalization).
+            register("update_release", "Update one release record (the Draft->Candidate->Shipped promotion path).", updateReleaseSchema, updateReleaseHandler);
+            register("armada_update_release", "Alias of update_release (back-compat).", updateReleaseSchema, updateReleaseHandler);
         }
 
         private sealed class ReleaseUpdateArgs : ReleaseUpsertRequest

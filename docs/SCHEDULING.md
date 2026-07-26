@@ -138,3 +138,25 @@ Both captains are idle. Assignment proceeds as follows:
 3. When a captain finishes, the next pickup is "Add integration tests" (priority 100, active voyage).
 4. Then "Add rate limiting" (priority 100, standalone, created before "Fix typos").
 5. Finally "Fix typos in docs" (priority 200 -- lowest priority, assigned last).
+
+---
+
+## Autonomous Objective Scheduler
+
+Everything above governs **mission-level** scheduling (which pending mission an idle captain picks up next). A separate, higher-level **autonomous objective scheduler** (`AutonomousObjectiveScheduler`) governs **which objectives get dispatched into voyages at all** -- on a timer, without an operator in the loop. It runs a periodic sweep and dispatches eligible objectives up to a concurrency cap.
+
+### Control tools (MCP)
+
+| Tool | Purpose |
+|------|---------|
+| `armada_objective_scheduler_status` | Return the scheduler's runtime state: `enabled`, `paused`, `intervalMinutes`, `maxConcurrentVoyages`, `lastTickUtc`, `activeDispatchedCount`, `lastSkipReason`. No arguments. |
+| `armada_objective_scheduler_set` | Enable/disable/pause or adjust the sweep. All fields optional; omitted fields are left unchanged. `enabled` (bool), `paused` (bool -- suspend without clearing `enabled`), `intervalMinutes` (int, clamped 1-1440), `maxConcurrentVoyages` (int, clamped 1-50). Returns the same status snapshot. |
+| `armada_mark_objective_auto_dispatchable` | Per-objective opt-in. `objectiveId` (required), `enabled` (required bool -- sets the objective's `AutoDispatchEnabled` flag), `blockedByObjectiveIds` (optional array -- objectives that must reach `Completed` before this one is eligible; omit to leave existing blockers unchanged). |
+
+### Eligibility and ordering
+
+The sweep dispatches an objective only when it is `AutoDispatchEnabled` **and** every objective in its `BlockedByObjectiveIds` has reached `Completed`. `blockedByObjectiveIds` is the declarative, objective-level equivalent of wiring `dependsOnMissionId` by hand at dispatch time -- prefer it when you want an unattended objective graph to unblock and dispatch itself in dependency order. The scheduler will not exceed `maxConcurrentVoyages` simultaneously-active scheduler-dispatched voyages; when it is saturated or nothing is eligible, `lastSkipReason` records why the last tick dispatched nothing.
+
+### Relationship to the manual loop
+
+The objective scheduler is the server-side alternative to an operator polling `armada_status` and dispatching unblocked work every tick. Enable it for stable objective graphs where hands-off continuation is the goal; keep it disabled (the default) when you want an operator to review each dispatch. It does not change mission-level scheduling once a voyage exists -- priority, voyage association, and FIFO (above) still decide which mission a captain picks up next.

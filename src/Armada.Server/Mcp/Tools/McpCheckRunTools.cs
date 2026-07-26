@@ -3,6 +3,7 @@ namespace Armada.Server.Mcp.Tools
     using System;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -131,66 +132,69 @@ namespace Armada.Server.Mcp.Tools
                     }
                 });
 
-            register(
-                "armada_resolve_check",
-                "Update a structured check run status and optional output without dropping to REST.",
-                new
+            object resolveCheckSchema = new
+            {
+                type = "object",
+                properties = new
                 {
-                    type = "object",
-                    properties = new
-                    {
-                        checkRunId = new { type = "string", description = "Check run ID (chk_ prefix)" },
-                        status = new { type = "string", description = "Pending, Running, Passed, Failed, or Canceled" },
-                        output = new { type = "string", description = "Optional output/details" },
-                        summary = new { type = "string", description = "Optional human-readable summary" },
-                        exitCode = new { type = "integer", description = "Optional exit code" }
-                    },
-                    required = new[] { "checkRunId", "status" }
+                    checkRunId = new { type = "string", description = "Check run ID (chk_ prefix)" },
+                    status = new { type = "string", description = "Pending, Running, Passed, Failed, or Canceled" },
+                    output = new { type = "string", description = "Optional output/details" },
+                    summary = new { type = "string", description = "Optional human-readable summary" },
+                    exitCode = new { type = "integer", description = "Optional exit code" }
                 },
-                async (args) =>
+                required = new[] { "checkRunId", "status" }
+            };
+
+            Func<JsonElement?, Task<object>> resolveCheckHandler = async (args) =>
+            {
+                CheckResolveArgs request;
+                try
                 {
-                    CheckResolveArgs request;
-                    try
-                    {
-                        request = DeserializeArgs<CheckResolveArgs>(args, "armada_resolve_check");
-                    }
-                    catch (Exception ex) when (IsExpectedToolFailure(ex))
-                    {
-                        return BuildFailure("armada_resolve_check", "check_resolve_request_invalid", ex.Message,
-                            "Provide checkRunId and a valid status.",
-                            validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
-                    }
+                    request = DeserializeArgs<CheckResolveArgs>(args, "resolve_check");
+                }
+                catch (Exception ex) when (IsExpectedToolFailure(ex))
+                {
+                    return BuildFailure("resolve_check", "check_resolve_request_invalid", ex.Message,
+                        "Provide checkRunId and a valid status.",
+                        validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
+                }
 
-                    if (!Enum.TryParse(request.Status, true, out CheckRunStatusEnum status))
-                    {
-                        return BuildFailure("armada_resolve_check", "check_status_invalid", "Invalid status: " + request.Status,
-                            "Use one of the ValidStatusValues returned with this response.",
-                            checkRunId: request.CheckRunId,
-                            validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
-                    }
+                if (!Enum.TryParse(request.Status, true, out CheckRunStatusEnum status))
+                {
+                    return BuildFailure("resolve_check", "check_status_invalid", "Invalid status: " + request.Status,
+                        "Use one of the ValidStatusValues returned with this response.",
+                        checkRunId: request.CheckRunId,
+                        validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
+                }
 
-                    CheckRun? run = await database.CheckRuns.ReadAsync(request.CheckRunId).ConfigureAwait(false);
-                    if (run == null)
-                    {
-                        return BuildFailure("armada_resolve_check", "check_run_not_found", "Check run not found.",
-                            "Verify the checkRunId with armada_enumerate entityType=checks or run_check to create a new check.",
-                            checkRunId: request.CheckRunId);
-                    }
+                CheckRun? run = await database.CheckRuns.ReadAsync(request.CheckRunId).ConfigureAwait(false);
+                if (run == null)
+                {
+                    return BuildFailure("resolve_check", "check_run_not_found", "Check run not found.",
+                        "Verify the checkRunId with armada_enumerate entityType=checks or run_check to create a new check.",
+                        checkRunId: request.CheckRunId);
+                }
 
-                    run.Status = status;
-                    if (request.Output != null) run.Output = request.Output;
-                    if (request.Summary != null) run.Summary = request.Summary;
-                    if (request.ExitCode.HasValue) run.ExitCode = request.ExitCode.Value;
-                    if (status == CheckRunStatusEnum.Running && run.StartedUtc == null) run.StartedUtc = DateTime.UtcNow;
-                    if (status == CheckRunStatusEnum.Passed || status == CheckRunStatusEnum.Failed || status == CheckRunStatusEnum.Canceled)
-                    {
-                        run.CompletedUtc ??= DateTime.UtcNow;
-                    }
-                    run.LastUpdateUtc = DateTime.UtcNow;
-                    run = await database.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
-                    checkRunService.OnCheckRunChanged?.Invoke(run);
-                    return (object)run;
-                });
+                run.Status = status;
+                if (request.Output != null) run.Output = request.Output;
+                if (request.Summary != null) run.Summary = request.Summary;
+                if (request.ExitCode.HasValue) run.ExitCode = request.ExitCode.Value;
+                if (status == CheckRunStatusEnum.Running && run.StartedUtc == null) run.StartedUtc = DateTime.UtcNow;
+                if (status == CheckRunStatusEnum.Passed || status == CheckRunStatusEnum.Failed || status == CheckRunStatusEnum.Canceled)
+                {
+                    run.CompletedUtc ??= DateTime.UtcNow;
+                }
+                run.LastUpdateUtc = DateTime.UtcNow;
+                run = await database.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
+                checkRunService.OnCheckRunChanged?.Invoke(run);
+                return (object)run;
+            };
+
+            // resolve_check is the family-consistent name (matches run_check / get_check_run / retry_check_run).
+            // armada_resolve_check is kept as a back-compat alias (2026-07-26 prefix normalization).
+            register("resolve_check", "Update a structured check run status and optional output (no re-execution, unlike run_check/retry_check_run).", resolveCheckSchema, resolveCheckHandler);
+            register("armada_resolve_check", "Alias of resolve_check (back-compat).", resolveCheckSchema, resolveCheckHandler);
         }
 
         private static T DeserializeArgs<T>(JsonElement? args, string toolName)
