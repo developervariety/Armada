@@ -531,8 +531,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(updatedMission, "Mission should still exist");
                     AssertNotNull(updatedCaptain, "Captain should still exist");
                     AssertNotNull(updatedVoyage, "Voyage should still exist");
-                    // Old behavior marked the mission Failed and cancelled the voyage; the retry path requeues instead.
-                    AssertEqual(MissionStatusEnum.Pending, updatedMission!.Status, "Rate-limit (captain-unavailable) failure should requeue the mission to Pending, not Failed");
+                    // Old behavior marked the mission Failed and cancelled the voyage; the quota re-route requeues instead.
+                    AssertEqual(MissionStatusEnum.Pending, updatedMission!.Status, "Rate-limit (quota) failure should re-route the mission to Pending, not Failed");
                     AssertEqual(MissionAssignmentStateEnum.Pending, updatedMission.AssignmentState, "Requeued mission should reset AssignmentState to Pending");
                     AssertContains("hit your limit", updatedMission.FailureReason ?? String.Empty, "Requeued mission should preserve the failure reason for operator visibility");
                     AssertNull(updatedMission.CaptainId, "Requeued mission should clear the captain binding");
@@ -544,7 +544,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
                     AssertFalse(events.Objects.Any(e => e.EventType == "mission.failed" && e.MissionId == mission.Id), "Retryable requeue must not emit mission.failed");
-                    AssertTrue(events.Objects.Any(e => e.EventType == "mission.retry_requeued" && e.MissionId == mission.Id), "Requeue should emit a non-terminal mission.retry_requeued event");
+                    AssertTrue(events.Objects.Any(e => e.EventType == "mission.quota_rerouted" && e.MissionId == mission.Id), "A quota re-route should emit a non-terminal mission.quota_rerouted event");
                 }
             });
 

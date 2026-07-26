@@ -99,7 +99,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Runs the suite.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("HandleProcessExit_InsufficientCreditFailure_QuarantinesCaptainAndRetainsFailure", async () =>
+            await RunTest("HandleProcessExit_InsufficientCreditFailure_ReroutesMissionAndQuarantinesCaptain", async () =>
             {
                 using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -132,10 +132,12 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? missionAfter = await database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     Captain? captainAfter = await database.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
                     AssertNotNull(missionAfter, "Mission should remain persisted after process-exit failure handling.");
-                    AssertEqual(MissionStatusEnum.Failed, missionAfter!.Status,
-                        "An insufficient-credit process exit should remain a terminal mission failure.");
+                    AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status,
+                        "An insufficient-credit failure re-routes (requeues) the mission to a captain with quota, not a terminal fail.");
+                    AssertEqual(1, missionAfter.RecoveryAttempts,
+                        "The re-route increments the recovery attempt count.");
                     AssertTrue(missionAfter.FailureReason!.Contains("insufficient credits", StringComparison.OrdinalIgnoreCase),
-                        "The raw runtime failure should remain visible on the failed mission.");
+                        "The raw runtime failure should remain visible on the requeued mission.");
                     AssertNotNull(captainAfter, "Assigned captain should remain persisted after quarantine.");
                     AssertEqual(CaptainStateEnum.Quarantined, captainAfter!.State,
                         "An insufficient-credit process exit should quarantine the assigned captain.");

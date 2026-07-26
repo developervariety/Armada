@@ -95,10 +95,10 @@ namespace Armada.Core.Services
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
 
-        // Provider safeguard-block re-routing: how many times a single mission may be re-routed to a different
-        // provider before we stop and hand the routing decision to the operator (never loop). Sized to comfortably
-        // walk past same-provider siblings and try each distinct high-tier provider once.
-        private const int _SafeguardMaxReroutes = 5;
+        // Recoverable-failure re-routing (provider safeguard block OR quota/credit/balance limit): how many times
+        // a single mission may be re-routed to a different captain before we stop and hand the decision to the
+        // operator (never loop). Sized to walk past same-provider siblings and try each distinct provider once.
+        private const int _RerouteMaxAttempts = 5;
 
         // How long a captain that hit a provider safeguard block is benched. The window only needs to outlast the
         // re-dispatch so a same-provider sibling is not immediately reselected; the block itself is content-
@@ -2206,6 +2206,24 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // A provider QUOTA / CREDIT / BALANCE limit (usage cap, insufficient balance, billing/auth) is
+            // recoverable the same way: bench the affected captain and re-route the mission to a compatible peer
+            // that still has quota, instead of cascade-cancelling the voyage. Provider-neutral by construction.
+            if (mission != null)
+            {
+                TimeSpan quotaRuntime = mission.StartedUtc.HasValue ? DateTime.UtcNow - mission.StartedUtc.Value : TimeSpan.Zero;
+                bool isCreditAuth = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
+                bool isQuota = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ||
+                    isCreditAuth ||
+                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(exitCode, quotaRuntime, failureReason);
+                if (isQuota)
+                {
+                    DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow);
+                    await HandleQuotaFailureRerouteAsync(captain, mission, missionId, failureReason, isCreditAuth, retryAfterUtc, token).ConfigureAwait(false);
+                    return;
+                }
+            }
+
             // Transient captain-unavailable / completion-verification failures are recoverable:
             // requeue the mission for reassignment instead of marking it Failed and halting the
             // voyage. Only genuine unrecoverable failures fall through to HaltVoyageAsync below.
@@ -2243,25 +2261,10 @@ namespace Armada.Core.Services
 
             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
 
-            TimeSpan runtime = TimeSpan.Zero;
-            if (mission?.StartedUtc.HasValue ?? false)
-            {
-                runtime = DateTime.UtcNow - mission.StartedUtc.Value;
-            }
-
-            bool isCreditAuthFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
-            bool isQuotaFailure = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ||
-                isCreditAuthFailure ||
-                ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(exitCode, runtime, failureReason);
-
-            if (isQuotaFailure)
-            {
-                DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow);
-                string quarantineReason = isCreditAuthFailure ? _CreditAuthQuarantineReason : failureReason;
-                await _CaptainQuarantine.QuarantineAsync(captain, quarantineReason, retryAfterUtc, token).ConfigureAwait(false);
-                _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after non-retryable quota failure on mission " + missionId);
-            }
-            else if (IsCaptainUnavailableFailureReason(failureReason))
+            // Quota/credit/balance and provider-safeguard failures were re-routed above (early return), and a
+            // transient captain-unavailable failure was requeued above. Anything reaching here is a genuine work
+            // failure -- release the captain (Stalled if it reported unavailable, otherwise Idle).
+            if (IsCaptainUnavailableFailureReason(failureReason))
             {
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                 await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
@@ -2280,11 +2283,7 @@ namespace Armada.Core.Services
             }
 
             string signalMessage = "Mission " + missionId + " failed: " + failureReason;
-            if (isQuotaFailure)
-            {
-                signalMessage += " (captain quarantined)";
-            }
-            else if (IsCaptainUnavailableFailureReason(failureReason))
+            if (IsCaptainUnavailableFailureReason(failureReason))
             {
                 signalMessage += " (captain stalled)";
             }
@@ -2375,37 +2374,77 @@ namespace Armada.Core.Services
         /// exhausted (every eligible provider has blocked), the mission FAILS with an operator-actionable reason
         /// rather than looping. Callers must have confirmed <see cref="ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal"/>.
         /// </summary>
-        private async Task HandleSafeguardBlockRerouteAsync(
+        // A provider content/cyber SAFEGUARD block: bench the blocking captain (windowed) and re-route to a
+        // non-blocked provider. Thin wrapper over the shared recoverable-failure re-route.
+        private Task HandleSafeguardBlockRerouteAsync(
+            Captain captain, Mission mission, string missionId, string failureReason, CancellationToken token)
+            => RerouteRecoverableFailureAsync(captain, mission, missionId, failureReason,
+                label: "provider safeguard block",
+                benchReason: "provider safeguard block (content/cyber gate) -- benched so mission " + missionId +
+                    " re-routes to a non-blocked provider",
+                benchUntilUtc: DateTime.UtcNow.Add(_SafeguardRerouteWindow),
+                rerouteEventKind: "mission.safeguard_rerouted",
+                exhaustedReason: "Provider safeguard block persisted after re-routes across providers; an operator " +
+                    "routing decision is required (route this vessel's seed-key / security-review stage to a " +
+                    "non-blocked provider, or use a Worker-only + Judge pipeline so no specialist reads the gated source).",
+                token);
+
+        // A provider QUOTA / CREDIT / BALANCE limit (usage cap, insufficient balance, billing/auth): bench the
+        // out-of-quota captain until its retry window and re-route to a compatible peer that still has quota. Thin
+        // wrapper over the shared recoverable-failure re-route.
+        private Task HandleQuotaFailureRerouteAsync(
+            Captain captain, Mission mission, string missionId, string failureReason,
+            bool isCreditAuthFailure, DateTime? retryAfterUtc, CancellationToken token)
+            => RerouteRecoverableFailureAsync(captain, mission, missionId, failureReason,
+                label: "provider quota/credit/balance limit",
+                benchReason: isCreditAuthFailure ? _CreditAuthQuarantineReason : failureReason,
+                benchUntilUtc: retryAfterUtc,
+                rerouteEventKind: "mission.quota_rerouted",
+                exhaustedReason: "Every compatible captain hit a quota/credit/balance limit after re-routes; " +
+                    "top up balance or add a captain with remaining quota, then re-dispatch.",
+                token);
+
+        /// <summary>
+        /// Shared re-route for a RECOVERABLE provider-side mission failure (a content/cyber safeguard block, or a
+        /// quota/credit/balance limit). Bench the affected captain and requeue the mission so it re-dispatches to a
+        /// compatible peer -- the voyage stays alive instead of cascade-cancelling. Bounded by
+        /// <see cref="Mission.RecoveryAttempts"/>: once every compatible captain has hit the same wall, the mission
+        /// fails with an operator-actionable reason (never silence, never loop). Provider/model-neutral: whichever
+        /// captain failed is the one benched -- no model name in the logic.
+        /// </summary>
+        private async Task RerouteRecoverableFailureAsync(
             Captain captain,
             Mission mission,
             string missionId,
             string failureReason,
+            string label,
+            string benchReason,
+            DateTime? benchUntilUtc,
+            string rerouteEventKind,
+            string exhaustedReason,
             CancellationToken token)
         {
             string? vesselId = mission.VesselId;
             string? voyageId = mission.VoyageId;
 
-            // Re-route budget exhausted: every eligible provider has safeguard-blocked. Fail with an
-            // operator-actionable reason instead of looping (never silence, never loop).
-            if (mission.RecoveryAttempts >= _SafeguardMaxReroutes)
+            // Re-route budget exhausted: every compatible captain has hit the same wall. Fail with an
+            // operator-actionable reason instead of looping.
+            if (mission.RecoveryAttempts >= _RerouteMaxAttempts)
             {
                 mission.Status = MissionStatusEnum.Failed;
-                mission.FailureReason = "Provider safeguard block persisted after " + mission.RecoveryAttempts +
-                    " re-routes across providers; an operator routing decision is required (route this vessel's " +
-                    "seed-key / security-review stage to a non-blocked provider, or use a Worker-only + Judge " +
-                    "pipeline so no specialist reads the gated source). Last block: " + failureReason;
+                mission.FailureReason = exhaustedReason + " Last failure: " + failureReason;
                 mission.ProcessId = null;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                _Logging.Warn(_Header + "mission " + missionId + " failed: provider safeguard block persisted after " +
+                _Logging.Warn(_Header + "mission " + missionId + " failed: " + label + " persisted after " +
                     mission.RecoveryAttempts + " re-routes");
 
                 await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
                 await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                 await EmitEventAsync("mission.failed",
-                    "Mission failed (provider safeguard block, all providers exhausted): " + mission.Title,
+                    "Mission failed (" + label + ", all compatible captains exhausted): " + mission.Title,
                     entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,
                     vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
                 if (!String.IsNullOrEmpty(voyageId))
@@ -2415,7 +2454,7 @@ namespace Armada.Core.Services
                 return;
             }
 
-            // Requeue the mission for re-routing to a different-provider captain.
+            // Requeue the mission for re-routing to a compatible peer.
             mission.Status = MissionStatusEnum.Pending;
             mission.AssignmentState = MissionAssignmentStateEnum.Pending;
             mission.FailureReason = failureReason;
@@ -2427,25 +2466,21 @@ namespace Armada.Core.Services
             mission.RecoveryAttempts = mission.RecoveryAttempts + 1;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-            _Logging.Warn(_Header + "mission " + missionId + " re-routing after provider safeguard block (attempt " +
-                mission.RecoveryAttempts + "/" + _SafeguardMaxReroutes + ")");
+            _Logging.Warn(_Header + "mission " + missionId + " re-routing after " + label + " (attempt " +
+                mission.RecoveryAttempts + "/" + _RerouteMaxAttempts + ")");
 
-            await EmitEventAsync("mission.safeguard_rerouted",
-                "Mission re-routed after provider safeguard block: " + mission.Title,
+            await EmitEventAsync(rerouteEventKind, "Mission re-routed after " + label + ": " + mission.Title,
                 entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
-            // Reclaim the dock, then quarantine the blocking captain so the immediate re-dispatch cannot reselect
-            // it. Walking past same-provider siblings this way converges on a different-provider peer.
+            // Reclaim the dock, then bench the affected captain so the immediate re-dispatch cannot reselect it.
+            // Walking past same-provider siblings this way converges on a compatible peer.
             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
-            await _CaptainQuarantine.QuarantineAsync(captain,
-                "provider safeguard block (content/cyber gate) -- benched so mission " + missionId +
-                " re-routes to a non-blocked provider",
-                DateTime.UtcNow.Add(_SafeguardRerouteWindow), token).ConfigureAwait(false);
-            _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after provider safeguard block on mission " + missionId);
+            await _CaptainQuarantine.QuarantineAsync(captain, benchReason, benchUntilUtc, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after " + label + " on mission " + missionId);
 
             Signal signal = new Signal(SignalTypeEnum.Progress,
-                "Mission " + missionId + " re-routed after provider safeguard block (captain quarantined, attempt " +
+                "Mission " + missionId + " re-routed after " + label + " (captain quarantined, attempt " +
                 mission.RecoveryAttempts + ")");
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
