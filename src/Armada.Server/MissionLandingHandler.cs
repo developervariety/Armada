@@ -507,7 +507,7 @@ namespace Armada.Server
                         // *Analyst, *Reviewer) approve/reject without committing -- for them an empty
                         // diff is a legitimate successful no-op. A Worker that produced nothing is a
                         // hard failure routed through the same no-commits path as a rescue no-op.
-                        if (PersonaMustProduceChanges(mission.Persona))
+                        if (PersonaMustProduceChanges(mission.Persona) && !IsDocOnlyMission(mission))
                         {
                             landingSucceeded = false;
                             workerProducedNoCommits = true;
@@ -1182,6 +1182,13 @@ namespace Armada.Server
         {
             return !String.IsNullOrWhiteSpace(mission.ParentMissionId)
                 || (mission.Description ?? String.Empty).Contains(_AutoRescueMarker, StringComparison.Ordinal);
+        }
+
+        private bool IsDocOnlyMission(Mission mission)
+        {
+            string marker = _Settings.DefinitionOfDone.DocOnlyMarker;
+            return !String.IsNullOrWhiteSpace(marker)
+                && (mission.Description ?? String.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
