@@ -32,7 +32,7 @@ RUN apt-get update \
         > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli @nothumanwork/cursor-agent-cli \
+    && npm install -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli @nothumanwork/cursor-agent-cli opencode-ai \
     && apt-get purge -y --auto-remove gnupg \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 

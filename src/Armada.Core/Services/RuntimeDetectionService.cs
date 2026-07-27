@@ -83,6 +83,7 @@ namespace Armada.Core.Services
                 AgentRuntimeEnum.Codex => "npm install -g @openai/codex",
                 AgentRuntimeEnum.Gemini => "npm install -g @google/gemini-cli",
                 AgentRuntimeEnum.Cursor => "See https://docs.cursor.com/cli",
+                AgentRuntimeEnum.OpenCode => "npm install -g opencode-ai",
                 AgentRuntimeEnum.Mux => "Install mux and ensure the `mux` command is on PATH",
                 _ => "(see runtime documentation)"
             };
