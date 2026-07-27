@@ -1,0 +1,1 @@
+MUX_SMOKE_OK
