@@ -111,11 +111,16 @@ For large voyages, call `armada_voyage_status` in summary mode first. When missi
 ### Remote Mux/Zyloo Provider
 
 On the remote Armada server, Mux/Zyloo captains use a custom Mux provider named
-`zyloo` in `/home/armada/.mux/providers.jsonc`. Captain model IDs are
-`zyloo:<model>`, for example `zyloo:glm-5.2`. Do not encode Zyloo models as
-`openai:zyloo/...`; Mux treats `openai:` as its built-in OpenAI provider and
-calls the Responses API instead of the custom OpenAI-compatible Chat
-Completions path.
+`zyloo`. The provider config is `/home/armada/.mux/providers.jsonc` with a
+top-level `zyloo` object, `providerType: "openai-compatible"`, base URL
+`https://api.zyloo.io/v1`, and apiKeyFile
+`/home/armada/.mux/zyloo-api-key`. Compose bind-mounts that same host config to
+both `/home/armada/.mux` and `/home/ubuntu/.mux` because the container runtime
+user is `ubuntu`; `/home/armada/.mux-tmp` must be writable by UID 1000. Captain
+model IDs are `zyloo:<model>`, for example `zyloo:glm-5.2`. Do not encode
+Zyloo models as `openai:zyloo/...`; Mux treats `openai:` as its built-in OpenAI
+provider and calls the Responses API instead of the custom OpenAI-compatible
+Chat Completions path.
 
 ### Recovery Watchdogs
 
