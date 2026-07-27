@@ -1,4 +1,4 @@
-I would like you to build a plan in MULTITENANT.md for the Armada vessel (vsl_mmit8chk_PTvi4HamUKb) that is actionable, that is, a developer can annotate progress and completion.  This will be a substantial overhaul of Armada, and using Armada voyages and missions will be a fantastic test of Armada itself.
+I would like you to build a plan in MULTITENANT.md for the Armada vessel (`vsl_example`) that is actionable, that is, a developer can annotate progress and completion. This will be a substantial overhaul of Armada, and using Armada voyages and missions will be a useful test of Armada itself.
 
 The goal is to make Armada multi-tenant and scalable to many users.  Currently Armada is a single user system, though there are some architecture elements in place that make the solution lend well to a multi-tenant, multi-user architecture.
 

@@ -1,6 +1,6 @@
 # Armada Multi-Tenant Overhaul Plan
 
-**Vessel:** `vsl_mmit8chk_PTvi4HamUKb` (Armada)
+**Vessel:** `vsl_example` (Armada)
 **Version Target:** 0.3.0
 **Status:** Planning
 

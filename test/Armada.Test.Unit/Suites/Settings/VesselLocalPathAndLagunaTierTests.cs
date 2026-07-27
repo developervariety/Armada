@@ -27,16 +27,16 @@ namespace Armada.Test.Unit.Suites.Settings
             await RunTest("VesselUpdateArgs_LocalPath_Deserializes", () =>
             {
                 VesselUpdateArgs args = JsonSerializer.Deserialize<VesselUpdateArgs>(
-                    "{\"vesselId\":\"vsl_x\",\"localPath\":\"E:/armada/repos/BenchSim.git\"}", opts)!;
+                    "{\"vesselId\":\"vsl_x\",\"localPath\":\"E:/armada/repos/ExampleVessel.git\"}", opts)!;
                 AssertEqual("vsl_x", args.VesselId, "vesselId should round-trip");
-                AssertEqual("E:/armada/repos/BenchSim.git", args.LocalPath, "localPath should deserialize");
+                AssertEqual("E:/armada/repos/ExampleVessel.git", args.LocalPath, "localPath should deserialize");
                 return Task.CompletedTask;
             });
 
             await RunTest("VesselUpdateArgs_LocalPath_OmittedStaysNull", () =>
             {
                 VesselUpdateArgs args = JsonSerializer.Deserialize<VesselUpdateArgs>(
-                    "{\"vesselId\":\"vsl_x\",\"name\":\"BenchSim\"}", opts)!;
+                    "{\"vesselId\":\"vsl_x\",\"name\":\"ExampleVessel\"}", opts)!;
                 AssertNull(args.LocalPath, "Omitted localPath must stay null so the handler leaves it unchanged");
                 return Task.CompletedTask;
             });
@@ -44,10 +44,10 @@ namespace Armada.Test.Unit.Suites.Settings
             await RunTest("VesselUpdateArgs_LocalPath_IndependentOfWorkingDirectory", () =>
             {
                 VesselUpdateArgs args = JsonSerializer.Deserialize<VesselUpdateArgs>(
-                    "{\"vesselId\":\"vsl_x\",\"workingDirectory\":\"E:/project/Tools/BenchSim\",\"localPath\":\"E:/armada/repos/BenchSim.git\"}",
+                    "{\"vesselId\":\"vsl_x\",\"workingDirectory\":\"E:/project/Tools/ExampleVessel\",\"localPath\":\"E:/armada/repos/ExampleVessel.git\"}",
                     opts)!;
-                AssertEqual("E:/project/Tools/BenchSim", args.WorkingDirectory, "workingDirectory should be independent");
-                AssertEqual("E:/armada/repos/BenchSim.git", args.LocalPath, "localPath should be independent");
+                AssertEqual("E:/project/Tools/ExampleVessel", args.WorkingDirectory, "workingDirectory should be independent");
+                AssertEqual("E:/armada/repos/ExampleVessel.git", args.LocalPath, "localPath should be independent");
                 return Task.CompletedTask;
             });
 

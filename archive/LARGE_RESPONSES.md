@@ -3,7 +3,7 @@
 > **Date:** 2026-03-15
 > **Purpose:** Identify every API where the response payload could be excessive, consuming context window and increasing cost. Provide an actionable remediation plan.
 >
-> **Implementation Voyage:** `vyg_mms2pcu2_8pkQPfH9UGD` (dispatched 2026-03-15T18:13Z)
+> **Implementation Voyage:** `vyg_example` (dispatched 2026-03-15T18:13Z)
 > **Status:** ✅ All 8 missions complete — ready to land
 
 ---

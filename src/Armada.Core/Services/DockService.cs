@@ -636,7 +636,7 @@ namespace Armada.Core.Services
 
                     // The sibling path is SHARED across every dock on this vessel: RelativePath is
                     // "../<name>", so it resolves out of the mission dock into the vessel dock root
-                    // (docks/<vessel>/msn_X + "../EcuLink" => docks/<vessel>/EcuLink). Removing
+                    // (docks/<vessel>/msn_X + "../shared-lib" => docks/<vessel>/shared-lib). Removing
                     // and recreating it here therefore destroys the sibling that a CONCURRENT dock
                     // may be mid-build against: the victim build fails with MSB3030 "could not copy
                     // ... because it was not found" and CS0006 "metadata file could not be found",

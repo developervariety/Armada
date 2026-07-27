@@ -23,7 +23,8 @@ namespace Armada.Server.Mcp.Tools
         private const string SpecDestPath = "_briefing/spec.md";
         private const string ProjectClaudeDestPath = "_briefing/PROJECT-CLAUDE.md";
         private const string CodeContextDestPath = "_briefing/context-pack.md";
-        private const string DefaultProjectClaudePath = @"C:\Users\Owner\RiderProjects\project\CLAUDE.md";
+        private const string ProjectClaudePathEnvironmentVariable = "ARMADA_PROJECT_CLAUDE_PATH";
+        private const string LegacyProjectClaudePathEnvironmentVariable = "ARMADA_PROJECT_CLAUDE_MD";
         private const string DefaultArchitectModel = "high";
         private const string CodeContextModeAuto = "auto";
         private const string CodeContextModeOff = "off";
@@ -98,9 +99,13 @@ namespace Armada.Server.Mcp.Tools
                     if (!File.Exists(specPath))
                         return (object)new { Error = "specPath does not exist: " + specPath };
 
-                    string projectClaudePath = Environment.GetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD") ?? DefaultProjectClaudePath;
+                    string? projectClaudePath = Environment.GetEnvironmentVariable(ProjectClaudePathEnvironmentVariable)
+                        ?? Environment.GetEnvironmentVariable(LegacyProjectClaudePathEnvironmentVariable);
+                    if (String.IsNullOrWhiteSpace(projectClaudePath))
+                        return (object)new { Error = ProjectClaudePathEnvironmentVariable + " is not configured" };
+
                     if (!File.Exists(projectClaudePath))
-                        return (object)new { Error = "project CLAUDE.md not found at " + projectClaudePath };
+                        return (object)new { Error = "configured project CLAUDE.md path does not exist" };
 
                     string specBasename = Path.GetFileName(specPath);
                     string title = "architect: decompose " + Path.GetFileNameWithoutExtension(specPath);
