@@ -1,6 +1,5 @@
 namespace Armada.Core.Services
 {
-    using System.Globalization;
     using Armada.Core.Models;
 
     /// <summary>
@@ -11,7 +10,7 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Build arguments for `mux print`.
+        /// Build arguments for `mux run`.
         /// </summary>
         public static List<string> BuildPrintArguments(
             string workingDirectory,
@@ -25,32 +24,23 @@ namespace Armada.Core.Services
 
             List<string> args = new List<string>
             {
-                "print"
+                "run"
             };
 
-            AppendConfigDirectory(args, options?.ConfigDirectory);
-
-            args.Add("--output-format");
-            args.Add("jsonl");
-
-            if (!String.IsNullOrWhiteSpace(finalMessageFilePath))
-            {
-                args.Add("--output-last-message");
-                args.Add(finalMessageFilePath!);
-            }
-
-            AppendApprovalArguments(args, options?.ApprovalPolicy);
             AppendCommonOverrides(args, options, model);
 
-            args.Add("--working-directory");
+            args.Add("--dir");
             args.Add(workingDirectory);
-            args.Add(prompt);
+
+            args.Add("--quiet");
+
+            AppendApprovalArguments(args, options?.ApprovalPolicy);
 
             return args;
         }
 
         /// <summary>
-        /// Build arguments for `mux probe`.
+        /// Build arguments for probing that the mux CLI is installed.
         /// </summary>
         public static List<string> BuildProbeArguments(
             string? model,
@@ -59,24 +49,14 @@ namespace Armada.Core.Services
         {
             List<string> args = new List<string>
             {
-                "probe",
-                "--output-format",
-                "json"
+                "--version"
             };
 
-            AppendConfigDirectory(args, options?.ConfigDirectory);
-
-            if (requireTools)
-            {
-                args.Add("--require-tools");
-            }
-
-            AppendCommonOverrides(args, options, model);
             return args;
         }
 
         /// <summary>
-        /// Build arguments for `mux endpoint list`.
+        /// Build legacy endpoint-list arguments.
         /// </summary>
         public static List<string> BuildEndpointListArguments(string? configDirectory)
         {
@@ -88,12 +68,11 @@ namespace Armada.Core.Services
                 "json"
             };
 
-            AppendConfigDirectory(args, configDirectory);
             return args;
         }
 
         /// <summary>
-        /// Build arguments for `mux endpoint show`.
+        /// Build legacy endpoint-show arguments.
         /// </summary>
         public static List<string> BuildEndpointShowArguments(string endpointName, string? configDirectory)
         {
@@ -108,7 +87,6 @@ namespace Armada.Core.Services
                 "json"
             };
 
-            AppendConfigDirectory(args, configDirectory);
             return args;
         }
 
@@ -116,57 +94,12 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static void AppendConfigDirectory(List<string> args, string? configDirectory)
-        {
-            if (!String.IsNullOrWhiteSpace(configDirectory))
-            {
-                args.Add("--config-dir");
-                args.Add(configDirectory.Trim());
-            }
-        }
-
         private static void AppendCommonOverrides(List<string> args, MuxCaptainOptions? options, string? model)
         {
-            if (!String.IsNullOrWhiteSpace(options?.Endpoint))
-            {
-                args.Add("--endpoint");
-                args.Add(options.Endpoint!);
-            }
-
             if (!String.IsNullOrWhiteSpace(model))
             {
                 args.Add("--model");
                 args.Add(model!);
-            }
-
-            if (!String.IsNullOrWhiteSpace(options?.BaseUrl))
-            {
-                args.Add("--base-url");
-                args.Add(options.BaseUrl!);
-            }
-
-            if (!String.IsNullOrWhiteSpace(options?.AdapterType))
-            {
-                args.Add("--adapter-type");
-                args.Add(options.AdapterType!);
-            }
-
-            if (options?.Temperature.HasValue == true)
-            {
-                args.Add("--temperature");
-                args.Add(options.Temperature.Value.ToString(CultureInfo.InvariantCulture));
-            }
-
-            if (options?.MaxTokens.HasValue == true)
-            {
-                args.Add("--max-tokens");
-                args.Add(options.MaxTokens.Value.ToString(CultureInfo.InvariantCulture));
-            }
-
-            if (!String.IsNullOrWhiteSpace(options?.SystemPromptPath))
-            {
-                args.Add("--system-prompt");
-                args.Add(options.SystemPromptPath!);
             }
         }
 
@@ -175,12 +108,14 @@ namespace Armada.Core.Services
             string? normalized = approvalPolicy?.Trim().ToLowerInvariant();
             if (String.IsNullOrEmpty(normalized) || normalized == "auto" || normalized == "autoapprove")
             {
-                args.Add("--yolo");
                 return;
             }
 
-            args.Add("--approval-policy");
-            args.Add(normalized);
+            if (normalized == "plan")
+            {
+                args.Add("--mode");
+                args.Add("plan");
+            }
         }
 
         #endregion

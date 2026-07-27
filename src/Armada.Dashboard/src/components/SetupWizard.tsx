@@ -14,7 +14,7 @@ import {
   listWorkflowProfiles,
 } from '../api/client';
 import MuxRuntimeFields from './captains/MuxRuntimeFields';
-import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, type MuxCaptainFormFields } from '../lib/mux';
 import type { Captain, DeploymentEnvironment, Fleet, Mission, Vessel, VesselReadinessResult, WorkflowProfile } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 
@@ -113,7 +113,7 @@ const tooltips = {
   model: 'Optional runtime-specific model override. Leave blank to use the runtime default.',
   systemInstructions: 'Optional instructions injected into every mission handled by this captain.',
   muxConfigDirectory: 'Optional mux config directory override for loading saved endpoints.',
-  muxEndpoint: 'Required named mux endpoint when the captain runtime is Mux.',
+  muxEndpoint: 'Optional legacy Mux endpoint name.',
   missionTitle: 'Short title for the direct setup mission created by dispatch.',
   missionDescription: 'Full task instructions sent to the captain for this setup dispatch.',
   priority: 'Scheduling priority for the mission. Lower values are higher priority in Armada.',
@@ -502,11 +502,6 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       setResult({ kind: 'error', message: t('Choose a captain runtime.') });
       return;
     }
-    if (isMuxRuntime(captainForm.runtime) && !captainForm.muxEndpoint.trim()) {
-      setResult({ kind: 'error', message: t('Mux captains require a named Mux endpoint.') });
-      return;
-    }
-
     try {
       setBusy(true);
       const captain = await createCaptain({

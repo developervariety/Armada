@@ -132,23 +132,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ValidateCaptainModelAsync requires Mux endpoint", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                    Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
-                    {
-                        RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions())
-                    };
-
-                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-
-                    AssertNotNull(error, "Mux validation should fail without an endpoint");
-                    AssertContains("named endpoint", error!, "Mux validation should explain the missing endpoint requirement");
-                }
-            });
-
             await RunTest("ValidateCaptainModelAsync rejects invalid Mux runtime options JSON", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

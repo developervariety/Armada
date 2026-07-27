@@ -1,5 +1,6 @@
 namespace Armada.Test.Runtimes.Suites
 {
+    using System.Diagnostics;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -19,6 +20,21 @@ namespace Armada.Test.Runtimes.Suites
 
             public List<string> Args(string workingDirectory, string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
                 BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
+
+            public bool UsesPromptStdin() => UsePromptStdin;
+
+            public string? AppliedEnvironmentValue(Captain captain, string key)
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo();
+                ApplyEnvironment(startInfo, captain);
+
+                if (startInfo.Environment.ContainsKey(key))
+                {
+                    return startInfo.Environment[key];
+                }
+
+                return null;
+            }
         }
 
         private static InspectableMuxRuntime CreateRuntime()
@@ -42,7 +58,7 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("mux", runtime.ExecutablePath);
             });
 
-            await RunTest("BuildArguments Includes Endpoint Config And Final Message Artifact", () =>
+            await RunTest("BuildArguments Uses Current Mux Run Contract", () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();
                 Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
@@ -62,33 +78,27 @@ namespace Armada.Test.Runtimes.Suites
 
                 List<string> args = runtime.Args("C:/worktree", "test prompt", "gpt-5.4-mini", "C:/logs/final.txt", captain);
 
-                AssertEqual("print", args[0]);
-                AssertTrue(args.Contains("--config-dir"));
-                AssertTrue(args.Contains("C:/mux/config"));
-                AssertTrue(args.Contains("--output-format"));
-                AssertTrue(args.Contains("jsonl"));
-                AssertTrue(args.Contains("--output-last-message"));
-                AssertTrue(args.Contains("C:/logs/final.txt"));
-                AssertTrue(args.Contains("--endpoint"));
-                AssertTrue(args.Contains("captain-prod"));
+                AssertEqual("run", args[0]);
                 AssertTrue(args.Contains("--model"));
                 AssertTrue(args.Contains("gpt-5.4-mini"));
-                AssertTrue(args.Contains("--base-url"));
-                AssertTrue(args.Contains("https://mux.example.com"));
-                AssertTrue(args.Contains("--adapter-type"));
-                AssertTrue(args.Contains("openai"));
-                AssertTrue(args.Contains("--temperature"));
-                AssertTrue(args.Contains("0.2"));
-                AssertTrue(args.Contains("--max-tokens"));
-                AssertTrue(args.Contains("4096"));
-                AssertTrue(args.Contains("--system-prompt"));
-                AssertTrue(args.Contains("C:/mux/prompts/system.txt"));
-                AssertTrue(args.Contains("--approval-policy"));
-                AssertTrue(args.Contains("deny"));
-                AssertEqual("test prompt", args[args.Count - 1]);
+                AssertTrue(args.Contains("--dir"));
+                AssertTrue(args.Contains("C:/worktree"));
+                AssertTrue(args.Contains("--quiet"));
+                AssertFalse(args.Contains("--config-dir"));
+                AssertFalse(args.Contains("--output-format"));
+                AssertFalse(args.Contains("--output-last-message"));
+                AssertFalse(args.Contains("--endpoint"));
+                AssertFalse(args.Contains("--base-url"));
+                AssertFalse(args.Contains("--adapter-type"));
+                AssertFalse(args.Contains("--temperature"));
+                AssertFalse(args.Contains("--max-tokens"));
+                AssertFalse(args.Contains("--system-prompt"));
+                AssertFalse(args.Contains("--approval-policy"));
+                AssertFalse(args.Contains("test prompt"));
+                AssertTrue(runtime.UsesPromptStdin());
             });
 
-            await RunTest("BuildArguments Defaults To Yolo Approval", () =>
+            await RunTest("BuildArguments Defaults To Exec Mode", () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();
                 Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
@@ -101,8 +111,42 @@ namespace Armada.Test.Runtimes.Suites
 
                 List<string> args = runtime.Args("C:/worktree", "test prompt", captain: captain);
 
-                AssertTrue(args.Contains("--yolo"));
+                AssertFalse(args.Contains("--yolo"));
                 AssertFalse(args.Contains("--approval-policy"));
+                AssertFalse(args.Contains("--mode"));
+            });
+
+            await RunTest("BuildArguments Maps Plan Approval To Plan Mode", () =>
+            {
+                InspectableMuxRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
+                {
+                    RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions
+                    {
+                        ApprovalPolicy = "plan"
+                    })
+                };
+
+                List<string> args = runtime.Args("C:/worktree", "test prompt", captain: captain);
+
+                AssertTrue(args.Contains("--mode"));
+                AssertTrue(args.Contains("plan"));
+            });
+
+            await RunTest("ApplyEnvironment Maps Config And BaseUrl", () =>
+            {
+                InspectableMuxRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
+                {
+                    RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions
+                    {
+                        ConfigDirectory = "C:/mux/config",
+                        BaseUrl = "https://api.zyloo.io/v1"
+                    })
+                };
+
+                AssertEqual("C:/mux/config", runtime.AppliedEnvironmentValue(captain, "MUX_CONFIG_ROOT"));
+                AssertEqual("https://api.zyloo.io/v1", runtime.AppliedEnvironmentValue(captain, "OPENAI_BASE_URL"));
             });
         }
     }

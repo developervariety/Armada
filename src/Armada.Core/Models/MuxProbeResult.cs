@@ -1,7 +1,7 @@
 namespace Armada.Core.Models
 {
     /// <summary>
-    /// Machine-readable result returned by `mux probe --output-format json`.
+    /// Machine-readable result produced by Armada's Mux CLI validation.
     /// </summary>
     public class MuxProbeResult
     {

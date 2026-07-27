@@ -1,7 +1,7 @@
 namespace Armada.Core.Models
 {
     /// <summary>
-    /// Machine-readable result returned by `mux endpoint list --output-format json`.
+    /// Machine-readable Mux endpoint list result retained for API compatibility.
     /// </summary>
     public class MuxEndpointListResult
     {

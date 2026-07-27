@@ -214,16 +214,14 @@ namespace Armada.Server
                 }
                 else if (servers.Count == 0)
                 {
-                    snapshot.Summary = "Mux endpoint '" + probe.EndpointName + "' reports " + builtInToolCount +
-                        " built-in tool(s). No external MCP servers are configured for the active Mux config directory, and Mux does not currently expose individual built-in tool names.";
+                    snapshot.Summary = "Mux CLI is installed. No external MCP servers are configured for the active Mux config directory, and current Mux versions do not expose individual built-in tool names through Armada.";
                 }
                 else
                 {
-                    snapshot.Summary = "Mux endpoint '" + probe.EndpointName + "' reports " + builtInToolCount +
-                        " built-in tool(s) and " + servers.Count + " configured MCP server(s); " +
+                    snapshot.Summary = "Mux CLI is installed with " + servers.Count + " configured MCP server(s); " +
                         snapshot.Servers.Count(s => s.SourceKind == "McpServer" && s.Reachable) +
                         " MCP server(s) responded and exposed " + snapshot.Tools.Count +
-                        " named tool(s). Configured MCP servers that did not respond may simply be offline at query time. Mux does not currently expose individual built-in tool names.";
+                        " named tool(s). Configured MCP servers that did not respond may simply be offline at query time. Current Mux versions do not expose individual built-in tool names through Armada.";
                 }
 
                 return snapshot;

@@ -78,6 +78,29 @@ namespace Armada.Runtimes
             return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options);
         }
 
+        /// <summary>
+        /// Current Mux accepts piped instructions. Using stdin keeps long Armada
+        /// prompts out of the Windows command line.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
+
+        /// <summary>
+        /// Apply Mux-specific environment overrides.
+        /// </summary>
+        protected override void ApplyEnvironment(System.Diagnostics.ProcessStartInfo startInfo, Captain? captain)
+        {
+            MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
+            if (!String.IsNullOrWhiteSpace(options?.ConfigDirectory))
+            {
+                startInfo.Environment["MUX_CONFIG_ROOT"] = options.ConfigDirectory!;
+            }
+
+            if (!String.IsNullOrWhiteSpace(options?.BaseUrl))
+            {
+                startInfo.Environment["OPENAI_BASE_URL"] = options.BaseUrl!;
+            }
+        }
+
         #endregion
     }
 }

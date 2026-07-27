@@ -15,7 +15,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { canCaptainStartPlanning } from '../lib/captains';
-import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
@@ -158,11 +158,6 @@ export default function Captains() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
-        setError(t('Mux captains require a named Mux endpoint.'));
-        return;
-      }
-
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;

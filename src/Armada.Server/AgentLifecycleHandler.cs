@@ -990,12 +990,7 @@ namespace Armada.Server
 
             if (options == null)
             {
-                return "Mux captains require runtime options containing at least a named endpoint.";
-            }
-
-            if (String.IsNullOrWhiteSpace(options.Endpoint))
-            {
-                return "Mux captains require a named endpoint.";
+                options = new MuxCaptainOptions();
             }
 
             try
@@ -1012,12 +1007,7 @@ namespace Armada.Server
                     string error = !String.IsNullOrWhiteSpace(probe.ErrorMessage)
                         ? probe.ErrorMessage
                         : "Mux probe failed with error code " + (String.IsNullOrWhiteSpace(probe.ErrorCode) ? "unknown" : probe.ErrorCode) + ".";
-                    return "Mux endpoint '" + options.Endpoint + "' failed validation: " + error;
-                }
-
-                if (!probe.ToolsEnabled || probe.EffectiveToolCount <= 0)
-                {
-                    return "Mux endpoint '" + options.Endpoint + "' is not tool-enabled for Armada missions.";
+                    return "Mux CLI failed validation: " + error;
                 }
 
                 return null;
@@ -1028,7 +1018,7 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                return "Mux endpoint '" + options.Endpoint + "' failed validation: " + ex.Message;
+                return "Mux CLI failed validation: " + ex.Message;
             }
         }
 

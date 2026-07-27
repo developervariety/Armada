@@ -1,7 +1,7 @@
 namespace Armada.Core.Models
 {
     /// <summary>
-    /// Machine-readable endpoint metadata returned by `mux endpoint list/show --output-format json`.
+    /// Machine-readable endpoint metadata retained for legacy Mux endpoint configurations.
     /// </summary>
     public class MuxEndpointInfo
     {

@@ -118,11 +118,6 @@ export default function CaptainDetail() {
     e.preventDefault();
     if (!captain) return;
     try {
-      if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
-        setError(t('Mux captains require a named Mux endpoint.'));
-        return;
-      }
-
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;

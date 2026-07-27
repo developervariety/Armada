@@ -1334,9 +1334,6 @@ function dashboard() {
         async addCaptain() {
             this.modalLoading = true;
             try {
-                if (this.modalData.runtime === 'Mux' && !(this.modalData.muxEndpoint || '').trim()) {
-                    throw new Error('Mux captains require a named Mux endpoint.');
-                }
                 let captain = await this.api('POST', '/api/v1/captains', {
                     name: this.modalData.name,
                     runtime: this.modalData.runtime || 'ClaudeCode',
@@ -1353,9 +1350,6 @@ function dashboard() {
         async saveCaptainEdit() {
             this.modalLoading = true;
             try {
-                if (this.modalData.runtime === 'Mux' && !(this.modalData.muxEndpoint || '').trim()) {
-                    throw new Error('Mux captains require a named Mux endpoint.');
-                }
                 await this.api('PUT', '/api/v1/captains/' + this.modalData.id, {
                     name: this.modalData.name,
                     runtime: this.modalData.runtime,

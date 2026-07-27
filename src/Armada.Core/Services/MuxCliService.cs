@@ -1,8 +1,6 @@
 namespace Armada.Core.Services
 {
     using System.Diagnostics;
-    using System.Text.Json;
-    using Armada.Core.Json;
     using Armada.Core.Models;
     using SyslogLogging;
 
@@ -15,7 +13,6 @@ namespace Armada.Core.Services
 
         private readonly string _Header = "[MuxCliService] ";
         private readonly LoggingModule _Logging;
-        private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromSeconds(20);
 
         #endregion
@@ -41,18 +38,7 @@ namespace Armada.Core.Services
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
-            MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
-            if (options == null)
-            {
-                return new MuxProbeResult
-                {
-                    Success = false,
-                    ErrorCode = "config_error",
-                    FailureCategory = "configuration",
-                    ErrorMessage = "Mux captains require runtime options with at least an endpoint selection."
-                };
-            }
-
+            MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain) ?? new MuxCaptainOptions();
             return await ProbeAsync(captain.Model, options, token).ConfigureAwait(false);
         }
 
@@ -63,74 +49,61 @@ namespace Armada.Core.Services
         {
             if (options == null) throw new ArgumentNullException(nameof(options));
 
+            DateTime startUtc = DateTime.UtcNow;
             MuxCommandExecutionResult execution = await ExecuteAsync(
                 MuxCommandBuilder.BuildProbeArguments(model, options),
                 _DefaultTimeout,
                 token).ConfigureAwait(false);
 
-            MuxProbeResult? result = DeserializeJson<MuxProbeResult>(execution.Stdout, execution.Stderr);
-            if (result != null)
-            {
-                return result;
-            }
-
             return new MuxProbeResult
             {
-                Success = false,
-                ErrorCode = execution.ExitCode == 0 ? "invalid_json" : "probe_error",
-                FailureCategory = execution.ExitCode == 0 ? "parsing" : "unknown",
-                ErrorMessage = BuildInvalidJsonMessage("probe", execution)
+                ContractVersion = 1,
+                Success = execution.ExitCode == 0,
+                ErrorCode = execution.ExitCode == 0 ? String.Empty : "mux_cli_error",
+                FailureCategory = execution.ExitCode == 0 ? String.Empty : "runtime",
+                ErrorMessage = execution.ExitCode == 0 ? String.Empty : BuildCommandFailureMessage("version", execution),
+                CommandName = "version",
+                ConfigDirectory = options.ConfigDirectory ?? String.Empty,
+                EndpointName = options.Endpoint ?? String.Empty,
+                Model = model ?? String.Empty,
+                McpSupported = true,
+                DurationMs = Convert.ToInt64((DateTime.UtcNow - startUtc).TotalMilliseconds)
             };
         }
 
         /// <summary>
         /// Enumerate configured Mux endpoints.
         /// </summary>
-        public async Task<MuxEndpointListResult> ListEndpointsAsync(string? configDirectory, CancellationToken token = default)
+        public Task<MuxEndpointListResult> ListEndpointsAsync(string? configDirectory, CancellationToken token = default)
         {
-            MuxCommandExecutionResult execution = await ExecuteAsync(
-                MuxCommandBuilder.BuildEndpointListArguments(configDirectory),
-                _DefaultTimeout,
-                token).ConfigureAwait(false);
-
-            MuxEndpointListResult? result = DeserializeJson<MuxEndpointListResult>(execution.Stdout, execution.Stderr);
-            if (result != null)
+            MuxEndpointListResult result = new MuxEndpointListResult
             {
-                return result;
-            }
-
-            return new MuxEndpointListResult
-            {
-                Success = false,
-                ErrorCode = execution.ExitCode == 0 ? "invalid_json" : "endpoint_list_error",
-                ErrorMessage = BuildInvalidJsonMessage("endpoint list", execution)
+                ContractVersion = 1,
+                Success = true,
+                ConfigDirectory = configDirectory ?? String.Empty,
+                Endpoints = new List<MuxEndpointInfo>()
             };
+
+            return Task.FromResult(result);
         }
 
         /// <summary>
         /// Inspect a single configured Mux endpoint.
         /// </summary>
-        public async Task<MuxEndpointShowResult> ShowEndpointAsync(string endpointName, string? configDirectory, CancellationToken token = default)
+        public Task<MuxEndpointShowResult> ShowEndpointAsync(string endpointName, string? configDirectory, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(endpointName)) throw new ArgumentNullException(nameof(endpointName));
 
-            MuxCommandExecutionResult execution = await ExecuteAsync(
-                MuxCommandBuilder.BuildEndpointShowArguments(endpointName, configDirectory),
-                _DefaultTimeout,
-                token).ConfigureAwait(false);
-
-            MuxEndpointShowResult? result = DeserializeJson<MuxEndpointShowResult>(execution.Stdout, execution.Stderr);
-            if (result != null)
-            {
-                return result;
-            }
-
-            return new MuxEndpointShowResult
+            MuxEndpointShowResult result = new MuxEndpointShowResult
             {
                 Success = false,
-                ErrorCode = execution.ExitCode == 0 ? "invalid_json" : "endpoint_show_error",
-                ErrorMessage = BuildInvalidJsonMessage("endpoint show", execution)
+                ContractVersion = 1,
+                ConfigDirectory = configDirectory ?? String.Empty,
+                ErrorCode = "unsupported",
+                ErrorMessage = "Current Mux CLI versions do not expose named endpoint inspection."
             };
+
+            return Task.FromResult(result);
         }
 
         #endregion
@@ -144,7 +117,7 @@ namespace Armada.Core.Services
         {
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                FileName = "mux",
+                FileName = ResolveMuxExecutable(),
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -208,48 +181,23 @@ namespace Armada.Core.Services
             };
         }
 
-        private T? DeserializeJson<T>(string stdout, string stderr) where T : class
+        private static string ResolveMuxExecutable()
         {
-            string? json = ExtractJsonPayload(stdout);
-            if (String.IsNullOrWhiteSpace(json))
-            {
-                json = ExtractJsonPayload(stderr);
-            }
+            if (!OperatingSystem.IsWindows())
+                return "mux";
 
-            if (String.IsNullOrWhiteSpace(json))
-            {
-                return null;
-            }
+            string appDataNpm = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "npm",
+                "mux.cmd");
 
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _JsonOptions);
-            }
-            catch (JsonException ex)
-            {
-                _Logging.Warn(_Header + "could not parse mux JSON payload: " + ex.Message);
-                return null;
-            }
+            if (File.Exists(appDataNpm))
+                return appDataNpm;
+
+            return "mux";
         }
 
-        private static string? ExtractJsonPayload(string text)
-        {
-            if (String.IsNullOrWhiteSpace(text))
-            {
-                return null;
-            }
-
-            int firstBrace = text.IndexOf('{');
-            int lastBrace = text.LastIndexOf('}');
-            if (firstBrace >= 0 && lastBrace > firstBrace)
-            {
-                return text.Substring(firstBrace, lastBrace - firstBrace + 1);
-            }
-
-            return null;
-        }
-
-        private static string BuildInvalidJsonMessage(string commandName, MuxCommandExecutionResult execution)
+        private static string BuildCommandFailureMessage(string commandName, MuxCommandExecutionResult execution)
         {
             string details = FirstNonEmptyLine(execution.Stderr, execution.Stdout);
             if (String.IsNullOrWhiteSpace(details))
@@ -257,7 +205,7 @@ namespace Armada.Core.Services
                 details = "mux returned exit code " + execution.ExitCode + ".";
             }
 
-            return "Mux " + commandName + " returned an unreadable response. " + details;
+            return "Mux " + commandName + " failed. " + details;
         }
 
         private static string FirstNonEmptyLine(string? primary, string? secondary)
