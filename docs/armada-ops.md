@@ -108,6 +108,15 @@ Use MCP for normal structured-delivery triage. `armada_enumerate` covers objecti
 
 For large voyages, call `armada_voyage_status` in summary mode first. When mission details are needed, use `summary=false`, `includeMissions=true`, and `includeFields` to opt into only the fields needed; mission descriptions and agent output are capped with `truncated`/`fullLength` metadata.
 
+### Remote Mux/Zyloo Provider
+
+On the remote Armada server, Mux/Zyloo captains use a custom Mux provider named
+`zyloo` in `/home/armada/.mux/providers.jsonc`. Captain model IDs are
+`zyloo:<model>`, for example `zyloo:glm-5.2`. Do not encode Zyloo models as
+`openai:zyloo/...`; Mux treats `openai:` as its built-in OpenAI provider and
+calls the Responses API instead of the custom OpenAI-compatible Chat
+Completions path.
+
 ### Recovery Watchdogs
 
 `StageWatchdogTimeoutMinutes` defaults to 30 minutes and is clamped between 5 and 180. Health checks fail stale `Assigned` or `WorkProduced` missions that have no captain/process heartbeat with `stage_watchdog_no_captain_heartbeat` and emit an error signal, while preserving already-running work that still has captain and process IDs.
