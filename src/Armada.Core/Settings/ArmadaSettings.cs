@@ -477,6 +477,11 @@ namespace Armada.Core.Settings
         public bool TerminalBell { get; set; } = true;
 
         /// <summary>
+        /// Enable learned-facts playbook bootstrap and reflection sweeps.
+        /// </summary>
+        public bool LearnedFactsEnabled { get; set; } = true;
+
+        /// <summary>
         /// Default number of completed missions on a vessel before a reflection is auto-triggered.
         /// Per-vessel <c>ReflectionThreshold</c> overrides this when set. Must be >= 1.
         /// </summary>

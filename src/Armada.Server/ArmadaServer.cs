@@ -272,14 +272,22 @@ namespace Armada.Server
             _Logging.Info(_Header + "deployment environment seeding completed");
 
             _ReflectionBootstrap = new ReflectionMemoryBootstrapService(_Database, _Logging);
-            await _ReflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
-            _Logging.Info(_Header + "reflection memory bootstrap completed");
+            if (_Settings.LearnedFactsEnabled)
+            {
+                await _ReflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
+                _Logging.Info(_Header + "reflection memory bootstrap completed");
+            }
+            else
+            {
+                _Logging.Info(_Header + "reflection memory bootstrap skipped: learned facts disabled");
+            }
             _ReflectionMemory = new ReflectionMemoryService(_Database);
             string missionLogDirectory = System.IO.Path.Combine(_Settings.LogDirectory, "missions");
             PackUsageMiner packUsageMiner = new PackUsageMiner(missionLogDirectory);
             HabitPatternMiner habitPatternMiner = new HabitPatternMiner(_Database, packUsageMiner);
             _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory, packUsageMiner, habitPatternMiner);
             _ReflectionSweeper = new ReflectionSweeper(_Database, _ReflectionDispatcher, _Settings, _Logging);
+            if (!_Settings.LearnedFactsEnabled) _ReflectionSweeper.Disable();
 
             ArchitectPersonaSyncService architectSync = new ArchitectPersonaSyncService(_Database, _Logging);
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);

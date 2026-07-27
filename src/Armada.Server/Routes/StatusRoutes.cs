@@ -196,15 +196,23 @@ namespace Armada.Server.Routes
                 // 3. Database
                 try
                 {
-                    string dbPath = _settings.DatabasePath;
-                    if (File.Exists(dbPath))
+                    if (_settings.Database.Type == DatabaseTypeEnum.Sqlite)
                     {
-                        FileInfo fi = new FileInfo(dbPath);
-                        results.Add(new { Name = "Database", Status = "Pass", Message = $"Database exists ({fi.Length / 1024} KB) at {dbPath}" });
+                        string dbPath = _settings.DatabasePath;
+                        if (File.Exists(dbPath))
+                        {
+                            FileInfo fi = new FileInfo(dbPath);
+                            results.Add(new { Name = "Database", Status = "Pass", Message = $"SQLite database exists ({fi.Length / 1024} KB) at {dbPath}" });
+                        }
+                        else
+                        {
+                            results.Add(new { Name = "Database", Status = "Warn", Message = "SQLite database not found at " + dbPath });
+                        }
                     }
                     else
                     {
-                        results.Add(new { Name = "Database", Status = "Warn", Message = "Database not found at " + dbPath });
+                        DatabaseSettings db = _settings.Database;
+                        results.Add(new { Name = "Database", Status = "Pass", Message = $"{db.Type} database configured at {db.Hostname}:{db.Port} / {db.DatabaseName}" });
                     }
                 }
                 catch (Exception ex)

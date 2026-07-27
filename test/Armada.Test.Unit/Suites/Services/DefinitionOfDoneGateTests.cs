@@ -639,7 +639,7 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     // A plain build command (no --no-restore) must work normally with
-                    // RunRestoreBeforeBuild=true. This guards the j1939mitm/armada case where the
+                    // RunRestoreBeforeBuild=true. This guards the EcuLink/Armada case where the
                     // profile uses dotnet build src/X.sln and no --no-restore token is present.
                     string buildCmd = EchoToFileCommand("echo_output.txt", "build_args");
                     await EnsureVesselWithProfileAsync(testDb, "ten_noflag", "vsl_noflag",
