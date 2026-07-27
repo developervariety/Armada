@@ -17,7 +17,10 @@ COPY src/Armada.Server/ src/Armada.Server/
 RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore
 
 # --- Runtime stage ---
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+# Captains run repository checks inside mission docks. Use the SDK image so
+# .NET vessel gates can honor repo global.json files instead of failing after
+# the agent has completed.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS runtime
 WORKDIR /app
 
 RUN apt-get update \
