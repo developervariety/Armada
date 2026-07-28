@@ -10,7 +10,11 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Build arguments for `mux run`.
+        /// Build single-shot arguments for jchristn/Mux (`mux print &lt;prompt&gt;`). Uses the
+        /// `print` SUBCOMMAND (not the `--print` flag, which enters the interactive REPL and
+        /// fails headless on Console.KeyAvailable). The prompt is passed as the trailing
+        /// positional argument. `-w` sets the tool-execution directory, `--yolo` auto-approves
+        /// tool calls, and `--config-dir`/`--endpoint` select the OpenAI-compatible backend.
         /// </summary>
         public static List<string> BuildPrintArguments(
             string workingDirectory,
@@ -24,17 +28,38 @@ namespace Armada.Core.Services
 
             List<string> args = new List<string>
             {
-                "run"
+                "print"
             };
+
+            if (options != null)
+            {
+                if (!String.IsNullOrWhiteSpace(options.ConfigDirectory))
+                {
+                    args.Add("--config-dir");
+                    args.Add(options.ConfigDirectory!);
+                }
+                if (!String.IsNullOrWhiteSpace(options.Endpoint))
+                {
+                    args.Add("--endpoint");
+                    args.Add(options.Endpoint!);
+                }
+            }
 
             AppendCommonOverrides(args, options, model);
 
-            args.Add("--dir");
+            args.Add("-w");
             args.Add(workingDirectory);
 
-            args.Add("--quiet");
+            args.Add("--yolo");
 
-            AppendApprovalArguments(args, options?.ApprovalPolicy);
+            if (!String.IsNullOrWhiteSpace(finalMessageFilePath))
+            {
+                args.Add("--output-last-message");
+                args.Add(finalMessageFilePath!);
+            }
+
+            // jchristn/Mux takes the prompt as the trailing positional argument.
+            args.Add(prompt);
 
             return args;
         }
@@ -100,21 +125,6 @@ namespace Armada.Core.Services
             {
                 args.Add("--model");
                 args.Add(model!);
-            }
-        }
-
-        private static void AppendApprovalArguments(List<string> args, string? approvalPolicy)
-        {
-            string? normalized = approvalPolicy?.Trim().ToLowerInvariant();
-            if (String.IsNullOrEmpty(normalized) || normalized == "auto" || normalized == "autoapprove")
-            {
-                return;
-            }
-
-            if (normalized == "plan")
-            {
-                args.Add("--mode");
-                args.Add("plan");
             }
         }
 

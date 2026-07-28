@@ -14,3 +14,7 @@ out/
 
 # Node tooling
 node_modules/
+
+# macOS AppleDouble / resource-fork sidecars (created on volume mounts)
+._*
+.DS_Store
