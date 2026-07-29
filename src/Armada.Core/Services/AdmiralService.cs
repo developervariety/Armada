@@ -89,6 +89,7 @@ namespace Armada.Core.Services
         private IEscalationService? _Escalation;
         private IBuildDriftService? _BuildDrift;
         private ICaptainQuarantineService _CaptainQuarantine;
+        private IResourcePressureAdmission _ResourcePressureAdmission;
         private bool _RetryDispatchNeeded = false;
         private DateTime? _LastAuditNotifyUtc = null;
         private readonly object _AuditNotifyLock = new object();
@@ -122,6 +123,7 @@ namespace Armada.Core.Services
         /// <param name="escalation">Optional escalation service.</param>
         /// <param name="buildDrift">Optional build drift service.</param>
         /// <param name="captainQuarantine">Optional captain quarantine service.</param>
+        /// <param name="resourcePressureAdmission">Optional resource-pressure admission policy updated on OOM classification.</param>
         public AdmiralService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -132,7 +134,8 @@ namespace Armada.Core.Services
             IDockService docks,
             IEscalationService? escalation = null,
             IBuildDriftService? buildDrift = null,
-            ICaptainQuarantineService? captainQuarantine = null)
+            ICaptainQuarantineService? captainQuarantine = null,
+            IResourcePressureAdmission? resourcePressureAdmission = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -145,6 +148,8 @@ namespace Armada.Core.Services
             _Escalation = escalation;
             _BuildDrift = buildDrift;
             _CaptainQuarantine = captainQuarantine ?? new CaptainQuarantineService(_Database, _Settings, _Logging);
+            _ResourcePressureAdmission = resourcePressureAdmission
+                ?? new ResourcePressureAdmission(_Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
         }
 
         #endregion
@@ -1267,11 +1272,25 @@ namespace Armada.Core.Services
             }
             else
             {
-                // Non-zero or unknown exit code with no explicit success verdict — fail the mission
-                // deterministically. Process exits should not bounce between recovery paths; preserve
-                // the captured runtime error, halt the voyage, and only stall the captain when the
-                // failure indicates the runtime itself is unavailable.
+                // Non-zero or unknown exit code with no explicit success verdict.
                 _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId);
+
+                // Treat exit 137 as a probable resource kill. SIGKILL is not definitive OOM
+                // evidence, but a cooldown plus a live capacity probe prevents a tight retry loop
+                // while preserving the voyage for transient host-pressure failures.
+                if (IsExitCodeOom(exitCode))
+                {
+                    string oomReason = BuildOomFailureReason(exitCode);
+                    _ResourcePressureAdmission.MarkOom();
+                    _Logging.Warn(_Header + "mission " + missionId + " classified as probable OOM/resource kill " + oomReason);
+                    await RequeueTransientMissionFailureAsync(captain, mission, missionId, oomReason, token).ConfigureAwait(false);
+                    await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+                    return;
+                }
+
+                // Fail the mission deterministically. Process exits should not bounce between
+                // recovery paths; preserve the captured runtime error, halt the voyage, and only
+                // stall the captain when the failure indicates the runtime itself is unavailable.
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
             }
@@ -1853,7 +1872,8 @@ namespace Armada.Core.Services
         {
             return assignmentState == MissionAssignmentStateEnum.WaitingForDependency
                 || assignmentState == MissionAssignmentStateEnum.WaitingForVesselMutex
-                || assignmentState == MissionAssignmentStateEnum.WaitingForIdleCaptain;
+                || assignmentState == MissionAssignmentStateEnum.WaitingForIdleCaptain
+                || assignmentState == MissionAssignmentStateEnum.WaitingForResourcePressure;
         }
 
         private async Task DispatchPendingMissionsAsync(CancellationToken token)
@@ -2160,6 +2180,31 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "could not inspect mission log for explicit success verdict on " + missionId + ": " + ex.Message);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Whether the captured process exit code is a probable resource kill. Exit 137
+        /// means SIGKILL and commonly indicates OOM, but it can also be an explicit kill.
+        /// A null code is intentionally not classified because it is still more ambiguous.
+        /// </summary>
+        /// <param name="exitCode">Process exit code.</param>
+        /// <returns>True when the exit code indicates a probable OOM/resource kill.</returns>
+        internal static bool IsExitCodeOom(int? exitCode)
+        {
+            return exitCode.HasValue && exitCode.Value == 137;
+        }
+
+        /// <summary>
+        /// Build the distinct failure reason recorded for a probable OOM/resource kill.
+        /// The leading <c>OOM:</c> marker is stable so telemetry/tests can detect it.
+        /// </summary>
+        /// <param name="exitCode">Process exit code.</param>
+        /// <returns>OOM failure reason string.</returns>
+        internal static string BuildOomFailureReason(int? exitCode)
+        {
+            return "OOM: captain process received SIGKILL (exit "
+                + (exitCode?.ToString() ?? "unknown")
+                + "), consistent with host OOM/resource pressure; mission requeued and retry deferred until resource capacity returns.";
         }
 
         private async Task<string> BuildProcessExitFailureReasonAsync(string missionId, int? exitCode, CancellationToken token)

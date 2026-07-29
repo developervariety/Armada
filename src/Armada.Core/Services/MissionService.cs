@@ -58,6 +58,7 @@ namespace Armada.Core.Services
         private IDockService _Docks;
         private ICaptainService _Captains;
         private ICaptainQuarantineService _CaptainQuarantine;
+        private IResourcePressureAdmission _ResourcePressureAdmission;
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
@@ -155,6 +156,7 @@ namespace Armada.Core.Services
         /// <param name="promptTemplates">Prompt template service (optional for backward compatibility).</param>
         /// <param name="git">Git service used for branch cleanup on non-landed intermediate stages.</param>
         /// <param name="captainQuarantine">Optional captain quarantine service.</param>
+        /// <param name="resourcePressureAdmission">Optional resource-pressure admission policy applied before launch.</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -163,7 +165,8 @@ namespace Armada.Core.Services
             ICaptainService captains,
             IPromptTemplateService? promptTemplates = null,
             IGitService? git = null,
-            ICaptainQuarantineService? captainQuarantine = null)
+            ICaptainQuarantineService? captainQuarantine = null,
+            IResourcePressureAdmission? resourcePressureAdmission = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -172,6 +175,8 @@ namespace Armada.Core.Services
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
             _CaptainQuarantine = captainQuarantine ?? new CaptainQuarantineService(_Database, _Settings, _Logging);
+            _ResourcePressureAdmission = resourcePressureAdmission
+                ?? new ResourcePressureAdmission(_Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
             _PromptTemplates = promptTemplates;
             _Prestaging = new PrestagedFileCopier(_Logging);
         }
@@ -404,35 +409,41 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) -- potential for conflicts (AllowConcurrentMissions=true)");
             }
 
-            // Global host-capacity gate. The per-vessel checks above bound concurrency within a
-            // single repo, but across vessels the fleet can still fan out an unbounded number of
-            // concurrent captain agent processes -- each of which may itself spawn compilers and
-            // build/test tooling -- and exhaust host memory. MaxConcurrentCaptainWorkloads (0 =
-            // disabled) caps the total Assigned + InProgress missions admitted across the whole
-            // admiral so captain + compiler memory pressure stays within the host budget. The gate
-            // is evaluated here, after per-vessel serialization, so a vessel that serializes never
-            // counts against the global budget while idle. Deferring leaves the mission Pending so
-            // the next sweep re-evaluates as active work drains.
-            if (_Settings.MaxConcurrentCaptainWorkloads > 0)
+            // Both admission controls use the global active workload count. A per-vessel count
+            // misses simultaneous compiler and agent pressure from other repositories.
+            Dictionary<MissionStatusEnum, int> statusCounts =
+                await _Database.Missions.CountByStatusAsync(token).ConfigureAwait(false);
+            int globalActive = 0;
+            if (statusCounts != null)
             {
-                Dictionary<MissionStatusEnum, int> statusCounts = await _Database.Missions.CountByStatusAsync(token).ConfigureAwait(false);
-                int globalActive = 0;
-                if (statusCounts != null)
-                {
-                    if (statusCounts.TryGetValue(MissionStatusEnum.Assigned, out int assignedCount)) globalActive += assignedCount;
-                    if (statusCounts.TryGetValue(MissionStatusEnum.InProgress, out int inProgressCount)) globalActive += inProgressCount;
-                }
+                if (statusCounts.TryGetValue(MissionStatusEnum.Assigned, out int assignedCount))
+                    globalActive += assignedCount;
+                if (statusCounts.TryGetValue(MissionStatusEnum.InProgress, out int inProgressCount))
+                    globalActive += inProgressCount;
+            }
 
-                if (globalActive >= _Settings.MaxConcurrentCaptainWorkloads)
-                {
-                    _Logging.Info(_Header + "global host-capacity gate deferring mission " + mission.Id +
-                        " -- " + globalActive + " active captain workload(s) >= limit " + _Settings.MaxConcurrentCaptainWorkloads +
-                        " (MaxConcurrentCaptainWorkloads)");
-                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForHostCapacity;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
-                    return false;
-                }
+            string? deferralReason = null;
+            if (_Settings.MaxConcurrentCaptainWorkloads > 0 &&
+                globalActive >= _Settings.MaxConcurrentCaptainWorkloads)
+            {
+                deferralReason = globalActive + " active captain workload(s) reached global limit "
+                    + _Settings.MaxConcurrentCaptainWorkloads + " (MaxConcurrentCaptainWorkloads).";
+            }
+            else
+            {
+                ResourcePressureDecision admission = _ResourcePressureAdmission.Evaluate(globalActive);
+                if (!admission.Admit)
+                    deferralReason = admission.Reason;
+            }
+
+            if (!String.IsNullOrEmpty(deferralReason))
+            {
+                _Logging.Warn(_Header + "resource-pressure admission deferring mission " + mission.Id
+                    + " on vessel " + vessel.Id + ": " + deferralReason);
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForResourcePressure;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                return false;
             }
 
             // Find an idle captain, preferring those matching the mission's persona,
