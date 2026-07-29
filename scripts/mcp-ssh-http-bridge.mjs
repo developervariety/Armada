@@ -209,8 +209,43 @@ export async function runBridge(options = {}) {
       }
 
       const hasId = Object.prototype.hasOwnProperty.call(requestObject, "id");
+
+      // Answer the MCP handshake locally so the client can connect even when
+      // SSH is unavailable at launch (e.g. the 1Password SSH agent is locked).
+      // The remote Armada MCP endpoint negotiates protocol version at its own
+      // (bare) initialize, so nothing is lost by not proxying this handshake;
+      // only actual tool calls need SSH.
+      if (requestObject.method === "initialize") {
+        if (hasId) {
+          output.write(JSON.stringify({
+            jsonrpc: "2.0",
+            id: requestObject.id,
+            result: {
+              protocolVersion: requestObject.params?.protocolVersion || "2024-11-05",
+              capabilities: { logging: {}, tools: {} },
+              serverInfo: { name: "Armada", version: "0.8.0" },
+            },
+          }) + "\n");
+        }
+        return;
+      }
+      if (requestObject.method === "notifications/initialized") {
+        return;
+      }
+
+      // The remote build enforces strict per-request protocol metadata
+      // (reserved `_meta/io.modelcontextprotocol/*` keys require a matching
+      // MCP-Protocol-Version header and, for the current version, a
+      // clientCapabilities object). A stateless SSH proxy that fans each
+      // JSON-RPC message out as an independent request cannot satisfy that
+      // handshake per request, so strip the reserved keys and send every
+      // request in its lenient "bare" form. Non-reserved keys (progressToken,
+      // etc.) are preserved.
+      const cleanedObject = stripReservedMeta(requestObject);
+      const cleanedMessage = cleanedObject === requestObject ? message : JSON.stringify(cleanedObject);
+
       try {
-        const response = await request(message, sessionId, requestObject);
+        const response = await request(cleanedMessage, sessionId, cleanedObject);
         if (response.sessionId) {
           sessionId = validateSessionId(response.sessionId);
         }
@@ -267,6 +302,36 @@ export async function runBridge(options = {}) {
 
   parser.end();
   await queue;
+}
+
+const RESERVED_META_PREFIX = "io.modelcontextprotocol/";
+
+export function stripReservedMeta(requestObject) {
+  const meta = requestObject && requestObject.params && requestObject.params._meta;
+  if (!meta || typeof meta !== "object") {
+    return requestObject;
+  }
+
+  const reservedKeys = Object.keys(meta).filter((key) => key.startsWith(RESERVED_META_PREFIX));
+  if (reservedKeys.length === 0) {
+    return requestObject;
+  }
+
+  const nextMeta = {};
+  for (const key of Object.keys(meta)) {
+    if (!key.startsWith(RESERVED_META_PREFIX)) {
+      nextMeta[key] = meta[key];
+    }
+  }
+
+  const nextParams = { ...requestObject.params };
+  if (Object.keys(nextMeta).length === 0) {
+    delete nextParams._meta;
+  } else {
+    nextParams._meta = nextMeta;
+  }
+
+  return { ...requestObject, params: nextParams };
 }
 
 export function buildSshArgs(environment, remoteCommand) {
