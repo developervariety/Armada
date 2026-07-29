@@ -94,9 +94,9 @@ namespace Armada.Core.Services
             public OpenCodeProviderDefinition(string model)
             {
                 string providerModelId = model.Substring(_ModelPrefix.Length);
-                Models = new Dictionary<string, object>(StringComparer.Ordinal)
+                Models = new Dictionary<string, OpenCodeModelDefinition>(StringComparer.Ordinal)
                 {
-                    [providerModelId] = new object()
+                    [providerModelId] = new OpenCodeModelDefinition(model)
                 };
             }
 
@@ -114,7 +114,22 @@ namespace Armada.Core.Services
 
             /// <summary>Models exposed by this custom provider.</summary>
             [JsonPropertyName("models")]
-            public Dictionary<string, object> Models { get; set; }
+            public Dictionary<string, OpenCodeModelDefinition> Models { get; set; }
+        }
+
+        /// <summary>OpenCode model alias mapped to the canonical Zyloo API identifier.</summary>
+        private sealed class OpenCodeModelDefinition
+        {
+            /// <summary>Creates a model definition for the upstream Zyloo identifier.</summary>
+            /// <param name="model">Canonical Zyloo API model identifier.</param>
+            public OpenCodeModelDefinition(string model)
+            {
+                Id = model;
+            }
+
+            /// <summary>Model identifier sent to the Zyloo OpenAI-compatible API.</summary>
+            [JsonPropertyName("id")]
+            public string Id { get; set; }
         }
 
         /// <summary>Connection options for the provider.</summary>
