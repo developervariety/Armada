@@ -316,6 +316,9 @@ services:
     # packaging here, not a strong security boundary.
     security_opt: [seccomp=unconfined, apparmor=unconfined]
     cap_add: [SYS_ADMIN, NET_ADMIN]
+    post_start:
+      - command: ["/bin/sh", "-lc", "ip link show can0 >/dev/null 2>&1 || ip link add can0 type vcan; ip link set can0 up"]
+        user: root
     ports:
       - "0.0.0.0:7890:7890"
       - "127.0.0.1:7891:7891"
