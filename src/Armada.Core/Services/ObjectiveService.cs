@@ -268,17 +268,16 @@ namespace Armada.Core.Services
             if (request.CheckRunIds != null) objective.CheckRunIds = DistinctNormalized(request.CheckRunIds);
             if (request.ReleaseIds != null) objective.ReleaseIds = DistinctNormalized(request.ReleaseIds);
             if (request.DeploymentIds != null) objective.DeploymentIds = DistinctNormalized(request.DeploymentIds);
-            // Whether the CALLER supplied incident ids decides how strictly they are validated below.
-            bool callerSuppliedIncidentIds = request.IncidentIds != null;
             if (request.IncidentIds != null) objective.IncidentIds = DistinctNormalized(request.IncidentIds);
             objective.LastUpdateUtc = DateTime.UtcNow;
 
             SanitizeObjective(objective);
-            // Supplying a bad incident id is still rejected. But when the caller did not touch
-            // incidents at all, a pre-existing dangling reference must not block an unrelated edit --
-            // that made objectives carrying a stale incident permanently uneditable, including the
-            // retag that surfaced this.
-            await ValidateLinksAsync(auth, objective, token, tolerateDanglingIncidents: !callerSuppliedIncidentIds).ConfigureAwait(false);
+            // Validate only link fields the caller supplied. Persisted objectives can contain
+            // legacy links created under an older ownership model (for example, a user-owned
+            // objective linked to a null-user fleet). Revalidating every unchanged link made
+            // unrelated evidence, status, and refinement edits impossible. Explicitly supplied
+            // links remain strict, so this does not weaken authorization for new link changes.
+            await ValidateUpdatedLinksAsync(auth, objective, request, token).ConfigureAwait(false);
             ApplyLifecycleTimestamps(objective);
             await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
             OnObjectiveChanged?.Invoke(objective);
@@ -847,6 +846,55 @@ namespace Armada.Core.Services
             }
 
             if (!String.IsNullOrWhiteSpace(objective.SuggestedPipelineId)
+                && !await ReadPipelineAsync(objective.SuggestedPipelineId, token).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("Pipeline not found or not accessible: " + objective.SuggestedPipelineId);
+            }
+        }
+
+        /// <summary>
+        /// Validate only outbound-reference fields explicitly supplied by an update request.
+        /// Unchanged persisted links are grandfathered so legacy ownership normalization cannot
+        /// block an unrelated objective edit, while every caller-supplied link remains strict.
+        /// </summary>
+        private async Task ValidateUpdatedLinksAsync(
+            AuthContext auth,
+            Objective objective,
+            ObjectiveUpsertRequest request,
+            CancellationToken token)
+        {
+            if (request.ParentObjectiveId != null
+                && !String.IsNullOrWhiteSpace(objective.ParentObjectiveId)
+                && !await ReadObjectiveExistsAsync(auth, objective.ParentObjectiveId, token).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("Parent objective not found or not accessible: " + objective.ParentObjectiveId);
+            }
+
+            if (request.BlockedByObjectiveIds != null)
+                await ValidateIdsAsync(objective.BlockedByObjectiveIds, async id => await ReadObjectiveExistsAsync(auth, id, token).ConfigureAwait(false), "Blocking objective").ConfigureAwait(false);
+            if (request.FleetIds != null)
+                await ValidateIdsAsync(objective.FleetIds, async id => await ReadFleetAsync(auth, id, token).ConfigureAwait(false), "Fleet").ConfigureAwait(false);
+            if (request.VesselIds != null)
+                await ValidateIdsAsync(objective.VesselIds, async id => await ReadVesselAsync(auth, id, token).ConfigureAwait(false), "Vessel").ConfigureAwait(false);
+            if (request.PlanningSessionIds != null)
+                await ValidateIdsAsync(objective.PlanningSessionIds, async id => await ReadPlanningSessionAsync(auth, id, token).ConfigureAwait(false), "Planning session").ConfigureAwait(false);
+            if (request.RefinementSessionIds != null)
+                await ValidateIdsAsync(objective.RefinementSessionIds, async id => await ReadObjectiveRefinementSessionAsync(auth, id, token).ConfigureAwait(false), "Refinement session").ConfigureAwait(false);
+            if (request.VoyageIds != null)
+                await ValidateIdsAsync(objective.VoyageIds, async id => await ReadVoyageAsync(auth, id, token).ConfigureAwait(false), "Voyage").ConfigureAwait(false);
+            if (request.MissionIds != null)
+                await ValidateIdsAsync(objective.MissionIds, async id => await ReadMissionAsync(auth, id, token).ConfigureAwait(false), "Mission").ConfigureAwait(false);
+            if (request.CheckRunIds != null)
+                await ValidateIdsAsync(objective.CheckRunIds, async id => await ReadCheckRunAsync(auth, id, token).ConfigureAwait(false), "Check run").ConfigureAwait(false);
+            if (request.ReleaseIds != null)
+                await ValidateIdsAsync(objective.ReleaseIds, async id => await ReadReleaseAsync(auth, id, token).ConfigureAwait(false), "Release").ConfigureAwait(false);
+            if (request.DeploymentIds != null)
+                await ValidateIdsAsync(objective.DeploymentIds, async id => await ReadDeploymentAsync(auth, id, token).ConfigureAwait(false), "Deployment").ConfigureAwait(false);
+            if (request.IncidentIds != null)
+                await ValidateIdsAsync(objective.IncidentIds, async id => await ReadIncidentAsync(auth, id, token).ConfigureAwait(false), "Incident").ConfigureAwait(false);
+
+            if (request.SuggestedPipelineId != null
+                && !String.IsNullOrWhiteSpace(objective.SuggestedPipelineId)
                 && !await ReadPipelineAsync(objective.SuggestedPipelineId, token).ConfigureAwait(false))
             {
                 throw new InvalidOperationException("Pipeline not found or not accessible: " + objective.SuggestedPipelineId);

@@ -854,6 +854,80 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("inc_definitely_missing", suppliedError,
                     "Explicitly supplying a missing incident id must still be rejected on update");
             }).ConfigureAwait(false);
+
+            await RunTest("UpdateAsync tolerates unchanged legacy links but validates caller-supplied links", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_legacy_links";
+                string userId = "usr_objective_legacy_links";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                // Simulate a migrated objective whose linked entities are no longer visible through
+                // the current user-scoped readers. Import/migration historically persisted these
+                // rows directly, so seed it below the service validation boundary.
+                Objective legacy = new Objective
+                {
+                    Id = "obj_legacy_inaccessible_links",
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Legacy linked objective",
+                    Status = ObjectiveStatusEnum.Completed,
+                    Kind = ObjectiveKindEnum.Feature,
+                    Priority = ObjectivePriorityEnum.P2,
+                    Rank = 80,
+                    BacklogState = ObjectiveBacklogStateEnum.Dispatched,
+                    Effort = ObjectiveEffortEnum.M,
+                    FleetIds = new List<string> { "flt_legacy_inaccessible" },
+                    VesselIds = new List<string> { "vsl_legacy_inaccessible" }
+                };
+                await testDb.Driver.Objectives.CreateAsync(legacy).ConfigureAwait(false);
+
+                Objective evidenced = await objectives.UpdateAsync(auth, legacy.Id, new ObjectiveUpsertRequest
+                {
+                    EvidenceLinks = new List<string> { "commit:abc123" },
+                    RefinementSummary = "Verified from repository history."
+                }).ConfigureAwait(false);
+
+                AssertTrue(evidenced.EvidenceLinks.Contains("commit:abc123"),
+                    "An unrelated evidence update must not revalidate unchanged legacy links");
+                AssertTrue(evidenced.FleetIds.Contains("flt_legacy_inaccessible"),
+                    "The unchanged legacy fleet link must be preserved");
+                AssertTrue(evidenced.VesselIds.Contains("vsl_legacy_inaccessible"),
+                    "The unchanged legacy vessel link must be preserved");
+
+                string fleetError = "";
+                try
+                {
+                    await objectives.UpdateAsync(auth, legacy.Id, new ObjectiveUpsertRequest
+                    {
+                        FleetIds = new List<string> { "flt_legacy_inaccessible" }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    fleetError = ex.Message;
+                }
+                AssertContains("flt_legacy_inaccessible", fleetError,
+                    "Explicitly supplying an inaccessible fleet must remain a strict validation error");
+
+                string vesselError = "";
+                try
+                {
+                    await objectives.UpdateAsync(auth, legacy.Id, new ObjectiveUpsertRequest
+                    {
+                        VesselIds = new List<string> { "vsl_new_inaccessible" }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    vesselError = ex.Message;
+                }
+                AssertContains("vsl_new_inaccessible", vesselError,
+                    "Explicitly supplying an inaccessible vessel must remain a strict validation error");
+            }).ConfigureAwait(false);
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)
