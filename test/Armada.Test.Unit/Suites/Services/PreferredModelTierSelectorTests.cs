@@ -134,6 +134,30 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("ZylooQualifiedModels_ClassifyIntoConfiguredTiers", () =>
+            {
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("zyloo/deepseek-v4-flash"), "Zyloo DeepSeek Flash must participate in low-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/glm-5.2"), "Zyloo GLM must participate in mid-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-4-7"), "Zyloo Opus must participate in high-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.5"), "Zyloo GPT must participate in high-tier routing");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_MidTier_PrefersZylooGlmBeforeOpenCodeGlm", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("opencode/glm-5.2"),
+                    MakeCaptain("zyloo/glm-5.2")
+                };
+
+                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
+
+                AssertEqual("zyloo/glm-5.2", selected, "The Zyloo GLM entry must precede the OpenCode GLM equivalent");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_MidTier_DuplicatedCaptains_PreferenceOrderWins", () =>
             {
                 // Many composer captains and one sonnet captain. The default mid preference
@@ -606,20 +630,15 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default preference order contains mid tier");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                // UPDATED 2026-07-22 -- deliberate default change, NOT a blind re-baseline.
-                // The order previously listed only PRIOR-generation ids (k2.7 / sonnet-4-6 /
-                // composer-2.5), none of which any live captain carries, so within-tier preference
-                // steered nothing in production. Current-generation ids now lead each family, with
-                // the prior generation retained behind as a generation fallback. Family order
-                // (kimi -> sonnet -> composer) is intentionally unchanged, so the behavioural
-                // fallback tests below still assert the same contract.
-                AssertEqual(6, midOrder.Count, "default mid preference order lists current + prior generation per family");
-                AssertEqual("opencode-go/kimi-k3", midOrder[0], "starts with current-generation Kimi (K3), the designated primary");
-                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[1], "prior-generation Kimi follows as a generation fallback");
-                AssertEqual("claude-sonnet-5", midOrder[2], "sonnet family second, current generation first");
-                AssertEqual("claude-sonnet-4-6", midOrder[3], "prior-generation sonnet follows");
-                AssertEqual("composer-2-fast", midOrder[4], "composer family third, current generation first");
-                AssertEqual("composer-2.5", midOrder[5], "prior-generation composer follows");
+                AssertEqual(8, midOrder.Count, "default mid preference order includes the two qualified GLM entries plus the current and prior generation fallbacks");
+                AssertEqual("zyloo/glm-5.2", midOrder[0], "starts with the Zyloo GLM captain, the designated primary");
+                AssertEqual("opencode/glm-5.2", midOrder[1], "OpenCode GLM follows as the equivalent-provider fallback");
+                AssertEqual("opencode-go/kimi-k3", midOrder[2], "current-generation Kimi follows the GLM pair");
+                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[3], "prior-generation Kimi follows as a generation fallback");
+                AssertEqual("claude-sonnet-5", midOrder[4], "sonnet family follows the Kimi family");
+                AssertEqual("claude-sonnet-4-6", midOrder[5], "prior-generation sonnet follows");
+                AssertEqual("composer-2-fast", midOrder[6], "composer current generation follows");
+                AssertEqual("composer-2.5", midOrder[7], "prior-generation composer follows");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
@@ -786,22 +805,16 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_K2_7FirstPreserved", () =>
+            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_ZylooGlmFirstPreserved", () =>
             {
-                // The default mid preference order must keep the Kimi family first, then sonnet,
-                // then composer, and must be overridable through settings.
-                // UPDATED 2026-07-22: the leading id per family moved to the CURRENT generation
-                // (k2.7 -> k3, sonnet-4-6 -> sonnet-5, composer-2.5 -> composer-2-fast) because the
-                // previous ids matched no live captain and therefore steered nothing. The prior
-                // generation is retained directly behind its successor, so family precedence --
-                // which is what this test really guards -- is unchanged.
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default contains mid preference order");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual("opencode-go/kimi-k3", midOrder[0], "default mid order starts with current-generation Kimi");
-                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[1], "prior-generation Kimi immediately follows");
-                AssertEqual("claude-sonnet-5", midOrder[2], "sonnet family is second");
-                AssertEqual("composer-2-fast", midOrder[4], "composer family is third");
+                AssertEqual("zyloo/glm-5.2", midOrder[0], "default mid order starts with Zyloo GLM");
+                AssertEqual("opencode/glm-5.2", midOrder[1], "OpenCode GLM immediately follows");
+                AssertEqual("opencode-go/kimi-k3", midOrder[2], "current-generation Kimi follows the GLM pair");
+                AssertEqual("claude-sonnet-5", midOrder[4], "sonnet family follows Kimi");
+                AssertEqual("composer-2-fast", midOrder[6], "composer family follows sonnet");
 
                 List<Captain> captains = new List<Captain>
                 {
@@ -884,30 +897,23 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("ClassifyModel_EmptyHighList_DropsExplicitOnlyEntryButKeepsPatternFamily", () =>
+            await RunTest("ClassifyModel_EmptyHighList_OverridesBuiltInFamilyInference", () =>
             {
-                // Residual-risk guard: emptying the high list removes models that ONLY count via an
-                // explicit entry (gpt-5.5) -- they fall through to null since there is no gpt
-                // pattern. Models that count via a canonical family pattern (opus) are unaffected,
-                // because the pattern fallback runs after the (now empty) list check.
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.HighTierModels = new List<string>();
 
                 AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.5", custom), "explicit-only gpt-5.5 is unclassified once the high list is emptied");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "opus still classifies high via its canonical family pattern even with an empty high list");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "an empty configured high list must override the built-in Opus family inference");
                 return Task.CompletedTask;
             });
 
-            await RunTest("ClassifyModel_EmptyMidList_PatternFamiliesStillClassifyMid", () =>
+            await RunTest("ClassifyModel_EmptyMidList_OverridesBuiltInFamilyInference", () =>
             {
-                // Clearing the mid list does not strip pattern-driven members: sonnet (canonical
-                // pattern) and composer- (prefix fallback) remain mid because the pattern checks
-                // run after the empty list check.
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.MidTierModels = new List<string>();
 
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", custom), "sonnet stays mid via canonical pattern with an empty mid list");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("composer-2.5", custom), "composer- stays mid via prefix fallback with an empty mid list");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", custom), "an empty configured mid list must override the built-in Sonnet family inference");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("composer-2.5", custom), "an empty configured mid list must override the built-in Composer family inference");
                 return Task.CompletedTask;
             });
 

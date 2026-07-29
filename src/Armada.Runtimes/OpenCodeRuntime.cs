@@ -40,6 +40,47 @@ namespace Armada.Runtimes
         /// </summary>
         public override bool SupportsResume => false;
 
+        /// <summary>
+        /// Starts an OpenCode captain process, adding the Zyloo custom-provider overlay only
+        /// when the captain explicitly selects a canonical <c>zyloo/</c> model.
+        /// </summary>
+        /// <remarks>
+        /// Existing environment-supplied inline configuration remains authoritative. This
+        /// permits operator overrides while ensuring normal OpenCode captains receive no
+        /// Zyloo-specific configuration or behavior.
+        /// </remarks>
+        public override async Task<int> StartAsync(
+            string workingDirectory,
+            string prompt,
+            Dictionary<string, string>? environment = null,
+            string? logFilePath = null,
+            string? finalMessageFilePath = null,
+            string? model = null,
+            Captain? captain = null,
+            CancellationToken token = default)
+        {
+            Dictionary<string, string>? launchEnvironment = environment == null
+                ? null
+                : new Dictionary<string, string>(environment, StringComparer.Ordinal);
+
+            if (OpenCodeZylooProviderConfigBuilder.IsZylooModel(model) &&
+                (launchEnvironment == null || !launchEnvironment.ContainsKey("OPENCODE_CONFIG_CONTENT")))
+            {
+                launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = OpenCodeZylooProviderConfigBuilder.Build(model!);
+            }
+
+            return await base.StartAsync(
+                workingDirectory,
+                prompt,
+                launchEnvironment,
+                logFilePath,
+                finalMessageFilePath,
+                model,
+                captain,
+                token).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Private-Members
