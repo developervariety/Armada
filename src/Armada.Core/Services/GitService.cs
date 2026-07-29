@@ -386,9 +386,21 @@ namespace Armada.Core.Services
             // Merge the fetched local ref into the current branch.
             // Using a concrete ref avoids FETCH_HEAD resolution issues across separate git
             // invocations and keeps landing stable even when the target checkout is a worktree.
+            // When the source and target branch names match, this is a checkout reconciliation
+            // after a LocalMerge. It must remain a fast-forward so Armada never manufactures a
+            // second merge commit in the configured working directory.
+            bool fastForwardOnly = !String.IsNullOrEmpty(targetBranch)
+                && String.Equals(branchName, targetBranch, StringComparison.Ordinal);
             string message = commitMessage ?? ("Merge armada mission: " + branchName);
             try
             {
+                if (fastForwardOnly)
+                {
+                    await RunGitAsync(targetWorkDir, token, "merge", "--ff-only", fetchedBranchRef).ConfigureAwait(false);
+                    _Logging.Info(_Header + "fast-forwarded " + targetBranch + " in " + targetWorkDir + " from " + sourceRepoPath);
+                    return;
+                }
+
                 try
                 {
                     await RunGitAsync(targetWorkDir, token, "merge", fetchedBranchRef, "--no-edit", "-m", message).ConfigureAwait(false);

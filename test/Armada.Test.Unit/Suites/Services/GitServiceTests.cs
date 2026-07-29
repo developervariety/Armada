@@ -971,6 +971,58 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MergeBranchLocalAsync SameSourceAndTargetBranch FastForwardsFromLocalRepository", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string localBareDir = Path.Combine(rootDir, "armada-local.git");
+                string staleRemoteDir = Path.Combine(rootDir, "origin.git");
+                string targetDir = Path.Combine(rootDir, "target");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "core.autocrlf", "false").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, localBareDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, staleRemoteDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "-c", "core.autocrlf=false", staleRemoteDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "remote", "add", "armada-local", localBareDir).ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\nlanded locally\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Local landing").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "push", "armada-local", "main").ConfigureAwait(false);
+                    string expectedHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                    await service.MergeBranchLocalAsync(targetDir, localBareDir, "main", "main").ConfigureAwait(false);
+
+                    string actualHead = (await RunGitAsync(targetDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    string staleOriginHead = (await RunGitAsync(targetDir, "rev-parse", "origin/main").ConfigureAwait(false)).Trim();
+                    string commitCount = (await RunGitAsync(targetDir, "rev-list", "--count", "HEAD").ConfigureAwait(false)).Trim();
+
+                    AssertEqual(expectedHead, actualHead, "Configured checkout should reach Armada's locally landed target");
+                    AssertTrue(!String.Equals(actualHead, staleOriginHead, StringComparison.Ordinal), "Reconciliation must not depend on stale origin");
+                    AssertEqual("2", commitCount, "Reconciliation should fast-forward without creating a merge commit");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("MergeBranchLocalAsync Materializes MissingTargetBranch In Landing Checkout", async () =>
             {
                 GitService service = CreateService();

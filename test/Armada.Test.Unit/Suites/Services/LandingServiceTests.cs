@@ -104,7 +104,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("MergeInDedicatedWorktreeAsync_DirtyOrOffTargetUserWorkingDirectory_LeavesItAlone", async () =>
+            await RunTest("MergeInDedicatedWorktreeAsync_LocalMergeSyncsCheckoutFromLocalRepository", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.IsWorkingDirectoryCleanResult = true;
+                    git.CurrentBranchResult = "main";
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    vessel.LandingMode = LandingModeEnum.LocalMerge;
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(
+                        vessel,
+                        CreateMission("msn_local_checkout_sync"),
+                        "main",
+                        "armada/captain/msn_local_checkout_sync",
+                        "Merge armada mission").ConfigureAwait(false);
+
+                    AssertTrue(result, "LocalMerge landing should succeed after checkout reconciliation");
+                    AssertTrue(
+                        git.MergeBranchCalls.Contains("main -> " + vessel.WorkingDirectory),
+                        "LocalMerge checkout should fast-forward from the local landing repository");
+                    AssertFalse(
+                        git.PullFastForwardOnlyCalls.Contains(vessel.WorkingDirectory!),
+                        "LocalMerge checkout must not pull a potentially stale origin");
+                }
+            });
+
+            await RunTest("MergeInDedicatedWorktreeAsync_DirtyOrOffTargetLocalMergeCheckout_FailsLanding", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -115,6 +144,7 @@ namespace Armada.Test.Unit.Suites.Services
                     dirtyGit.CurrentBranchResult = "main";
                     LandingService dirtyService = CreateService(testDb.Driver, settings, dirtyGit);
                     Vessel dirtyVessel = CreateVessel();
+                    dirtyVessel.LandingMode = LandingModeEnum.LocalMerge;
 
                     bool dirtyResult = await dirtyService.MergeInDedicatedWorktreeAsync(
                         dirtyVessel,
@@ -128,6 +158,7 @@ namespace Armada.Test.Unit.Suites.Services
                     offTargetGit.CurrentBranchResult = "feature";
                     LandingService offTargetService = CreateService(testDb.Driver, settings, offTargetGit);
                     Vessel offTargetVessel = CreateVessel();
+                    offTargetVessel.LandingMode = LandingModeEnum.LocalMerge;
 
                     bool offTargetResult = await offTargetService.MergeInDedicatedWorktreeAsync(
                         offTargetVessel,
@@ -136,8 +167,8 @@ namespace Armada.Test.Unit.Suites.Services
                         "armada/captain/msn_off_target",
                         "Merge armada mission").ConfigureAwait(false);
 
-                    AssertTrue(dirtyResult, "Dirty user checkout should not fail integration landing");
-                    AssertTrue(offTargetResult, "Off-target user checkout should not fail integration landing");
+                    AssertFalse(dirtyResult, "Dirty configured checkout must keep LocalMerge landing incomplete");
+                    AssertFalse(offTargetResult, "Off-target configured checkout must keep LocalMerge landing incomplete");
                     AssertEqual(0, dirtyGit.PullFastForwardOnlyCalls.Count, "Dirty user checkout should not be pulled");
                     AssertEqual(0, offTargetGit.PullFastForwardOnlyCalls.Count, "Off-target user checkout should not be pulled");
                     AssertFalse(dirtyGit.MergeBranchCalls.Any(c => c.EndsWith(" -> " + dirtyVessel.WorkingDirectory, StringComparison.Ordinal)), "Dirty user working directory must not be merge target");

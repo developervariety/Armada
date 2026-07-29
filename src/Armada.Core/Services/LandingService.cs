@@ -158,8 +158,7 @@ namespace Armada.Core.Services
 
                 if (succeeded)
                 {
-                    await SyncUserWorkingDirectoryAfterLandingAsync(vessel, targetBranch, token).ConfigureAwait(false);
-                    return true;
+                    return await SyncUserWorkingDirectoryAfterLandingAsync(vessel, mission, targetBranch, token).ConfigureAwait(false);
                 }
 
                 if (failure == null || !IsTargetBranchDrift(failure))
@@ -340,11 +339,11 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private async Task SyncUserWorkingDirectoryAfterLandingAsync(Vessel vessel, string targetBranch, CancellationToken token)
+        private async Task<bool> SyncUserWorkingDirectoryAfterLandingAsync(Vessel vessel, Mission mission, string targetBranch, CancellationToken token)
         {
             if (String.IsNullOrEmpty(vessel.WorkingDirectory))
             {
-                return;
+                return true;
             }
 
             try
@@ -354,17 +353,52 @@ namespace Armada.Core.Services
 
                 if (isClean && String.Equals(currentBranch, targetBranch, StringComparison.Ordinal))
                 {
-                    await _Git.PullFastForwardOnlyAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "synced user working directory " + vessel.WorkingDirectory + " with fast-forward pull");
+                    if (vessel.LandingMode == LandingModeEnum.LocalMerge)
+                    {
+                        await _Git.MergeBranchLocalAsync(
+                            vessel.WorkingDirectory,
+                            vessel.LocalPath!,
+                            targetBranch,
+                            targetBranch,
+                            token: token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "synced user working directory " + vessel.WorkingDirectory + " from local landing repository");
+                    }
+                    else
+                    {
+                        await _Git.PullFastForwardOnlyAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "synced user working directory " + vessel.WorkingDirectory + " with fast-forward pull");
+                    }
+
+                    return true;
                 }
-                else
+
+                if (vessel.LandingMode == LandingModeEnum.LocalMerge)
                 {
-                    _Logging.Info(_Header + "leaving user working directory " + vessel.WorkingDirectory + " unchanged; run git pull on " + targetBranch + " to sync when ready");
+                    mission.FailureReason = "working_directory_sync_failed: configured checkout is "
+                        + (isClean ? "on branch " + (currentBranch ?? "(unknown)") : "not clean")
+                        + "; expected a clean checkout on " + targetBranch;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + mission.FailureReason);
+                    return false;
                 }
+
+                _Logging.Info(_Header + "leaving user working directory " + vessel.WorkingDirectory + " unchanged; run git pull on " + targetBranch + " to sync when ready");
+                return true;
             }
             catch (Exception ex)
             {
+                if (vessel.LandingMode == LandingModeEnum.LocalMerge)
+                {
+                    mission.FailureReason = "working_directory_sync_failed: " + ex.Message;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "failed to reconcile LocalMerge working directory " + vessel.WorkingDirectory + ": " + ex.Message);
+                    return false;
+                }
+
                 _Logging.Info(_Header + "leaving user working directory " + vessel.WorkingDirectory + " unchanged after sync check failed: " + ex.Message + "; run git pull on " + targetBranch + " to sync when ready");
+                return true;
             }
         }
 
