@@ -117,11 +117,20 @@ namespace Armada.Server.Mcp.Tools
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (dispatchVessel == null) return (object)new { Error = "Vessel not found: " + vesselId };
 
-                    object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
-                        codeIndexService,
-                        vesselId,
-                        "armada_decompose_plan").ConfigureAwait(false);
-                    if (blockedByIndex != null) return blockedByIndex;
+                    bool codeIndexEnabled = settings?.CodeIndex?.Enabled ?? true;
+                    string normalizedCodeContextMode;
+                    if (!TryNormalizeCodeContextMode(codeContextMode, CodeContextModeAuto, out normalizedCodeContextMode))
+                        return (object)new { Error = "invalid codeContextMode: " + codeContextMode + ". Expected auto, off, or force." };
+
+                    if (codeIndexEnabled
+                        && !String.Equals(normalizedCodeContextMode, CodeContextModeOff, StringComparison.Ordinal))
+                    {
+                        object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                            codeIndexService,
+                            vesselId,
+                            "armada_decompose_plan").ConfigureAwait(false);
+                        if (blockedByIndex != null) return blockedByIndex;
+                    }
 
                     List<SelectedPlaybook> callerPlaybooks = new List<SelectedPlaybook>();
                     if (args.Value.TryGetProperty("selectedPlaybooks", out JsonElement spElem) && spElem.ValueKind == JsonValueKind.Array)
@@ -152,7 +161,8 @@ namespace Armada.Server.Mcp.Tools
                         codeContextMode,
                         codeContextQuery,
                         codeContextTokenBudget,
-                        codeContextMaxResults).ConfigureAwait(false);
+                        codeContextMaxResults,
+                        codeIndexEnabled).ConfigureAwait(false);
                     if (codeContextError != null) return (object)new { Error = codeContextError };
 
                     Voyage voyage = await admiral.DispatchVoyageAsync(
@@ -256,7 +266,8 @@ namespace Armada.Server.Mcp.Tools
             string? modeValue,
             string? queryValue,
             int? tokenBudget,
-            int? maxResults)
+            int? maxResults,
+            bool codeIndexEnabled)
         {
             string mode;
             if (!TryNormalizeCodeContextMode(modeValue, CodeContextModeAuto, out mode))
@@ -264,6 +275,15 @@ namespace Armada.Server.Mcp.Tools
 
             if (String.Equals(mode, CodeContextModeOff, StringComparison.Ordinal))
                 return null;
+
+            if (!codeIndexEnabled)
+            {
+                if (String.Equals(mode, CodeContextModeForce, StringComparison.Ordinal))
+                    return "code context force requested but code indexing is disabled";
+
+                LogCodeContextWarning(logging, "code indexing is disabled; architect dispatch will continue without auto code context");
+                return null;
+            }
 
             if (codeIndexService == null)
             {

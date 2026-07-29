@@ -32,6 +32,36 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("DisabledSetting_BlocksReadAndBuildOperationsBeforeRepositoryWork", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-disabled-");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            configureCodeIndex: settings => settings.Enabled = false);
+
+                        await AssertThrowsAsync<InvalidOperationException>(
+                            () => service.GetStatusAsync("vsl_disabled"),
+                            "status reads must honor CodeIndex.Enabled=false").ConfigureAwait(false);
+                        await AssertThrowsAsync<InvalidOperationException>(
+                            () => service.BuildContextPackAsync(new ContextPackRequest
+                            {
+                                VesselId = "vsl_disabled",
+                                Goal = "must not execute"
+                            }),
+                            "context-pack builds must honor CodeIndex.Enabled=false").ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("UpdateAsync indexes eligible files and skips secrets and build outputs", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);

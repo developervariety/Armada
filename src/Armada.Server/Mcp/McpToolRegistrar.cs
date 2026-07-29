@@ -126,7 +126,10 @@ namespace Armada.Server.Mcp
             if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
             if (objectiveScheduler != null && objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
-            McpPersonaTools.Register(register, database, reflectionBootstrap);
+            McpPersonaTools.Register(
+                register,
+                database,
+                effectiveSettings.LearnedFactsEnabled ? reflectionBootstrap : null);
             McpPipelineTools.Register(register, database);
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAgentWakeTools.Register(register, remoteTriggerService);

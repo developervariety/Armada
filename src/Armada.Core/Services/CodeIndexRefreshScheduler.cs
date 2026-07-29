@@ -31,6 +31,7 @@ namespace Armada.Core.Services
             if (service == null || String.IsNullOrWhiteSpace(vesselId)) return;
             if (settings == null) throw new ArgumentNullException(nameof(settings));
             if (logging == null) throw new ArgumentNullException(nameof(logging));
+            if (!settings.Enabled) return;
 
             string capturedVesselId = vesselId.Trim();
             RefreshState state = _States.GetOrAdd(capturedVesselId, _ => new RefreshState());
@@ -70,6 +71,12 @@ namespace Armada.Core.Services
         {
             while (true)
             {
+                if (!settings.Enabled)
+                {
+                    _States.TryRemove(vesselId, out _);
+                    return;
+                }
+
                 int generation;
                 string reason;
                 lock (state.Gate)

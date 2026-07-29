@@ -96,6 +96,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
             Vessel vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
@@ -112,7 +113,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
         {
-            if (!_Settings.CodeIndex.Enabled) throw new InvalidOperationException("Code indexing is disabled.");
+            EnsureEnabled();
             if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
             Vessel vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
@@ -322,6 +323,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
@@ -435,6 +437,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.FleetId)) throw new ArgumentNullException(nameof(request.FleetId));
             if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
@@ -513,6 +516,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Goal)) throw new ArgumentNullException(nameof(request.Goal));
@@ -751,6 +755,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<bool> ShouldUseFastPackAsync(string vesselId, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
             // Cheap status lookup only: read the persisted index metadata for the indexed file
@@ -764,6 +769,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.FleetId)) throw new ArgumentNullException(nameof(request.FleetId));
             if (String.IsNullOrWhiteSpace(request.Goal)) throw new ArgumentNullException(nameof(request.Goal));
@@ -892,6 +898,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
@@ -942,18 +949,21 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             return await GetNeighborsAsync(request, includeCallers: true, includeCallees: false, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
         public async Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             return await GetNeighborsAsync(request, includeCallers: false, includeCallees: true, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
         public async Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Symbol)) throw new ArgumentNullException(nameof(request.Symbol));
@@ -967,6 +977,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Symbol)) throw new ArgumentNullException(nameof(request.Symbol));
@@ -1089,6 +1100,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeGraphNodeResponse> GetNodeAsync(CodeGraphNodeRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Symbol)) throw new ArgumentNullException(nameof(request.Symbol));
@@ -1140,6 +1152,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeGraphFileStructureResponse> GetFileStructureAsync(CodeGraphFileStructureRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
 
@@ -1179,6 +1192,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<CodeGraphExploreResponse> ExploreAsync(CodeGraphExploreRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
@@ -1266,6 +1280,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
             CodeIndexStatus status = await GetStatusAsync(vesselId, token).ConfigureAwait(false);
@@ -1334,6 +1349,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
         {
+            EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
 
@@ -1423,6 +1439,12 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private void EnsureEnabled()
+        {
+            if (!_Settings.CodeIndex.Enabled)
+                throw new InvalidOperationException("Code indexing is disabled.");
+        }
 
         private async Task<Vessel> ReadVesselOrThrowAsync(string vesselId, CancellationToken token)
         {

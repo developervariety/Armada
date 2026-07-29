@@ -189,8 +189,15 @@ namespace Armada.Server
                 ? new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)
                 : new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
-            ScheduleStartupBaselineCacheWarmup(_CodeIndex);
-            await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
+            if (_Settings.CodeIndex.Enabled)
+            {
+                ScheduleStartupBaselineCacheWarmup(_CodeIndex);
+                await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                _Logging.Info(_Header + "code-index startup work skipped: code indexing disabled");
+            }
 
             CaptainQuarantineService captainQuarantineService = new CaptainQuarantineService(_Database, _Settings, _Logging, new ProviderResetQuotaProbe());
             // Held as a field so the bench/unbench MCP tools mutate the same instance the
@@ -553,6 +560,7 @@ namespace Armada.Server
         private void ScheduleStartupBaselineCacheWarmup(ICodeIndexService codeIndexService)
         {
             if (codeIndexService == null) return;
+            if (!_Settings.CodeIndex.Enabled) return;
 
             _ = Task.Run(async () =>
             {

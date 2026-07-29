@@ -191,48 +191,113 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DecomposePlan_CodeContextOff_SkipsStatusAndContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arch-context-off", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    string specFile = Path.GetTempFileName();
+                    string claudeFile = Path.GetTempFileName();
+                    try
+                    {
+                        File.WriteAllText(specFile, "# Off Context Spec");
+                        File.WriteAllText(claudeFile, "# Project CLAUDE.md");
+
+                        string? origEnv = Environment.GetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD");
+                        Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", claudeFile);
+                        try
+                        {
+                            RecordingAdmiralService admiralDouble = new RecordingAdmiralService(testDb.Driver);
+                            RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                            Func<JsonElement?, Task<object>>? decomposeHandler = null;
+                            McpArchitectTools.Register(
+                                (name, _, _, handler) => { if (name == "armada_decompose_plan") decomposeHandler = handler; },
+                                testDb.Driver,
+                                new ArchitectOutputParser(),
+                                admiralDouble,
+                                codeIndex);
+
+                            JsonElement args = JsonSerializer.SerializeToElement(new
+                            {
+                                specPath = specFile,
+                                vesselId = vessel.Id,
+                                codeContextMode = "off"
+                            });
+                            object result = await decomposeHandler!(args).ConfigureAwait(false);
+                            string resultJson = JsonSerializer.Serialize(result);
+
+                            AssertFalse(resultJson.Contains("\"Error\""), "Off mode should dispatch: " + resultJson);
+                            AssertEqual(0, codeIndex.StatusRequestCount, "Off mode must not probe code-index status");
+                            AssertEqual(0, codeIndex.ContextPackRequests.Count, "Off mode must not build a context pack");
+                            AssertEqual(1, admiralDouble.Dispatched.Count, "Off mode should still create the architect mission");
+                        }
+                        finally
+                        {
+                            Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", origEnv);
+                        }
+                    }
+                    finally
+                    {
+                        if (File.Exists(specFile)) File.Delete(specFile);
+                        if (File.Exists(claudeFile)) File.Delete(claudeFile);
+                    }
+                }
+            });
+
             await RunTest("DecomposePlan_CodeContextForce_ReturnsErrorWhenGenerationFails", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arch-context-force", "https://github.com/test/repo.git")).ConfigureAwait(false);
                     string specFile = Path.GetTempFileName();
+                    string claudeFile = Path.GetTempFileName();
                     try
                     {
                         File.WriteAllText(specFile, "# Force Context Spec\n\nArchitect dispatch requires context.");
+                        File.WriteAllText(claudeFile, "# Project CLAUDE.md");
+                        string? origEnv = Environment.GetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD");
+                        Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", claudeFile);
 
-                        RecordingAdmiralService admiralDouble = new RecordingAdmiralService(testDb.Driver);
-                        RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
-                        codeIndex.BuildException = new InvalidOperationException("architect index failed");
-
-                        Func<JsonElement?, Task<object>>? decomposeHandler = null;
-                        McpArchitectTools.Register(
-                            (name, _, _, handler) => { if (name == "armada_decompose_plan") decomposeHandler = handler; },
-                            testDb.Driver,
-                            new ArchitectOutputParser(),
-                            admiralDouble,
-                            codeIndex);
-                        AssertNotNull(decomposeHandler);
-
-                        JsonElement args = JsonSerializer.SerializeToElement(new
+                        try
                         {
-                            specPath = specFile,
-                            vesselId = vessel.Id,
-                            codeContextMode = "force"
-                        });
+                            RecordingAdmiralService admiralDouble = new RecordingAdmiralService(testDb.Driver);
+                            RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                            codeIndex.BuildException = new InvalidOperationException("architect index failed");
 
-                        object result = await decomposeHandler!(args).ConfigureAwait(false);
-                        string resultJson = JsonSerializer.Serialize(result);
+                            Func<JsonElement?, Task<object>>? decomposeHandler = null;
+                            McpArchitectTools.Register(
+                                (name, _, _, handler) => { if (name == "armada_decompose_plan") decomposeHandler = handler; },
+                                testDb.Driver,
+                                new ArchitectOutputParser(),
+                                admiralDouble,
+                                codeIndex);
+                            AssertNotNull(decomposeHandler);
 
-                        AssertContains("\"Error\"", resultJson);
-                        AssertContains("code context generation failed for architect mission", resultJson);
-                        AssertContains("architect index failed", resultJson);
-                        AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should attempt architect context generation once");
-                        AssertEqual(0, admiralDouble.Dispatched.Count, "Force context failure should block architect dispatch");
+                            JsonElement args = JsonSerializer.SerializeToElement(new
+                            {
+                                specPath = specFile,
+                                vesselId = vessel.Id,
+                                codeContextMode = "force"
+                            });
+
+                            object result = await decomposeHandler!(args).ConfigureAwait(false);
+                            string resultJson = JsonSerializer.Serialize(result);
+
+                            AssertContains("\"Error\"", resultJson);
+                            AssertContains("code context generation failed for architect mission", resultJson);
+                            AssertContains("architect index failed", resultJson);
+                            AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should attempt architect context generation once");
+                            AssertEqual(0, admiralDouble.Dispatched.Count, "Force context failure should block architect dispatch");
+                        }
+                        finally
+                        {
+                            Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", origEnv);
+                        }
                     }
                     finally
                     {
                         if (File.Exists(specFile)) File.Delete(specFile);
+                        if (File.Exists(claudeFile)) File.Delete(claudeFile);
                     }
                 }
             });
@@ -850,6 +915,8 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class RecordingCodeIndexService : ICodeIndexService
         {
+            public int StatusRequestCount { get; private set; }
+
             public List<ContextPackRequest> ContextPackRequests { get; } = new List<ContextPackRequest>();
 
             public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
@@ -860,6 +927,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
             {
+                StatusRequestCount++;
                 Status.VesselId = vesselId;
                 if (String.IsNullOrWhiteSpace(Status.VesselName))
                     Status.VesselName = vesselId;

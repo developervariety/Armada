@@ -56,6 +56,9 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    if (!settings.LearnedFactsEnabled)
+                        return (object)new { Error = "learned_facts_disabled" };
+
                     ConsolidateMemoryArgs request = args.HasValue
                         ? JsonSerializer.Deserialize<ConsolidateMemoryArgs>(args!.Value, _JsonOptions)!
                         : new ConsolidateMemoryArgs();
@@ -218,6 +221,9 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    if (!settings.LearnedFactsEnabled)
+                        return (object)new { Error = "learned_facts_disabled" };
+
                     AcceptMemoryProposalArgs request = JsonSerializer.Deserialize<AcceptMemoryProposalArgs>(args!.Value, _JsonOptions)!;
                     IReflectionMemoryService memoryService = new ReflectionMemoryService(database);
                     IReflectionOutputParser parser = new ReflectionOutputParser();
@@ -273,6 +279,9 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    if (!settings.LearnedFactsEnabled)
+                        return (object)new { Error = "learned_facts_disabled" };
+
                     RejectMemoryProposalArgs request = JsonSerializer.Deserialize<RejectMemoryProposalArgs>(args!.Value, _JsonOptions)!;
                     IReflectionMemoryService memoryService = new ReflectionMemoryService(database);
                     string? error = await memoryService.RejectMemoryProposalAsync(
@@ -301,6 +310,9 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    if (!settings.LearnedFactsEnabled)
+                        return (object)new { Error = "learned_facts_disabled" };
+
                     CheckStaleMemoryArgs request = JsonSerializer.Deserialize<CheckStaleMemoryArgs>(args!.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.VesselId))
                         return (object)new { Error = "vessel_id_required" };

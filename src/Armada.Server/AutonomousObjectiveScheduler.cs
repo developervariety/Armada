@@ -395,7 +395,7 @@ namespace Armada.Server
                 throw new ObjectiveSkippedException();
             }
 
-            if (_CodeIndex != null)
+            if (_Settings.CodeIndex.Enabled && _CodeIndex != null)
             {
                 try
                 {
@@ -422,7 +422,7 @@ namespace Armada.Server
             string missionDescription = BuildMissionDescription(objective);
             MissionDescription md = new MissionDescription(objective.Title, missionDescription)
             {
-                CodeContextMode = "auto"
+                CodeContextMode = _Settings.CodeIndex.Enabled ? "auto" : "off"
             };
 
             List<MissionDescription> missionDescriptions = new List<MissionDescription> { md };

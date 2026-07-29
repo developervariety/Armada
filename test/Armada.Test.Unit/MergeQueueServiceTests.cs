@@ -411,6 +411,26 @@ namespace Armada.Test.Unit
                     "rapid refresh requests for one vessel should be coalesced into one update");
             });
 
+            await RunTest("CodeIndexRefreshScheduler_Disabled_DoesNotScheduleRefresh", async () =>
+            {
+                RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
+                ArmadaSettings settings = CreateSettings();
+                settings.CodeIndex.Enabled = false;
+                string vesselId = "vsl_disabled_" + Guid.NewGuid().ToString("N");
+
+                CodeIndexRefreshScheduler.Schedule(
+                    recordingIndex,
+                    settings.CodeIndex,
+                    CreateLogging(),
+                    "[test] ",
+                    vesselId,
+                    "disabled landing");
+
+                await Task.Delay(100).ConfigureAwait(false);
+                AssertEqual(0, recordingIndex.UpdateAsyncVesselIds.Count,
+                    "disabled code indexing must not schedule post-land refresh work");
+            });
+
             await RunTest("ProcessSingle_BoundaryViolation_FailsBeforeTestsRun", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_boundary_" + Guid.NewGuid().ToString("N"));

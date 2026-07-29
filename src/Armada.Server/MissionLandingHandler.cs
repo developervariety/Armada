@@ -195,6 +195,17 @@ namespace Armada.Server
             {
                 _Logging.Info(_Header + "short-circuiting landing for MemoryConsolidator mission " + mission.Id);
 
+                if (!_Settings.LearnedFactsEnabled)
+                {
+                    DateTime disabledCompletedUtc = DateTime.UtcNow;
+                    mission.Status = MissionStatusEnum.Complete;
+                    mission.CompletedUtc = disabledCompletedUtc;
+                    mission.LastUpdateUtc = disabledCompletedUtc;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    _Logging.Info(_Header + "discarded MemoryConsolidator output because learned facts are disabled");
+                    return;
+                }
+
                 string? candidateMarkdown = null;
                 try
                 {

@@ -1377,7 +1377,7 @@ namespace Armada.Core.Services
             content += await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false);
 
             // Model context updates
-            if (vessel.EnableModelContext)
+            if (vessel.EnableModelContext && _Settings.LearnedFactsEnabled)
             {
                 content += "\n";
                 content += await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false);
@@ -1566,6 +1566,7 @@ namespace Armada.Core.Services
             for (int i = 0; i < snapshots.Count; i++)
             {
                 MissionPlaybookSnapshot snapshot = snapshots[i];
+                if (!_Settings.LearnedFactsEnabled && IsLearnedFactsPlaybook(snapshot.FileName)) continue;
 
                 // A playbook whose body is only a heading, or a "no accepted notes yet"
                 // placeholder, costs the captain a read (or prompt tokens) to learn nothing.
@@ -1626,6 +1627,12 @@ namespace Armada.Core.Services
             }
 
             return String.Join("\n\n", sections);
+        }
+
+        private static bool IsLearnedFactsPlaybook(string? fileName)
+        {
+            if (String.IsNullOrWhiteSpace(fileName)) return false;
+            return fileName.Trim().EndsWith("-learned.md", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

@@ -427,6 +427,55 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GenerateClaudeMdAsync_LearnedFactsDisabled_OmitsProposalAndLearnedPlaybook", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LearnedFactsEnabled = false;
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("DisabledLearnedFactsVessel", "https://github.com/test/repo");
+                        vessel.EnableModelContext = true;
+                        vessel.ModelContext = "Legacy context remains readable.";
+
+                        Mission mission = new Mission("Task", "Do something.");
+                        mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>
+                        {
+                            new MissionPlaybookSnapshot
+                            {
+                                FileName = "vessel-disabled-learned.md",
+                                Content = "# Learned\n\nSecret learned guidance that must be disabled."
+                            },
+                            new MissionPlaybookSnapshot
+                            {
+                                FileName = "normal-playbook.md",
+                                Content = "# Normal\n\nNormal playbook guidance remains enabled."
+                            }
+                        };
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("Legacy context remains readable.", content);
+                        AssertContains("Normal playbook guidance remains enabled.", content);
+                        AssertFalse(content.Contains("## Learned-Fact Proposals"), "global disable must suppress proposal routing");
+                        AssertFalse(content.Contains("Secret learned guidance"), "global disable must suppress learned playbooks");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync omits ModelContext when disabled", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

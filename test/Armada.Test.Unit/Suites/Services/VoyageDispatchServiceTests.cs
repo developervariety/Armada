@@ -32,6 +32,134 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ValidatePreconditions_AllEffectiveModesOff_SkipsCodeIndexStatus", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("off-mode-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        null,
+                        codeIndex,
+                        null,
+                        null);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "off-mode dispatch",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("inherits off", "must not probe the index"),
+                            new MissionDescription("explicit off", "must not probe the index")
+                            {
+                                CodeContextMode = "OFF"
+                            }
+                        }
+                    };
+
+                    VoyageDispatchResult? invalid = await service.ValidatePreconditionsAsync(request)
+                        .WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+
+                    AssertNull(invalid, "an all-off dispatch should pass preconditions");
+                    AssertEqual(0, codeIndex.StatusRequests.Count,
+                        "all-off dispatch must not call the code-index status dependency");
+                }
+            });
+
+            await RunTest("ValidatePreconditions_MissionAutoOverride_StillChecksCodeIndexStatus", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("mixed-mode-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        null,
+                        codeIndex,
+                        null,
+                        null);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "mixed-mode dispatch",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("auto override", "must retain the staleness guard")
+                            {
+                                CodeContextMode = "auto"
+                            }
+                        }
+                    };
+
+                    VoyageDispatchResult? invalid = await service.ValidatePreconditionsAsync(request)
+                        .ConfigureAwait(false);
+
+                    AssertNull(invalid, "a healthy mixed-mode dispatch should pass preconditions");
+                    AssertEqual(1, codeIndex.StatusRequests.Count,
+                        "an auto mission override must retain the code-index status guard");
+                }
+            });
+
+            await RunTest("Dispatch_CodeIndexDisabled_SkipsAllIndexWorkAndCreatesMissions", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("disabled-index-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.Enabled = false;
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        null,
+                        codeIndex,
+                        null,
+                        settings);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "disabled index dispatch",
+                        VesselId = vessel.Id,
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("default auto mission", "must dispatch without index work")
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request)
+                        .WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+
+                    AssertEqual(201, result.StatusCode, "disabled indexing must not block dispatch");
+                    AssertEqual(0, codeIndex.StatusRequests.Count, "disabled indexing must not probe status");
+                    AssertEqual(0, codeIndex.CacheRequests.Count, "disabled indexing must not probe context caches");
+                    AssertEqual(0, codeIndex.BuildRequests.Count, "disabled indexing must not build context packs");
+                    List<Mission> created = await testDb.Driver.Missions.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(1, created.Count, "dispatch should create the requested mission");
+                }
+            });
+
             await RunTest("RestMapping_WithPerMissionFields_DispatchesCreatedMissionsWithFields", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1005,6 +1133,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class RecordingCodeIndexService : ICodeIndexService
         {
+            public List<string> StatusRequests { get; } = new List<string>();
             public List<ContextPackRequest> CacheRequests { get; } = new List<ContextPackRequest>();
             public List<ContextPackRequest> BuildRequests { get; } = new List<ContextPackRequest>();
 
@@ -1012,7 +1141,10 @@ namespace Armada.Test.Unit.Suites.Services
             public ContextPackResponse BuildResponse { get; set; } = new ContextPackResponse();
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
-                => Task.FromResult(new CodeIndexStatus { VesselId = vesselId });
+            {
+                StatusRequests.Add(vesselId);
+                return Task.FromResult(new CodeIndexStatus { VesselId = vesselId });
+            }
 
             public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
                 => throw new NotImplementedException();

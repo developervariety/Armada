@@ -564,6 +564,7 @@ namespace Armada.Core.Memory
             int tokenBudget,
             CancellationToken token = default)
         {
+            EnsureLearnedFactsEnabled();
             if (fleet == null) throw new ArgumentNullException(nameof(fleet));
             if (tokenBudget < 1) tokenBudget = _Settings.DefaultFleetCurateTokenBudget;
 
@@ -623,6 +624,7 @@ namespace Armada.Core.Memory
             Vessel anchorVessel,
             CancellationToken token = default)
         {
+            EnsureLearnedFactsEnabled();
             if (fleet == null) throw new ArgumentNullException(nameof(fleet));
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(brief)) throw new ArgumentNullException(nameof(brief));
@@ -691,6 +693,7 @@ namespace Armada.Core.Memory
             Vessel anchorVessel,
             CancellationToken token = default)
         {
+            EnsureLearnedFactsEnabled();
             if (mode != ReflectionMode.PersonaCurate && mode != ReflectionMode.CaptainCurate)
                 throw new ArgumentOutOfRangeException(nameof(mode), "DispatchIdentityCurateAsync requires PersonaCurate or CaptainCurate");
             if (String.IsNullOrEmpty(targetId)) throw new ArgumentNullException(nameof(targetId));
@@ -767,6 +770,7 @@ namespace Armada.Core.Memory
             int tokenBudget,
             CancellationToken token = default)
         {
+            EnsureLearnedFactsEnabled();
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (String.IsNullOrEmpty(brief)) throw new ArgumentNullException(nameof(brief));
 
@@ -828,6 +832,7 @@ namespace Armada.Core.Memory
         public async Task<DispatchResult?> TryAutoDispatchAfterAuditDrainAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (!_Settings.LearnedFactsEnabled) return null;
 
             int effectiveThreshold = vessel.ReflectionThreshold ?? _Settings.DefaultReflectionThreshold;
             List<Mission> evidenceMissions = await SelectEvidenceMissionsAsync(vessel, null, token).ConfigureAwait(false);
@@ -873,6 +878,7 @@ namespace Armada.Core.Memory
         public async Task<DispatchResult?> TryAutoDispatchPackCurateAfterAuditDrainAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (!_Settings.LearnedFactsEnabled) return null;
             if (!vessel.PackCurateThreshold.HasValue) return null;
 
             int threshold = vessel.PackCurateThreshold.Value;
@@ -926,6 +932,7 @@ namespace Armada.Core.Memory
         {
             if (persona == null) throw new ArgumentNullException(nameof(persona));
             if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+            if (!_Settings.LearnedFactsEnabled) return null;
             if (!persona.CurateThreshold.HasValue) return null;
             int threshold = persona.CurateThreshold.Value;
             if (threshold <= 0) return null;
@@ -974,6 +981,7 @@ namespace Armada.Core.Memory
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+            if (!_Settings.LearnedFactsEnabled) return null;
             if (!captain.CurateThreshold.HasValue) return null;
             int threshold = captain.CurateThreshold.Value;
             if (threshold <= 0) return null;
@@ -1025,6 +1033,7 @@ namespace Armada.Core.Memory
         {
             if (fleet == null) throw new ArgumentNullException(nameof(fleet));
             if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+            if (!_Settings.LearnedFactsEnabled) return null;
             if (!fleet.CurateThreshold.HasValue) return null;
             int threshold = fleet.CurateThreshold.Value;
             if (threshold <= 0) return null;
@@ -1130,6 +1139,7 @@ namespace Armada.Core.Memory
         public async Task<DispatchResult?> TryAutoDispatchReorganizeAfterAuditDrainAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (!_Settings.LearnedFactsEnabled) return null;
             if (!vessel.ReorganizeThreshold.HasValue) return null;
 
             int reorganizeThresholdTokens = vessel.ReorganizeThreshold.Value;
@@ -1162,6 +1172,12 @@ namespace Armada.Core.Memory
         #endregion
 
         #region Private-Methods
+
+        private void EnsureLearnedFactsEnabled()
+        {
+            if (!_Settings.LearnedFactsEnabled)
+                throw new InvalidOperationException("Learned facts are disabled.");
+        }
 
         private async Task<List<Mission>> SelectEvidenceMissionsAsync(Vessel vessel, string? sinceMissionId, CancellationToken token)
         {

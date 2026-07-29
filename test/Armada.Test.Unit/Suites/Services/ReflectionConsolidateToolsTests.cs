@@ -29,6 +29,28 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ConsolidateMemory_LearnedFactsDisabled_ReturnsDisabledWithoutDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-disabled").ConfigureAwait(false);
+                    ArmadaSettings settings = new ArmadaSettings { LearnedFactsEnabled = false };
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, settings);
+                    Func<JsonElement?, Task<object>>? handler = CaptureHandler(testDb.Driver, dispatcher, settings);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("learned_facts_disabled", json, "disabled learned facts should return a stable error");
+                    AssertEqual(0, admiral.DispatchCount, "disabled learned facts must not dispatch reflection missions");
+                    ReflectionDispatcher.DispatchResult? autoResult =
+                        await dispatcher.TryAutoDispatchAfterAuditDrainAsync(vessel).ConfigureAwait(false);
+                    AssertNull(autoResult, "audit-drain auto-reflection must no-op while learned facts are disabled");
+                }
+            });
+
             await RunTest("ConsolidateMemory_MissingVessel_ReturnsVesselNotFound", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

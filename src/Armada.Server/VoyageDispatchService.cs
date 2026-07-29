@@ -150,12 +150,24 @@ namespace Armada.Server
                 NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext).ConfigureAwait(false);
             if (objectiveValidation != null) return objectiveValidation;
 
-            object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
-                _CodeIndexService,
-                vesselId,
-                "armada_dispatch",
-                LogCodeContextWarning).ConfigureAwait(false);
-            if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);
+            if (IsCodeIndexEnabled() && ShouldEvaluateCodeIndexPrecondition(request))
+            {
+                object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    _CodeIndexService,
+                    vesselId,
+                    "armada_dispatch",
+                    LogCodeContextWarning,
+                    token).ConfigureAwait(false);
+                if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);
+            }
+            else
+            {
+                LogCodeContextInfo(
+                    "code index dispatch precondition skipped for vessel " + vesselId
+                    + (IsCodeIndexEnabled()
+                        ? " because every effective mission mode is off"
+                        : " because code indexing is disabled"));
+            }
 
             string? resolvedPipelineId = await ResolvePipelineIdAsync(request.PipelineId, request.Pipeline).ConfigureAwait(false);
             if (String.Equals(resolvedPipelineId, "__pipeline_not_found__", StringComparison.Ordinal))
@@ -311,6 +323,31 @@ namespace Armada.Server
             return null;
         }
 
+        private static bool ShouldEvaluateCodeIndexPrecondition(SharedVoyageDispatchRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            string dispatchMode = String.IsNullOrWhiteSpace(request.CodeContextMode)
+                ? _CodeContextModeAuto
+                : request.CodeContextMode.Trim();
+
+            foreach (MissionDescription mission in request.Missions)
+            {
+                string effectiveMode = String.IsNullOrWhiteSpace(mission.CodeContextMode)
+                    ? dispatchMode
+                    : mission.CodeContextMode.Trim();
+                if (!String.Equals(effectiveMode, _CodeContextModeOff, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool IsCodeIndexEnabled()
+        {
+            return _Settings?.CodeIndex?.Enabled ?? true;
+        }
+
         private async Task<VoyageDispatchResult?> ValidateObjectiveAsync(string? objectiveId, AuthContext? authContext)
         {
             if (String.IsNullOrEmpty(objectiveId)) return null;
@@ -351,6 +388,19 @@ namespace Armada.Server
             string dispatchMode;
             if (!TryNormalizeCodeContextMode(topLevelMode, _CodeContextModeAuto, out dispatchMode))
                 return "invalid codeContextMode: " + topLevelMode + ". Expected auto, off, or force.";
+
+            if (!IsCodeIndexEnabled())
+            {
+                if (String.Equals(dispatchMode, _CodeContextModeForce, StringComparison.Ordinal)
+                    || missions.Any(m => m != null
+                        && String.Equals(m.CodeContextMode?.Trim(), _CodeContextModeForce, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return "code context force requested but code indexing is disabled";
+                }
+
+                LogCodeContextInfo("code context preparation skipped because code indexing is disabled");
+                return null;
+            }
 
             bool requireContextPackWhenEnabled = _Settings?.CodeIndex?.RequireContextPackWhenEnabled ?? true;
             bool loggedUnavailable = false;
