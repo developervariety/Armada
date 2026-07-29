@@ -22,7 +22,10 @@ namespace Armada.Test.Unit.TestHelpers
             logging.Settings.EnableConsole = false;
 
             string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_" + Guid.NewGuid().ToString("N") + ".db");
-            string connectionString = $"Data Source={tempFile}";
+            // Pooling keeps SQLite handles (and their WAL/SHM sidecars) alive after
+            // each disposable test database is deleted. A full unit run creates
+            // thousands of databases, so disable pooling for these isolated files.
+            string connectionString = $"Data Source={tempFile};Pooling=False";
 
             SqliteDatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
             await driver.InitializeAsync().ConfigureAwait(false);

@@ -31,12 +31,15 @@ namespace Armada.Test.Unit.TestHelpers
         public void Dispose()
         {
             Driver.Dispose();
-            try
+            foreach (string path in new[] { _TempFile, _TempFile + "-wal", _TempFile + "-shm" })
             {
-                if (File.Exists(_TempFile))
-                    File.Delete(_TempFile);
+                try
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                }
+                catch { }
             }
-            catch { }
         }
     }
 }
