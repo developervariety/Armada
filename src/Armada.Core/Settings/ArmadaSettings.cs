@@ -926,6 +926,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Resource-pressure admission policy applied before a captain is launched.
+        /// </summary>
+        public ResourcePressureAdmissionSettings ResourcePressureAdmission
+        {
+            get => _ResourcePressureAdmission;
+            set => _ResourcePressureAdmission = value ?? new ResourcePressureAdmissionSettings();
+        }
+
+        /// <summary>
         /// Armada-native incident mitigation and closure policy.
         /// </summary>
         public IncidentLifecycleSettings IncidentLifecycle
@@ -1074,6 +1083,7 @@ namespace Armada.Core.Settings
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
+        private ResourcePressureAdmissionSettings _ResourcePressureAdmission = new ResourcePressureAdmissionSettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
         private DockBoundarySettings _DockBoundary = new DockBoundarySettings();

@@ -34,6 +34,13 @@ namespace Armada.Core.Enums
         WaitingForIdleCaptain,
 
         /// <summary>
+        /// Mission is waiting for host/container resource capacity to return
+        /// (memory or active captain/build pressure) before it may be launched.
+        /// </summary>
+        [EnumMember(Value = "WaitingForResourcePressure")]
+        WaitingForResourcePressure,
+
+        /// <summary>
         /// Mission assignment is provisioning required resources.
         /// </summary>
         [EnumMember(Value = "Provisioning")]

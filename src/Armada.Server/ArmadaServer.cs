@@ -196,12 +196,16 @@ namespace Armada.Server
             // Held as a field so the bench/unbench MCP tools mutate the same instance the
             // dispatcher consults, keeping an operator bench effective without a restart.
             _CaptainQuarantine = captainQuarantineService;
-            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService);
+            // Shared resource-pressure admission instance so the dispatcher's pre-launch gate
+            // and the process-exit OOM classification see the same capacity/cooldown state.
+            ResourcePressureAdmission resourcePressureAdmission = new ResourcePressureAdmission(
+                _Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
+            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission);
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             _BuildDriftService = new BuildDriftService(_Git, _Database, BuildInfo.RunningCommit, _Logging);
-            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService, captainQuarantineService);
+            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService, captainQuarantineService, resourcePressureAdmission);
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);

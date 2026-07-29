@@ -698,6 +698,7 @@ namespace Armada.Server
                 summary.AssignmentState == MissionAssignmentStateEnum.WaitingForDependency ||
                 summary.AssignmentState == MissionAssignmentStateEnum.WaitingForVesselMutex ||
                 summary.AssignmentState == MissionAssignmentStateEnum.WaitingForIdleCaptain ||
+                summary.AssignmentState == MissionAssignmentStateEnum.WaitingForResourcePressure ||
                 summary.AssignmentState == MissionAssignmentStateEnum.Provisioning;
         }
 

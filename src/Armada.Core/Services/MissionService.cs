@@ -58,6 +58,7 @@ namespace Armada.Core.Services
         private IDockService _Docks;
         private ICaptainService _Captains;
         private ICaptainQuarantineService _CaptainQuarantine;
+        private IResourcePressureAdmission _ResourcePressureAdmission;
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
@@ -155,6 +156,7 @@ namespace Armada.Core.Services
         /// <param name="promptTemplates">Prompt template service (optional for backward compatibility).</param>
         /// <param name="git">Git service used for branch cleanup on non-landed intermediate stages.</param>
         /// <param name="captainQuarantine">Optional captain quarantine service.</param>
+        /// <param name="resourcePressureAdmission">Optional resource-pressure admission policy applied before launch.</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -163,7 +165,8 @@ namespace Armada.Core.Services
             ICaptainService captains,
             IPromptTemplateService? promptTemplates = null,
             IGitService? git = null,
-            ICaptainQuarantineService? captainQuarantine = null)
+            ICaptainQuarantineService? captainQuarantine = null,
+            IResourcePressureAdmission? resourcePressureAdmission = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -172,6 +175,8 @@ namespace Armada.Core.Services
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
             _CaptainQuarantine = captainQuarantine ?? new CaptainQuarantineService(_Database, _Settings, _Logging);
+            _ResourcePressureAdmission = resourcePressureAdmission
+                ?? new ResourcePressureAdmission(_Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
             _PromptTemplates = promptTemplates;
             _Prestaging = new PrestagedFileCopier(_Logging);
         }
@@ -402,6 +407,20 @@ namespace Armada.Core.Services
             if (vessel.AllowConcurrentMissions && concurrentCount > 0)
             {
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) -- potential for conflicts (AllowConcurrentMissions=true)");
+            }
+
+            // Resource-pressure admission gate: account for available host/container memory plus
+            // active captain/build pressure before launching. Defers safely with a clear reason
+            // without disturbing the existing vessel mutex/count controls above.
+            ResourcePressureDecision admission = _ResourcePressureAdmission.Evaluate(concurrentCount);
+            if (!admission.Admit)
+            {
+                _Logging.Warn(_Header + "resource-pressure admission deferring mission " + mission.Id
+                    + " on vessel " + vessel.Id + ": " + admission.Reason);
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForResourcePressure;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                return false;
             }
 
             // Find an idle captain, preferring those matching the mission's persona,
