@@ -7,7 +7,6 @@ namespace Armada.Server
     using System.Runtime.InteropServices;
     using System.Text.Json;
     using SyslogLogging;
-    using Voltaic;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;

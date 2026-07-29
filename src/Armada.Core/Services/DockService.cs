@@ -974,12 +974,12 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(worktreePath) || !Directory.Exists(worktreePath)) return;
 
-            string rpcUrl = "http://localhost:" + _Settings.McpPort + "/rpc";
+            string mcpUrl = "http://localhost:" + _Settings.McpPort + "/mcp";
             string projectConfig = "{\n" +
                 "  \"mcpServers\": {\n" +
                 "    \"armada\": {\n" +
                 "      \"type\": \"http\",\n" +
-                "      \"url\": \"" + rpcUrl + "\"\n" +
+                "      \"url\": \"" + mcpUrl + "\"\n" +
                 "    }\n" +
                 "  }\n" +
                 "}\n";
@@ -987,7 +987,7 @@ namespace Armada.Core.Services
             string cursorConfig = "{\n" +
                 "  \"mcpServers\": {\n" +
                 "    \"armada\": {\n" +
-                "      \"url\": \"" + rpcUrl + "\"\n" +
+                "      \"url\": \"" + mcpUrl + "\"\n" +
                 "    }\n" +
                 "  }\n" +
                 "}\n";
@@ -1000,7 +1000,7 @@ namespace Armada.Core.Services
             string geminiConfig = "{\n" +
                 "  \"mcpServers\": {\n" +
                 "    \"armada\": {\n" +
-                "      \"httpUrl\": \"" + rpcUrl + "\"\n" +
+                "      \"httpUrl\": \"" + mcpUrl + "\"\n" +
                 "    }\n" +
                 "  }\n" +
                 "}\n";

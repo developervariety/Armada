@@ -3,7 +3,7 @@
 **Version:** 0.8.0
 **Default URL:** `http://localhost:7891`
 **Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
-**Server Library:** Voltaic (McpHttpServer)
+**Server Library:** Official MCP C# SDK (`ModelContextProtocol.AspNetCore`)
 **Server Name:** `Armada`
 
 ## Remote Control Note
@@ -174,17 +174,22 @@ The MCP server shares the same tool implementations as the stdio transport, regi
 
 ### HTTP Transport
 
-The primary MCP transport is HTTP, served by `McpHttpServer` from the Voltaic library. The server listens on a dedicated port.
+The primary MCP transport is stateless Streamable HTTP, served by the official
+MCP C# SDK. Armada supports MCP `2026-07-28` and legacy initialization-based
+clients on the same endpoint.
 
 ```
-http://localhost:7891
+http://localhost:7891/mcp
 ```
 
-MCP clients communicate using the standard MCP JSON-RPC protocol over HTTP. The server supports the full MCP tool-calling lifecycle:
+`/rpc` remains available as a compatibility alias. Modern clients communicate
+using discovery-first, per-request metadata:
 
-1. **Initialize** Ã¢â‚¬â€ Client discovers server capabilities and available tools
-2. **Call Tool** Ã¢â‚¬â€ Client invokes a tool with arguments
-3. **Response** Ã¢â‚¬â€ Server returns the tool result
+1. **Discover** — `server/discover` reports supported versions and capabilities.
+2. **List or call tools** — each request carries its protocol version and client capabilities.
+3. **Response** — the server returns JSON or a request-scoped SSE response.
+
+Legacy clients may continue using `initialize`, `tools/list`, and `tools/call`.
 
 ### Stdio Transport
 

@@ -38,7 +38,7 @@ dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 ## Architecture
 - `Armada.Core` - Domain models, database interfaces, service interfaces, settings
 - `Armada.Runtimes` - Agent runtime adapters (Claude Code, Codex, extensible via IAgentRuntime)
-- `Armada.Server` - Admiral process: REST API (SwiftStack), MCP server (Voltaic), WebSocket, web dashboard
+- `Armada.Server` - Admiral process: REST API (SwiftStack), MCP server (official MCP C# SDK), WebSocket, web dashboard
 - `Armada.Helm` - CLI (Spectre.Console), thin HTTP client to Admiral
 
 ## Coding Standards
@@ -71,7 +71,7 @@ dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 
 ### Libraries (use these, they are mine)
 - SwiftStack (NuGet) - REST API framework
-- Voltaic (NuGet) - MCP/JSON-RPC library
+- ModelContextProtocol.AspNetCore (NuGet) - official MCP Streamable HTTP server
 - SyslogLogging (NuGet) - Logging
 - PrettyId (NuGet) - ID generation with prefixes
 

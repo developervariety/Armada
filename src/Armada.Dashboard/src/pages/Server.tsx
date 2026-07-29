@@ -418,24 +418,24 @@ export default function Server() {
     });
   };
 
-  const getMcpRpcUrl = (): string => {
+  const getMcpHttpUrl = (): string => {
     const port = health?.ports?.mcp || settings?.mcpPort || 7891;
-    return `http://localhost:${port}/rpc`;
+    return `http://localhost:${port}/mcp`;
   };
 
   const getMcpConfigHttp = (client: McpClientKey): string => {
-    const rpcUrl = getMcpRpcUrl();
+    const mcpUrl = getMcpHttpUrl();
 
     switch (client) {
       case 'codex':
-        return `[mcp_servers.armada]\nurl = "${rpcUrl}"`;
+        return `[mcp_servers.armada]\nurl = "${mcpUrl}"`;
       case 'claude':
         return JSON.stringify(
           {
             mcpServers: {
               armada: {
                 type: 'http',
-                url: rpcUrl,
+                url: mcpUrl,
               },
             },
           },
@@ -447,7 +447,7 @@ export default function Server() {
           {
             mcpServers: {
               armada: {
-                httpUrl: rpcUrl,
+                httpUrl: mcpUrl,
               },
             },
           },
@@ -459,7 +459,7 @@ export default function Server() {
           {
             mcpServers: {
               armada: {
-                url: rpcUrl,
+                url: mcpUrl,
               },
             },
           },

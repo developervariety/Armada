@@ -6,7 +6,6 @@ namespace Armada.Helm.Commands
     using System.Threading;
     using Spectre.Console.Cli;
     using SyslogLogging;
-    using Voltaic;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;

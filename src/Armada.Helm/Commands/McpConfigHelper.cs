@@ -29,9 +29,9 @@ namespace Armada.Helm.Commands
         private const string SourceMcpFramework = "net10.0";
         private const int CodexMcpStartupTimeoutSeconds = 120;
 
-        internal static string GetMcpRpcUrl(int mcpPort)
+        internal static string GetMcpHttpUrl(int mcpPort)
         {
-            return $"http://localhost:{mcpPort}/rpc";
+            return $"http://localhost:{mcpPort}/mcp";
         }
 
         internal static string GetClaudeJsonPath()
@@ -71,7 +71,7 @@ namespace Armada.Helm.Commands
 
         internal static List<ConfigTarget> BuildTargets(int mcpPort)
         {
-            string mcpRpcUrl = GetMcpRpcUrl(mcpPort);
+            string mcpHttpUrl = GetMcpHttpUrl(mcpPort);
             string codexCommand = ResolveCliCommand("codex");
             string geminiCommand = ResolveCliCommand("gemini");
 
@@ -83,7 +83,7 @@ namespace Armada.Helm.Commands
                     new JsonObject
                     {
                         ["type"] = "http",
-                        ["url"] = mcpRpcUrl,
+                        ["url"] = mcpHttpUrl,
                     },
                     InstallAgent: true,
                     ManualInstallCommand: BuildClaudeCliCommand(mcpPort)),
@@ -101,16 +101,16 @@ namespace Armada.Helm.Commands
                     "Gemini CLI",
                     GetGeminiConfigPath(),
                     CliCommand: geminiCommand,
-                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpRpcUrl },
+                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpHttpUrl },
                     RemoveArgs: new[] { "mcp", "remove", "armada" },
-                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpRpcUrl,
+                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpHttpUrl,
                     ManualRemoveCommand: geminiCommand + " mcp remove armada"),
                 new(
                     "Cursor",
                     GetCursorConfigPath(),
                     new JsonObject
                     {
-                        ["url"] = mcpRpcUrl,
+                        ["url"] = mcpHttpUrl,
                         ["transport"] = "http",
                     },
                     IsProjectScoped: true),
@@ -341,7 +341,7 @@ namespace Armada.Helm.Commands
 
         internal static string BuildClaudeCliCommand(int mcpPort)
         {
-            return $"claude mcp add --transport http --scope user armada {GetMcpRpcUrl(mcpPort)}";
+            return $"claude mcp add --transport http --scope user armada {GetMcpHttpUrl(mcpPort)}";
         }
 
         internal static string BuildClaudeStdioCommand()

@@ -104,7 +104,7 @@ If you prefer to configure MCP manually instead of using `armada mcp install`:
 **Add MCP server** (user-scoped, works from any directory):
 
 ```bash
-claude mcp add --transport http --scope user armada http://localhost:7891/rpc
+claude mcp add --transport http --scope user armada http://localhost:7891/mcp
 ```
 
 Or add directly to `~/.claude.json`:
@@ -114,7 +114,7 @@ Or add directly to `~/.claude.json`:
   "mcpServers": {
     "armada": {
       "type": "http",
-      "url": "http://localhost:7891/rpc"
+      "url": "http://localhost:7891/mcp"
     }
   }
 }

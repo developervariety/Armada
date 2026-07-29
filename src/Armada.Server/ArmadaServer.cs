@@ -9,8 +9,6 @@ namespace Armada.Server
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
-    using Voltaic;
-    using Voltaic.Mcp;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
@@ -59,7 +57,7 @@ namespace Armada.Server
         private AgentRuntimeFactory _RuntimeFactory = null!;
 
         private Webserver _App = null!;
-        private McpHttpServer _McpServer = null!;
+        private ArmadaMcpHttpServer _McpServer = null!;
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
@@ -502,12 +500,12 @@ namespace Armada.Server
             _Logging.Info(_Header + "REST API started on port " + _Settings.AdmiralPort);
 
             // Initialize MCP server
-            _McpServer = new McpHttpServer(_Settings.Rest.Hostname, _Settings.McpPort);
+            _McpServer = new ArmadaMcpHttpServer(_Settings.Rest.Hostname, _Settings.McpPort);
             _McpServer.ServerName = ArmadaConstants.ProductName;
             _McpServer.ServerVersion = ArmadaConstants.ProductVersion;
             RegisterMcpTools();
 
-            Task mcpTask = Task.Run(() => _McpServer.StartAsync(_TokenSource.Token));
+            await _McpServer.StartAsync(_TokenSource.Token).ConfigureAwait(false);
             _Logging.Info(_Header + "MCP server started on port " + _Settings.McpPort);
 
             _RemoteTunnel.Start(_TokenSource.Token);
@@ -652,7 +650,7 @@ namespace Armada.Server
             _TokenSource.Cancel();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
-            _McpServer?.Stop();
+            _McpServer?.StopAsync().GetAwaiter().GetResult();
             _Database?.Dispose();
             OnStopping?.Invoke();
         }

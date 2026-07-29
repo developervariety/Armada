@@ -3933,7 +3933,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | Service | Default Port | Description |
 |---|---|---|
 | Admiral REST API | 7890 | This API (WebSocket available at /ws on the same port) |
-| MCP Server | 7891 | Model Context Protocol (Voltaic) for AI tool use |
+| MCP Server | 7891 | Official MCP C# SDK Streamable HTTP transport for AI tool use |
 
 ## CORS
 

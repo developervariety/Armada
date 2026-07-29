@@ -252,7 +252,7 @@ dotnet run --project src/Armada.Server --framework net10.0
 Default local endpoints:
 
 - REST and dashboard: `http://localhost:7890`
-- MCP HTTP JSON-RPC: `http://localhost:7891/rpc`
+- MCP Streamable HTTP: `http://localhost:7891/mcp`
 
 ### Configure MCP Clients
 
@@ -263,7 +263,7 @@ The repository includes an MCP config that points at the default HTTP endpoint:
   "mcpServers": {
     "armada": {
       "type": "http",
-      "url": "http://localhost:7891/rpc"
+      "url": "http://localhost:7891/mcp"
     }
   }
 }
@@ -353,8 +353,12 @@ server and restart the service. The health-check helper verifies the dashboard r
 The primary MCP transport is HTTP JSON-RPC at:
 
 ```text
-http://localhost:7891/rpc
+http://localhost:7891/mcp
 ```
+
+Armada uses the official MCP C# SDK and supports the stateless MCP
+`2026-07-28` protocol as well as legacy initialization-based clients. The
+former `/rpc` path remains available as a compatibility alias.
 
 Common MCP tool groups:
 

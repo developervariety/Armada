@@ -29,7 +29,6 @@ namespace Armada.Test.Automated.Suites
         #region Private-Members
 
         private HttpClient _McpClient;
-        private string _SessionId = null!;
 
         #endregion
 
@@ -52,8 +51,7 @@ namespace Armada.Test.Automated.Suites
         /// </summary>
         protected override async Task RunTestsAsync()
         {
-            // Initialize MCP session ONCE at start
-            _SessionId = Guid.NewGuid().ToString();
+            // Verify legacy initialization remains compatible.
             await SendMcpRequestAsync("initialize", new
             {
                 protocolVersion = "2024-11-05",
@@ -1784,6 +1782,34 @@ namespace Armada.Test.Automated.Suites
 
         private async Task<JsonElement> SendMcpRequestAsync(string method, object parameters)
         {
+            JsonElement result = await SendSingleMcpRequestAsync(method, parameters).ConfigureAwait(false);
+            if (!String.Equals(method, "tools/list", StringComparison.Ordinal)
+                || !result.TryGetProperty("nextCursor", out JsonElement cursorElement))
+            {
+                return result;
+            }
+
+            List<JsonElement> tools = result.GetProperty("tools")
+                .EnumerateArray()
+                .Select(tool => tool.Clone())
+                .ToList();
+            string? cursor = cursorElement.GetString();
+            while (!String.IsNullOrWhiteSpace(cursor))
+            {
+                JsonElement page = await SendSingleMcpRequestAsync(
+                    "tools/list",
+                    new { cursor }).ConfigureAwait(false);
+                tools.AddRange(page.GetProperty("tools").EnumerateArray().Select(tool => tool.Clone()));
+                cursor = page.TryGetProperty("nextCursor", out JsonElement nextCursor)
+                    ? nextCursor.GetString()
+                    : null;
+            }
+
+            return JsonSerializer.SerializeToElement(new { tools });
+        }
+
+        private async Task<JsonElement> SendSingleMcpRequestAsync(string method, object parameters)
+        {
             object request = new
             {
                 jsonrpc = "2.0",
@@ -1794,17 +1820,18 @@ namespace Armada.Test.Automated.Suites
 
             StringContent content = JsonHelper.ToJsonContent(request);
 
-            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/rpc");
+            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/mcp");
             httpRequest.Content = content;
-            httpRequest.Headers.Add("X-Session-Id", _SessionId);
+            httpRequest.Headers.Add("Accept", "application/json, text/event-stream");
 
             HttpResponseMessage response = await _McpClient.SendAsync(httpRequest).ConfigureAwait(false);
             string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
             Assert(response.IsSuccessStatusCode,
-                "MCP request to /rpc failed with " + response.StatusCode + ": " + responseBody);
+                "MCP request to /mcp failed with " + response.StatusCode + ": " + responseBody);
 
-            JsonElement responseJson = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            JsonElement responseJson = JsonSerializer.Deserialize<JsonElement>(
+                ExtractJsonRpcResponse(responseBody, response.Content.Headers.ContentType?.MediaType));
 
             if (responseJson.TryGetProperty("error", out JsonElement error))
             {
@@ -1835,13 +1862,28 @@ namespace Armada.Test.Automated.Suites
 
             StringContent content = JsonHelper.ToJsonContent(request);
 
-            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/rpc");
+            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/mcp");
             httpRequest.Content = content;
-            httpRequest.Headers.Add("X-Session-Id", _SessionId);
+            httpRequest.Headers.Add("Accept", "application/json, text/event-stream");
 
             HttpResponseMessage response = await _McpClient.SendAsync(httpRequest).ConfigureAwait(false);
             string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            return JsonSerializer.Deserialize<JsonElement>(responseBody);
+            return JsonSerializer.Deserialize<JsonElement>(
+                ExtractJsonRpcResponse(responseBody, response.Content.Headers.ContentType?.MediaType));
+        }
+
+        private static string ExtractJsonRpcResponse(string body, string? mediaType)
+        {
+            if (!String.Equals(mediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
+                return body;
+
+            foreach (string line in body.Split('\n'))
+            {
+                if (line.StartsWith("data:", StringComparison.Ordinal))
+                    return line.Substring(5).Trim();
+            }
+
+            throw new InvalidDataException("MCP SSE response did not contain a data event.");
         }
 
         private void AssertToolResultValid(JsonElement result)

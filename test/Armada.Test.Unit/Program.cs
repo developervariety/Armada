@@ -230,6 +230,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());
             runner.AddSuite(new McpStdioServerTests());
+            runner.AddSuite(new ArmadaMcpHttpServerTests());
             runner.AddSuite(new VoyageDispatchServiceTests());
             runner.AddSuite(new ContextPackStagingHardFailTests());
             runner.AddSuite(new McpVoyageToolsTests());

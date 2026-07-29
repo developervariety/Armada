@@ -1582,9 +1582,9 @@ function dashboard() {
             this.revealedRemoteField = null;
         },
 
-        getMcpRpcUrl() {
+        getMcpHttpUrl() {
             let port = this.healthInfo?.ports?.mcp || this.serverSettings?.mcpPort || 7891;
-            return 'http://localhost:' + port + '/rpc';
+            return 'http://localhost:' + port + '/mcp';
         },
 
         getRemoteTunnelIndicatorLabel() {
@@ -1614,21 +1614,21 @@ function dashboard() {
         },
 
         getMcpConfigHttp(client) {
-            let rpcUrl = this.getMcpRpcUrl();
+            let mcpUrl = this.getMcpHttpUrl();
 
             if (client === 'codex') {
-                return '[mcp_servers.armada]\nurl = "' + rpcUrl + '"';
+                return '[mcp_servers.armada]\nurl = "' + mcpUrl + '"';
             }
 
             if (client === 'gemini') {
-                return JSON.stringify({ mcpServers: { armada: { httpUrl: rpcUrl } } }, null, 2);
+                return JSON.stringify({ mcpServers: { armada: { httpUrl: mcpUrl } } }, null, 2);
             }
 
             if (client === 'cursor') {
-                return JSON.stringify({ mcpServers: { armada: { url: rpcUrl } } }, null, 2);
+                return JSON.stringify({ mcpServers: { armada: { url: mcpUrl } } }, null, 2);
             }
 
-            return JSON.stringify({ mcpServers: { armada: { type: 'http', url: rpcUrl } } }, null, 2);
+            return JSON.stringify({ mcpServers: { armada: { type: 'http', url: mcpUrl } } }, null, 2);
         },
 
         getMcpConfigStdio(client) {

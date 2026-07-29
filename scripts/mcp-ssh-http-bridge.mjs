@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_MCP_URL = "http://localhost:7891/rpc";
+const DEFAULT_MCP_URL = "http://localhost:7891/mcp";
 const DEFAULT_REQUEST_TIMEOUT_SECONDS = 600;
 const MAX_HEADER_BYTES = 8192;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
@@ -111,6 +111,7 @@ export function parseHttpResponse(output) {
   }
 
   let sessionId = null;
+  let contentType = null;
   for (const headerLine of headerLines.slice(1)) {
     const colonIndex = headerLine.indexOf(":");
     if (colonIndex <= 0) {
@@ -120,14 +121,60 @@ export function parseHttpResponse(output) {
     const name = headerLine.substring(0, colonIndex).trim().toLowerCase();
     if (name === "mcp-session-id") {
       sessionId = headerLine.substring(colonIndex + 1).trim();
+    } else if (name === "content-type") {
+      contentType = headerLine.substring(colonIndex + 1).trim();
     }
   }
 
   return {
     statusCode: Number.parseInt(statusMatch[1], 10),
     sessionId,
+    contentType,
     body,
   };
+}
+
+export function parseMcpResponseMessages(response) {
+  const body = response.body.trim();
+  if (body.length === 0) {
+    return [];
+  }
+
+  const contentType = (response.contentType || "").toLowerCase();
+  if (!contentType.startsWith("text/event-stream") && !looksLikeSse(body)) {
+    JSON.parse(body);
+    return [body];
+  }
+
+  const messages = [];
+  const events = body.split(/\r?\n\r?\n/);
+  for (const event of events) {
+    const dataLines = [];
+    for (const line of event.split(/\r?\n/)) {
+      if (line.startsWith(":")) {
+        continue;
+      }
+      if (line === "data") {
+        dataLines.push("");
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.substring(5).replace(/^ /, ""));
+      }
+    }
+
+    if (dataLines.length === 0) {
+      continue;
+    }
+
+    const data = dataLines.join("\n").trim();
+    if (data.length === 0 || data === "[DONE]") {
+      continue;
+    }
+
+    JSON.parse(data);
+    messages.push(data);
+  }
+
+  return messages;
 }
 
 export function createJsonRpcError(id, message) {
@@ -146,7 +193,8 @@ export async function runBridge(options = {}) {
   const output = options.output || process.stdout;
   const errorOutput = options.errorOutput || process.stderr;
   const environment = options.environment || process.env;
-  const request = options.request || ((message, sessionId) => sendRequestOverSsh(message, sessionId, environment));
+  const request = options.request ||
+    ((message, sessionId, requestObject) => sendRequestOverSsh(message, sessionId, requestObject, environment));
   let sessionId = null;
   let queue = Promise.resolve();
 
@@ -162,7 +210,7 @@ export async function runBridge(options = {}) {
 
       const hasId = Object.prototype.hasOwnProperty.call(requestObject, "id");
       try {
-        const response = await request(message, sessionId);
+        const response = await request(message, sessionId, requestObject);
         if (response.sessionId) {
           sessionId = validateSessionId(response.sessionId);
         }
@@ -180,14 +228,15 @@ export async function runBridge(options = {}) {
           return;
         }
 
-        const body = response.body.trim();
-        if (body.length === 0) {
+        const messages = parseMcpResponseMessages(response);
+        if (messages.length === 0) {
           output.write(createJsonRpcError(requestObject.id, "Armada MCP endpoint returned an empty response.") + "\n");
           return;
         }
 
-        JSON.parse(body);
-        output.write(body + "\n");
+        for (const responseMessage of messages) {
+          output.write(responseMessage + "\n");
+        }
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         if (hasId) {
@@ -241,7 +290,7 @@ export function buildSshArgs(environment, remoteCommand) {
   return args;
 }
 
-async function sendRequestOverSsh(message, sessionId, environment) {
+async function sendRequestOverSsh(message, sessionId, requestObject, environment) {
   const sshCommand = environment.ARMADA_SSH_COMMAND || "ssh";
   const mcpUrl = environment.ARMADA_MCP_URL || DEFAULT_MCP_URL;
   const timeoutSeconds = parseTimeoutSeconds(environment.ARMADA_MCP_TIMEOUT_SEC);
@@ -249,9 +298,18 @@ async function sendRequestOverSsh(message, sessionId, environment) {
     "--header",
     shellQuote("Content-Type: application/json"),
     "--header",
-    shellQuote("Accept: application/json"),
+    shellQuote("Accept: application/json, text/event-stream"),
   ];
-  if (sessionId) {
+  const protocolVersion = requestObject?.params?._meta?.["io.modelcontextprotocol/protocolVersion"];
+  if (typeof protocolVersion === "string" && protocolVersion.length > 0) {
+    headers.push("--header", shellQuote("MCP-Protocol-Version: " + encodeHeaderValue(protocolVersion)));
+    headers.push("--header", shellQuote("Mcp-Method: " + encodeHeaderValue(requestObject.method)));
+
+    const requestName = getRequestName(requestObject);
+    if (requestName !== null) {
+      headers.push("--header", shellQuote("Mcp-Name: " + encodeHeaderValue(requestName)));
+    }
+  } else if (sessionId) {
     headers.push("--header", shellQuote("MCP-Session-Id: " + validateSessionId(sessionId)));
   }
 
@@ -340,6 +398,42 @@ function validateSessionId(value) {
     throw new Error("Armada MCP endpoint returned an invalid session identifier.");
   }
   return value;
+}
+
+function getRequestName(requestObject) {
+  if (!requestObject || !requestObject.params) {
+    return null;
+  }
+
+  if (requestObject.method === "tools/call" || requestObject.method === "prompts/get") {
+    return typeof requestObject.params.name === "string" ? requestObject.params.name : null;
+  }
+  if (requestObject.method === "resources/read") {
+    return typeof requestObject.params.uri === "string" ? requestObject.params.uri : null;
+  }
+
+  return null;
+}
+
+function encodeHeaderValue(value) {
+  const text = String(value);
+  const isPlainAscii = text.length > 0
+    && text.trim() === text
+    && !text.startsWith("=?base64?")
+    && !text.endsWith("?=")
+    && [...text].every((character) => {
+      const code = character.charCodeAt(0);
+      return code === 9 || (code >= 32 && code <= 126);
+    });
+  if (isPlainAscii) {
+    return text;
+  }
+
+  return "=?base64?" + Buffer.from(text, "utf8").toString("base64") + "?=";
+}
+
+function looksLikeSse(body) {
+  return /^(?:event|data|id|retry):/m.test(body) || /^:/m.test(body);
 }
 
 const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

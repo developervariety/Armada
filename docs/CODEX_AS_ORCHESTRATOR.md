@@ -18,7 +18,7 @@ This writes MCP configuration for all supported tools automatically. For Codex s
 
 ```toml
 [mcp_servers.armada]
-url = "http://localhost:7891/rpc"
+url = "http://localhost:7891/mcp"
 ```
 
 Use `--dry-run` to preview without writing.
@@ -72,7 +72,7 @@ If you prefer to configure MCP manually instead of using `armada mcp install`, a
 
 ```toml
 [mcp_servers.armada]
-url = "http://localhost:7891/rpc"
+url = "http://localhost:7891/mcp"
 ```
 
 **Stdio Transport** — no server required, Armada runs as a subprocess:
