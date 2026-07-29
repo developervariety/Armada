@@ -271,9 +271,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Classifies a concrete model name into its complexity tier (low, mid, or high),
         /// or null when the model is not recognized as belonging to any tier. A model counts
-        /// when it is in the configured tier membership lists OR matches a canonical
-        /// model-family pattern, so version bumps within a known family register
-        /// automatically.
+        /// when it is in the configured tier membership lists. When no settings object
+        /// is supplied, built-in family inference also recognizes routine version bumps.
         /// </summary>
         /// <param name="model">Concrete model name (not a tier selector).</param>
         /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
@@ -290,6 +289,10 @@ namespace Armada.Core.Services
             if (ContainsModel(settings.HighTierModels, normalized)) return HighTier;
             if (ContainsModel(settings.MidTierModels, normalized)) return MidTier;
             if (ContainsModel(settings.LowTierModels, normalized)) return LowTier;
+
+            // A supplied settings object is authoritative. Do not let family heuristics
+            // silently re-add or reclassify a model the operator removed from its lists.
+            if (modelTierSettings != null) return null;
 
             // Canonical family patterns -- forward-compatible with version bumps.
             if (_CanonicalOpusPattern.IsMatch(normalized)) return HighTier;
@@ -389,7 +392,7 @@ namespace Armada.Core.Services
                 {
                     if (captain == null || String.IsNullOrEmpty(captain.Model))
                         continue;
-                    if (!String.Equals(ClassifyModel(captain.Model, settings), tier, StringComparison.OrdinalIgnoreCase))
+                    if (!String.Equals(ClassifyModel(captain.Model, modelTierSettings), tier, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (!IsPersonaEligible(captain, persona))
                         continue;
