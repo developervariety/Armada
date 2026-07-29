@@ -42,6 +42,12 @@ namespace Armada.Server
         public int? MaxCaptains { get; set; }
 
         /// <summary>
+        /// Maximum concurrent captain workloads across all vessels (0 = unlimited).
+        /// Caps combined captain + compiler memory pressure to prevent host OOM.
+        /// </summary>
+        public int? MaxConcurrentCaptainWorkloads { get; set; }
+
+        /// <summary>
         /// Heartbeat check interval in seconds (>= 5).
         /// </summary>
         public int? HeartbeatIntervalSeconds { get; set; }

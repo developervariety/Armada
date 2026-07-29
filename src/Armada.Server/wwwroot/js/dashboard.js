@@ -1461,7 +1461,8 @@ function dashboard() {
                 this.serverSettings = await this.api('PUT', '/api/v1/settings', {
                     admiralPort: this.serverSettings.admiralPort,
                     mcpPort: this.serverSettings.mcpPort,
-                    maxCaptains: this.serverSettings.maxCaptains
+                    maxCaptains: this.serverSettings.maxCaptains,
+                    maxConcurrentCaptainWorkloads: this.serverSettings.maxConcurrentCaptainWorkloads
                 });
                 this.toast('Server configuration saved');
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }

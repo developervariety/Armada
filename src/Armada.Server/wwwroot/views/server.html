@@ -57,6 +57,10 @@
                         <label title="Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.">Max Captains</label>
                         <input type="number" x-model.number="serverSettings.maxCaptains" min="0" title="Maximum captains (0 = unlimited)">
                     </div>
+                    <div class="form-group">
+                        <label title="Maximum number of captain workloads (Assigned + InProgress missions) that may run concurrently across all vessels. Caps combined captain and compiler memory pressure to prevent host OOM. Set to 0 for unlimited.">Max Concurrent Captain Workloads</label>
+                        <input type="number" x-model.number="serverSettings.maxConcurrentCaptainWorkloads" min="0" title="Maximum concurrent captain workloads across all vessels (0 = unlimited)">
+                    </div>
                 </div>
                 <button class="btn btn-primary btn-sm" @click="saveServerConfig()" title="Save server configuration changes">Save Server Config</button>
             </div>

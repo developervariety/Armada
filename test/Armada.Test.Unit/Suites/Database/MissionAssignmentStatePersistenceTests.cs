@@ -196,6 +196,7 @@ namespace Armada.Test.Unit.Suites.Database
                     MissionAssignmentStateEnum.WaitingForDependency,
                     MissionAssignmentStateEnum.WaitingForVesselMutex,
                     MissionAssignmentStateEnum.WaitingForIdleCaptain,
+                    MissionAssignmentStateEnum.WaitingForHostCapacity,
                     MissionAssignmentStateEnum.Provisioning,
                     MissionAssignmentStateEnum.Assigned,
                     MissionAssignmentStateEnum.Failed

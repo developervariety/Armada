@@ -407,6 +407,24 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum number of captain workloads (Assigned + InProgress missions) that may run
+        /// concurrently across all vessels. Caps the combined memory pressure of running
+        /// captain agent processes and the compilers/builds they spawn, preventing host OOM
+        /// when many missions dispatch at once. Set to 0 to disable the global gate (unlimited).
+        /// Must be >= 0. The per-vessel AllowConcurrentMissions flag still applies underneath
+        /// this global cap.
+        /// </summary>
+        public int MaxConcurrentCaptainWorkloads
+        {
+            get => _MaxConcurrentCaptainWorkloads;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxConcurrentCaptainWorkloads), "Must be >= 0");
+                _MaxConcurrentCaptainWorkloads = value;
+            }
+        }
+
+        /// <summary>
         /// Default test command for merge queue verification.
         /// Individual merge entries can override this.
         /// </summary>
@@ -1042,6 +1060,7 @@ namespace Armada.Core.Settings
         private int _MaxLandingRetries = 3;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
+        private int _MaxConcurrentCaptainWorkloads = 0;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private int _DefaultReflectionThreshold = 15;
         private int _InitialReflectionWindow = 100;
