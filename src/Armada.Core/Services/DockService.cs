@@ -303,13 +303,8 @@ namespace Armada.Core.Services
                     {
                         Vessel? vessel = await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
 
-                        // Preserve the captain's commits BEFORE the worktree is destroyed. A mission
-                        // that fails its DoD gate (often for an infrastructure reason) still has real
-                        // committed work, but nothing pushes its branch to the bare, so the commits
-                        // survive only as unreferenced objects in the dock -- and the dock is about to
-                        // be deleted. Observed 2026-07-19: commit 08e95bec passed its target gate 6/6
-                        // and was recoverable only because it happened to be spotted before GC.
-                        // Mirroring the branch into the bare makes recovery independent of the dock.
+                        // Preserve commits before the worktree is destroyed. A failed gate can still
+                        // leave useful committed work that would otherwise become unreachable.
                         await PreserveDockBranchAsync(vessel, dock, token).ConfigureAwait(false);
 
                         bool isRegistered = !String.IsNullOrEmpty(vessel?.LocalPath) &&
@@ -634,15 +629,8 @@ namespace Armada.Core.Services
                         siblingBranch = dockBranchName;
                     }
 
-                    // The sibling path is SHARED across every dock on this vessel: RelativePath is
-                    // "../<name>", so it resolves out of the mission dock into the vessel dock root
-                    // (docks/<vessel>/msn_X + "../shared-lib" => docks/<vessel>/shared-lib). Removing
-                    // and recreating it here therefore destroys the sibling that a CONCURRENT dock
-                    // may be mid-build against: the victim build fails with MSB3030 "could not copy
-                    // ... because it was not found" and CS0006 "metadata file could not be found",
-                    // which reads as a code error rather than infrastructure. Observed 2026-07-19
-                    // when an Architect dock provisioned while a Worker dock was compiling.
-                    // A healthy registered worktree is therefore REUSED, never rebuilt.
+                    // A sibling path can be shared by concurrent docks. Reuse a healthy registered
+                    // worktree so provisioning does not interrupt another dock's build.
                     if (Directory.Exists(siblingWorktreePath))
                     {
                         bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);

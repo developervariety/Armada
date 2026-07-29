@@ -520,13 +520,6 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("ProvisionAsync reuses an existing sibling checkout instead of destroying a concurrent dock's build", async () =>
             {
-                // Regression: sibling RelativePath is "../<name>", so it resolves OUT of the mission
-                // dock into the shared vessel dock root (docks/<vessel>/msn_X + "../SibA" =>
-                // docks/<vessel>/SibA). Provisioning a second dock used to remove and recreate that
-                // shared directory, deleting the sibling a concurrent dock was mid-build against.
-                // The victim failed with MSB3030 "could not copy ... because it was not found" and
-                // CS0006 "metadata file could not be found" -- infrastructure damage that reads as a
-                // code error. Observed 2026-07-19 (Architect dock provisioned while Worker compiled).
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     LoggingModule logging = new LoggingModule();

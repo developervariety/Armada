@@ -166,7 +166,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("F2_SanitizeIdentityName_HandlesCaptainIdAndPersonaName", () =>
             {
                 AssertEqual("architect", ReflectionDispatcher.SanitizeIdentityName("Architect"), "PersonaName lowercased");
-                AssertEqual("cpt-mouwolsu-xoddchjh252", ReflectionDispatcher.SanitizeIdentityName("cpt_mouwolsu_XodDCHJh252"), "Captain id underscores become hyphens");
+                AssertEqual("cpt-example", ReflectionDispatcher.SanitizeIdentityName("cpt_example"), "Captain id underscores become hyphens");
                 AssertEqual("unknown", ReflectionDispatcher.SanitizeIdentityName(""), "Empty input returns 'unknown'");
                 return Task.CompletedTask;
             });
@@ -280,7 +280,7 @@ namespace Armada.Test.Unit.Suites.Services
                     VesselId = vessel.Id,
                     Persona = "MemoryConsolidator",
                     Status = MissionStatusEnum.Complete,
-                    AgentOutput = "```reflections-candidate\n# F2-arch-cap\n\n## Anti-patterns\n[medium] Captain cpt_mouwolsu_XodDCHJh252 swallows warnings. Source: msn_aaa, msn_bbb, msn_ccc.\n```\n```reflections-diff\n{\"added\":[{\"section\":\"Anti-patterns\",\"summary\":\"swallows\",\"confidence\":\"medium\"}],\"modified\":[],\"disabled\":[],\"evidenceConfidence\":\"mixed\",\"missionsExamined\":3,\"captainsInScope\":1,\"notes\":\"x\"}\n```"
+                    AgentOutput = "```reflections-candidate\n# F2-arch-cap\n\n## Anti-patterns\n[medium] Captain cpt_example swallows warnings. Source: msn_aaa, msn_bbb, msn_ccc.\n```\n```reflections-diff\n{\"added\":[{\"section\":\"Anti-patterns\",\"summary\":\"swallows\",\"confidence\":\"medium\"}],\"modified\":[],\"disabled\":[],\"evidenceConfidence\":\"mixed\",\"missionsExamined\":3,\"captainsInScope\":1,\"notes\":\"x\"}\n```"
                 };
                 mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 

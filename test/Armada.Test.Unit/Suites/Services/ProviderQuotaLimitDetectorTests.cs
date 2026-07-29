@@ -53,22 +53,15 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("TryParseRetryAfterUtc_DatedCodexUsageLimit_ReturnsThatDateNotToday", () =>
+            await RunTest("TryParseRetryAfterUtc_FullDate_ReturnsThatDate", () =>
             {
-                // Regression: this is the verbatim Codex message seen 2026-07-19. The clock-only
-                // pattern never matched it (it hits "Jul", not a digit), so parsing returned null
-                // and the caller fell back to the 300s default backoff -- a 5-minute quarantine for
-                // a limit lasting 5 days. Captains were released into a still-exhausted account and
-                // burned one per retry.
-                DateTime referenceUtc = new DateTime(2026, 7, 20, 0, 14, 0, DateTimeKind.Utc);
-                string text = "ERROR: You've hit your usage limit. Upgrade to Pro "
-                    + "(https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage "
-                    + "to purchase more credits or try again at Jul 25th, 2026 7:22 AM.";
+                DateTime referenceUtc = new DateTime(2030, 7, 20, 0, 14, 0, DateTimeKind.Utc);
+                string text = "ERROR: Please try again at Jul 25th, 2030 7:22 AM.";
 
                 DateTime? retryAfterUtc = ProviderQuotaLimitDetector.TryParseRetryAfterUtc(text, referenceUtc);
 
                 AssertNotNull(retryAfterUtc, "dated retry hint should parse");
-                AssertEqual(2026, retryAfterUtc!.Value.Year, "year should come from the message");
+                AssertEqual(2030, retryAfterUtc!.Value.Year, "year should come from the message");
                 AssertEqual(7, retryAfterUtc.Value.Month, "month should come from the message");
                 AssertEqual(25, retryAfterUtc.Value.Day, "day must be the 25th, not the reference day");
                 AssertTrue(

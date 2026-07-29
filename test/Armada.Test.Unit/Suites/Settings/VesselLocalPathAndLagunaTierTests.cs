@@ -113,13 +113,8 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
-            await RunTest("MidPreferenceOrder_LeadsWithCurrentGenerationIds", () =>
+            await RunTest("MidPreferenceOrder_UsesConfiguredOrder", () =>
             {
-                // Regression guard for the real defect: the order previously listed ONLY
-                // prior-generation ids (kimi-k2.7-code, claude-sonnet-4-6, composer-2.5), none of
-                // which a live captain carries, so preference steered nothing in production.
-                // Prior generations are still listed as generation fallbacks -- what matters is that
-                // the CURRENT-generation id leads each family, and that every entry classifies mid.
                 ModelTierSettings s = new ModelTierSettings();
                 AssertTrue(s.WithinTierPreferenceOrder.TryGetValue("mid", out var order), "mid order must exist");
                 foreach (string m in order!)
@@ -127,8 +122,8 @@ namespace Armada.Test.Unit.Suites.Settings
                     AssertEqual("mid", PreferredModelTierSelector.ClassifyModel(m),
                         "preference entry '" + m + "' must actually classify mid");
                 }
-                AssertEqual("opencode-go/kimi-k3", order[0], "Kimi K3 is the owner-designated primary mid-tier model");
-                // Each current-generation id must precede its own prior generation.
+                AssertEqual("zyloo/glm-5.2", order[0], "configured mid-tier order starts with Zyloo GLM");
+                AssertEqual("opencode/glm-5.2", order[1], "OpenCode GLM follows Zyloo GLM");
                 AssertTrue(order.IndexOf("opencode-go/kimi-k3") < order.IndexOf("opencode-go/kimi-k2.7-code"),
                     "current-gen kimi must precede the prior generation");
                 AssertTrue(order.IndexOf("claude-sonnet-5") < order.IndexOf("claude-sonnet-4-6"),
@@ -138,20 +133,18 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
-            await RunTest("UnmeasuredChallengers_NotPromoted", () =>
+            await RunTest("NonPreferredModels_AreNotInPreferenceOrder", () =>
             {
-                // Kimi K3 is intentionally excluded from this list: it was promoted by explicit owner
-                // decision. These remain eligible-but-not-preferred until the bake-off measures them.
                 ModelTierSettings s = new ModelTierSettings();
                 if (s.WithinTierPreferenceOrder.TryGetValue("mid", out var order))
                 {
                     foreach (string m in new[]
                     {
-                        "grok-4.5", "opencode/glm-5.2", "opencode-go/glm-5.2", "opencode/laguna-s-2.1-free"
+                        "grok-4.5", "opencode-go/glm-5.2", "opencode/laguna-s-2.1-free"
                     })
                     {
                         AssertFalse(order.Contains(m),
-                            m + " is unmeasured -- it must be eligible but NOT first-choice");
+                            m + " is eligible but is not part of the configured preference order");
                     }
                 }
                 return Task.CompletedTask;
@@ -170,16 +163,14 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
-            await RunTest("LiveCaptainModels_AllClassify", () =>
+            await RunTest("ConfiguredModels_AllClassify", () =>
             {
-                // Every model string a real captain carries must resolve to a tier, or that captain
-                // is unroutable (this is exactly how the four kimi-k3 captains went dormant).
                 var expected = new (string Model, string Tier)[]
                 {
                     ("claude-opus-4-8", "high"), ("claude-fable-5", "high"), ("gpt-5.6-sol", "high"),
                     ("claude-sonnet-5", "mid"), ("composer-2-fast", "mid"),
                     ("opencode-go/kimi-k3", "mid"), ("opencode/laguna-s-2.1-free", "mid"),
-                    ("opencode/glm-5.2", "mid"), ("grok-4.5", "mid")
+                    ("opencode/glm-5.2", "mid"), ("zyloo/glm-5.2", "mid"), ("grok-4.5", "mid")
                 };
                 foreach (var e in expected)
                 {
@@ -191,8 +182,6 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("DeepEngineeringModels_RemainHighTier", () =>
             {
-                // The owner's "deep engineering" picks must stay high tier -- these back the Judge and
-                // specialist personas, which are the safety net against fabricated/silenced results.
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "gpt-5.6-sol stays high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5"), "fable-5 must resolve high (canonical fable pattern)");
                 return Task.CompletedTask;

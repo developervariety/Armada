@@ -68,10 +68,10 @@ namespace Armada.Test.Unit.Suites.Services
                 // BundleSha256 / SourceTreeSha256 are hash fields (embedded "Sha256"), and manifest.json is a
                 // known manifest -- a genuine 64-hex digest must not false-positive as a secret.
                 AssertTrue(ConventionChecker.IsManifestHashAllowed("CORE_RULE_5_base64_chunk", line,
-                    "src/OtrPerformanceDeobfuscator/Output/otr-export/manifest.json"),
+                    "src/ExampleExtractor/Output/export/manifest.json"),
                     "a 64-hex BundleSha256 digest in manifest.json must be exempted");
                 AssertTrue(ConventionChecker.IsManifestHashAllowed("CORE_RULE_5_base64_chunk",
-                    "  \"SourceTreeSha256\": \"" + hex64 + "\",", "output/otr-export/manifest.json"),
+                    "  \"SourceTreeSha256\": \"" + hex64 + "\",", "output/export/manifest.json"),
                     "SourceTreeSha256 digest must be exempted too");
                 return Task.CompletedTask;
             });
@@ -82,7 +82,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // even inside manifest.json, so a real leaked secret is still caught.
                 string line = "  \"seedKeyBlob\": \"QUJDRGVmZ2hJSktMbW5vUHFyU3R1Vld4WXowMTIzNDU2Nzg5K2Yv\",";
                 AssertFalse(ConventionChecker.IsManifestHashAllowed("CORE_RULE_5_base64_chunk", line,
-                    "src/OtrPerformanceDeobfuscator/Output/otr-export/manifest.json"),
+                    "src/ExampleExtractor/Output/export/manifest.json"),
                     "a real base64 secret must NOT be exempted by the manifest-hash allowance");
                 return Task.CompletedTask;
             });

@@ -4,10 +4,9 @@ Armada is a multi-agent orchestration system that scales human developers with A
 IMPORTANT -- Context Conservation: When using Armada MCP tools, use armada_enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data -- by default, large fields are excluded and length hints are returned instead.
 
 AI-Memory is the sole durable memory source for Codex, Claude, Cursor, Gemini,
-OpenCode, Armada captains, and future AI runtimes. Read
-`E:\Programming\AI-Memory\shared\INDEX.md` from the local workstation or
-`/srv/armada/AI-Memory/shared/INDEX.md` from the server, then read
-`shared/unified-project-memory.md`. Treat tool-specific Codex/Claude memories
+OpenCode, Armada captains, and future AI runtimes. Read the shared
+`AI-Memory/shared/INDEX.md`, then read `shared/unified-project-memory.md`.
+Treat tool-specific Codex/Claude memories
 as historical imports only unless the shared index explicitly routes there.
 
 ## Code Style
