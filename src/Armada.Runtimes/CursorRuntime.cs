@@ -206,7 +206,10 @@ namespace Armada.Runtimes
                     return builder.ToString();
             }
 
-            return "[ARMADA:ACTIVITY] cursor " + (evt.Type ?? "event").Replace('_', ' ');
+            if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, out string activity))
+                return activity;
+
+            return String.Empty;
         }
 
         private static CursorEvent? Deserialize(string line)

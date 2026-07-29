@@ -11,6 +11,7 @@ namespace Armada.Server.WebSocket
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Runtimes;
 
     /// <summary>
     /// Handles all WebSocket command actions, extracted from the ArmadaWebSocketHub command route.
@@ -704,7 +705,8 @@ namespace Armada.Server.WebSocket
                             return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = "", Lines = 0, TotalLines = 0 } };
                         else
                         {
-                            string[] mlAllLines = await ReadLinesSharedAsync(mlLogPath).ConfigureAwait(false);
+                            string[] mlAllLines = RuntimeLogNoiseFilter.Filter(
+                                await ReadLinesSharedAsync(mlLogPath).ConfigureAwait(false));
                             int mlTotalLines = mlAllLines.Length;
                             int mlOffset = command.Offset ?? 0;
                             int mlLineCount = command.Lines ?? 100;

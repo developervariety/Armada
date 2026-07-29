@@ -96,6 +96,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DataExpiryServiceTests());
             runner.AddSuite(new NotificationServiceTests());
             runner.AddSuite(new RuntimeDetectionServiceTests());
+            runner.AddSuite(new RuntimeOutputFormattingTests());
             runner.AddSuite(new RemoteTunnelManagerTests());
             runner.AddSuite(new ProxyRegistryTests());
             runner.AddSuite(new RemoteControlQueryServiceTests());

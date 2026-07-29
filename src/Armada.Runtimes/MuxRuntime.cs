@@ -124,7 +124,10 @@ namespace Armada.Runtimes
             if (!String.IsNullOrEmpty(evt.Content))
                 return evt.Content;
 
-            return "[ARMADA:ACTIVITY] mux " + (evt.EventType ?? evt.Type ?? "event").Replace('_', ' ');
+            if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, out string activity))
+                return activity;
+
+            return String.Empty;
         }
 
         private static MuxEvent? Deserialize(string line)

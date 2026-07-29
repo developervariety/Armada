@@ -7,6 +7,7 @@ namespace Armada.Server
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Runtimes;
     /// <summary>
     /// Handles focused remote-control queries routed through the outbound tunnel.
     /// </summary>
@@ -347,7 +348,8 @@ namespace Armada.Server
 
             try
             {
-                string[] allLines = await ReadLinesSharedAsync(logPath).ConfigureAwait(false);
+                string[] allLines = RuntimeLogNoiseFilter.Filter(
+                    await ReadLinesSharedAsync(logPath).ConfigureAwait(false));
                 int offset = Math.Max(0, request.Offset);
                 int lineCount = Clamp(request.Lines, 200, 1, 2000);
                 string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();

@@ -13,6 +13,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Runtimes;
 
     /// <summary>
     /// Registers MCP tools for mission operations (status, create, update, cancel, purge, restart, transition, diff, log).
@@ -617,7 +618,8 @@ namespace Armada.Server.Mcp.Tools
                         if (!File.Exists(logPath))
                             return (object)new { MissionId = missionId, Log = "", Lines = 0, TotalLines = 0 };
 
-                        string[] allLines = await McpToolHelpers.ReadLogFileSafeAsync(logPath).ConfigureAwait(false);
+                        string[] allLines = RuntimeLogNoiseFilter.Filter(
+                            await McpToolHelpers.ReadLogFileSafeAsync(logPath).ConfigureAwait(false));
                         int totalLines = allLines.Length;
 
                         int offset = Math.Max(0, request.Offset ?? 0);

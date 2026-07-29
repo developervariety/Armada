@@ -143,7 +143,10 @@ namespace Armada.Runtimes
                 return evt.Content;
             }
 
-            return "[ARMADA:ACTIVITY] gemini " + (evt.Type ?? "event").Replace('_', ' ');
+            if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, out string activity))
+                return activity;
+
+            return String.Empty;
         }
 
         private static GeminiEvent? Deserialize(string line)

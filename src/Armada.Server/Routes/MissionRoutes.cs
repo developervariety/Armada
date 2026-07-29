@@ -17,6 +17,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Runtimes;
     using Armada.Server.WebSocket;
     using SyslogLogging;
 
@@ -1223,7 +1224,8 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    string[] allLines = await ReadLinesSharedAsync(logPath).ConfigureAwait(false);
+                    string[] allLines = RuntimeLogNoiseFilter.Filter(
+                        await ReadLinesSharedAsync(logPath).ConfigureAwait(false));
                     int totalLines = allLines.Length;
 
                     int offset = 0;

@@ -313,7 +313,7 @@ namespace Armada.Runtimes
 
             if (evt != null && IsRecognizedNonContentEvent(evt))
             {
-                return BuildLifecycleActivity(evt);
+                return String.Empty;
             }
 
             return line;
@@ -383,20 +383,6 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Build a concise activity record for structured lifecycle events.
-        /// </summary>
-        private static string BuildLifecycleActivity(OpenCodeEvent evt)
-        {
-            string normalizedType = evt.Type!.Replace('_', '-');
-            if (String.Equals(normalizedType, "step-start", StringComparison.Ordinal))
-                return "[ARMADA:ACTIVITY] step started";
-            if (String.Equals(normalizedType, "step-finish", StringComparison.Ordinal))
-                return "[ARMADA:ACTIVITY] step finished";
-
-            return "[ARMADA:ACTIVITY] " + TruncateActivityText(normalizedType, 120);
-        }
-
-        /// <summary>
         /// Bound activity text before it reaches durable telemetry.
         /// </summary>
         private static string TruncateActivityText(string value, int maximumLength)
@@ -413,7 +399,8 @@ namespace Armada.Runtimes
         private static bool IsToolUseEvent(OpenCodeEvent evt)
         {
             return evt != null
-                && String.Equals(evt.Type, "tool_use", StringComparison.Ordinal)
+                && !String.IsNullOrEmpty(evt.Type)
+                && evt.Type.StartsWith("tool", StringComparison.Ordinal)
                 && evt.Part != null
                 && String.Equals(evt.Part.Type, "tool", StringComparison.Ordinal)
                 && !String.IsNullOrEmpty(evt.Part.Tool);
@@ -485,7 +472,7 @@ namespace Armada.Runtimes
                 || String.Equals(evt.Type, "step_finish", StringComparison.Ordinal)
                 || String.Equals(evt.Type, "step-start", StringComparison.Ordinal)
                 || String.Equals(evt.Type, "step-finish", StringComparison.Ordinal)
-                || (evt.Type.StartsWith("tool", StringComparison.Ordinal) && !String.Equals(evt.Type, "tool_use", StringComparison.Ordinal));
+                || evt.Type.StartsWith("tool", StringComparison.Ordinal);
         }
 
         /// <summary>
