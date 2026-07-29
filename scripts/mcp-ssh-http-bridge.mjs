@@ -241,7 +241,16 @@ export async function runBridge(options = {}) {
       // handshake per request, so strip the reserved keys and send every
       // request in its lenient "bare" form. Non-reserved keys (progressToken,
       // etc.) are preserved.
-      const cleanedObject = stripReservedMeta(requestObject);
+      let cleanedObject = stripReservedMeta(requestObject);
+
+      // The remote build throws a generic -32603 ("An error occurred.") on any
+      // request that omits `params` entirely -- which is exactly what modern
+      // MCP clients send for a parameterless `tools/list`. `params` is optional
+      // per JSON-RPC/MCP, so normalize a missing/null value to an empty object.
+      if (cleanedObject.params === undefined || cleanedObject.params === null) {
+        cleanedObject = { ...cleanedObject, params: {} };
+      }
+
       const cleanedMessage = cleanedObject === requestObject ? message : JSON.stringify(cleanedObject);
 
       try {
