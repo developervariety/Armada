@@ -703,7 +703,7 @@ namespace Armada.Server
             {
                 _ProcessToMission.TryGetValue(processId, out outputMissionId);
             }
-            if (!String.IsNullOrEmpty(outputMissionId))
+            if (!String.IsNullOrEmpty(outputMissionId) && !IsMissionActivityRecord(line))
             {
                 System.Text.StringBuilder sb = _MissionOutput.GetOrAdd(outputMissionId, _ => new System.Text.StringBuilder());
                 AppendBounded(sb, line);
@@ -760,6 +760,16 @@ namespace Armada.Server
                     _Logging.Warn(_Header + "error processing progress signal: " + ex.Message);
                 }
             });
+        }
+
+        /// <summary>
+        /// Activity records are durable viewer telemetry, not captain prose. Keeping them out of
+        /// AgentOutput prevents tool and lifecycle noise from polluting pipeline handoff prompts.
+        /// </summary>
+        private static bool IsMissionActivityRecord(string line)
+        {
+            return !String.IsNullOrEmpty(line) &&
+                line.StartsWith("[ARMADA:ACTIVITY]", StringComparison.Ordinal);
         }
 
         /// <summary>

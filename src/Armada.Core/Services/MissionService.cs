@@ -942,6 +942,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
+                    await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate", token).ConfigureAwait(false);
                     DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token).ConfigureAwait(false);
                     if (!dodResult.Passed && String.IsNullOrEmpty(dodResult.SkippedReason))
                     {
@@ -951,8 +952,17 @@ namespace Armada.Core.Services
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         mission.FailureReason = BuildDodFailureReason(dodResult);
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                         _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
                             dodResult.FailureClass);
+                    }
+                    else if (dodResult.Passed)
+                    {
+                        await AppendMissionActivityAsync(mission.Id, "validation passed: definition-of-done gate", token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await AppendMissionActivityAsync(mission.Id, "validation skipped: " + dodResult.SkippedReason, token).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -969,6 +979,7 @@ namespace Armada.Core.Services
                         "DoD gate failed: classification=Infra; gate-evaluation command exited -1\n" +
                         "Gate evaluation could not be completed due to an infrastructure error.";
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "infrastructure error in DoD gate for mission " + mission.Id +
                         " exceptionType=" + dodEx.GetType().Name);
                 }
@@ -4330,6 +4341,34 @@ namespace Armada.Core.Services
             if (vessel == null) return;
 
             await TryAssignAsync(nextMission, vessel, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Append Armada-owned validation lifecycle evidence to the same readable mission log
+        /// used by every runtime. This makes a terminal gate failure visible where operators are
+        /// already following agent progress instead of leaving it only in FailureReason.
+        /// </summary>
+        private async Task AppendMissionActivityAsync(string missionId, string message, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(missionId) || String.IsNullOrWhiteSpace(message)) return;
+
+            try
+            {
+                string directory = System.IO.Path.Combine(_Settings.LogDirectory, "missions");
+                System.IO.Directory.CreateDirectory(directory);
+                string path = System.IO.Path.Combine(directory, missionId + ".log");
+                const int maximumMessageLength = 24000;
+                string boundedMessage = message.Length <= maximumMessageLength
+                    ? message
+                    : message.Substring(0, maximumMessageLength) + "\n...(truncated)";
+                string record = "[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") +
+                    "] [ARMADA:ACTIVITY] " + boundedMessage + Environment.NewLine;
+                await System.IO.File.AppendAllTextAsync(path, record, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not append mission activity for " + missionId + ": " + ex.Message);
+            }
         }
 
         private static string? NormalizeReviewComment(string? comment)

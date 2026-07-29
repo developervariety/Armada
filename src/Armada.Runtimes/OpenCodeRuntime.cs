@@ -179,7 +179,7 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Parse a single opencode --format json stdout line and return the inner
-        /// assistant text, empty text for recognized non-content events, or the original
+        /// assistant text, a compact activity record for structured activity events, or the original
         /// line when the line is not valid JSON.
         ///
         /// WHY: opencode --format json wraps all assistant output in typed JSON event
@@ -189,14 +189,14 @@ namespace Armada.Runtimes
         /// the admiral's mission-status detection. Reducing each event to its text
         /// content restores the plain-text contract subscribers depend on.
         ///
-        /// The build agent frequently emits <c>tool_use</c> events. Those are SUPPRESSED
-        /// from the mission log (return empty) so OpenCode captains read the same as
-        /// Codex/ClaudeCode captains -- assistant text and the final result only, with no
-        /// per-tool-call dumps and no raw tool output in the log.
+        /// The build agent frequently emits <c>tool_use</c> events. Those are reduced to
+        /// short, redacted activity records. This preserves a useful operational timeline
+        /// without copying raw JSON, tool output, or secret values into the mission log.
         ///
         /// Non-parseable lines (progress bars, debug noise, blank lines) fall through
         /// unchanged so they are not silently dropped from the mission log. Recognized
-        /// structured noise is suppressed so raw JSON does not leak into the log file.
+        /// structured events are rendered as activity records so raw JSON does not leak into
+        /// the log file.
         /// </summary>
         protected override string TransformOutputLine(string line)
         {
@@ -221,16 +221,12 @@ namespace Armada.Runtimes
 
             if (evt != null && IsToolUseEvent(evt))
             {
-                // Tool calls are suppressed from the mission log so OpenCode captains read the
-                // same as Codex/ClaudeCode captains (assistant text + final message only, no
-                // per-tool-call dumps). Treated as non-content noise, like step events: a valid
-                // run still emits its assistant [ARMADA:RESULT] text, which sets _SawContent.
-                return string.Empty;
+                return BuildToolActivity(evt);
             }
 
             if (evt != null && IsRecognizedNonContentEvent(evt))
             {
-                return string.Empty;
+                return BuildLifecycleActivity(evt);
             }
 
             return line;
@@ -273,6 +269,55 @@ namespace Armada.Runtimes
         {
             string text = evt.Part!.Text!;
             return IsReasoningContentEvent(evt) ? RedactSecretValues(text) : text;
+        }
+
+        /// <summary>
+        /// Build a compact, redacted tool activity record for the shared mission-log timeline.
+        /// Tool output is deliberately excluded because it is potentially large and sensitive.
+        /// </summary>
+        private static string BuildToolActivity(OpenCodeEvent evt)
+        {
+            OpenCodeToolInput? input = evt.Part!.State?.Input;
+            string detail = String.Empty;
+            if (input != null)
+            {
+                if (!String.IsNullOrWhiteSpace(input.FilePath))
+                    detail = " " + RedactSecretValues(input.FilePath.Trim());
+                else if (!String.IsNullOrWhiteSpace(input.Command))
+                    detail = " " + RedactSecretValues(TruncateActivityText(input.Command.Trim(), 240));
+                else if (!String.IsNullOrWhiteSpace(input.Pattern))
+                    detail = " " + RedactSecretValues(TruncateActivityText(input.Pattern.Trim(), 160));
+            }
+
+            string status = String.IsNullOrWhiteSpace(evt.Part.State?.Status)
+                ? String.Empty
+                : " (" + TruncateActivityText(evt.Part.State.Status.Trim(), 40) + ")";
+            return "[ARMADA:ACTIVITY] tool " + evt.Part.Tool!.Trim() + detail + status;
+        }
+
+        /// <summary>
+        /// Build a concise activity record for structured lifecycle events.
+        /// </summary>
+        private static string BuildLifecycleActivity(OpenCodeEvent evt)
+        {
+            string normalizedType = evt.Type!.Replace('_', '-');
+            if (String.Equals(normalizedType, "step-start", StringComparison.Ordinal))
+                return "[ARMADA:ACTIVITY] step started";
+            if (String.Equals(normalizedType, "step-finish", StringComparison.Ordinal))
+                return "[ARMADA:ACTIVITY] step finished";
+
+            return "[ARMADA:ACTIVITY] " + TruncateActivityText(normalizedType, 120);
+        }
+
+        /// <summary>
+        /// Bound activity text before it reaches durable telemetry.
+        /// </summary>
+        private static string TruncateActivityText(string value, int maximumLength)
+        {
+            if (String.IsNullOrEmpty(value) || value.Length <= maximumLength)
+                return value;
+
+            return value.Substring(0, maximumLength) + "...";
         }
 
         /// <summary>
