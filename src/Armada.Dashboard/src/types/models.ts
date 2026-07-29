@@ -1968,6 +1968,34 @@ export interface SettingsData {
   [key: string]: unknown;
 }
 
+export interface TokenUsageModelBreakdown {
+  runtime: string;
+  model: string;
+  sampleCount: number;
+  missionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+export interface TokenUsageSummary {
+  fromUtc: string;
+  toUtc: string;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  sampleCount: number;
+  reportedMissionCount: number;
+  coverageNote: string;
+  models: TokenUsageModelBreakdown[];
+}
+
 export interface BatchDeleteRequest {
   ids: string[];
 }

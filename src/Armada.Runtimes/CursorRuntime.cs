@@ -3,6 +3,9 @@ namespace Armada.Runtimes
     using Armada.Core.Models;
     using System.Diagnostics;
     using System.IO;
+    using System.Text;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using SyslogLogging;
 
     /// <summary>
@@ -157,9 +160,70 @@ namespace Armada.Runtimes
             args.Add("--force");
             args.Add("--trust");
             args.Add("--output-format");
-            args.Add("text");
+            args.Add("stream-json");
 
             return args;
+        }
+
+        /// <summary>
+        /// Capture Cursor's exact terminal usage counters.
+        /// </summary>
+        protected override void HandleRawOutputLine(int processId, string line)
+        {
+            CursorEvent? evt = Deserialize(line);
+            if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Usage == null)
+                return;
+
+            CursorUsage reported = evt.Usage;
+            PublishTokenUsage(processId, new RuntimeTokenUsage
+            {
+                Source = "cursor.result",
+                InputTokens = NonNegative(reported.InputTokens),
+                OutputTokens = NonNegative(reported.OutputTokens),
+                CacheReadTokens = NonNegative(reported.CacheReadTokens),
+                CacheWriteTokens = NonNegative(reported.CacheWriteTokens)
+            });
+        }
+
+        /// <summary>
+        /// Render Cursor stream events without leaking JSON into mission logs.
+        /// </summary>
+        protected override string TransformOutputLine(string line)
+        {
+            CursorEvent? evt = Deserialize(line);
+            if (evt == null)
+                return line;
+
+            if (String.Equals(evt.Type, "assistant", StringComparison.Ordinal) && evt.Message?.Content != null)
+            {
+                StringBuilder builder = new StringBuilder();
+                foreach (CursorContent content in evt.Message.Content)
+                {
+                    if (String.Equals(content.Type, "text", StringComparison.Ordinal) && !String.IsNullOrEmpty(content.Text))
+                        builder.Append(content.Text);
+                }
+                if (builder.Length > 0)
+                    return builder.ToString();
+            }
+
+            return "[ARMADA:ACTIVITY] cursor " + (evt.Type ?? "event").Replace('_', ' ');
+        }
+
+        private static CursorEvent? Deserialize(string line)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<CursorEvent>(line);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static long NonNegative(long? value)
+        {
+            return Math.Max(0, value ?? 0);
         }
 
         /// <summary>
@@ -169,6 +233,52 @@ namespace Armada.Runtimes
         /// cursor-agent.cmd to silently fail on long mission briefs.
         /// </summary>
         protected override bool UsePromptStdin => true;
+
+        #endregion
+
+        #region Private-Types
+
+        private sealed class CursorEvent
+        {
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("message")]
+            public CursorMessage? Message { get; set; }
+
+            [JsonPropertyName("usage")]
+            public CursorUsage? Usage { get; set; }
+        }
+
+        private sealed class CursorMessage
+        {
+            [JsonPropertyName("content")]
+            public List<CursorContent>? Content { get; set; }
+        }
+
+        private sealed class CursorContent
+        {
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("text")]
+            public string? Text { get; set; }
+        }
+
+        private sealed class CursorUsage
+        {
+            [JsonPropertyName("inputTokens")]
+            public long? InputTokens { get; set; }
+
+            [JsonPropertyName("outputTokens")]
+            public long? OutputTokens { get; set; }
+
+            [JsonPropertyName("cacheReadTokens")]
+            public long? CacheReadTokens { get; set; }
+
+            [JsonPropertyName("cacheWriteTokens")]
+            public long? CacheWriteTokens { get; set; }
+        }
 
         #endregion
     }

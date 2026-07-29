@@ -1,6 +1,7 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.IO;
+    using Armada.Core.Models;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -19,6 +20,8 @@ namespace Armada.Test.Runtimes.Suites
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);
+
+            public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
         }
 
         private InspectableGeminiRuntime CreateRuntime()
@@ -44,6 +47,19 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("test prompt", args[1]);
                 AssertTrue(args.Contains("--approval-mode"));
                 AssertTrue(args.Contains("yolo"));
+                AssertTrue(args.Contains("stream-json"));
+            });
+
+            await RunTest("ResultPublishesExactPerModelUsage", () =>
+            {
+                InspectableGeminiRuntime runtime = CreateRuntime();
+                RuntimeTokenUsage? captured = null;
+                runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
+                runtime.FeedUsage(9, "{\"type\":\"result\",\"stats\":{\"models\":{\"gemini-2.5-pro\":{\"total_tokens\":40,\"input_tokens\":30,\"output_tokens\":10,\"cached\":5}}}}");
+                AssertNotNull(captured);
+                AssertEqual("gemini-2.5-pro", captured!.Model);
+                AssertEqual(40L, captured.ProviderTotalTokens);
+                AssertEqual(5L, captured.CacheReadTokens);
             });
 
             await RunTest("BuildArguments Includes Model When Supplied", () =>

@@ -388,6 +388,7 @@ Useful REST areas include:
 - `/api/v1/deployments`
 - `/api/v1/incidents`
 - `/api/v1/runbooks`
+- `/api/v1/events/token-usage` (authoritative per-runtime/model token telemetry)
 
 ---
 

@@ -3,6 +3,8 @@ namespace Armada.Runtimes
     using Armada.Core.Models;
     using Armada.Core.Services;
     using System.Diagnostics;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using SyslogLogging;
 
     /// <summary>
@@ -109,16 +111,7 @@ namespace Armada.Runtimes
             List<string> args = new List<string>();
 
             args.Add("exec");
-
-            // NOTE: deliberately NOT passing --json. With --json, Codex emits its session as a
-            // JSONL event stream ({"type":"thread.started"}, {"type":"item.completed"}, ...) to
-            // stdout, and BaseAgentRuntime would write those raw lines straight into the mission
-            // log -- producing unreadable JSON-wrapped logs. Keeping --json OFF means the final
-            // answer is captured cleanly via --output-last-message (below) and progress/result
-            // markers stay plain-text-detectable via Contains. Log bloat is NOT controlled here:
-            // Codex's verbose stderr working transcript is kept OUT of the mission-log FILE by
-            // WriteStderrToLogFile=false (above), not by output-format flags. DO NOT re-add --json.
-            // Stdin piping is suppressed independently via RedirectStdin.
+            args.Add("--json");
             if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
             {
                 args.Add("--dangerously-bypass-approvals-and-sandbox");
@@ -164,6 +157,108 @@ namespace Armada.Runtimes
             args.Add(prompt);
 
             return args;
+        }
+
+        /// <summary>
+        /// Capture exact usage from Codex's terminal turn event.
+        /// </summary>
+        protected override void HandleRawOutputLine(int processId, string line)
+        {
+            CodexEvent? evt = Deserialize(line);
+            if (evt == null || !String.Equals(evt.Type, "turn.completed", StringComparison.Ordinal) || evt.Usage == null)
+                return;
+
+            CodexUsage reported = evt.Usage;
+            PublishTokenUsage(processId, new RuntimeTokenUsage
+            {
+                Source = "codex.turn.completed",
+                InputTokens = NonNegative(reported.InputTokens),
+                OutputTokens = NonNegative(reported.OutputTokens),
+                ReasoningTokens = NonNegative(reported.ReasoningOutputTokens),
+                CacheReadTokens = NonNegative(reported.CachedInputTokens),
+                CacheWriteTokens = NonNegative(reported.CacheWriteInputTokens)
+            });
+        }
+
+        /// <summary>
+        /// Keep Codex JSONL out of mission logs while preserving assistant protocol markers.
+        /// </summary>
+        protected override string TransformOutputLine(string line)
+        {
+            CodexEvent? evt = Deserialize(line);
+            if (evt == null)
+                return line;
+
+            CodexItem? item = evt.Item;
+            if (String.Equals(evt.Type, "item.completed", StringComparison.Ordinal) &&
+                item != null &&
+                String.Equals(item.Type, "agent_message", StringComparison.Ordinal) &&
+                !String.IsNullOrEmpty(item.Text))
+            {
+                return item.Text;
+            }
+
+            return "[ARMADA:ACTIVITY] codex " + (evt.Type ?? "event").Replace('.', ' ');
+        }
+
+        private static CodexEvent? Deserialize(string line)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<CodexEvent>(line);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static long NonNegative(long? value)
+        {
+            return Math.Max(0, value ?? 0);
+        }
+
+        #endregion
+
+        #region Private-Types
+
+        private sealed class CodexEvent
+        {
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("item")]
+            public CodexItem? Item { get; set; }
+
+            [JsonPropertyName("usage")]
+            public CodexUsage? Usage { get; set; }
+        }
+
+        private sealed class CodexItem
+        {
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("text")]
+            public string? Text { get; set; }
+        }
+
+        private sealed class CodexUsage
+        {
+            [JsonPropertyName("input_tokens")]
+            public long? InputTokens { get; set; }
+
+            [JsonPropertyName("cached_input_tokens")]
+            public long? CachedInputTokens { get; set; }
+
+            [JsonPropertyName("cache_write_input_tokens")]
+            public long? CacheWriteInputTokens { get; set; }
+
+            [JsonPropertyName("output_tokens")]
+            public long? OutputTokens { get; set; }
+
+            [JsonPropertyName("reasoning_output_tokens")]
+            public long? ReasoningOutputTokens { get; set; }
         }
 
         #endregion

@@ -110,6 +110,54 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/events/token-usage", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                int days = 30;
+                string daysValue = req.Query.GetValueOrDefault("days");
+                if (!String.IsNullOrEmpty(daysValue) && int.TryParse(daysValue, out int parsedDays))
+                    days = Math.Clamp(parsedDays, 1, 3650);
+
+                DateTime toUtc = DateTime.UtcNow;
+                DateTime fromUtc = toUtc.AddDays(-days);
+                EnumerationQuery query = new EnumerationQuery
+                {
+                    PageSize = 1000,
+                    CreatedAfter = fromUtc,
+                    CreatedBefore = toUtc,
+                    EventType = "mission.token_usage"
+                };
+
+                List<ArmadaEvent> events = new List<ArmadaEvent>();
+                int totalPages = 1;
+                for (int page = 1; page <= totalPages; page++)
+                {
+                    query.PageNumber = page;
+                    EnumerationResult<ArmadaEvent> eventPage = ctx.IsAdmin
+                        ? await _database.Events.EnumerateAsync(query).ConfigureAwait(false)
+                        : ctx.IsTenantAdmin
+                            ? await _database.Events.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                            : await _database.Events.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+                    events.AddRange(eventPage.Objects);
+                    totalPages = eventPage.TotalPages;
+                }
+
+                return BuildTokenUsageSummary(events, fromUtc, toUtc);
+            },
+            api => api
+                .WithTag("Events")
+                .WithSummary("Summarize authoritative token usage")
+                .WithDescription("Returns exact provider-reported token usage grouped by runtime and model. No tokenizer estimates are included.")
+                .WithParameter(OpenApiParameterMetadata.Query("days", "Reporting window in days (1-3650, default 30)", false, OpenApiSchemaMetadata.Integer()))
+                .WithResponse(200, OpenApiJson.For<TokenUsageSummary>("Authoritative token usage summary"))
+                .WithSecurity("ApiKey"));
+
             app.Delete("/api/v1/events/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -197,6 +245,96 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of event IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
+        }
+
+        private TokenUsageSummary BuildTokenUsageSummary(
+            List<ArmadaEvent> events,
+            DateTime fromUtc,
+            DateTime toUtc)
+        {
+            TokenUsageSummary summary = new TokenUsageSummary
+            {
+                FromUtc = fromUtc,
+                ToUtc = toUtc,
+                CoverageNote = "Exact provider-reported usage only. OpenCode, Codex, Claude Code, Gemini, and Cursor emit authoritative counters; Mux is counted only when its provider event includes exact usage."
+            };
+            Dictionary<string, TokenUsageModelBreakdown> breakdowns = new Dictionary<string, TokenUsageModelBreakdown>(StringComparer.Ordinal);
+            Dictionary<string, HashSet<string>> missions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            HashSet<string> reportedMissions = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (ArmadaEvent evt in events)
+            {
+                if (String.IsNullOrWhiteSpace(evt.Payload))
+                    continue;
+
+                RuntimeTokenUsage? usage = null;
+                try
+                {
+                    usage = JsonSerializer.Deserialize<RuntimeTokenUsage>(evt.Payload, _jsonOptions);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (usage == null || String.IsNullOrWhiteSpace(usage.Runtime) || String.IsNullOrWhiteSpace(usage.Model))
+                    continue;
+
+                string key = usage.Runtime + "\n" + usage.Model;
+                if (!breakdowns.TryGetValue(key, out TokenUsageModelBreakdown? breakdown))
+                {
+                    breakdown = new TokenUsageModelBreakdown
+                    {
+                        Runtime = usage.Runtime,
+                        Model = usage.Model
+                    };
+                    breakdowns[key] = breakdown;
+                    missions[key] = new HashSet<string>(StringComparer.Ordinal);
+                }
+
+                long sampleTotal = usage.ProviderTotalTokens ?? AddWithoutOverflow(usage.InputTokens, usage.OutputTokens);
+                breakdown.SampleCount = AddWithoutOverflow(breakdown.SampleCount, 1);
+                breakdown.InputTokens = AddWithoutOverflow(breakdown.InputTokens, usage.InputTokens);
+                breakdown.OutputTokens = AddWithoutOverflow(breakdown.OutputTokens, usage.OutputTokens);
+                breakdown.ReasoningTokens = AddWithoutOverflow(breakdown.ReasoningTokens, usage.ReasoningTokens);
+                breakdown.CacheReadTokens = AddWithoutOverflow(breakdown.CacheReadTokens, usage.CacheReadTokens);
+                breakdown.CacheWriteTokens = AddWithoutOverflow(breakdown.CacheWriteTokens, usage.CacheWriteTokens);
+                breakdown.TotalTokens = AddWithoutOverflow(breakdown.TotalTokens, sampleTotal);
+                summary.SampleCount = AddWithoutOverflow(summary.SampleCount, 1);
+
+                if (!String.IsNullOrEmpty(evt.MissionId))
+                {
+                    missions[key].Add(evt.MissionId);
+                    reportedMissions.Add(evt.MissionId);
+                }
+            }
+
+            foreach (KeyValuePair<string, TokenUsageModelBreakdown> item in breakdowns)
+            {
+                item.Value.MissionCount = missions[item.Key].Count;
+                summary.InputTokens = AddWithoutOverflow(summary.InputTokens, item.Value.InputTokens);
+                summary.OutputTokens = AddWithoutOverflow(summary.OutputTokens, item.Value.OutputTokens);
+                summary.ReasoningTokens = AddWithoutOverflow(summary.ReasoningTokens, item.Value.ReasoningTokens);
+                summary.CacheReadTokens = AddWithoutOverflow(summary.CacheReadTokens, item.Value.CacheReadTokens);
+                summary.CacheWriteTokens = AddWithoutOverflow(summary.CacheWriteTokens, item.Value.CacheWriteTokens);
+                summary.TotalTokens = AddWithoutOverflow(summary.TotalTokens, item.Value.TotalTokens);
+                summary.Models.Add(item.Value);
+            }
+
+            summary.ReportedMissionCount = reportedMissions.Count;
+            summary.Models = summary.Models
+                .OrderByDescending(item => item.TotalTokens)
+                .ThenBy(item => item.Runtime, StringComparer.Ordinal)
+                .ThenBy(item => item.Model, StringComparer.Ordinal)
+                .ToList();
+            return summary;
+        }
+
+        private static long AddWithoutOverflow(long left, long right)
+        {
+            if (right > 0 && left > Int64.MaxValue - right)
+                return Int64.MaxValue;
+            return left + right;
         }
     }
 }

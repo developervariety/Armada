@@ -3,6 +3,9 @@ namespace Armada.Runtimes
     using Armada.Core.Models;
     using Armada.Core.Services;
     using System.Diagnostics;
+    using System.Text;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using SyslogLogging;
 
     /// <summary>
@@ -97,6 +100,8 @@ namespace Armada.Runtimes
 
             args.Add("--print");
             args.Add("--verbose");
+            args.Add("--output-format");
+            args.Add("stream-json");
 
             // Isolate captain settings to project and local sources only; prevents user-level
             // plugins and MCP servers (e.g. Playwright) from leaking into headless captain processes.
@@ -118,6 +123,67 @@ namespace Armada.Runtimes
             args.Add(prompt);
 
             return args;
+        }
+
+        /// <summary>
+        /// Capture Claude Code's exact aggregated result usage.
+        /// </summary>
+        protected override void HandleRawOutputLine(int processId, string line)
+        {
+            ClaudeEvent? evt = Deserialize(line);
+            if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Usage == null)
+                return;
+
+            ClaudeUsage reported = evt.Usage;
+            PublishTokenUsage(processId, new RuntimeTokenUsage
+            {
+                Source = "claude.result",
+                InputTokens = NonNegative(reported.InputTokens),
+                OutputTokens = NonNegative(reported.OutputTokens),
+                CacheReadTokens = NonNegative(reported.CacheReadInputTokens),
+                CacheWriteTokens = NonNegative(reported.CacheCreationInputTokens)
+            });
+        }
+
+        /// <summary>
+        /// Render Claude stream events as readable mission output.
+        /// </summary>
+        protected override string TransformOutputLine(string line)
+        {
+            ClaudeEvent? evt = Deserialize(line);
+            if (evt == null)
+                return line;
+
+            if (String.Equals(evt.Type, "assistant", StringComparison.Ordinal) && evt.Message?.Content != null)
+            {
+                StringBuilder builder = new StringBuilder();
+                foreach (ClaudeContent content in evt.Message.Content)
+                {
+                    if (String.Equals(content.Type, "text", StringComparison.Ordinal) && !String.IsNullOrEmpty(content.Text))
+                        builder.Append(content.Text);
+                }
+                if (builder.Length > 0)
+                    return builder.ToString();
+            }
+
+            return "[ARMADA:ACTIVITY] claude " + (evt.Type ?? "event").Replace('_', ' ');
+        }
+
+        private static ClaudeEvent? Deserialize(string line)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<ClaudeEvent>(line);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static long NonNegative(long? value)
+        {
+            return Math.Max(0, value ?? 0);
         }
 
         /// <summary>
@@ -167,6 +233,52 @@ namespace Armada.Runtimes
                 case "high":    return 128000;
                 default:        return null;
             }
+        }
+
+        #endregion
+
+        #region Private-Types
+
+        private sealed class ClaudeEvent
+        {
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("message")]
+            public ClaudeMessage? Message { get; set; }
+
+            [JsonPropertyName("usage")]
+            public ClaudeUsage? Usage { get; set; }
+        }
+
+        private sealed class ClaudeMessage
+        {
+            [JsonPropertyName("content")]
+            public List<ClaudeContent>? Content { get; set; }
+        }
+
+        private sealed class ClaudeContent
+        {
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("text")]
+            public string? Text { get; set; }
+        }
+
+        private sealed class ClaudeUsage
+        {
+            [JsonPropertyName("input_tokens")]
+            public long? InputTokens { get; set; }
+
+            [JsonPropertyName("output_tokens")]
+            public long? OutputTokens { get; set; }
+
+            [JsonPropertyName("cache_read_input_tokens")]
+            public long? CacheReadInputTokens { get; set; }
+
+            [JsonPropertyName("cache_creation_input_tokens")]
+            public long? CacheCreationInputTokens { get; set; }
         }
 
         #endregion

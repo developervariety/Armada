@@ -23,6 +23,8 @@ namespace Armada.Test.Runtimes.Suites
 
             public bool UsesPromptStdin() => UsePromptStdin;
 
+            public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
+
             public string? AppliedEnvironmentValue(Captain captain, string key)
             {
                 ProcessStartInfo startInfo = new ProcessStartInfo();
@@ -78,23 +80,24 @@ namespace Armada.Test.Runtimes.Suites
 
                 List<string> args = runtime.Args("C:/worktree", "test prompt", "gpt-5.4-mini", "C:/logs/final.txt", captain);
 
-                AssertEqual("run", args[0]);
+                AssertEqual("print", args[0]);
                 AssertTrue(args.Contains("--model"));
                 AssertTrue(args.Contains("gpt-5.4-mini"));
-                AssertTrue(args.Contains("--dir"));
+                AssertTrue(args.Contains("-w"));
                 AssertTrue(args.Contains("C:/worktree"));
-                AssertTrue(args.Contains("--quiet"));
-                AssertFalse(args.Contains("--config-dir"));
-                AssertFalse(args.Contains("--output-format"));
-                AssertFalse(args.Contains("--output-last-message"));
-                AssertFalse(args.Contains("--endpoint"));
+                AssertTrue(args.Contains("--yolo"));
+                AssertTrue(args.Contains("--config-dir"));
+                AssertTrue(args.Contains("--output-format"));
+                AssertTrue(args.Contains("jsonl"));
+                AssertTrue(args.Contains("--output-last-message"));
+                AssertTrue(args.Contains("--endpoint"));
                 AssertFalse(args.Contains("--base-url"));
                 AssertFalse(args.Contains("--adapter-type"));
                 AssertFalse(args.Contains("--temperature"));
                 AssertFalse(args.Contains("--max-tokens"));
                 AssertFalse(args.Contains("--system-prompt"));
                 AssertFalse(args.Contains("--approval-policy"));
-                AssertFalse(args.Contains("test prompt"));
+                AssertTrue(args.Contains("test prompt"));
                 AssertTrue(runtime.UsesPromptStdin());
             });
 
@@ -111,12 +114,12 @@ namespace Armada.Test.Runtimes.Suites
 
                 List<string> args = runtime.Args("C:/worktree", "test prompt", captain: captain);
 
-                AssertFalse(args.Contains("--yolo"));
+                AssertTrue(args.Contains("--yolo"));
                 AssertFalse(args.Contains("--approval-policy"));
                 AssertFalse(args.Contains("--mode"));
             });
 
-            await RunTest("BuildArguments Maps Plan Approval To Plan Mode", () =>
+            await RunTest("BuildArguments IgnoresLegacyPlanApproval", () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();
                 Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
@@ -129,8 +132,23 @@ namespace Armada.Test.Runtimes.Suites
 
                 List<string> args = runtime.Args("C:/worktree", "test prompt", captain: captain);
 
-                AssertTrue(args.Contains("--mode"));
-                AssertTrue(args.Contains("plan"));
+                AssertFalse(args.Contains("--mode"));
+                AssertFalse(args.Contains("plan"));
+            });
+
+            await RunTest("ExactProviderUsageIsPublishedButEstimatesAreIgnored", () =>
+            {
+                InspectableMuxRuntime runtime = CreateRuntime();
+                RuntimeTokenUsage? captured = null;
+                runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
+                runtime.FeedUsage(21, "{\"eventType\":\"llm_response\",\"usage\":{\"inputTokens\":100,\"outputTokens\":20}}");
+                AssertNotNull(captured);
+                AssertEqual(100L, captured!.InputTokens);
+                AssertEqual(20L, captured.OutputTokens);
+
+                captured = null;
+                runtime.FeedUsage(21, "{\"eventType\":\"run_completed\",\"finalEstimatedTokens\":999}");
+                AssertNull(captured, "Mux estimates must never be recorded as authoritative usage");
             });
 
             await RunTest("ApplyEnvironment Maps Config And BaseUrl", () =>

@@ -110,6 +110,7 @@ import type {
   RunbookExecutionUpdateRequest,
   RunbookQuery,
   RunbookUpsertRequest,
+  TokenUsageSummary,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -728,6 +729,8 @@ export const deletePlanningSession = (id: string) => del<void>(`/api/v1/planning
 // ==================== Events ====================
 export const listEvents = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<ArmadaEvent>>(`/api/v1/events${buildQuery(params)}`);
+export const getTokenUsage = (days = 30) =>
+  get<TokenUsageSummary>(`/api/v1/events/token-usage?days=${encodeURIComponent(String(days))}`);
 export const getEvent = (id: string) => get<ArmadaEvent>(`/api/v1/events/${id}`);
 export const deleteEventsBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/events/delete/multiple', { Ids: ids });
 

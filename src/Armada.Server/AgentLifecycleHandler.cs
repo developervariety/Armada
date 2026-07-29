@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System.Diagnostics;
     using System.IO;
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Database;
@@ -384,6 +385,7 @@ namespace Armada.Server
             runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
             runtime.OnOutputReceived += HandleAgentOutput;
             runtime.OnOutputReceived += HandleAgentHeartbeat;
+            runtime.OnTokenUsageReceived += HandleTokenUsage;
             runtime.OnProcessExited += HandleAgentProcessExited;
 
             Vessel? vessel = null;
@@ -758,6 +760,63 @@ namespace Armada.Server
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error processing progress signal: " + ex.Message);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Persist an authoritative runtime token-usage sample for dashboard aggregation.
+        /// </summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="usage">Usage reported directly by the runtime/provider.</param>
+        public void HandleTokenUsage(int processId, RuntimeTokenUsage usage)
+        {
+            string? captainId = null;
+            string? missionId = null;
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToCaptain.TryGetValue(processId, out captainId);
+                _ProcessToMission.TryGetValue(processId, out missionId);
+            }
+
+            if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
+            {
+                _Logging.Warn(_Header + "discarding token usage for unmapped process " + processId);
+                return;
+            }
+
+            string capturedCaptainId = captainId;
+            string capturedMissionId = missionId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
+                    Mission? mission = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
+                    if (captain == null || mission == null)
+                        return;
+
+                    usage.Runtime = captain.Runtime.ToString();
+                    if (String.IsNullOrWhiteSpace(usage.Model))
+                        usage.Model = String.IsNullOrWhiteSpace(captain.Model) ? "(runtime default)" : captain.Model.Trim();
+
+                    ArmadaEvent evt = new ArmadaEvent(
+                        "mission.token_usage",
+                        "Authoritative token usage reported by " + usage.Runtime + " for " + usage.Model);
+                    evt.TenantId = mission.TenantId;
+                    evt.UserId = mission.UserId;
+                    evt.EntityType = "mission";
+                    evt.EntityId = mission.Id;
+                    evt.CaptainId = captain.Id;
+                    evt.MissionId = mission.Id;
+                    evt.VesselId = mission.VesselId;
+                    evt.VoyageId = mission.VoyageId;
+                    evt.Payload = JsonSerializer.Serialize(usage);
+                    await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error persisting token usage: " + ex.Message);
                 }
             });
         }

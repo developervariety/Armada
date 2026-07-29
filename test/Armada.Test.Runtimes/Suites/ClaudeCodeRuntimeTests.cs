@@ -31,6 +31,8 @@ namespace Armada.Test.Runtimes.Suites
                 ApplyEnvironment(startInfo, captain);
                 return startInfo;
             }
+
+            public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
         }
 
         private InspectableClaudeCodeRuntime CreateRuntime()
@@ -85,6 +87,20 @@ namespace Armada.Test.Runtimes.Suites
                 int modelIndex = args.IndexOf("--model");
                 AssertTrue(modelIndex >= 0);
                 AssertEqual("sonnet", args[modelIndex + 1]);
+                AssertTrue(args.Contains("stream-json"));
+            });
+
+            await RunTest("Result PublishesExactUsage", () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                RuntimeTokenUsage? captured = null;
+                runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
+                runtime.FeedUsage(7, "{\"type\":\"result\",\"usage\":{\"input_tokens\":2,\"output_tokens\":4,\"cache_read_input_tokens\":15273,\"cache_creation_input_tokens\":5528}}");
+                AssertNotNull(captured);
+                AssertEqual(2L, captured!.InputTokens);
+                AssertEqual(4L, captured.OutputTokens);
+                AssertEqual(15273L, captured.CacheReadTokens);
+                AssertEqual(5528L, captured.CacheWriteTokens);
             });
 
             await RunTest("BuildArguments Includes SettingSources ProjectLocal", () =>

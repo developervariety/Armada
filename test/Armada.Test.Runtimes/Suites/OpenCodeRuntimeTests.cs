@@ -53,6 +53,8 @@ namespace Armada.Test.Runtimes.Suites
             /// </summary>
             public string TransformLine(string line) => TransformOutputLine(line);
 
+            public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
+
             /// <summary>
             /// Expose TryExtractAssistantResult() so the assistant-result classifier can
             /// be tested directly without a running process.
@@ -73,6 +75,20 @@ namespace Armada.Test.Runtimes.Suites
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("StepFinishPublishesExactUsage", () =>
+            {
+                InspectableOpenCodeRuntime runtime = CreateRuntime();
+                RuntimeTokenUsage? captured = null;
+                runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
+                runtime.FeedUsage(5, "{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45,\"reasoning\":3,\"cache\":{\"read\":8,\"write\":2}}}");
+                AssertNotNull(captured);
+                AssertEqual(10L, captured!.InputTokens);
+                AssertEqual(45L, captured.OutputTokens);
+                AssertEqual(3L, captured.ReasoningTokens);
+                AssertEqual(8L, captured.CacheReadTokens);
+                AssertEqual(2L, captured.CacheWriteTokens);
+            });
+
             await RunTest("AgentRuntimeEnum_OpenCode_ParseSucceeds", () =>
             {
                 bool parsed = Enum.TryParse("OpenCode", ignoreCase: true, out AgentRuntimeEnum runtime);

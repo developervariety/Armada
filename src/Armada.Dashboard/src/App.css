@@ -540,6 +540,33 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 .mission-history-refresh-btn { background: none; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; padding: 0.25rem 0.4rem; color: var(--text-dim); display: inline-flex; align-items: center; font-size: 0.9rem; }
 .mission-history-refresh-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+/* Token Usage Chart */
+.token-usage-section { margin-bottom: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
+.token-usage-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+.token-usage-title { font-weight: 600; font-size: 0.85rem; margin-right: 0.5rem; }
+.token-usage-accuracy { color: var(--green); font-size: 0.7rem; border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); border-radius: 999px; padding: 0.1rem 0.45rem; }
+.token-usage-stats { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1rem; color: var(--text-dim); font-size: 0.8rem; }
+.token-usage-stats strong { color: var(--text); font-size: 1rem; margin-right: 0.2rem; }
+.token-usage-chart { display: grid; gap: 0.9rem; }
+.token-usage-row { display: grid; grid-template-columns: minmax(150px, 220px) minmax(160px, 1fr) 60px; gap: 0.6rem 0.8rem; align-items: center; }
+.token-usage-label { min-width: 0; }
+.token-usage-label strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; }
+.token-usage-label span { display: block; color: var(--text-dim); font-size: 0.7rem; }
+.token-usage-bar-track { height: 14px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.token-usage-bar { height: 100%; display: flex; min-width: 2px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
+.token-usage-input { display: inline-block; height: 100%; background: var(--accent); }
+.token-usage-output { display: inline-block; height: 100%; background: var(--green); }
+.token-usage-value { text-align: right; font-weight: 600; font-size: 0.8rem; }
+.token-usage-detail { grid-column: 2 / 4; color: var(--text-dim); font-size: 0.68rem; margin-top: -0.45rem; }
+.token-usage-legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem; color: var(--text-dim); font-size: 0.7rem; }
+.token-usage-legend i { width: 10px; height: 10px; border-radius: 2px; margin-right: 0.25rem; vertical-align: -1px; }
+.token-usage-legend span:last-child { margin-left: auto; max-width: 620px; text-align: right; }
+@media (max-width: 720px) {
+    .token-usage-header { align-items: flex-start; flex-direction: column; }
+    .token-usage-row { grid-template-columns: minmax(110px, 150px) 1fr 48px; }
+    .token-usage-legend span:last-child { margin-left: 0; text-align: left; }
+}
+
 .card {
     background: var(--bg-card);
     border: 1px solid var(--border);

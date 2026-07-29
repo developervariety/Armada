@@ -219,6 +219,52 @@ namespace Armada.Runtimes
         protected override bool UsePromptStdin => true;
 
         /// <summary>
+        /// Extract authoritative usage counters from OpenCode step-finish events.
+        /// </summary>
+        /// <param name="processId">OpenCode process identifier.</param>
+        /// <param name="line">Raw structured output line.</param>
+        protected override void HandleRawOutputLine(int processId, string line)
+        {
+            OpenCodeEvent? evt = null;
+            try
+            {
+                evt = JsonSerializer.Deserialize<OpenCodeEvent>(line, _JsonOptions);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (evt == null ||
+                (!String.Equals(evt.Type, "step_finish", StringComparison.Ordinal) &&
+                 !String.Equals(evt.Type, "step-finish", StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            OpenCodeTokenUsage? tokens = evt.Tokens ?? evt.Part?.Tokens;
+            if (tokens == null || !tokens.HasReportedValue())
+                return;
+
+            RuntimeTokenUsage usage = new RuntimeTokenUsage
+            {
+                Source = "opencode.step_finish",
+                InputTokens = NonNegative(tokens.Input),
+                OutputTokens = NonNegative(tokens.Output),
+                ReasoningTokens = NonNegative(tokens.Reasoning),
+                CacheReadTokens = NonNegative(tokens.Cache?.Read),
+                CacheWriteTokens = NonNegative(tokens.Cache?.Write),
+                ProviderTotalTokens = tokens.Total.HasValue ? NonNegative(tokens.Total) : null
+            };
+            PublishTokenUsage(processId, usage);
+        }
+
+        private static long NonNegative(long? value)
+        {
+            return Math.Max(0, value ?? 0);
+        }
+
+        /// <summary>
         /// Parse a single opencode --format json stdout line and return the inner
         /// assistant text, a compact activity record for structured activity events, or the original
         /// line when the line is not valid JSON.
@@ -522,6 +568,12 @@ namespace Armada.Runtimes
             /// </summary>
             [JsonPropertyName("part")]
             public OpenCodeEventPart? Part { get; set; }
+
+            /// <summary>
+            /// Provider usage on step-finish events.
+            /// </summary>
+            [JsonPropertyName("tokens")]
+            public OpenCodeTokenUsage? Tokens { get; set; }
         }
 
         /// <summary>
@@ -558,6 +610,51 @@ namespace Armada.Runtimes
             /// </summary>
             [JsonPropertyName("state")]
             public OpenCodeToolState? State { get; set; }
+
+            /// <summary>
+            /// Provider usage on nested step-finish parts.
+            /// </summary>
+            [JsonPropertyName("tokens")]
+            public OpenCodeTokenUsage? Tokens { get; set; }
+        }
+
+        /// <summary>
+        /// Strongly typed OpenCode provider usage payload.
+        /// </summary>
+        private sealed class OpenCodeTokenUsage
+        {
+            [JsonPropertyName("input")]
+            public long? Input { get; set; }
+
+            [JsonPropertyName("output")]
+            public long? Output { get; set; }
+
+            [JsonPropertyName("reasoning")]
+            public long? Reasoning { get; set; }
+
+            [JsonPropertyName("total")]
+            public long? Total { get; set; }
+
+            [JsonPropertyName("cache")]
+            public OpenCodeCacheUsage? Cache { get; set; }
+
+            public bool HasReportedValue()
+            {
+                return Input.HasValue || Output.HasValue || Reasoning.HasValue || Total.HasValue ||
+                    Cache?.Read.HasValue == true || Cache?.Write.HasValue == true;
+            }
+        }
+
+        /// <summary>
+        /// OpenCode cache token counters.
+        /// </summary>
+        private sealed class OpenCodeCacheUsage
+        {
+            [JsonPropertyName("read")]
+            public long? Read { get; set; }
+
+            [JsonPropertyName("write")]
+            public long? Write { get; set; }
         }
 
         /// <summary>

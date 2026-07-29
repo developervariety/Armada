@@ -36,6 +36,11 @@ namespace Armada.Runtimes
         public event Action<int, string>? OnOutputReceived;
 
         /// <summary>
+        /// Event raised when the runtime receives authoritative provider token usage.
+        /// </summary>
+        public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
+
+        /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
         /// </summary>
         public event Action<int>? OnProcessStarted;
@@ -207,6 +212,9 @@ namespace Armada.Runtimes
             {
                 if (!String.IsNullOrEmpty(e.Data))
                 {
+                    try { HandleRawOutputLine(process.Id, e.Data); }
+                    catch (Exception ex) { _Logging.Warn(_Header + "error parsing runtime telemetry: " + ex.Message); }
+
                     string outputLine = TransformOutputLine(e.Data);
 
                     // A runtime may transform a structured event to empty to SUPPRESS it from
@@ -468,6 +476,26 @@ namespace Armada.Runtimes
         /// plain-text protocol markers remain detectable by subscribers.
         /// </summary>
         protected virtual string TransformOutputLine(string line) => line;
+
+        /// <summary>
+        /// Inspect a raw stdout line for runtime telemetry before log transformation.
+        /// </summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="line">Raw stdout line.</param>
+        protected virtual void HandleRawOutputLine(int processId, string line)
+        {
+        }
+
+        /// <summary>
+        /// Publish authoritative token usage to lifecycle subscribers.
+        /// </summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="usage">Authoritative usage sample.</param>
+        protected void PublishTokenUsage(int processId, RuntimeTokenUsage usage)
+        {
+            try { OnTokenUsageReceived?.Invoke(processId, usage); }
+            catch { }
+        }
 
         private static void ApplySharedCaptainEnvironment(ProcessStartInfo startInfo)
         {

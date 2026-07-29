@@ -1,6 +1,7 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.IO;
+    using Armada.Core.Models;
     using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Runtimes;
@@ -23,6 +24,8 @@ namespace Armada.Test.Runtimes.Suites
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);
 
             public bool StdinEnabled() => UsePromptStdin;
+
+            public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
         }
 
         // Overrides GetWindowsOfficialInstallPath() to inject a controlled path
@@ -78,14 +81,26 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("cursor-agent", runtime.ExecutablePath);
             });
 
-            await RunTest("BuildArguments Uses NonInteractive Text Output", () =>
+            await RunTest("BuildArguments Uses NonInteractiveStructuredOutput", () =>
             {
                 InspectableCursorRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
                 AssertEqual("--print", args[0]);
                 AssertTrue(args.Contains("--force"));
                 AssertTrue(args.Contains("--output-format"));
-                AssertTrue(args.Contains("text"));
+                AssertTrue(args.Contains("stream-json"));
+            });
+
+            await RunTest("ResultPublishesExactUsage", () =>
+            {
+                InspectableCursorRuntime runtime = CreateRuntime();
+                RuntimeTokenUsage? captured = null;
+                runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
+                runtime.FeedUsage(11, "{\"type\":\"result\",\"usage\":{\"inputTokens\":11010,\"outputTokens\":23,\"cacheReadTokens\":2905,\"cacheWriteTokens\":0}}");
+                AssertNotNull(captured);
+                AssertEqual(11010L, captured!.InputTokens);
+                AssertEqual(23L, captured.OutputTokens);
+                AssertEqual(2905L, captured.CacheReadTokens);
             });
 
             await RunTest("BuildArguments Includes Model When Supplied", () =>

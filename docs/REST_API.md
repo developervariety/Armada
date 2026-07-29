@@ -1903,6 +1903,13 @@ Paginated enumeration of events with optional filtering and sorting.
 
 ---
 
+#### GET /api/v1/events/token-usage
+
+Return provider-reported token usage grouped by runtime and model for the requested window.
+Armada does not include tokenizer estimates. `days` accepts `1` through `3650` and defaults to `30`.
+
+---
+
 #### `DELETE /api/v1/events/{id}`
 
 Delete a single event by ID.

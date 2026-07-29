@@ -47,6 +47,9 @@ namespace Armada.Core.Services
 
             AppendCommonOverrides(args, options, model);
 
+            args.Add("--output-format");
+            args.Add("jsonl");
+
             args.Add("-w");
             args.Add(workingDirectory);
 

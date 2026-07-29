@@ -2,6 +2,8 @@ namespace Armada.Runtimes
 {
     using Armada.Core.Models;
     using System.Diagnostics;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using SyslogLogging;
 
     /// <summary>
@@ -92,8 +94,113 @@ namespace Armada.Runtimes
             args.Add(prompt);
             args.Add("--approval-mode");
             args.Add(ApprovalMode);
+            args.Add("--output-format");
+            args.Add("stream-json");
 
             return args;
+        }
+
+        /// <summary>
+        /// Capture Gemini CLI's exact terminal per-model statistics.
+        /// </summary>
+        protected override void HandleRawOutputLine(int processId, string line)
+        {
+            GeminiEvent? evt = Deserialize(line);
+            if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Stats?.Models == null)
+                return;
+
+            Dictionary<string, GeminiModelStats> models = evt.Stats.Models;
+            foreach (KeyValuePair<string, GeminiModelStats> model in models)
+            {
+                PublishTokenUsage(processId, new RuntimeTokenUsage
+                {
+                    Runtime = Name,
+                    Model = model.Key,
+                    Source = "gemini.result.stats.models",
+                    InputTokens = NonNegative(model.Value.InputTokens),
+                    OutputTokens = NonNegative(model.Value.OutputTokens),
+                    CacheReadTokens = NonNegative(model.Value.Cached),
+                    ProviderTotalTokens = model.Value.TotalTokens.HasValue
+                        ? NonNegative(model.Value.TotalTokens)
+                        : null
+                });
+            }
+        }
+
+        /// <summary>
+        /// Keep Gemini JSONL readable while preserving assistant protocol markers.
+        /// </summary>
+        protected override string TransformOutputLine(string line)
+        {
+            GeminiEvent? evt = Deserialize(line);
+            if (evt == null)
+                return line;
+
+            if (String.Equals(evt.Type, "message", StringComparison.Ordinal) &&
+                String.Equals(evt.Role, "assistant", StringComparison.Ordinal) &&
+                !String.IsNullOrEmpty(evt.Content))
+            {
+                return evt.Content;
+            }
+
+            return "[ARMADA:ACTIVITY] gemini " + (evt.Type ?? "event").Replace('_', ' ');
+        }
+
+        private static GeminiEvent? Deserialize(string line)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<GeminiEvent>(line);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static long NonNegative(long? value)
+        {
+            return Math.Max(0, value ?? 0);
+        }
+
+        #endregion
+
+        #region Private-Types
+
+        private sealed class GeminiEvent
+        {
+            [JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [JsonPropertyName("role")]
+            public string? Role { get; set; }
+
+            [JsonPropertyName("content")]
+            public string? Content { get; set; }
+
+            [JsonPropertyName("stats")]
+            public GeminiStats? Stats { get; set; }
+        }
+
+        private sealed class GeminiStats
+        {
+            [JsonPropertyName("models")]
+            public Dictionary<string, GeminiModelStats>? Models { get; set; }
+        }
+
+        private sealed class GeminiModelStats
+        {
+            [JsonPropertyName("total_tokens")]
+            public long? TotalTokens { get; set; }
+
+            [JsonPropertyName("input_tokens")]
+            public long? InputTokens { get; set; }
+
+            [JsonPropertyName("output_tokens")]
+            public long? OutputTokens { get; set; }
+
+            [JsonPropertyName("cached")]
+            public long? Cached { get; set; }
         }
 
         #endregion

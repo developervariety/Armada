@@ -30,6 +30,11 @@ namespace Armada.Runtimes.Interfaces
         event Action<int, string>? OnOutputReceived;
 
         /// <summary>
+        /// Event raised when the runtime receives authoritative provider token usage.
+        /// </summary>
+        event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
+
+        /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
         /// </summary>
         event Action<int>? OnProcessStarted;

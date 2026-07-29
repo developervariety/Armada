@@ -26,6 +26,10 @@ namespace Armada.Test.Runtimes.Suites
             public bool StdinRedirected => RedirectStdin;
 
             public bool StderrWrittenToLogFile => WriteStderrToLogFile;
+
+            public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
+
+            public string TransformLine(string line) => TransformOutputLine(line);
         }
 
         private InspectableCodexRuntime CreateRuntime()
@@ -55,11 +59,26 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(runtime.StdinRedirected, "Codex prompt is a CLI arg; stdin pipe must not be opened");
             });
 
-            await RunTest("BuildArguments Omits Json Flag For Readable Mission Logs", () =>
+            await RunTest("BuildArguments Uses Json Flag WithReadableTransformation", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
-                AssertFalse(args.Contains("--json"), "Codex must NOT use --json: it emits a JSONL event stream that BaseAgentRuntime would write raw into the mission log, making logs unreadable. Log bloat is kept down by WriteStderrToLogFile=false (the stderr transcript stays out of the log file), not by output-format flags; the final answer is captured via --output-last-message.");
+                AssertTrue(args.Contains("--json"), "Codex JSONL is required for exact usage telemetry");
+                AssertEqual("[ARMADA:PROGRESS] 50", runtime.TransformLine("{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"[ARMADA:PROGRESS] 50\"}}"));
+            });
+
+            await RunTest("TurnCompleted PublishesExactUsage", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                RuntimeTokenUsage? captured = null;
+                runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
+                runtime.FeedUsage(42, "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":15567,\"cached_input_tokens\":13056,\"cache_write_input_tokens\":12,\"output_tokens\":5,\"reasoning_output_tokens\":2}}");
+                AssertNotNull(captured);
+                AssertEqual(15567L, captured!.InputTokens);
+                AssertEqual(5L, captured.OutputTokens);
+                AssertEqual(2L, captured.ReasoningTokens);
+                AssertEqual(13056L, captured.CacheReadTokens);
+                AssertEqual(12L, captured.CacheWriteTokens);
             });
 
             await RunTest("WriteStderrToLogFile Returns False", () =>
