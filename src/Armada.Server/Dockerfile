@@ -23,8 +23,8 @@ RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/* \
     && git clone --depth 1 https://github.com/jchristn/Mux.git /tmp/Mux \
-    && dotnet pack /tmp/Mux/src/Mux.Cli/Mux.Cli.csproj -c Release -f net10.0 -o /tmp/mux-pkg \
-    && dotnet tool install --tool-path /opt/mux --framework net10.0 --add-source /tmp/mux-pkg Mux.Cli \
+    && dotnet pack /tmp/Mux/src/Mux.Cli/Mux.Cli.csproj -c Release -p:TargetFrameworks=net10.0 -o /tmp/mux-pkg \
+    && dotnet tool install --tool-path /opt/mux --framework net10.0 --disable-parallel --add-source /tmp/mux-pkg Mux.Cli \
     && rm -rf /tmp/Mux /tmp/mux-pkg
 
 # --- Runtime stage ---
