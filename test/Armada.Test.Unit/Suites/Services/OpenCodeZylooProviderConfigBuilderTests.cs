@@ -34,7 +34,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"npm\": \"@ai-sdk/openai-compatible\"", json, "Zyloo must use the OpenAI-compatible AI SDK adapter");
                 AssertContains("\"baseURL\": \"https://api.zyloo.io/v1\"", json, "Zyloo must use the documented OpenAI-compatible endpoint");
                 AssertContains("\"apiKey\": \"{env:ZYLOO_KEY}\"", json, "The configuration must reference the environment key without embedding a credential");
-                AssertContains("\"zyloo/claude-opus-4-7\": {}", json, "Only the requested model should be registered");
+                AssertContains("\"claude-opus-4-7\": {}", json, "The provider-local model ID should be registered");
+                AssertFalse(json.Contains("\"zyloo/claude-opus-4-7\": {}", StringComparison.Ordinal),
+                    "The provider model map must not repeat the provider prefix");
                 AssertFalse(json.Contains("sk-zy-", StringComparison.OrdinalIgnoreCase), "The generated configuration must never contain a Zyloo secret");
                 AssertFalse(json.Contains("\r\n"), "The generated configuration must use LF line endings");
                 return Task.CompletedTask;
@@ -52,7 +54,7 @@ namespace Armada.Test.Unit.Suites.Services
                     .First()
                     .Name;
 
-                AssertEqual("zyloo/gpt-5.5", model, "The registered model must be trimmed and retain its canonical Zyloo identifier");
+                AssertEqual("gpt-5.5", model, "The registered model must be provider-local and trimmed");
                 return Task.CompletedTask;
             });
 

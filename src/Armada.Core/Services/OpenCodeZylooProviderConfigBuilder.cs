@@ -93,9 +93,10 @@ namespace Armada.Core.Services
             /// <param name="model">Canonical Zyloo model identifier.</param>
             public OpenCodeProviderDefinition(string model)
             {
+                string providerModelId = model.Substring(_ModelPrefix.Length);
                 Models = new Dictionary<string, object>(StringComparer.Ordinal)
                 {
-                    [model] = new object()
+                    [providerModelId] = new object()
                 };
             }
 
