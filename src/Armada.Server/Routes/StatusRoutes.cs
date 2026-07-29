@@ -381,6 +381,9 @@ namespace Armada.Server.Routes
                 if (body.MaxCaptains.HasValue)
                     _settings.MaxCaptains = body.MaxCaptains.Value;
 
+                if (body.MaxConcurrentCaptainWorkloads.HasValue)
+                    _settings.MaxConcurrentCaptainWorkloads = body.MaxConcurrentCaptainWorkloads.Value;
+
                 if (body.HeartbeatIntervalSeconds.HasValue)
                     _settings.HeartbeatIntervalSeconds = body.HeartbeatIntervalSeconds.Value;
 
@@ -480,6 +483,7 @@ namespace Armada.Server.Routes
                 AdmiralPort = _settings.AdmiralPort,
                 McpPort = _settings.McpPort,
                 MaxCaptains = _settings.MaxCaptains,
+                MaxConcurrentCaptainWorkloads = _settings.MaxConcurrentCaptainWorkloads,
                 HeartbeatIntervalSeconds = _settings.HeartbeatIntervalSeconds,
                 StallThresholdMinutes = _settings.StallThresholdMinutes,
                 IdleCaptainTimeoutSeconds = _settings.IdleCaptainTimeoutSeconds,
