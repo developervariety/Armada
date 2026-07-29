@@ -280,7 +280,17 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(destRef)) throw new ArgumentNullException(nameof(destRef));
 
             _Logging.Info(_Header + "pushing " + srcRef + ":" + destRef + " from " + repoPath);
-            await RunGitAsync(repoPath, "push", "origin", srcRef + ":" + destRef).ConfigureAwait(false);
+            // Vessel repositories are cloned with --mirror, which persists
+            // remote.origin.mirror=true. Git rejects an explicit refspec while that setting is
+            // active, but merge-queue landing must advance only the requested target branch.
+            // Override the setting for this command without mutating the mirror configuration.
+            await RunGitAsync(
+                repoPath,
+                "-c",
+                "remote.origin.mirror=false",
+                "push",
+                "origin",
+                srcRef + ":" + destRef).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

@@ -255,6 +255,49 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertThrowsAsync<ArgumentNullException>(() => service.PushBranchAsync(null!));
             });
 
+            await RunTest("PushRefSpecAsync Overrides Mirror Remote For Targeted Landing", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string remoteDir = Path.Combine(rootDir, "remote.git");
+                string mirrorDir = Path.Combine(rootDir, "mirror.git");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "checkout", "-b", "integration").ConfigureAwait(false);
+                    await File.AppendAllTextAsync(Path.Combine(sourceDir, "README.md"), "landed\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Integration change").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "--mirror", remoteDir, mirrorDir).ConfigureAwait(false);
+
+                    string mirrorSetting = (await RunGitAsync(mirrorDir, "config", "--get", "remote.origin.mirror").ConfigureAwait(false)).Trim();
+                    AssertEqual("true", mirrorSetting, "Fixture must reproduce Armada's mirrored vessel repository");
+
+                    await service.PushRefSpecAsync(mirrorDir, "integration", "main").ConfigureAwait(false);
+
+                    string expected = (await RunGitAsync(mirrorDir, "rev-parse", "refs/heads/integration").ConfigureAwait(false)).Trim();
+                    string landed = (await RunGitAsync(remoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    AssertEqual(expected, landed, "Targeted landing should advance main even when origin is configured as a mirror");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("GetRepositoryHeadRefAsync NullRepoPath Throws", async () =>
             {
                 GitService service = CreateService();
