@@ -83,3 +83,19 @@ command = "armada"
 args = ["mcp", "stdio"]
 startup_timeout_sec = 120
 ```
+
+**Remote Admiral over SSH** — keeps one Admiral process authoritative and
+bridges Codex stdio requests to its loopback HTTP endpoint:
+
+```toml
+[mcp_servers.armada]
+command = "node"
+args = ["/path/to/Armada/scripts/mcp-ssh-http-bridge.mjs"]
+env = { ARMADA_SSH_HOST = "your-ssh-host", ARMADA_SSH_USER = "your-user" }
+startup_timeout_sec = 30
+tool_timeout_sec = 600
+```
+
+The bridge requires `curl` on the SSH host. It remains alive when an individual
+request is interrupted by an Admiral restart, so later requests can recover
+without launching a second embedded Armada process.

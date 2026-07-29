@@ -126,4 +126,27 @@ Or add directly to `~/.claude.json`:
 claude mcp add --scope user armada -- armada mcp stdio
 ```
 
+**Remote Admiral over SSH** — point a stdio entry at the tracked bridge and
+provide the SSH destination through environment variables:
+
+```json
+{
+  "mcpServers": {
+    "armada": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/path/to/Armada/scripts/mcp-ssh-http-bridge.mjs"],
+      "env": {
+        "ARMADA_SSH_HOST": "your-ssh-host",
+        "ARMADA_SSH_USER": "your-user"
+      }
+    }
+  }
+}
+```
+
+The SSH host needs `curl`. The bridge forwards requests to the running
+Admiral's loopback HTTP MCP endpoint and does not launch a second embedded
+Armada process.
+
 **Install the agent manually** — create `~/.claude/agents/armada.md` with the agent definition. See `armada mcp install` source for the full content.
