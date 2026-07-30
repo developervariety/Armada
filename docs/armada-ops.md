@@ -115,6 +115,20 @@ Use the model identifier and provider settings configured for the selected
 runtime; do not add deployment paths, credential locations, or host-specific
 details to repository documentation.
 
+Adding a new remote-provider model (e.g. a new Zyloo model) requires two
+separate registrations: the OpenCode/Mux provider config above, **and** an
+entry in `modelTier.lowTierModels`/`midTierModels`/`highTierModels` (and
+`withinTierPreferenceOrder` if it should be preferred within its tier) in
+the deployed `.armada/settings.json`. The in-repo `ModelTierSettings.cs`
+defaults are only a fallback used when no `settings.json` override is
+present -- once an operator has customized `modelTier` in `settings.json`,
+that file is the sole source of truth and code-default additions do not
+merge in. Skipping the `settings.json` registration leaves the model fully
+unreachable via tier-based dispatch (`low`/`mid`/`high`), with no error
+surfaced. `factory/settings.json` seeds a `modelTier` block for fresh
+deployments; keep it in sync with any deployed override changes so a
+factory reset does not silently regress captain routing.
+
 ### Recovery Watchdogs
 
 `StageWatchdogTimeoutMinutes` defaults to 30 minutes and is clamped between 5 and 180. Health checks fail stale `Assigned` or `WorkProduced` missions that have no captain/process heartbeat with `stage_watchdog_no_captain_heartbeat` and emit an error signal, while preserving already-running work that still has captain and process IDs.
