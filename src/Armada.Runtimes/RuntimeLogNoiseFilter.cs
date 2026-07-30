@@ -6,6 +6,27 @@ namespace Armada.Runtimes
     public static class RuntimeLogNoiseFilter
     {
         /// <summary>
+        /// Envelope-only activity records: a runtime event type with no tool name, argument, or
+        /// outcome. Claude Code and Codex logs written before named tool activity landed are full
+        /// of these ("claude assistant", "claude user", ...), so they are filtered on read as well
+        /// as suppressed at the source.
+        /// </summary>
+        private static readonly HashSet<string> _EnvelopeOnlyRecords = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "[ARMADA:ACTIVITY] claude assistant",
+            "[ARMADA:ACTIVITY] claude user",
+            "[ARMADA:ACTIVITY] claude system",
+            "[ARMADA:ACTIVITY] claude result",
+            "[ARMADA:ACTIVITY] claude stream event",
+            "[ARMADA:ACTIVITY] codex item completed",
+            "[ARMADA:ACTIVITY] codex item started",
+            "[ARMADA:ACTIVITY] codex item updated",
+            "[ARMADA:ACTIVITY] codex thread started",
+            "[ARMADA:ACTIVITY] codex turn started",
+            "[ARMADA:ACTIVITY] codex turn completed"
+        };
+
+        /// <summary>
         /// Filter synthetic lifecycle records while preserving assistant text, protocol markers,
         /// named tool activity, process lifecycle, and validation output.
         /// </summary>
@@ -24,6 +45,11 @@ namespace Armada.Runtimes
 
             if (String.Equals(line, "[ARMADA:ACTIVITY] step started", StringComparison.Ordinal)
                 || String.Equals(line, "[ARMADA:ACTIVITY] step finished", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (_EnvelopeOnlyRecords.Contains(line.TrimEnd()))
             {
                 return true;
             }

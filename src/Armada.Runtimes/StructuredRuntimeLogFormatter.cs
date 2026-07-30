@@ -1,12 +1,28 @@
 namespace Armada.Runtimes
 {
     using System.Text.Json;
+    using System.Text.RegularExpressions;
 
     /// <summary>
     /// Extracts safe, useful activity from structured runtime events.
     /// </summary>
     internal static class StructuredRuntimeLogFormatter
     {
+        /// <summary>
+        /// Maximum rendered length of a tool name in an activity record.
+        /// </summary>
+        public const int ToolNameLimit = 80;
+
+        /// <summary>
+        /// Maximum rendered length of a shell command in an activity record.
+        /// </summary>
+        public const int CommandDetailLimit = 240;
+
+        /// <summary>
+        /// Maximum rendered length of a path, pattern, or query in an activity record.
+        /// </summary>
+        public const int ShortDetailLimit = 160;
+
         private static readonly string[] _ToolNameProperties =
         {
             "tool_name",
@@ -39,6 +55,93 @@ namespace Armada.Runtimes
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Build a compact, redacted tool activity record for the shared mission-log timeline.
+        /// Tool output is deliberately excluded because it is potentially large and sensitive.
+        /// </summary>
+        /// <param name="toolName">Tool name reported by the runtime.</param>
+        /// <param name="detail">Optional primary argument (file path, command, pattern, query).</param>
+        /// <param name="status">Optional status or outcome word.</param>
+        /// <returns>Activity record, or an empty string when the tool name is missing.</returns>
+        public static string BuildToolActivity(string? toolName, string? detail, string? status)
+        {
+            if (String.IsNullOrWhiteSpace(toolName))
+                return String.Empty;
+
+            string rendered = "[ARMADA:ACTIVITY] tool " + Truncate(toolName.Trim(), ToolNameLimit);
+
+            if (!String.IsNullOrWhiteSpace(detail))
+                rendered += " " + RedactSecretValues(detail.Trim());
+
+            if (!String.IsNullOrWhiteSpace(status))
+                rendered += " (" + Truncate(status.Trim(), 40) + ")";
+
+            return rendered;
+        }
+
+        /// <summary>
+        /// Bound activity text before it reaches durable telemetry.
+        /// </summary>
+        /// <param name="value">Text to bound.</param>
+        /// <param name="maximumLength">Maximum length before truncation.</param>
+        /// <returns>Bounded text.</returns>
+        public static string TruncateActivityText(string value, int maximumLength)
+        {
+            return Truncate(value, maximumLength);
+        }
+
+        /// <summary>
+        /// Redact token/password/key-shaped material while preserving structural text.
+        /// </summary>
+        /// <param name="value">Text to redact.</param>
+        /// <returns>Redacted text.</returns>
+        public static string RedactSecretValues(string value)
+        {
+            if (String.IsNullOrEmpty(value))
+            {
+                return String.Empty;
+            }
+
+            string redacted = Regex.Replace(
+                value,
+                "(?i)(password|token|secret|seed|private[_-]?key|api[_-]?key)\\s*[:=]\\s*([^\\s,;]+)",
+                RedactNamedSecret);
+
+            redacted = Regex.Replace(
+                redacted,
+                "-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+                RedactMatchedSecret,
+                RegexOptions.Singleline);
+
+            redacted = Regex.Replace(
+                redacted,
+                "\\b[0-9a-fA-F]{32,}\\b",
+                RedactMatchedSecret);
+
+            redacted = Regex.Replace(
+                redacted,
+                "\\b[A-Za-z0-9+/]{40,}={0,2}\\b",
+                RedactMatchedSecret);
+
+            return redacted;
+        }
+
+        /// <summary>
+        /// Regex evaluator for key=value secret values.
+        /// </summary>
+        private static string RedactNamedSecret(Match match)
+        {
+            return match.Groups[1].Value + "=<redacted len=" + match.Groups[2].Value.Length + ">";
+        }
+
+        /// <summary>
+        /// Regex evaluator for standalone secret-looking values.
+        /// </summary>
+        private static string RedactMatchedSecret(Match match)
+        {
+            return "<redacted len=" + match.Value.Length + ">";
         }
 
         private static bool ContainsToolMarker(JsonElement element, int depth)
@@ -123,7 +226,7 @@ namespace Armada.Runtimes
 
         private static string Truncate(string value, int maximumLength)
         {
-            return value.Length <= maximumLength
+            return String.IsNullOrEmpty(value) || value.Length <= maximumLength
                 ? value
                 : value.Substring(0, maximumLength) + "...";
         }

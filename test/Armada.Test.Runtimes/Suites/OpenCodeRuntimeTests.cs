@@ -418,37 +418,38 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("[ARMADA:PROGRESS] 50", result, "Assistant event must reduce to its inner text so markers stay ^-anchored");
             });
 
-            await RunTest("TransformOutputLine_StepStartEvent_ReturnsActivity", () =>
+            await RunTest("TransformOutputLine_StepStartEvent_IsSuppressed", () =>
             {
                 // A content-free event (step_start) carries no assistant text and should not
-                // leak raw JSON into the mission log.
+                // leak raw JSON into the mission log. Since commit 6fcae76d these events are
+                // suppressed at the source instead of written as envelope-only activity records.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string line = "{\"type\":\"step_start\"}";
                 string result = runtime.TransformLine(line);
-                AssertEqual("[ARMADA:ACTIVITY] step started", result, "Content-free structured events must become a readable activity record");
+                AssertEqual(String.Empty, result, "Content-free structured events must be suppressed, not written as an envelope-only record");
             });
 
-            await RunTest("TransformOutputLine_StepFinishAndToolEvents_AreActivities", () =>
+            await RunTest("TransformOutputLine_StepFinishAndToolEvents_AreSuppressed", () =>
             {
                 // The Worker added step_finish / step-finish / tool* to the recognized-noise set
                 // so the live opencode 1.17.7 stream's trailing step_finish and tool events do not
-                // leak raw JSON into the mission log. Only step_start was previously pinned; this
-                // exercises the other recognized-noise branches so they stay suppressed (empty).
+                // leak raw JSON into the mission log. This exercises the other recognized-noise
+                // branches so they stay suppressed (empty).
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 AssertEqual(
-                    "[ARMADA:ACTIVITY] step finished",
+                    String.Empty,
                     runtime.TransformLine("{\"type\":\"step_finish\",\"tokens\":{\"input\":10}}"),
                     "step_finish events must not leak token-usage JSON");
                 AssertEqual(
-                    "[ARMADA:ACTIVITY] step finished",
+                    String.Empty,
                     runtime.TransformLine("{\"type\":\"step-finish\"}"),
-                    "hyphenated step-finish must produce the same activity");
+                    "hyphenated step-finish must be suppressed the same way");
                 AssertEqual(
-                    "[ARMADA:ACTIVITY] tool-call",
+                    String.Empty,
                     runtime.TransformLine("{\"type\":\"tool_call\",\"name\":\"bash\"}"),
-                    "tool_call events must not leak raw JSON");
+                    "tool_call events carry no named tool part and must not leak raw JSON");
                 AssertEqual(
-                    "[ARMADA:ACTIVITY] tool",
+                    String.Empty,
                     runtime.TransformLine("{\"type\":\"tool\"}"),
                     "tool-prefixed events must not leak raw JSON");
             });
@@ -904,24 +905,24 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(String.Empty, text, "step-only stream must produce empty extracted text");
             });
 
-            await RunTest("RealJsonl_StepFinishEvent_TransformLineReturnsActivity", () =>
+            await RunTest("RealJsonl_StepFinishEvent_TransformLineSuppressesRecord", () =>
             {
                 // Verbatim step_finish sample: must be suppressed from the log (empty string),
                 // not leaked as raw JSON that would confuse the ProgressParser.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string line = "{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45}}";
                 string result = runtime.TransformLine(line);
-                AssertEqual("[ARMADA:ACTIVITY] step finished", result, "step_finish must be a readable activity record");
+                AssertEqual(String.Empty, result, "step_finish must be suppressed rather than logged");
             });
 
-            await RunTest("RealJsonl_StepStartEvent_TransformLineReturnsActivity", () =>
+            await RunTest("RealJsonl_StepStartEvent_TransformLineSuppressesRecord", () =>
             {
                 // A step_start event (content-free by design) must be suppressed from the log,
-                // not fall through as raw JSON. Pins the new suppression path in TransformOutputLine.
+                // not fall through as raw JSON. Pins the suppression path in TransformOutputLine.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string line = "{\"type\":\"step_start\"}";
                 string result = runtime.TransformLine(line);
-                AssertEqual("[ARMADA:ACTIVITY] step started", result, "step_start must be a readable activity record, not raw JSON");
+                AssertEqual(String.Empty, result, "step_start must be suppressed, not logged as raw JSON");
             });
 
             await RunTest("RealJsonl_ArmadaResultMarker_InPartText_DetectableAfterTransform", () =>
@@ -1003,16 +1004,15 @@ namespace Armada.Test.Runtimes.Suites
             await RunTest("RealJsonl_StreamWithTextEvent_TransformLineExtractsContentAndRecordsSteps", () =>
             {
                 // Simulates a complete opencode 1.17.7 run: step_start -> text -> step_finish.
-                // TransformLine must produce activity records for the step events and inner text
-                // for the text event. Activity records are excluded from AgentOutput, so only the
-                // text event affects pipeline handoff.
+                // TransformLine must suppress the step events and return inner text for the text
+                // event, so only the text event reaches the log and the pipeline handoff.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string stepStartResult = runtime.TransformLine("{\"type\":\"step_start\"}");
-                AssertEqual("[ARMADA:ACTIVITY] step started", stepStartResult, "step_start must create an activity record");
+                AssertEqual(String.Empty, stepStartResult, "step_start must be suppressed");
                 string textResult = runtime.TransformLine("{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"I'll read the mission instructions...\"}}");
                 AssertEqual("I'll read the mission instructions...", textResult, "text event TransformLine must return inner part.text");
                 string stepFinishResult = runtime.TransformLine("{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45}}");
-                AssertEqual("[ARMADA:ACTIVITY] step finished", stepFinishResult, "step_finish must create an activity record");
+                AssertEqual(String.Empty, stepFinishResult, "step_finish must be suppressed");
             });
 
             await RunTest("RealJsonl_NoiseAndBlankLinesAroundTextEvent_PartTextExtracted", () =>

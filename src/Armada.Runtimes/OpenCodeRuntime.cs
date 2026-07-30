@@ -6,7 +6,6 @@ namespace Armada.Runtimes
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Serialization;
-    using System.Text.RegularExpressions;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -387,10 +386,7 @@ namespace Armada.Runtimes
         /// </summary>
         private static string TruncateActivityText(string value, int maximumLength)
         {
-            if (String.IsNullOrEmpty(value) || value.Length <= maximumLength)
-                return value;
-
-            return value.Substring(0, maximumLength) + "...";
+            return StructuredRuntimeLogFormatter.TruncateActivityText(value, maximumLength);
         }
 
         /// <summary>
@@ -411,49 +407,7 @@ namespace Armada.Runtimes
         /// </summary>
         private static string RedactSecretValues(string value)
         {
-            if (String.IsNullOrEmpty(value))
-            {
-                return String.Empty;
-            }
-
-            string redacted = Regex.Replace(
-                value,
-                "(?i)(password|token|secret|seed|private[_-]?key|api[_-]?key)\\s*[:=]\\s*([^\\s,;]+)",
-                RedactNamedSecret);
-
-            redacted = Regex.Replace(
-                redacted,
-                "-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
-                RedactMatchedSecret,
-                RegexOptions.Singleline);
-
-            redacted = Regex.Replace(
-                redacted,
-                "\\b[0-9a-fA-F]{32,}\\b",
-                RedactMatchedSecret);
-
-            redacted = Regex.Replace(
-                redacted,
-                "\\b[A-Za-z0-9+/]{40,}={0,2}\\b",
-                RedactMatchedSecret);
-
-            return redacted;
-        }
-
-        /// <summary>
-        /// Regex evaluator for key=value secret values.
-        /// </summary>
-        private static string RedactNamedSecret(Match match)
-        {
-            return match.Groups[1].Value + "=<redacted len=" + match.Groups[2].Value.Length + ">";
-        }
-
-        /// <summary>
-        /// Regex evaluator for standalone secret-looking values.
-        /// </summary>
-        private static string RedactMatchedSecret(Match match)
-        {
-            return "<redacted len=" + match.Value.Length + ">";
+            return StructuredRuntimeLogFormatter.RedactSecretValues(value);
         }
 
         /// <summary>

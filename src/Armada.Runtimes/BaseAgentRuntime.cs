@@ -215,20 +215,21 @@ namespace Armada.Runtimes
                     try { HandleRawOutputLine(process.Id, e.Data); }
                     catch (Exception ex) { _Logging.Warn(_Header + "error parsing runtime telemetry: " + ex.Message); }
 
-                    string outputLine = TransformOutputLine(e.Data);
+                    foreach (string outputLine in TransformOutputRecords(e.Data))
+                    {
+                        // A runtime may transform a structured event to empty to SUPPRESS it from
+                        // the mission log (e.g. OpenCode tool_use / step events). Writing an empty
+                        // string would emit a blank log line, so skip suppressed lines entirely --
+                        // this keeps the log tight and has no markers to detect anyway.
+                        if (String.IsNullOrEmpty(outputLine)) continue;
 
-                    // A runtime may transform a structured event to empty to SUPPRESS it from
-                    // the mission log (e.g. OpenCode tool_use / step events). Writing an empty
-                    // string would emit a blank log line, so skip suppressed lines entirely --
-                    // this keeps the log tight and has no markers to detect anyway.
-                    if (String.IsNullOrEmpty(outputLine)) return;
+                        _Logging.Debug(_Header + "[stdout] " + outputLine);
+                        try { logWriter?.WriteLine(outputLine); }
+                        catch (ObjectDisposedException) { }
 
-                    _Logging.Debug(_Header + "[stdout] " + outputLine);
-                    try { logWriter?.WriteLine(outputLine); }
-                    catch (ObjectDisposedException) { }
-
-                    try { OnOutputReceived?.Invoke(process.Id, outputLine); }
-                    catch { }
+                        try { OnOutputReceived?.Invoke(process.Id, outputLine); }
+                        catch { }
+                    }
                 }
             };
 
@@ -268,8 +269,17 @@ namespace Armada.Runtimes
                 }
             };
 
+            // A fast-exiting agent (bad model, missing dependency) can exit before the launch path
+            // attaches the async readers. Disposing the Process from this handler while that is
+            // still pending drops every buffered stdout/stderr line -- the agent's only diagnostic.
+            // Wait for the readers to be attached, then let WaitForExit drain them.
+            ManualResetEventSlim readersAttached = new ManualResetEventSlim(false);
+
             process.Exited += (sender, e) =>
             {
+                try { readersAttached.Wait(TimeSpan.FromSeconds(10)); } catch { }
+                try { process.WaitForExit(); } catch { }
+
                 int? code = null;
                 int processId = 0;
                 try { processId = process.Id; } catch { }
@@ -358,6 +368,12 @@ namespace Armada.Runtimes
                 try { process.Dispose(); } catch { }
                 throw;
             }
+            finally
+            {
+                // Release the exit handler whether the readers were attached or the launch failed,
+                // so it never sits out its full timeout.
+                readersAttached.Set();
+            }
         }
 
         /// <summary>
@@ -421,12 +437,21 @@ namespace Armada.Runtimes
         /// <returns>True if the process is running.</returns>
         public virtual async Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
         {
+            // A non-positive id is never a live process. Process.GetProcessById rejects it with a
+            // platform-dependent exception (ArgumentException on Windows, InvalidOperationException
+            // on Unix), so screen it here instead of relying on the exception type.
+            if (processId <= 0) return false;
+
             try
             {
                 Process process = Process.GetProcessById(processId);
                 return !process.HasExited;
             }
             catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
             {
                 return false;
             }
@@ -476,6 +501,21 @@ namespace Armada.Runtimes
         /// plain-text protocol markers remain detectable by subscribers.
         /// </summary>
         protected virtual string TransformOutputLine(string line) => line;
+
+        /// <summary>
+        /// Transform a raw stdout line into one or more mission-log records. One structured event
+        /// can carry several distinct records -- e.g. a Claude Code assistant event that holds
+        /// assistant text and a tool call in the same message. Each record is written, classified,
+        /// and marker-parsed on its own, which keeps [ARMADA:*] protocol markers detectable and
+        /// keeps [ARMADA:ACTIVITY] records out of the captain's accumulated output. The default
+        /// implementation forwards the single <see cref="TransformOutputLine"/> result.
+        /// </summary>
+        /// <param name="line">Raw stdout line.</param>
+        /// <returns>Zero or more mission-log records; empty records are suppressed by the caller.</returns>
+        protected virtual IEnumerable<string> TransformOutputRecords(string line)
+        {
+            return new string[] { TransformOutputLine(line) };
+        }
 
         /// <summary>
         /// Inspect a raw stdout line for runtime telemetry before log transformation.

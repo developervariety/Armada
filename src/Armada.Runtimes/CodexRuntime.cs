@@ -189,16 +189,112 @@ namespace Armada.Runtimes
             if (evt == null)
                 return line;
 
-            CodexItem? item = evt.Item;
-            if (String.Equals(evt.Type, "item.completed", StringComparison.Ordinal) &&
-                item != null &&
-                String.Equals(item.Type, "agent_message", StringComparison.Ordinal) &&
-                !String.IsNullOrEmpty(item.Text))
+            if (String.Equals(evt.Type, "item.completed", StringComparison.Ordinal) && evt.Item != null)
+                return RenderItem(evt.Item);
+
+            // Item lifecycle and thread/turn bookkeeping carry no operator value; the completed
+            // item records the same work with its arguments. Any other event type keeps a generic
+            // activity record so failures and new CLI events stay visible.
+            if (String.Equals(evt.Type, "item.started", StringComparison.Ordinal) ||
+                String.Equals(evt.Type, "item.updated", StringComparison.Ordinal) ||
+                String.Equals(evt.Type, "thread.started", StringComparison.Ordinal) ||
+                String.Equals(evt.Type, "turn.started", StringComparison.Ordinal) ||
+                String.Equals(evt.Type, "turn.completed", StringComparison.Ordinal))
             {
-                return item.Text;
+                return String.Empty;
             }
 
             return "[ARMADA:ACTIVITY] codex " + (evt.Type ?? "event").Replace('.', ' ');
+        }
+
+        /// <summary>
+        /// Render one completed Codex item. Agent prose and reasoning are logged as text; every
+        /// other item becomes a named activity record carrying its primary argument. Item output
+        /// (aggregated command output, diffs) is deliberately excluded because it is potentially
+        /// large and sensitive.
+        /// </summary>
+        private static string RenderItem(CodexItem item)
+        {
+            if (String.Equals(item.Type, "agent_message", StringComparison.Ordinal))
+                return item.Text ?? String.Empty;
+
+            if (String.Equals(item.Type, "reasoning", StringComparison.Ordinal))
+                return String.IsNullOrEmpty(item.Text)
+                    ? String.Empty
+                    : StructuredRuntimeLogFormatter.RedactSecretValues(item.Text);
+
+            if (String.Equals(item.Type, "command_execution", StringComparison.Ordinal))
+                return StructuredRuntimeLogFormatter.BuildToolActivity(
+                    "bash",
+                    StructuredRuntimeLogFormatter.TruncateActivityText(item.Command ?? String.Empty, StructuredRuntimeLogFormatter.CommandDetailLimit),
+                    BuildCommandStatus(item));
+
+            if (String.Equals(item.Type, "file_change", StringComparison.Ordinal))
+                return StructuredRuntimeLogFormatter.BuildToolActivity("edit", BuildFileChangeDetail(item), item.Status);
+
+            if (String.Equals(item.Type, "mcp_tool_call", StringComparison.Ordinal))
+                return StructuredRuntimeLogFormatter.BuildToolActivity(BuildMcpToolName(item), null, item.Status);
+
+            if (String.Equals(item.Type, "web_search", StringComparison.Ordinal))
+                return StructuredRuntimeLogFormatter.BuildToolActivity(
+                    "web_search",
+                    StructuredRuntimeLogFormatter.TruncateActivityText(item.Query ?? String.Empty, StructuredRuntimeLogFormatter.ShortDetailLimit),
+                    null);
+
+            if (String.Equals(item.Type, "error", StringComparison.Ordinal))
+                return String.IsNullOrEmpty(item.Message)
+                    ? "[ARMADA:ACTIVITY] codex item error"
+                    : "[ARMADA:ACTIVITY] codex item error " + StructuredRuntimeLogFormatter.RedactSecretValues(
+                        StructuredRuntimeLogFormatter.TruncateActivityText(item.Message, StructuredRuntimeLogFormatter.CommandDetailLimit));
+
+            return "[ARMADA:ACTIVITY] codex item " + (item.Type ?? "unknown").Replace('_', ' ');
+        }
+
+        /// <summary>
+        /// Describe how a command run ended, preferring the exit code over the status word.
+        /// </summary>
+        private static string? BuildCommandStatus(CodexItem item)
+        {
+            if (item.ExitCode.HasValue)
+                return "exit " + item.ExitCode.Value;
+
+            return item.Status;
+        }
+
+        /// <summary>
+        /// Render the changed paths of a file_change item without the diff body.
+        /// </summary>
+        private static string? BuildFileChangeDetail(CodexItem item)
+        {
+            if (item.Changes == null || item.Changes.Count == 0)
+                return null;
+
+            List<string> paths = new List<string>();
+            foreach (CodexFileChange change in item.Changes)
+            {
+                if (!String.IsNullOrWhiteSpace(change.Path))
+                    paths.Add(change.Path.Trim());
+            }
+
+            if (paths.Count == 0)
+                return null;
+
+            return StructuredRuntimeLogFormatter.TruncateActivityText(
+                String.Join(", ", paths),
+                StructuredRuntimeLogFormatter.CommandDetailLimit);
+        }
+
+        /// <summary>
+        /// Qualify an MCP tool with its server so two servers exposing the same tool stay distinct.
+        /// </summary>
+        private static string BuildMcpToolName(CodexItem item)
+        {
+            if (String.IsNullOrWhiteSpace(item.Tool))
+                return "mcp";
+
+            return String.IsNullOrWhiteSpace(item.Server)
+                ? item.Tool.Trim()
+                : item.Server.Trim() + "." + item.Tool.Trim();
         }
 
         private static CodexEvent? Deserialize(string line)
@@ -241,6 +337,81 @@ namespace Armada.Runtimes
 
             [JsonPropertyName("text")]
             public string? Text { get; set; }
+
+            [JsonPropertyName("command")]
+            public string? Command { get; set; }
+
+            [JsonPropertyName("exit_code")]
+            public int? ExitCode { get; set; }
+
+            [JsonPropertyName("status")]
+            public string? Status { get; set; }
+
+            [JsonPropertyName("changes")]
+            [JsonConverter(typeof(CodexFileChangeListConverter))]
+            public List<CodexFileChange>? Changes { get; set; }
+
+            [JsonPropertyName("server")]
+            public string? Server { get; set; }
+
+            [JsonPropertyName("tool")]
+            public string? Tool { get; set; }
+
+            [JsonPropertyName("query")]
+            public string? Query { get; set; }
+
+            [JsonPropertyName("message")]
+            public string? Message { get; set; }
+        }
+
+        private sealed class CodexFileChange
+        {
+            [JsonPropertyName("path")]
+            public string? Path { get; set; }
+
+            [JsonPropertyName("kind")]
+            public string? Kind { get; set; }
+        }
+
+        /// <summary>
+        /// Reads the changed-file set whether Codex reports it as an array of change objects or as
+        /// a path-keyed map. Any other shape yields no paths instead of failing the whole event,
+        /// which would put the raw JSON line into the mission log.
+        /// </summary>
+        private sealed class CodexFileChangeListConverter : JsonConverter<List<CodexFileChange>?>
+        {
+            public override List<CodexFileChange>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            {
+                if (reader.TokenType == JsonTokenType.StartArray)
+                {
+                    return JsonSerializer.Deserialize<List<CodexFileChange>>(ref reader, options);
+                }
+
+                if (reader.TokenType == JsonTokenType.StartObject)
+                {
+                    List<CodexFileChange> changes = new List<CodexFileChange>();
+                    while (reader.Read())
+                    {
+                        if (reader.TokenType == JsonTokenType.EndObject) break;
+
+                        if (reader.TokenType == JsonTokenType.PropertyName)
+                        {
+                            changes.Add(new CodexFileChange { Path = reader.GetString() });
+                            reader.Read();
+                            reader.Skip();
+                        }
+                    }
+                    return changes;
+                }
+
+                reader.Skip();
+                return null;
+            }
+
+            public override void Write(Utf8JsonWriter writer, List<CodexFileChange>? value, JsonSerializerOptions options)
+            {
+                throw new NotSupportedException("Codex file changes are read-only telemetry.");
+            }
         }
 
         private sealed class CodexUsage

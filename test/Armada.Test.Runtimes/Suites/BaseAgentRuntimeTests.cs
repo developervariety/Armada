@@ -228,7 +228,12 @@ namespace Armada.Test.Runtimes.Suites
                 await runtime.StartAsync(tempDir, "test prompt");
                 await Task.Delay(2000);
 
-                AssertTrue(outputLines.Contains(expected), "Expected UTF-8 stderr content to be preserved");
+                lock (outputLines)
+                {
+                    AssertTrue(
+                        outputLines.Contains(expected),
+                        "Expected UTF-8 stderr content to be preserved; captured: [" + String.Join(" | ", outputLines) + "]");
+                }
             });
 
             await RunTest("WriteStderrToLogFile False Suppresses Log File But Preserves OnOutputReceived", async () =>
