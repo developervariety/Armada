@@ -252,7 +252,10 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = new ArmadaSettings();
+                    // CreateSettings zeroes PostLandRefreshDebounceSeconds. Its 30-second default
+                    // is a production coalescing window; waiting it out cost this suite a full
+                    // 30 seconds per test while asserting nothing extra.
+                    ArmadaSettings settings = CreateSettings();
                     StubGitService git = new StubGitService();
                     RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
 
@@ -302,7 +305,10 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = new ArmadaSettings();
+                    // CreateSettings zeroes PostLandRefreshDebounceSeconds. Its 30-second default
+                    // is a production coalescing window; waiting it out cost this suite a full
+                    // 30 seconds per test while asserting nothing extra.
+                    ArmadaSettings settings = CreateSettings();
                     StubGitService git = new StubGitService();
                     RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
 
@@ -350,7 +356,7 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = new ArmadaSettings();
+                    ArmadaSettings settings = CreateSettings();
                     StubGitService git = new StubGitService();
                     ThrowingCodeIndexService throwingIndex = new ThrowingCodeIndexService();
 
