@@ -1394,7 +1394,9 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
-            if (vessel.EnableModelContext && !String.IsNullOrEmpty(vessel.ModelContext))
+            if (_Settings.LearnedFactsEnabled &&
+                vessel.EnableModelContext &&
+                !String.IsNullOrEmpty(vessel.ModelContext))
             {
                 content += await ResolveSectionAsync("mission.model_context_wrapper", templateParams, token).ConfigureAwait(false);
                 content += "\n";
@@ -1411,8 +1413,11 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
-            content += BuildCodeRetrievalSection(worktreePath, mission);
-            content += "\n";
+            if (_Settings.CodeIndex.Enabled)
+            {
+                content += BuildCodeRetrievalSection(worktreePath, mission);
+                content += "\n";
+            }
 
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);

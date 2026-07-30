@@ -162,6 +162,42 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GenerateClaudeMdAsync omits code retrieval guidance when code indexing is disabled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CodeIndex.Enabled = false;
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_disabled_context_" + Guid.NewGuid().ToString("N"));
+                    string briefingDir = Path.Combine(tempDir, "_briefing");
+                    Directory.CreateDirectory(briefingDir);
+
+                    try
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(briefingDir, "context-pack.md"), "# Stale Context Pack");
+
+                        Vessel vessel = new Vessel("DisabledContextPackVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission("Use direct search", "Do not use code-index context.");
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertFalse(content.Contains("## Code Index Context"), "disabled code indexing must suppress the complete section");
+                        AssertFalse(content.Contains("armada_code_search"), "disabled code indexing must suppress MCP search guidance");
+                        AssertFalse(content.Contains("armada_context_pack"), "disabled code indexing must suppress context-pack guidance");
+                        AssertFalse(content.Contains("Final report must include one `Pack:` line"), "disabled code indexing must suppress pack reporting");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync preserves existing root CLAUDE.md and writes ignored generated copy", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -464,8 +500,9 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("Legacy context remains readable.", content);
                         AssertContains("Normal playbook guidance remains enabled.", content);
+                        AssertFalse(content.Contains("## Model Context"), "global disable must suppress legacy model context");
+                        AssertFalse(content.Contains("Legacy context remains readable."), "global disable must suppress legacy learned facts");
                         AssertFalse(content.Contains("## Learned-Fact Proposals"), "global disable must suppress proposal routing");
                         AssertFalse(content.Contains("Secret learned guidance"), "global disable must suppress learned playbooks");
                     }
