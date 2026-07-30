@@ -117,6 +117,7 @@
     "reservedHighTierSlots": 1,
     "withinTierPreferenceOrder": {
       "low": [
+        "zyloo/gpt-5.6-luna",
         "zyloo/deepseek-v4-pro",
         "zyloo/deepseek-v4-flash",
         "opencode/laguna-s-2.1-free",
@@ -129,6 +130,7 @@
         "zyloo/glm-5.2",
         "zyloo/glm-5.1",
         "zyloo/claude-sonnet-5",
+        "zyloo/gpt-5.6-terra",
         "zyloo/gemini-3-pro-preview",
         "zyloo/minimax-m3",
         "opencode-go/glm-5.2",
@@ -145,16 +147,14 @@
         "gemini-3.1-pro"
       ],
       "high": [
-        "zyloo/claude-opus-4-8",
-        "zyloo/gpt-5.5",
-        "zyloo/gpt-5.6-luna",
-        "zyloo/gpt-5.6-terra",
         "claude-fable-5",
+        "zyloo/claude-opus-4-8",
         "claude-opus-5",
-        "gpt-5.6-sol",
-        "gpt-5.5",
         "claude-opus-4-7",
-        "claude-4.6-opus-high"
+        "claude-4.6-opus-high",
+        "gpt-5.6-sol",
+        "zyloo/gpt-5.5",
+        "gpt-5.5"
       ]
     },
     "modelCapabilityProfiles": {
@@ -273,10 +273,10 @@
         "cost": 90
       },
       "zyloo/gpt-5.6-terra": {
-        "telemetryRichness": 88,
-        "auditReasoningFit": 92,
-        "mechanicalThroughput": 62,
-        "cost": 90
+        "telemetryRichness": 80,
+        "auditReasoningFit": 80,
+        "mechanicalThroughput": 60,
+        "cost": 65
       },
       "kimi-k2.5": {
         "telemetryRichness": 20,
@@ -364,6 +364,7 @@
       "doc-only": "MechanicalThroughput"
     },
     "lowTierModels": [
+      "zyloo/gpt-5.6-luna",
       "zyloo/deepseek-v4-pro",
       "zyloo/deepseek-v4-flash",
       "opencode/laguna-s-2.1-free",
@@ -376,6 +377,7 @@
       "zyloo/glm-5.2",
       "zyloo/glm-5.1",
       "zyloo/claude-sonnet-5",
+      "zyloo/gpt-5.6-terra",
       "zyloo/gemini-3-pro-preview",
       "zyloo/minimax-m3",
       "opencode-go/glm-5.2",
@@ -392,16 +394,14 @@
       "gemini-3.1-pro"
     ],
     "highTierModels": [
-      "zyloo/claude-opus-4-8",
-      "zyloo/gpt-5.5",
-      "zyloo/gpt-5.6-luna",
-      "zyloo/gpt-5.6-terra",
       "claude-fable-5",
+      "zyloo/claude-opus-4-8",
       "claude-opus-5",
-      "gpt-5.6-sol",
-      "gpt-5.5",
       "claude-opus-4-7",
-      "claude-4.6-opus-high"
+      "claude-4.6-opus-high",
+      "gpt-5.6-sol",
+      "zyloo/gpt-5.5",
+      "gpt-5.5"
     ]
   }
 }
