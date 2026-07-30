@@ -113,7 +113,13 @@ namespace Armada.Test.Automated.Suites
 
                 string voyageId = voyage.Id!;
                 AssertStartsWith("vyg_", voyageId);
-                AssertEqual("InProgress", voyage.Status.ToString());
+
+                // A new voyage is created Open and only moves to InProgress once a mission is
+                // actually assigned to a captain, which is asynchronous and needs idle capacity.
+                // VoyageTests pins the same either-or contract on the create response.
+                string createdStatus = voyage.Status.ToString();
+                Assert(createdStatus == "Open" || createdStatus == "InProgress",
+                    "Expected a new voyage to be Open or InProgress but got " + createdStatus);
 
                 // Verify voyage details show missions
                 VoyageDetailResponse voyageDetail = await GetAsync<VoyageDetailResponse>("/api/v1/voyages/" + voyageId).ConfigureAwait(false);

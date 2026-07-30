@@ -201,7 +201,7 @@ namespace Armada.Test.Automated.Suites
                 }).ConfigureAwait(false);
 
                 AssertToolResultValid(result);
-                string text = GetToolResultText(result);
+                string text = await AwaitJobResultTextAsync(GetToolResultText(result)).ConfigureAwait(false);
                 Voyage voyage = JsonHelper.Deserialize<Voyage>(text);
                 AssertStartsWith("vyg_", voyage.Id);
             }).ConfigureAwait(false);
@@ -1325,17 +1325,26 @@ namespace Armada.Test.Automated.Suites
                     summary = false,
                     includeMissions = true
                 }).ConfigureAwait(false);
-                string statusText = GetToolResultText(statusResult);
-                VoyageDetailResponse detail = JsonHelper.Deserialize<VoyageDetailResponse>(statusText);
-                if (detail.Missions != null)
+                // armada_voyage_status returns SLIM mission records, not Mission objects: Description
+                // and AgentOutput are truncation envelopes ({ Text, Truncated, FullLength }), so this
+                // payload cannot be deserialized as Mission. Read the two fields needed here directly.
+                JsonElement detail = ParseToolResultJson(statusResult);
+                if (detail.TryGetProperty("Missions", out JsonElement statusMissions)
+                    && statusMissions.ValueKind == JsonValueKind.Array)
                 {
-                    foreach (Mission m in detail.Missions)
+                    foreach (JsonElement m in statusMissions.EnumerateArray())
                     {
-                        if (m.Status == Armada.Core.Enums.MissionStatusEnum.InProgress ||
-                            m.Status == Armada.Core.Enums.MissionStatusEnum.Assigned)
+                        string missionStatus = m.TryGetProperty("Status", out JsonElement statusElement)
+                            ? (statusElement.GetString() ?? "")
+                            : "";
+                        if (!String.Equals(missionStatus, "InProgress", StringComparison.Ordinal)
+                            && !String.Equals(missionStatus, "Assigned", StringComparison.Ordinal))
                         {
-                            await CallToolAsync("armada_cancel_mission", new { missionId = m.Id }).ConfigureAwait(false);
+                            continue;
                         }
+
+                        string missionId = m.GetProperty("Id").GetString()!;
+                        await CallToolAsync("armada_cancel_mission", new { missionId = missionId }).ConfigureAwait(false);
                     }
                 }
 
@@ -1462,7 +1471,7 @@ namespace Armada.Test.Automated.Suites
             {
                 JsonElement result = await CallToolAsync("armada_process_merge_queue", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
-                string text = GetToolResultText(result);
+                string text = await AwaitJobResultTextAsync(GetToolResultText(result)).ConfigureAwait(false);
                 AssertContains("processed", text);
             }).ConfigureAwait(false);
 
@@ -1543,7 +1552,7 @@ namespace Armada.Test.Automated.Suites
                     }
                 }).ConfigureAwait(false);
                 AssertToolResultValid(dispatchResult);
-                string dispatchText = GetToolResultText(dispatchResult);
+                string dispatchText = await AwaitJobResultTextAsync(GetToolResultText(dispatchResult)).ConfigureAwait(false);
                 Voyage voyage = JsonHelper.Deserialize<Voyage>(dispatchText);
                 string voyageId = voyage.Id;
 
@@ -1906,6 +1915,57 @@ namespace Armada.Test.Automated.Suites
         }
 
         /// <summary>
+        /// Resolve a long-running tool result. Tools such as armada_dispatch and
+        /// armada_process_merge_queue validate synchronously and return an accepted job handle
+        /// ({ JobId, Operation, Status: "Accepted" }); the real payload only exists once the job
+        /// finishes. Poll armada_job_status and return the completed job's Result JSON. A
+        /// synchronous tool result is returned unchanged.
+        /// </summary>
+        /// <param name="toolResultText">Text payload of the tool result.</param>
+        /// <returns>Result JSON of the completed job, or the original text.</returns>
+        private async Task<string> AwaitJobResultTextAsync(string toolResultText)
+        {
+            JsonElement handle = JsonSerializer.Deserialize<JsonElement>(toolResultText);
+            if (handle.ValueKind != JsonValueKind.Object
+                || !handle.TryGetProperty("JobId", out JsonElement jobIdElement)
+                || jobIdElement.ValueKind != JsonValueKind.String)
+            {
+                return toolResultText;
+            }
+
+            string jobId = jobIdElement.GetString()!;
+            string statusText = toolResultText;
+
+            for (int attempt = 0; attempt < 240; attempt++)
+            {
+                JsonElement statusResult = await CallToolAsync("armada_job_status", new { jobId = jobId }).ConfigureAwait(false);
+                statusText = GetToolResultText(statusResult);
+                JsonElement status = JsonSerializer.Deserialize<JsonElement>(statusText);
+
+                string state = status.TryGetProperty("Status", out JsonElement stateElement)
+                    ? (stateElement.GetString() ?? "")
+                    : "";
+
+                if (!String.Equals(state, "Accepted", StringComparison.OrdinalIgnoreCase)
+                    && !String.Equals(state, "Running", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (status.TryGetProperty("Result", out JsonElement resultElement)
+                        && resultElement.ValueKind != JsonValueKind.Null
+                        && resultElement.ValueKind != JsonValueKind.Undefined)
+                    {
+                        return resultElement.GetRawText();
+                    }
+
+                    return statusText;
+                }
+
+                await Task.Delay(250).ConfigureAwait(false);
+            }
+
+            return statusText;
+        }
+
+        /// <summary>
         /// The MCP client shares the same server, so REST calls go through a derived base URL.
         /// We construct a REST client from the MCP client's base address, adjusting the port.
         /// Since the shared server has auth client available, we route REST calls through the MCP client's host.
@@ -2005,7 +2065,7 @@ namespace Armada.Test.Automated.Suites
                     new { title = "VoyageMission1", description = "Desc1" }
                 }
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = await AwaitJobResultTextAsync(GetToolResultText(result)).ConfigureAwait(false);
             Voyage voyage = JsonHelper.Deserialize<Voyage>(text);
             return voyage.Id;
         }

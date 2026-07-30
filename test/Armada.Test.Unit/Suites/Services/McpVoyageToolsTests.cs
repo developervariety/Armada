@@ -826,7 +826,20 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Registrar-wired dispatch should not fail: " + resultJson);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Registrar must pass ICodeIndexService to voyage tools");
+
+                    // The registrar wires a job service, so armada_dispatch validates synchronously
+                    // and runs the tail (context packs, docks, captains) as a background job. Wait for
+                    // the job to settle before asserting on the code-index calls it makes.
+                    string statusJson = await WaitForJobAsync(handlers, resultJson).ConfigureAwait(false);
+
+                    AssertEqual(
+                        1,
+                        codeIndex.ContextPackRequests.Count,
+                        "Registrar must pass ICodeIndexService to voyage tools"
+                        + " (cacheProbes=" + codeIndex.CacheRequests.Count
+                        + ", baselineWarms=" + codeIndex.WarmBaselineCacheVesselIds.Count
+                        + ", dispatch=" + resultJson
+                        + ", job=" + statusJson + ")");
                 }
             });
 
@@ -2120,6 +2133,51 @@ namespace Armada.Test.Unit.Suites.Services
                 string missionId,
                 CancellationToken token = default)
                 => throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Minimal view of a long-running job handle or status payload.
+        /// </summary>
+        private sealed class JobProbe
+        {
+            public string? JobId { get; set; }
+
+            public string? Status { get; set; }
+        }
+
+        /// <summary>
+        /// Wait for the background job named by a dispatch result to settle. Returns the final job
+        /// status JSON, or the dispatch JSON unchanged when the dispatch ran synchronously.
+        /// </summary>
+        private static async Task<string> WaitForJobAsync(
+            Dictionary<string, Func<JsonElement?, Task<object>>> handlers,
+            string dispatchJson)
+        {
+            JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            JobProbe? handle = JsonSerializer.Deserialize<JobProbe>(dispatchJson, options);
+            if (handle == null || String.IsNullOrEmpty(handle.JobId) || !handlers.ContainsKey("armada_job_status"))
+                return dispatchJson;
+
+            JsonElement statusArgs = JsonSerializer.SerializeToElement(new { jobId = handle.JobId });
+            string statusJson = dispatchJson;
+
+            for (int attempt = 0; attempt < 300; attempt++)
+            {
+                object status = await handlers["armada_job_status"](statusArgs).ConfigureAwait(false);
+                statusJson = JsonSerializer.Serialize(status);
+
+                JobProbe? probe = JsonSerializer.Deserialize<JobProbe>(statusJson, options);
+                string state = probe?.Status ?? "";
+                if (!String.Equals(state, "Accepted", StringComparison.OrdinalIgnoreCase)
+                    && !String.Equals(state, "Running", StringComparison.OrdinalIgnoreCase))
+                {
+                    return statusJson;
+                }
+
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+
+            return statusJson;
         }
 
         private sealed class RecordingCodeIndexService : ICodeIndexService
