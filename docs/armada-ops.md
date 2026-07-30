@@ -723,11 +723,15 @@ Performance note: signature generation costs one inference call plus one embeddi
 
 #### Sample settings.json
 
+Set `codeIndex.enabled` to `false` to disable indexing and remove code-index guidance from captain prompts. Set `learnedFactsEnabled` to `false` to omit legacy model context, learned playbooks, and learned-fact proposal guidance.
+
 ```json
 {
   "admiralPort": 7890,
   "mcpPort": 7891,
+  "learnedFactsEnabled": false,
   "codeIndex": {
+    "enabled": false,
     "useSemanticSearch": true,
     "embeddingModel": "deepseek-embedding",
     "embeddingApiBaseUrl": "https://api.deepseek.com",
