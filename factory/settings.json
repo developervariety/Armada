@@ -119,42 +119,23 @@
       "low": [
         "zyloo/gpt-5.6-luna",
         "zyloo/deepseek-v4-pro",
-        "zyloo/deepseek-v4-flash",
-        "opencode/laguna-s-2.1-free",
-        "opencode/deepseek-v4-flash",
-        "opencode-go/kimi-k2.6",
-        "opencode/kimi-k2.6",
-        "kimi-k2.5"
+        "zyloo/deepseek-v4-flash"
       ],
       "mid": [
         "zyloo/glm-5.2",
-        "zyloo/glm-5.1",
+        "opencode-go/glm-5.2",
+        "opencode-go/kimi-k3",
         "zyloo/claude-sonnet-5",
         "zyloo/gpt-5.6-terra",
-        "zyloo/gemini-3-pro-preview",
-        "zyloo/minimax-m3",
-        "opencode-go/glm-5.2",
-        "opencode/glm-5.2",
-        "opencode-go/kimi-k3",
-        "composer-2.5",
         "grok-4.5",
-        "opencode-go/kimi-k2.7-code",
-        "claude-sonnet-4-6",
-        "composer-2-fast",
-        "gemini-3.5-pro",
-        "gpt-5.3-codex",
-        "claude-4.6-sonnet-medium",
-        "gemini-3.1-pro"
+        "composer-2.5"
       ],
       "high": [
         "claude-fable-5",
-        "zyloo/claude-opus-4-8",
         "claude-opus-5",
-        "claude-opus-4-7",
-        "claude-4.6-opus-high",
         "gpt-5.6-sol",
-        "zyloo/gpt-5.5",
-        "gpt-5.5"
+        "zyloo/claude-opus-4-8",
+        "zyloo/gpt-5.5"
       ]
     },
     "modelCapabilityProfiles": {
@@ -366,42 +347,23 @@
     "lowTierModels": [
       "zyloo/gpt-5.6-luna",
       "zyloo/deepseek-v4-pro",
-      "zyloo/deepseek-v4-flash",
-      "opencode/laguna-s-2.1-free",
-      "opencode/deepseek-v4-flash",
-      "opencode-go/kimi-k2.6",
-      "opencode/kimi-k2.6",
-      "kimi-k2.5"
+      "zyloo/deepseek-v4-flash"
     ],
     "midTierModels": [
       "zyloo/glm-5.2",
-      "zyloo/glm-5.1",
+      "opencode-go/glm-5.2",
+      "opencode-go/kimi-k3",
       "zyloo/claude-sonnet-5",
       "zyloo/gpt-5.6-terra",
-      "zyloo/gemini-3-pro-preview",
-      "zyloo/minimax-m3",
-      "opencode-go/glm-5.2",
-      "opencode/glm-5.2",
-      "opencode-go/kimi-k3",
-      "composer-2.5",
       "grok-4.5",
-      "opencode-go/kimi-k2.7-code",
-      "claude-sonnet-4-6",
-      "composer-2-fast",
-      "gemini-3.5-pro",
-      "gpt-5.3-codex",
-      "claude-4.6-sonnet-medium",
-      "gemini-3.1-pro"
+      "composer-2.5"
     ],
     "highTierModels": [
       "claude-fable-5",
-      "zyloo/claude-opus-4-8",
       "claude-opus-5",
-      "claude-opus-4-7",
-      "claude-4.6-opus-high",
       "gpt-5.6-sol",
-      "zyloo/gpt-5.5",
-      "gpt-5.5"
+      "zyloo/claude-opus-4-8",
+      "zyloo/gpt-5.5"
     ]
   }
 }
