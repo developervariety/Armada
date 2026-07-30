@@ -100,5 +100,308 @@
     "reconnectBaseDelaySeconds": 5,
     "reconnectMaxDelaySeconds": 60,
     "allowInvalidCertificates": false
+  },
+  "modelTier": {
+    "specialistPersonas": [
+      "Judge",
+      "Architect",
+      "TestEngineer",
+      "DiagnosticProtocolReviewer",
+      "TenantSecurityReviewer",
+      "MigrationDataReviewer",
+      "PerformanceMemoryReviewer",
+      "PortingReferenceAnalyst",
+      "FrontendWorkflowReviewer",
+      "MemoryConsolidator"
+    ],
+    "reservedHighTierSlots": 1,
+    "withinTierPreferenceOrder": {
+      "low": [
+        "zyloo/deepseek-v4-pro",
+        "zyloo/deepseek-v4-flash",
+        "opencode/laguna-s-2.1-free",
+        "opencode/deepseek-v4-flash",
+        "opencode-go/kimi-k2.6",
+        "opencode/kimi-k2.6",
+        "kimi-k2.5"
+      ],
+      "mid": [
+        "zyloo/glm-5.2",
+        "zyloo/glm-5.1",
+        "zyloo/claude-sonnet-5",
+        "zyloo/gemini-3-pro-preview",
+        "zyloo/minimax-m3",
+        "opencode-go/glm-5.2",
+        "opencode/glm-5.2",
+        "opencode-go/kimi-k3",
+        "composer-2.5",
+        "grok-4.5",
+        "opencode-go/kimi-k2.7-code",
+        "claude-sonnet-4-6",
+        "composer-2-fast",
+        "gemini-3.5-pro",
+        "gpt-5.3-codex",
+        "claude-4.6-sonnet-medium",
+        "gemini-3.1-pro"
+      ],
+      "high": [
+        "zyloo/claude-opus-4-8",
+        "zyloo/gpt-5.5",
+        "zyloo/gpt-5.6-luna",
+        "zyloo/gpt-5.6-terra",
+        "claude-fable-5",
+        "claude-opus-5",
+        "gpt-5.6-sol",
+        "gpt-5.5",
+        "claude-opus-4-7",
+        "claude-4.6-opus-high"
+      ]
+    },
+    "modelCapabilityProfiles": {
+      "claude-fable-5": {
+        "telemetryRichness": 96,
+        "auditReasoningFit": 96,
+        "mechanicalThroughput": 55,
+        "cost": 95
+      },
+      "claude-opus-5": {
+        "telemetryRichness": 96,
+        "auditReasoningFit": 96,
+        "mechanicalThroughput": 56,
+        "cost": 95
+      },
+      "gpt-5.6-sol": {
+        "telemetryRichness": 88,
+        "auditReasoningFit": 92,
+        "mechanicalThroughput": 62,
+        "cost": 90
+      },
+      "opencode-go/glm-5.2": {
+        "telemetryRichness": 45,
+        "auditReasoningFit": 45,
+        "mechanicalThroughput": 78,
+        "cost": 30
+      },
+      "opencode/glm-5.2": {
+        "telemetryRichness": 45,
+        "auditReasoningFit": 45,
+        "mechanicalThroughput": 78,
+        "cost": 30
+      },
+      "opencode-go/kimi-k3": {
+        "telemetryRichness": 35,
+        "auditReasoningFit": 35,
+        "mechanicalThroughput": 85,
+        "cost": 25
+      },
+      "composer-2.5": {
+        "telemetryRichness": 55,
+        "auditReasoningFit": 58,
+        "mechanicalThroughput": 70,
+        "cost": 25
+      },
+      "grok-4.5": {
+        "telemetryRichness": 60,
+        "auditReasoningFit": 65,
+        "mechanicalThroughput": 68,
+        "cost": 55
+      },
+      "opencode/laguna-s-2.1-free": {
+        "telemetryRichness": 50,
+        "auditReasoningFit": 50,
+        "mechanicalThroughput": 60,
+        "cost": 5
+      },
+      "zyloo/deepseek-v4-pro": {
+        "telemetryRichness": 35,
+        "auditReasoningFit": 35,
+        "mechanicalThroughput": 70,
+        "cost": 25
+      },
+      "zyloo/deepseek-v4-flash": {
+        "telemetryRichness": 30,
+        "auditReasoningFit": 30,
+        "mechanicalThroughput": 75,
+        "cost": 15
+      },
+      "zyloo/glm-5.2": {
+        "telemetryRichness": 45,
+        "auditReasoningFit": 45,
+        "mechanicalThroughput": 78,
+        "cost": 30
+      },
+      "zyloo/glm-5.1": {
+        "telemetryRichness": 45,
+        "auditReasoningFit": 45,
+        "mechanicalThroughput": 78,
+        "cost": 30
+      },
+      "zyloo/claude-sonnet-5": {
+        "telemetryRichness": 80,
+        "auditReasoningFit": 80,
+        "mechanicalThroughput": 60,
+        "cost": 65
+      },
+      "zyloo/gemini-3-pro-preview": {
+        "telemetryRichness": 60,
+        "auditReasoningFit": 60,
+        "mechanicalThroughput": 60,
+        "cost": 50
+      },
+      "zyloo/minimax-m3": {
+        "telemetryRichness": 45,
+        "auditReasoningFit": 45,
+        "mechanicalThroughput": 70,
+        "cost": 30
+      },
+      "zyloo/claude-opus-4-8": {
+        "telemetryRichness": 95,
+        "auditReasoningFit": 95,
+        "mechanicalThroughput": 55,
+        "cost": 95
+      },
+      "zyloo/gpt-5.5": {
+        "telemetryRichness": 85,
+        "auditReasoningFit": 85,
+        "mechanicalThroughput": 60,
+        "cost": 90
+      },
+      "zyloo/gpt-5.6-luna": {
+        "telemetryRichness": 88,
+        "auditReasoningFit": 92,
+        "mechanicalThroughput": 62,
+        "cost": 90
+      },
+      "zyloo/gpt-5.6-terra": {
+        "telemetryRichness": 88,
+        "auditReasoningFit": 92,
+        "mechanicalThroughput": 62,
+        "cost": 90
+      },
+      "kimi-k2.5": {
+        "telemetryRichness": 20,
+        "auditReasoningFit": 20,
+        "mechanicalThroughput": 80,
+        "cost": 10
+      },
+      "opencode/kimi-k2.6": {
+        "telemetryRichness": 20,
+        "auditReasoningFit": 20,
+        "mechanicalThroughput": 80,
+        "cost": 10
+      },
+      "opencode-go/kimi-k2.6": {
+        "telemetryRichness": 20,
+        "auditReasoningFit": 20,
+        "mechanicalThroughput": 80,
+        "cost": 10
+      },
+      "opencode/deepseek-v4-flash": {
+        "telemetryRichness": 30,
+        "auditReasoningFit": 30,
+        "mechanicalThroughput": 75,
+        "cost": 15
+      },
+      "opencode-go/kimi-k2.7-code": {
+        "telemetryRichness": 25,
+        "auditReasoningFit": 25,
+        "mechanicalThroughput": 85,
+        "cost": 20
+      },
+      "claude-sonnet-4-6": {
+        "telemetryRichness": 80,
+        "auditReasoningFit": 80,
+        "mechanicalThroughput": 60,
+        "cost": 65
+      },
+      "gemini-3.5-pro": {
+        "telemetryRichness": 60,
+        "auditReasoningFit": 60,
+        "mechanicalThroughput": 60,
+        "cost": 50
+      },
+      "gpt-5.3-codex": {
+        "telemetryRichness": 50,
+        "auditReasoningFit": 55,
+        "mechanicalThroughput": 70,
+        "cost": 55
+      },
+      "claude-4.6-sonnet-medium": {
+        "telemetryRichness": 75,
+        "auditReasoningFit": 75,
+        "mechanicalThroughput": 55,
+        "cost": 60
+      },
+      "gemini-3.1-pro": {
+        "telemetryRichness": 55,
+        "auditReasoningFit": 55,
+        "mechanicalThroughput": 60,
+        "cost": 45
+      },
+      "gpt-5.5": {
+        "telemetryRichness": 85,
+        "auditReasoningFit": 85,
+        "mechanicalThroughput": 60,
+        "cost": 90
+      },
+      "claude-opus-4-7": {
+        "telemetryRichness": 95,
+        "auditReasoningFit": 95,
+        "mechanicalThroughput": 55,
+        "cost": 95
+      },
+      "claude-4.6-opus-high": {
+        "telemetryRichness": 90,
+        "auditReasoningFit": 90,
+        "mechanicalThroughput": 55,
+        "cost": 90
+      }
+    },
+    "capabilityHintDimensionMap": {
+      "audit": "AuditReasoningFit",
+      "reasoning-heavy": "AuditReasoningFit",
+      "mechanical": "MechanicalThroughput",
+      "doc-only": "MechanicalThroughput"
+    },
+    "lowTierModels": [
+      "zyloo/deepseek-v4-pro",
+      "zyloo/deepseek-v4-flash",
+      "opencode/laguna-s-2.1-free",
+      "opencode/deepseek-v4-flash",
+      "opencode-go/kimi-k2.6",
+      "opencode/kimi-k2.6",
+      "kimi-k2.5"
+    ],
+    "midTierModels": [
+      "zyloo/glm-5.2",
+      "zyloo/glm-5.1",
+      "zyloo/claude-sonnet-5",
+      "zyloo/gemini-3-pro-preview",
+      "zyloo/minimax-m3",
+      "opencode-go/glm-5.2",
+      "opencode/glm-5.2",
+      "opencode-go/kimi-k3",
+      "composer-2.5",
+      "grok-4.5",
+      "opencode-go/kimi-k2.7-code",
+      "claude-sonnet-4-6",
+      "composer-2-fast",
+      "gemini-3.5-pro",
+      "gpt-5.3-codex",
+      "claude-4.6-sonnet-medium",
+      "gemini-3.1-pro"
+    ],
+    "highTierModels": [
+      "zyloo/claude-opus-4-8",
+      "zyloo/gpt-5.5",
+      "zyloo/gpt-5.6-luna",
+      "zyloo/gpt-5.6-terra",
+      "claude-fable-5",
+      "claude-opus-5",
+      "gpt-5.6-sol",
+      "gpt-5.5",
+      "claude-opus-4-7",
+      "claude-4.6-opus-high"
+    ]
   }
 }
