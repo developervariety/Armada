@@ -123,8 +123,8 @@
       ],
       "mid": [
         "zyloo/glm-5.2",
-        "opencode-go/glm-5.2",
         "opencode-go/kimi-k3",
+        "opencode-go/glm-5.2",
         "zyloo/claude-sonnet-5",
         "zyloo/gpt-5.6-terra",
         "grok-4.5",
@@ -351,8 +351,8 @@
     ],
     "midTierModels": [
       "zyloo/glm-5.2",
-      "opencode-go/glm-5.2",
       "opencode-go/kimi-k3",
+      "opencode-go/glm-5.2",
       "zyloo/claude-sonnet-5",
       "zyloo/gpt-5.6-terra",
       "grok-4.5",
