@@ -263,7 +263,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
                     // An unrecognized hint must degrade to the no-hint within-tier preference result
-                    // (kimi first) through the real seam, never throwing mid-assignment.
+                    // through the real seam, never throwing mid-assignment. Of these three models
+                    // the default ranking places composer-2.5 first.
                     Captain kimi = await SeedCaptainAsync(db, "cpt-kimi", _Kimi, CaptainStateEnum.Idle).ConfigureAwait(false);
                     Captain sonnet = await SeedCaptainAsync(db, "cpt-sonnet", _Sonnet, CaptainStateEnum.Idle).ConfigureAwait(false);
                     Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Composer, CaptainStateEnum.Idle).ConfigureAwait(false);
@@ -275,9 +276,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(assigned, "an unknown hint must not break assignment");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(kimi.Id, updated!.CaptainId, "an unknown hint degrades to the within-tier preference-order winner (kimi)");
+                    AssertEqual(composer.Id, updated!.CaptainId, "an unknown hint degrades to the within-tier preference-order winner");
                     AssertNotEqual(sonnet.Id, updated.CaptainId, "an unknown hint must not score by any dimension");
-                    AssertNotEqual(composer.Id, updated.CaptainId, "an unknown hint must not score by any dimension");
+                    AssertNotEqual(kimi.Id, updated.CaptainId, "an unknown hint must not score by any dimension");
                 }
             });
 

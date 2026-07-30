@@ -50,9 +50,9 @@ namespace Armada.Core.Settings
         /// Per-tier within-tier model preference order. When a tier has idle captains
         /// across multiple models, the selector tries each listed model in order and
         /// picks the first one with at least one idle, persona-eligible captain. Models
-        /// not listed are considered only after all listed models are exhausted. Setting
-        /// this to null restores the built-in default order (mid tier prefers
-        /// opencode-go/kimi-k2.7-code, then claude-sonnet-4-6, then composer-2.5).
+        /// not listed are considered only after all listed models are exhausted. A loaded
+        /// settings file replaces this ranking outright per tier; setting it to null restores
+        /// the built-in default order.
         /// </summary>
         public Dictionary<string, List<string>> WithinTierPreferenceOrder
         {
@@ -193,17 +193,50 @@ namespace Armada.Core.Settings
             return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 {
+                    "low",
+                    new List<string>
+                    {
+                        "zyloo/gpt-5.6-luna",
+                        "zyloo/deepseek-v4-pro",
+                        "zyloo/deepseek-v4-flash",
+                        "opencode/deepseek-v4-flash",
+                        "opencode-go/kimi-k2.6",
+                        "opencode/kimi-k2.6",
+                        "kimi-k2.5"
+                    }
+                },
+                {
                     "mid",
                     new List<string>
                     {
                         "zyloo/glm-5.2",
-                        "opencode/glm-5.2",
                         "opencode-go/kimi-k3",
+                        "opencode-go/glm-5.2",
+                        "zyloo/claude-sonnet-5",
+                        "zyloo/gpt-5.6-terra",
+                        "grok-4.5",
+                        "composer-2.5",
+                        "opencode/glm-5.2",
                         "opencode-go/kimi-k2.7-code",
                         "claude-sonnet-5",
                         "claude-sonnet-4-6",
-                        "composer-2-fast",
-                        "composer-2.5"
+                        "composer-2-fast"
+                    }
+                },
+                {
+                    "high",
+                    new List<string>
+                    {
+                        "claude-fable-5",
+                        "claude-opus-5",
+                        "gpt-5.6-sol",
+                        "zyloo/claude-opus-4-8",
+                        "zyloo/gpt-5.5",
+                        "claude-opus-4-8",
+                        "claude-opus-4-7",
+                        "gpt-5.5",
+                        "claude-4.6-opus-high",
+                        "zyloo/claude-opus-4-7"
                     }
                 }
             };
@@ -213,12 +246,13 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
-                "kimi-k2.5",
-                "opencode/kimi-k2.6",
-                "opencode-go/kimi-k2.6",
-                "opencode/deepseek-v4-flash",
+                "zyloo/gpt-5.6-luna",
                 "zyloo/deepseek-v4-pro",
-                "zyloo/deepseek-v4-flash"
+                "zyloo/deepseek-v4-flash",
+                "opencode/deepseek-v4-flash",
+                "opencode-go/kimi-k2.6",
+                "opencode/kimi-k2.6",
+                "kimi-k2.5"
             };
         }
 
@@ -226,19 +260,24 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
+                "zyloo/glm-5.2",
+                "opencode-go/kimi-k3",
+                "opencode-go/glm-5.2",
+                "zyloo/claude-sonnet-5",
+                "zyloo/gpt-5.6-terra",
+                "grok-4.5",
                 "composer-2.5",
-                "claude-sonnet-4-6",
-                "gemini-3.5-pro",
-                "gpt-5.3-codex",
-                "claude-4.6-sonnet-medium",
-                "gemini-3.1-pro",
+                "opencode/glm-5.2",
                 "opencode-go/kimi-k2.7-code",
                 "opencode/laguna-s-2.1-free",
-                "grok-4.5",
-                "opencode-go/kimi-k3",
-                "opencode/glm-5.2",
-                "opencode-go/glm-5.2",
-                "zyloo/glm-5.2"
+                "claude-sonnet-5",
+                "claude-sonnet-4-8",
+                "claude-sonnet-4-6",
+                "claude-4.6-sonnet-medium",
+                "composer-2-fast",
+                "gemini-3.5-pro",
+                "gemini-3.1-pro",
+                "gpt-5.3-codex"
             };
         }
 
@@ -246,12 +285,16 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
+                "claude-fable-5",
+                "claude-opus-5",
+                "gpt-5.6-sol",
+                "zyloo/claude-opus-4-8",
+                "zyloo/gpt-5.5",
+                "claude-opus-4-8",
                 "claude-opus-4-7",
                 "gpt-5.5",
-                "gpt-5.6-sol",
                 "claude-4.6-opus-high",
-                "zyloo/claude-opus-4-7",
-                "zyloo/gpt-5.5"
+                "zyloo/claude-opus-4-7"
             };
         }
 
@@ -259,6 +302,17 @@ namespace Armada.Core.Settings
         {
             return new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
             {
+                { "zyloo/gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 88, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
+                { "zyloo/claude-sonnet-5", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
+                { "zyloo/gpt-5.6-terra", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
+                { "claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
+                { "claude-opus-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 56, Cost = 95 } },
+                { "zyloo/claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
+                { "claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
+                { "claude-sonnet-5", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
+                { "claude-sonnet-4-8", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
+                { "composer-2-fast", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 80, Cost = 25 } },
+
                 { "kimi-k2.5", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
                 { "opencode/kimi-k2.6", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
                 { "opencode-go/kimi-k2.6", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },

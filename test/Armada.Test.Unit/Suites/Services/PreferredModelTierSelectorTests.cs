@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -118,19 +119,19 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SelectModel_MidTier_PreferenceOrderSelectsFirstListed", () =>
             {
-                // The default mid-tier preference order is K2.7, sonnet, composer. With all
-                // three models idle, the selector must pick the first listed preference.
+                // The default mid-tier ranking leads with the Zyloo GLM captain, then kimi-k3.
+                // With several models idle, the first listed one wins.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("claude-sonnet-4-6"),
-                    MakeCaptain("opencode-go/kimi-k2.7-code")
+                    MakeCaptain("opencode-go/kimi-k3"),
+                    MakeCaptain("zyloo/glm-5.2")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
                 AssertNotNull(selected, "Should select a model when mid-tier captains are available");
-                AssertEqual("opencode-go/kimi-k2.7-code", selected, "Should prefer the first listed mid-tier model");
+                AssertEqual("zyloo/glm-5.2", selected, "Should prefer the first listed mid-tier model");
                 return Task.CompletedTask;
             });
 
@@ -160,22 +161,22 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SelectModel_MidTier_DuplicatedCaptains_PreferenceOrderWins", () =>
             {
-                // Many composer captains and one sonnet captain. The default mid preference
-                // order lists sonnet before composer, so sonnet wins even though it has
-                // fewer idle instances -- preference is not a popularity contest.
+                // Many composer captains and one kimi-k3 captain. The default mid ranking lists
+                // kimi-k3 ahead of composer, so kimi-k3 wins even though it has fewer idle
+                // instances -- preference is not a popularity contest.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("opencode-go/kimi-k3"),
                     MakeCaptain("gemini-3.5-pro")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
 
-                AssertEqual("claude-sonnet-4-6", selected, "Preference order should select sonnet ahead of the duplicated composer models");
+                AssertEqual("opencode-go/kimi-k3", selected, "Preference order should select kimi-k3 ahead of the duplicated composer models");
                 return Task.CompletedTask;
             });
 
@@ -535,41 +536,41 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_K2_7First_WhenIdle", () =>
+            await RunTest("SelectModel_MidTier_PrimaryFirst_WhenIdle", () =>
             {
-                // Default mid preference order lists K2.7 first. When a K2.7 captain is idle it
-                // must win over other mid-tier captains.
+                // The default mid ranking leads with the Zyloo GLM captain. When it is idle it
+                // must win over the lower-ranked mid-tier captains.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("claude-sonnet-4-6"),
-                    MakeCaptain("opencode-go/kimi-k2.7-code")
+                    MakeCaptain("opencode-go/kimi-k3"),
+                    MakeCaptain("zyloo/glm-5.2")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("opencode-go/kimi-k2.7-code", selected, "Idle K2.7 captain should be selected first for Worker mid work");
+                AssertEqual("zyloo/glm-5.2", selected, "Idle primary captain should be selected first for Worker mid work");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_FallsBackToSonnet_WhenK2_7Busy", () =>
+            await RunTest("SelectModel_MidTier_FallsBackToNextRanked_WhenPrimaryBusy", () =>
             {
-                // Only sonnet and composer are idle; K2.7 captains are busy and not in the
-                // idle list. The selector should fall back to sonnet, the next preferred mid model.
+                // The primary (Zyloo GLM) captains are busy and absent from the idle list, so the
+                // selector must fall to the next ranked mid model that has an idle captain.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("opencode-go/kimi-k3"),
                     MakeCaptain("gemini-3.5-pro")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("claude-sonnet-4-6", selected, "Should fall back to sonnet when all K2.7 captains are busy");
+                AssertEqual("opencode-go/kimi-k3", selected, "Should fall back to kimi-k3 when the primary GLM captains are busy");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_FallsBackToComposer_WhenK2_7AndSonnetBusy", () =>
+            await RunTest("SelectModel_MidTier_FallsBackToComposer_WhenHigherRankedBusy", () =>
             {
                 // Only composer and gemini are idle. Preference order lists composer before
                 // unlisted models, so composer wins even though gemini appears first in the
@@ -582,7 +583,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("composer-2.5", selected, "Should fall back to composer when K2.7 and sonnet are busy");
+                AssertEqual("composer-2.5", selected, "Should fall back to composer when every higher-ranked mid captain is busy");
                 return Task.CompletedTask;
             });
 
@@ -630,15 +631,17 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default preference order contains mid tier");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual(8, midOrder.Count, "default mid preference order includes the two qualified GLM entries plus the current and prior generation fallbacks");
+                AssertEqual(12, midOrder.Count, "default mid preference order lists the operator ranking plus the prior-generation fallbacks");
                 AssertEqual("zyloo/glm-5.2", midOrder[0], "starts with the Zyloo GLM captain, the designated primary");
-                AssertEqual("opencode/glm-5.2", midOrder[1], "OpenCode GLM follows as the equivalent-provider fallback");
-                AssertEqual("opencode-go/kimi-k3", midOrder[2], "current-generation Kimi follows the GLM pair");
-                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[3], "prior-generation Kimi follows as a generation fallback");
-                AssertEqual("claude-sonnet-5", midOrder[4], "sonnet family follows the Kimi family");
-                AssertEqual("claude-sonnet-4-6", midOrder[5], "prior-generation sonnet follows");
-                AssertEqual("composer-2-fast", midOrder[6], "composer current generation follows");
-                AssertEqual("composer-2.5", midOrder[7], "prior-generation composer follows");
+                AssertEqual("opencode-go/kimi-k3", midOrder[1], "kimi-k3 ranks ahead of the OpenCode GLM entry");
+                AssertEqual("opencode-go/glm-5.2", midOrder[2], "OpenCode GLM follows kimi-k3");
+                AssertEqual("zyloo/claude-sonnet-5", midOrder[3], "Zyloo sonnet is fourth");
+                AssertEqual("zyloo/gpt-5.6-terra", midOrder[4], "Zyloo Terra is fifth");
+                AssertEqual("grok-4.5", midOrder[5], "grok is sixth");
+                AssertEqual("composer-2.5", midOrder[6], "composer-2.5 closes the operator-ranked block");
+                AssertEqual("opencode/glm-5.2", midOrder[7], "prior-generation OpenCode GLM leads the fallbacks");
+                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[8], "prior-generation Kimi follows");
+                AssertEqual("composer-2-fast", midOrder[11], "prior-generation composer closes the list");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
@@ -811,20 +814,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default contains mid preference order");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
                 AssertEqual("zyloo/glm-5.2", midOrder[0], "default mid order starts with Zyloo GLM");
-                AssertEqual("opencode/glm-5.2", midOrder[1], "OpenCode GLM immediately follows");
-                AssertEqual("opencode-go/kimi-k3", midOrder[2], "current-generation Kimi follows the GLM pair");
-                AssertEqual("claude-sonnet-5", midOrder[4], "sonnet family follows Kimi");
-                AssertEqual("composer-2-fast", midOrder[6], "composer family follows sonnet");
+                AssertEqual("opencode-go/kimi-k3", midOrder[1], "kimi-k3 ranks ahead of the OpenCode GLM entry");
+                AssertEqual("opencode-go/glm-5.2", midOrder[2], "OpenCode GLM follows kimi-k3");
+                AssertEqual("zyloo/claude-sonnet-5", midOrder[3], "Zyloo sonnet follows the GLM/kimi block");
+                AssertEqual("composer-2.5", midOrder[6], "composer-2.5 closes the operator-ranked block");
 
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("claude-sonnet-4-6"),
-                    MakeCaptain("opencode-go/kimi-k2.7-code")
+                    MakeCaptain("opencode-go/glm-5.2"),
+                    MakeCaptain("opencode-go/kimi-k3"),
+                    MakeCaptain("zyloo/glm-5.2")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults);
-                AssertEqual("opencode-go/kimi-k2.7-code", selected, "K2.7-first preference is preserved when all mid captains are idle");
+                AssertEqual("zyloo/glm-5.2", selected, "Zyloo-GLM-first preference is preserved when all mid captains are idle");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelTierSettings_LoadedSettingsFile_OverridesBuiltInRanking", () =>
+            {
+                // The deployed settings.json is the sole source of truth: a modelTier block in the
+                // file must replace the built-in tier lists and ranking, not merge with them.
+                string json = "{\"modelTier\":{"
+                    + "\"midTierModels\":[\"composer-2.5\",\"zyloo/glm-5.2\"],"
+                    + "\"withinTierPreferenceOrder\":{\"mid\":[\"composer-2.5\",\"zyloo/glm-5.2\"]}}}";
+                JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json, options);
+                AssertNotNull(loaded, "settings JSON must deserialize");
+
+                ModelTierSettings fileTier = loaded!.ModelTier;
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("zyloo/glm-5.2"),
+                    MakeCaptain("composer-2.5")
+                };
+
+                string? builtIn = PreferredModelTierSelector.SelectModel(
+                    "mid", captains, "Worker", _ => 0, null, new ModelTierSettings().WithinTierPreferenceOrder, new ModelTierSettings());
+                AssertEqual("zyloo/glm-5.2", builtIn, "the built-in ranking prefers the Zyloo GLM captain");
+
+                string? fromFile = PreferredModelTierSelector.SelectModel(
+                    "mid", captains, "Worker", _ => 0, null, fileTier.WithinTierPreferenceOrder, fileTier);
+                AssertEqual("composer-2.5", fromFile, "the loaded settings file must win over the built-in ranking");
+
+                AssertEqual(2, fileTier.MidTierModels.Count, "the file's mid membership replaces the built-in list");
+                AssertNull(
+                    PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k3", fileTier),
+                    "a model the file omits classifies to no tier -- the file does not merge with the built-in list");
                 return Task.CompletedTask;
             });
 

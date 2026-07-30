@@ -74,9 +74,10 @@ namespace Armada.Test.Unit
 
             await RunTest("SelectModel_AuditHint_PicksHighestAuditModel_OverPreferenceOrder", () =>
             {
-                // Default mid preference order lists K2.7 first, so a no-hint call would pick it.
-                // The audit hint maps to AuditReasoningFit, where sonnet (80) outranks every other
-                // idle model, so the hint must override the preference-order pick.
+                // A no-hint call would follow the preference order and pick composer-2.5, which
+                // ranks ahead of both prior-generation captains. The audit hint maps to
+                // AuditReasoningFit, where sonnet (80) outranks every other idle model, so the
+                // hint must override the preference-order pick.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
@@ -192,7 +193,7 @@ namespace Armada.Test.Unit
                 string? nullHint = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), null);
 
-                AssertEqual("opencode-go/kimi-k2.7-code", omitted, "no-hint call follows the preference order (K2.7 first)");
+                AssertEqual("composer-2.5", omitted, "no-hint call follows the within-tier preference order");
                 AssertEqual(omitted, nullHint, "an explicit null hint matches the omitted-parameter result");
                 return Task.CompletedTask;
             });
@@ -215,9 +216,9 @@ namespace Armada.Test.Unit
                 string? whitespace = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "   ");
 
-                AssertEqual("opencode-go/kimi-k2.7-code", unknown, "an unknown hint degrades to preference-order selection");
-                AssertEqual("opencode-go/kimi-k2.7-code", empty, "an empty hint degrades to preference-order selection");
-                AssertEqual("opencode-go/kimi-k2.7-code", whitespace, "a whitespace hint degrades to preference-order selection");
+                AssertEqual("composer-2.5", unknown, "an unknown hint degrades to preference-order selection");
+                AssertEqual("composer-2.5", empty, "an empty hint degrades to preference-order selection");
+                AssertEqual("composer-2.5", whitespace, "a whitespace hint degrades to preference-order selection");
                 return Task.CompletedTask;
             });
 
@@ -272,7 +273,7 @@ namespace Armada.Test.Unit
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
-                AssertEqual("opencode-go/kimi-k2.7-code", selected, "an empty profile map degrades the hint to preference-order selection");
+                AssertEqual("composer-2.5", selected, "an empty profile map degrades the hint to preference-order selection");
                 return Task.CompletedTask;
             });
 
@@ -280,7 +281,7 @@ namespace Armada.Test.Unit
             {
                 // The hint resolves to a dimension, but none of the idle models has a profile entry
                 // (only a non-idle model is profiled). Unprofiled models sort last / tie, so the
-                // preference order decides: sonnet is listed ahead of composer.
+                // preference order decides: composer-2.5 is ranked ahead of prior-generation sonnet.
                 Dictionary<string, ModelCapabilityProfile> profiles = new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase)
                 {
                     { "gpt-5.5", Profile(90, 90) }
@@ -293,7 +294,7 @@ namespace Armada.Test.Unit
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(profiles), "audit");
-                AssertEqual("claude-sonnet-4-6", selected, "when no idle model is profiled for the dimension, the preference order resolves it");
+                AssertEqual("composer-2.5", selected, "when no idle model is profiled for the dimension, the preference order resolves it");
                 return Task.CompletedTask;
             });
 
@@ -312,7 +313,7 @@ namespace Armada.Test.Unit
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
-                AssertEqual("opencode-go/kimi-k2.7-code", selected, "a hint with no mapped dimension degrades to preference-order selection");
+                AssertEqual("composer-2.5", selected, "a hint with no mapped dimension degrades to preference-order selection");
                 return Task.CompletedTask;
             });
 

@@ -171,9 +171,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("TryAssign_LiteralPreferredModel_CanonicalFamilyFallback_Assigns", async () =>
             {
-                // claude-opus-4-8 is not in the curated high list but matches the canonical
-                // opus pattern, so it classifies to high tier. When no exact captain is available,
-                // the dispatch should fall back to any idle high-tier captain.
+                // claude-opus-4-8 is in the curated high list, so it classifies to high tier.
+                // When no exact captain is available, the dispatch should fall back to any idle
+                // high-tier captain.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
@@ -327,47 +327,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("TryAssign_MidTier_K2_7FirstPreference_AssignsK2_7Captain", async () =>
+            await RunTest("TryAssign_MidTier_FirstPreference_AssignsTopRankedCaptain", async () =>
             {
-                // The default ModelTierSettings.WithinTierPreferenceOrder lists K2.7 first for
-                // the mid tier. An idle K2.7 captain should win over other idle mid captains.
+                // The default ModelTierSettings.WithinTierPreferenceOrder leads the mid tier with
+                // the Zyloo GLM captain. While it is idle it wins over other idle mid captains.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "sonnet-captain", "claude-sonnet-4-6").ConfigureAwait(false);
-                    Captain k2Captain = await CreateCaptainAsync(testDb.Driver, "k2.7-captain", "opencode-go/kimi-k2.7-code").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "k2.7 preferred worker", "mid", "Worker").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "kimi-captain", "opencode-go/kimi-k3").ConfigureAwait(false);
+                    Captain glmCaptain = await CreateCaptainAsync(testDb.Driver, "glm-captain", "zyloo/glm-5.2").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked preferred worker", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertTrue(assigned, "Mid-tier Worker mission should assign when an idle K2.7 captain exists");
+                    AssertTrue(assigned, "Mid-tier Worker mission should assign when an idle top-ranked captain exists");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(k2Captain.Id, readBack.CaptainId, "K2.7 captain should be chosen first for mid-tier Worker work");
+                    AssertEqual(glmCaptain.Id, readBack.CaptainId, "The top-ranked mid captain should be chosen for mid-tier Worker work");
                 }
             });
 
-            await RunTest("TryAssign_MidTier_K2_7Busy_FallsBackToSonnet", async () =>
+            await RunTest("TryAssign_MidTier_TopRankedBusy_FallsBackToNextRanked", async () =>
             {
-                // When no K2.7 captain is idle, the configured mid preference falls back to
-                // sonnet before composer or other mid models.
+                // When no top-ranked captain is idle, the configured mid preference falls to the
+                // next ranked model that has one.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain sonnetCaptain = await CreateCaptainAsync(testDb.Driver, "sonnet-captain", "claude-sonnet-4-6").ConfigureAwait(false);
+                    Captain kimiCaptain = await CreateCaptainAsync(testDb.Driver, "kimi-captain", "opencode-go/kimi-k3").ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "composer-captain", "composer-2.5").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "k2.7 busy fallback", "mid", "Worker").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked busy fallback", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertTrue(assigned, "Mid-tier Worker mission should fall back to sonnet when K2.7 is busy");
+                    AssertTrue(assigned, "Mid-tier Worker mission should fall back to the next ranked model");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(sonnetCaptain.Id, readBack.CaptainId, "Sonnet captain should be chosen as the K2.7 fallback");
+                    AssertEqual(kimiCaptain.Id, readBack.CaptainId, "kimi-k3 should be chosen as the fallback for the busy top-ranked model");
                 }
             });
 

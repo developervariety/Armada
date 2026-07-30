@@ -123,13 +123,14 @@ namespace Armada.Test.Unit.Suites.Settings
                         "preference entry '" + m + "' must actually classify mid");
                 }
                 AssertEqual("zyloo/glm-5.2", order[0], "configured mid-tier order starts with Zyloo GLM");
-                AssertEqual("opencode/glm-5.2", order[1], "OpenCode GLM follows Zyloo GLM");
+                AssertEqual("opencode-go/kimi-k3", order[1], "kimi-k3 ranks ahead of the OpenCode GLM entry");
+                AssertEqual("opencode-go/glm-5.2", order[2], "OpenCode GLM follows kimi-k3");
                 AssertTrue(order.IndexOf("opencode-go/kimi-k3") < order.IndexOf("opencode-go/kimi-k2.7-code"),
                     "current-gen kimi must precede the prior generation");
-                AssertTrue(order.IndexOf("claude-sonnet-5") < order.IndexOf("claude-sonnet-4-6"),
-                    "current-gen sonnet must precede the prior generation");
-                AssertTrue(order.IndexOf("composer-2-fast") < order.IndexOf("composer-2.5"),
-                    "current-gen composer must precede the prior generation");
+                AssertTrue(order.IndexOf("zyloo/claude-sonnet-5") < order.IndexOf("claude-sonnet-4-6"),
+                    "the ranked sonnet must precede the prior generation");
+                AssertTrue(order.IndexOf("composer-2.5") < order.IndexOf("composer-2-fast"),
+                    "the ranked composer must precede the unranked one");
                 return Task.CompletedTask;
             });
 
@@ -140,7 +141,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 {
                     foreach (string m in new[]
                     {
-                        "grok-4.5", "opencode-go/glm-5.2", "opencode/laguna-s-2.1-free"
+                        "opencode/laguna-s-2.1-free", "gemini-3.5-pro", "gpt-5.3-codex"
                     })
                     {
                         AssertFalse(order.Contains(m),
