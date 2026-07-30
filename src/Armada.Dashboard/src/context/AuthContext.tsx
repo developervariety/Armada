@@ -11,11 +11,29 @@ interface AuthState {
   isAdmin: boolean;
   isTenantAdmin: boolean;
   loading: boolean;
+  oauthError: string | null;
   login: (token: string) => Promise<void>;
   logout: () => void;
+  clearOauthError: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
+
+/**
+ * Read an OAuth2 callback token/error from the URL fragment and strip it from
+ * the address bar so the token is not left in browser history.
+ */
+function consumeOAuthHashToken(): { token: string | null; error: string | null } {
+  const hash = window.location.hash;
+  if (!hash || hash.length < 2) return { token: null, error: null };
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get('oauth_token');
+  const error = params.get('oauth_error');
+  if (token || error) {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  return { token, error };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessionToken, setSessionToken] = useState<string | null>(() => {
@@ -23,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [user, setUser] = useState<WhoAmIResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [oauthError, setOauthError] = useState<string | null>(null);
 
   const logout = useCallback(() => {
     setSessionToken(null);
@@ -35,8 +54,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOnUnauthorized(logout);
   }, [logout]);
 
-  // Restore session on mount
+  const login = useCallback(async (token: string) => {
+    setLoading(true);
+    try {
+      setSessionToken(token);
+      setAuthToken(token);
+      localStorage.setItem(SESSION_STORAGE_KEY, token);
+      const me = await whoami();
+      setUser(me);
+    } catch {
+      setSessionToken(null);
+      setAuthToken(null);
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      throw new Error('Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const clearOauthError = useCallback(() => setOauthError(null), []);
+
+  // Restore session on mount (handling an OAuth2 callback fragment first)
   useEffect(() => {
+    const oauth = consumeOAuthHashToken();
+    if (oauth.token) {
+      login(oauth.token).catch(() => setOauthError('login_failed')).finally(() => setLoading(false));
+      return;
+    }
+    if (oauth.error) {
+      setOauthError(oauth.error);
+    }
+
     const storedToken = localStorage.getItem(SESSION_STORAGE_KEY);
     if (storedToken) {
       setAuthToken(storedToken);
@@ -57,30 +105,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const login = useCallback(async (token: string) => {
-    setLoading(true);
-    try {
-      setSessionToken(token);
-      setAuthToken(token);
-      localStorage.setItem(SESSION_STORAGE_KEY, token);
-      const me = await whoami();
-      setUser(me);
-    } catch {
-      setSessionToken(null);
-      setAuthToken(null);
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      throw new Error('Login failed');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const isAuthenticated = !!sessionToken && !!user;
   const isAdmin = user?.user?.isAdmin ?? false;
   const isTenantAdmin = isAdmin || (user?.user?.isTenantAdmin ?? false);
 
   return (
-    <AuthContext.Provider value={{ sessionToken, user, isAuthenticated, isAdmin, isTenantAdmin, loading, login, logout }}>
+    <AuthContext.Provider value={{ sessionToken, user, isAuthenticated, isAdmin, isTenantAdmin, loading, oauthError, login, logout, clearOauthError }}>
       {children}
     </AuthContext.Provider>
   );

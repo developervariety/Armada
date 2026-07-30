@@ -503,6 +503,19 @@ export async function logoutProxy(): Promise<void> {
 export const lookupTenants = (email: string) =>
   post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email });
 
+// ==================== OAuth2 / SSO ====================
+export interface OAuthConfig {
+  enabled: boolean;
+  displayName: string;
+}
+
+export const getOAuthConfig = () => get<OAuthConfig>('/api/v1/auth/oauth/config');
+
+/** Full-page redirect target that begins the OAuth2 single sign-on flow. */
+export function oauthAuthorizeUrl(): string {
+  return `${BASE_URL}/api/v1/auth/oauth/authorize`;
+}
+
 // ==================== Tenants (admin) ====================
 export const listTenants = () => get<EnumerationResult<TenantMetadata>>('/api/v1/tenants');
 export const createTenant = (data: Partial<TenantMetadata>) => post<TenantMetadata>('/api/v1/tenants', data);

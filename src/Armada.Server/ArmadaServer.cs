@@ -103,6 +103,7 @@ namespace Armada.Server
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
         private IAuthorizationService _AuthorizationService = null!;
+        private IOAuth2Service _OAuth2Service = null!;
         private IMissionService _MissionService = null!;
         private CaptainToolService _CaptainTools = null!;
 
@@ -311,6 +312,7 @@ namespace Armada.Server
             }
             _AuthenticationService = new AuthenticationService(_Database, _SessionTokenService, _Settings, _Logging);
             _AuthorizationService = new AuthorizationService();
+            _OAuth2Service = new OAuth2Service(_Database, _SessionTokenService, _Settings, _Logging);
 
             // Seed synthetic admin identity if API key is configured
             if (!string.IsNullOrEmpty(_Settings.ApiKey))
@@ -709,6 +711,10 @@ namespace Armada.Server
 
             // Authentication & identity
             new AuthRoutes(_SessionTokenService, _AuthenticationService, _Database, _Settings, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // OAuth2 / OIDC single sign-on (Authentik and other providers)
+            new OAuthRoutes(_OAuth2Service, _Settings)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Tenants, users, credentials
