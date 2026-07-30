@@ -146,7 +146,19 @@ namespace Armada.Test.Unit.Suites.Services
                 "done\n" +
                 "exit 0\n";
 
-            await File.WriteAllTextAsync(Path.Combine(hooksDir, "pre-receive"), hookBody, new System.Text.UTF8Encoding(false)).ConfigureAwait(false);
+            string hookPath = Path.Combine(hooksDir, "pre-receive");
+            await File.WriteAllTextAsync(hookPath, hookBody, new System.Text.UTF8Encoding(false)).ConfigureAwait(false);
+
+            // git only runs a hook that is executable on Unix; without the mode bits the push
+            // succeeds and the rejection path under test is never exercised.
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(
+                    hookPath,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            }
         }
 
         protected override async Task RunTestsAsync()

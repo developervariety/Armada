@@ -728,14 +728,14 @@ namespace Armada.Core.Services
             try
             {
                 string result = await RunGitAsync(repoPath, "worktree", "list", "--porcelain").ConfigureAwait(false);
-                string normalizedTarget = Path.GetFullPath(worktreePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string normalizedTarget = NormalizeWorktreePath(worktreePath);
 
                 foreach (string line in result.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 {
                     if (line.StartsWith("worktree "))
                     {
                         string registeredPath = line.Substring("worktree ".Length).Trim();
-                        string normalizedRegistered = Path.GetFullPath(registeredPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        string normalizedRegistered = NormalizeWorktreePath(registeredPath);
                         if (String.Equals(normalizedRegistered, normalizedTarget, StringComparison.OrdinalIgnoreCase))
                             return true;
                     }
@@ -747,6 +747,50 @@ namespace Armada.Core.Services
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Canonicalize a worktree path for comparison against git's own output. git reports the
+        /// real path of a worktree, so a dock root reached through a symlink (macOS
+        /// /var -> /private/var, or an operator symlinking the dock root onto another volume)
+        /// would never match a plain <see cref="Path.GetFullPath(string)"/> of the same location.
+        /// Every path component is resolved, because the symlink is usually an ancestor
+        /// directory rather than the leaf.
+        /// </summary>
+        private static string NormalizeWorktreePath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            string trimmed = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            try
+            {
+                string root = Path.GetPathRoot(full) ?? String.Empty;
+                string remainder = full.Substring(root.Length);
+                string current = root;
+
+                foreach (string segment in remainder.Split(
+                    new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                    StringSplitOptions.RemoveEmptyEntries))
+                {
+                    current = Path.Combine(current, segment);
+
+                    FileSystemInfo? target = null;
+                    if (Directory.Exists(current)) target = new DirectoryInfo(current).ResolveLinkTarget(true);
+                    else if (File.Exists(current)) target = new FileInfo(current).ResolveLinkTarget(true);
+
+                    if (target != null) current = target.FullName;
+                }
+
+                string resolved = current.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!String.IsNullOrEmpty(resolved)) return resolved;
+            }
+            catch
+            {
+                // A missing or inaccessible component leaves the unresolved path, which is still
+                // the right answer whenever no symlink is involved.
+            }
+
+            return trimmed;
         }
 
         /// <inheritdoc />

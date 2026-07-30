@@ -779,9 +779,22 @@ namespace Armada.Test.Unit.Suites.Services
 
                     // Dirty the tracked checkout deterministically during `git worktree add`
                     // without depending on line-ending behavior in the host Git install.
+                    string hookPath = Path.Combine(hooksDir, "post-checkout");
                     await File.WriteAllTextAsync(
-                        Path.Combine(hooksDir, "post-checkout"),
+                        hookPath,
                         "#!/bin/sh\nprintf '\\n<!-- dirty -->\\n' >> test/Dirty.csproj\n").ConfigureAwait(false);
+
+                    // git only runs a hook that is executable on Unix; without the mode bits the
+                    // checkout stays clean and the dirty-worktree path is never exercised.
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        File.SetUnixFileMode(
+                            hookPath,
+                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+                    }
+
                     await RunGitAsync(bareDir, "config", "core.hooksPath", hooksDir).ConfigureAwait(false);
 
                     InvalidOperationException? ex = null;

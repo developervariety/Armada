@@ -371,6 +371,14 @@ namespace Armada.Core.Services
             if (existing == null && snapshots.Count == 0)
                 throw new InvalidOperationException("Objective not found.");
 
+            // The unscoped snapshot read must never turn another tenant's backlog item into a
+            // deletable target: without this, a caller who cannot see the row still purged the
+            // owner's snapshot chain and tombstoned the id, and the route answered 204. An
+            // invisible row that belongs to some other tenant is simply not found. Orphan
+            // snapshots with no row anywhere stay purgeable, which is what this path is for.
+            if (existing == null && await ObjectiveRowExistsUnscopedAsync(id, token).ConfigureAwait(false))
+                throw new InvalidOperationException("Objective not found.");
+
             if (existing != null)
             {
                 await DeleteObjectiveRowAsync(auth, id, token).ConfigureAwait(false);
@@ -629,6 +637,16 @@ namespace Armada.Core.Services
             if (auth.IsTenantAdmin)
                 return await _Database.Objectives.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false);
             return await _Database.Objectives.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// True when an objective row with this id exists for any tenant. Used to tell "no such
+        /// objective anywhere" (orphan snapshots, safe to purge) apart from "exists but belongs to
+        /// a tenant this caller cannot see" (must read as not found, never deleted).
+        /// </summary>
+        private async Task<bool> ObjectiveRowExistsUnscopedAsync(string id, CancellationToken token)
+        {
+            return await _Database.Objectives.ReadAsync(id, token).ConfigureAwait(false) != null;
         }
 
         private async Task<Objective?> ReadObjectiveRowAsync(AuthContext auth, string id, CancellationToken token)

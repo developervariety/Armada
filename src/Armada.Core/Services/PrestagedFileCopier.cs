@@ -70,10 +70,18 @@ namespace Armada.Core.Services
                 string source = entry.SourcePath ?? "";
                 string dest = entry.DestPath ?? "";
 
+                // PrestagedFileValidator treats '/' and '\' as separators on every platform, so the
+                // copier must resolve them the same way. Without this a Windows-authored dest path
+                // such as "..\escape.txt" is a traversal on Windows but a single odd filename on a
+                // Unix admiral, and the containment check below never sees the escape.
+                string normalizedDest = dest
+                    .Replace('\\', Path.DirectorySeparatorChar)
+                    .Replace('/', Path.DirectorySeparatorChar);
+
                 string destAbsolute;
                 try
                 {
-                    destAbsolute = Path.GetFullPath(Path.Combine(fullWorktree, dest));
+                    destAbsolute = Path.GetFullPath(Path.Combine(fullWorktree, normalizedDest));
                 }
                 catch (Exception ex)
                 {

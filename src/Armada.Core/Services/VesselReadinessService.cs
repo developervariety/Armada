@@ -19,13 +19,19 @@ namespace Armada.Core.Services
     {
         private static readonly Regex _CommandSegmentSplit = new Regex(@"\s*(?:&&|\|\||;|\r?\n)\s*", RegexOptions.Compiled);
         private static readonly Regex _TokenRegex = new Regex("^\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s]+))", RegexOptions.Compiled);
+        // Shell builtins are never PATH executables, so probing them as command dependencies
+        // always fails. "exit", "return" and ":" matter in particular: a command segment such as
+        // "echo failed; exit 1" splits on ';' on Unix, and without them the check is blocked with
+        // a bogus "dependency 'exit' could not be found".
         private static readonly HashSet<string> _ShellBuiltins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "cd", "echo", "set", "export", "if", "then", "fi", "for", "do", "done", "call", "rem", "@echo", "true", "false", "type"
+            "cd", "echo", "set", "export", "unset", "shift", "eval", "exec", "source",
+            "if", "then", "fi", "for", "do", "done", "call", "rem", "@echo",
+            "true", "false", "type", "exit", "return", ":"
         };
         private static readonly HashSet<string> _TerminalShellBuiltins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "echo", "@echo", "rem", "true", "false", "type"
+            "echo", "@echo", "rem", "true", "false", "type", "exit", "return", ":"
         };
         private static readonly Dictionary<string, string[]> _VersionProbeArgs = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
