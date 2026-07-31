@@ -81,6 +81,124 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A configured AI-Memory root is named once for every runtime, content not inlined", async () =>
+            {
+                AgentRuntimeEnum[] runtimes = new AgentRuntimeEnum[]
+                {
+                    AgentRuntimeEnum.ClaudeCode,
+                    AgentRuntimeEnum.Codex,
+                    AgentRuntimeEnum.Cursor,
+                    AgentRuntimeEnum.OpenCode
+                };
+
+                foreach (AgentRuntimeEnum runtime in runtimes)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.AiMemoryRoot = "/srv/armada/AI-Memory/";
+                        StubGitService git = new StubGitService();
+                        MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                        string tempDir = Path.Combine(Path.GetTempPath(), "armada_memory_test_" + Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(tempDir);
+
+                        try
+                        {
+                            Vessel vessel = new Vessel("MemoryVessel", "https://github.com/test/repo");
+                            Captain captain = new Captain("MemoryCaptain");
+                            captain.Runtime = runtime;
+
+                            Mission mission = new Mission();
+                            mission.Title = "Use shared memory";
+                            mission.Description = "Memory must be discoverable.";
+
+                            await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                            string fileName = MissionPromptBuilder.GetInstructionsFileName(runtime.ToString());
+                            string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, fileName));
+
+                            AssertContains("## Shared Memory", brief, runtime + " must be told shared memory exists");
+                            AssertContains("/srv/armada/AI-Memory/shared/INDEX.md", brief, runtime + " must get the index path");
+                            // The trailing separator must be normalized, not doubled.
+                            AssertFalse(brief.Contains("AI-Memory//shared", StringComparison.Ordinal), "the root separator must be normalized");
+                        }
+                        finally
+                        {
+                            try { Directory.Delete(tempDir, true); } catch { }
+                        }
+                    }
+                }
+            });
+
+            await RunTest("No AI-Memory section is emitted when no memory root is configured", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_memory_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("MemoryVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "No memory configured";
+                        mission.Description = "The module must be absent.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertFalse(brief.Contains("## Shared Memory", StringComparison.Ordinal), "no memory section without a configured root");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("The code-index section names no Armada MCP tool", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CodeIndex.Enabled = true;
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_pack_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("PackVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Find the handler";
+                        mission.Description = "Locate the request handler.";
+                        mission.VesselId = "vsl_pack_test";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("## Code Index Context", brief, "the code-index section must still be present");
+                        AssertFalse(brief.Contains("armada_code_search", StringComparison.Ordinal), "captains have no MCP tools to call");
+                        AssertFalse(brief.Contains("armada_context_pack", StringComparison.Ordinal), "captains have no MCP tools to call");
+                        AssertFalse(brief.Contains("MCP", StringComparison.Ordinal), "no MCP capability may be implied");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("OpenCode missions write AGENTS.md, the file OpenCode loads natively", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -399,8 +517,8 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(noPackDir, mission, vessel);
                         string withoutContext = await File.ReadAllTextAsync(Path.Combine(noPackDir, "CLAUDE.md"));
                         AssertContains("## Code Index Context", withoutContext);
-                        AssertContains("No generated `_briefing/context-pack.md` is staged", withoutContext);
-                        AssertContains("Use Armada MCP code search before broad Grep/Glob", withoutContext);
+                        AssertContains("No `_briefing/context-pack.md` is staged", withoutContext);
+                        AssertContains("Use ordinary file search", withoutContext);
 
                         string briefingDir = Path.Combine(withPackDir, "_briefing");
                         Directory.CreateDirectory(briefingDir);

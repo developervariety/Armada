@@ -1420,6 +1420,15 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // Shared durable memory, named once for every runtime. Previously a captain only learned
+            // that AI-Memory existed when the vessel's own instruction file happened to mention it, so
+            // the same fleet-wide memory was visible to some captains and invisible to others.
+            if (!String.IsNullOrWhiteSpace(_Settings.AiMemoryRoot))
+            {
+                content += ledger.Track("mission.ai_memory", BuildAiMemorySection(_Settings.AiMemoryRoot!));
+                content += "\n";
+            }
+
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
@@ -1622,6 +1631,26 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Builds the shared-memory pointer. It names the index only and inlines no memory content:
+        /// memory grows without bound, so inlining it would re-create the prompt bloat this module is
+        /// measured against, and a captain can read the parts it needs. The path is emitted exactly as
+        /// configured, so it must be the path as it resolves on the host the captain runs on.
+        /// </summary>
+        /// <param name="memoryRoot">Configured AI-Memory root path.</param>
+        /// <returns>The AI-Memory section.</returns>
+        internal static string BuildAiMemorySection(string memoryRoot)
+        {
+            string root = (memoryRoot ?? "").TrimEnd('/', '\\');
+
+            return
+                "## Shared Memory\n" +
+                "Durable, cross-mission knowledge for this fleet lives at `" + root + "`.\n" +
+                "Read `" + root + "/shared/INDEX.md` first, then follow it to what your mission needs. " +
+                "Do not read the whole tree.\n" +
+                "It is reference material, not authority: playbooks, vessel instructions, and this mission brief win on conflict.\n";
+        }
+
+        /// <summary>
         /// Builds the rule set for a mission whose deliverable is a report rather than a change. It
         /// replaces the implementation rules, which require commits and pushes, with the boundaries a
         /// read-only mission actually needs. It also states the completion contract explicitly, so a
@@ -1645,50 +1674,40 @@ namespace Armada.Core.Services
                 "- Use only ASCII characters in all output. No ANSI colour codes or terminal formatting.\n";
         }
 
+        /// <summary>
+        /// Builds the code-retrieval guidance. It names no MCP tool: captains do not receive the Armada
+        /// MCP server, so an instruction to call one is an instruction the captain cannot follow. The
+        /// staged context pack is a plain file in the dock and needs no tooling to read; when it is
+        /// absent or incomplete, ordinary file search is the fallback.
+        /// </summary>
+        /// <param name="worktreePath">Dock worktree path.</param>
+        /// <param name="mission">Mission the pack was generated for.</param>
+        /// <returns>The code-retrieval section.</returns>
         private static string BuildCodeRetrievalSection(string worktreePath, Mission mission)
         {
             string contextPackPath = Path.Combine(worktreePath, "_briefing", "context-pack.md");
             bool hasPack = File.Exists(contextPackPath);
-            string vesselId = mission.VesselId ?? "";
-            string goal = BuildCodeRetrievalGoal(mission);
-            string escapedGoal = goal.Replace("`", "\\`");
 
             string content = "## Code Index Context\n";
             if (hasPack)
             {
-                content += "A generated code-index context pack is available at `_briefing/context-pack.md`. " +
+                content += "A generated code-index context pack is staged at `_briefing/context-pack.md`. " +
                     "Read it before broad code search.\n";
             }
             else
             {
-                content += "No generated `_briefing/context-pack.md` is staged in this dock. " +
-                    "Use Armada MCP code search before broad Grep/Glob when the runtime exposes MCP tools.\n";
+                content += "No `_briefing/context-pack.md` is staged in this dock. " +
+                    "Use ordinary file search, scoped as narrowly as the task allows.\n";
             }
 
             content +=
                 "\n" +
-                "Treat it as discovery evidence, not authority. Playbooks, vessel CLAUDE.md, " +
-                "project CLAUDE.md, and these mission instructions win on conflict.\n" +
+                "Treat the pack as discovery evidence, not authority. Playbooks, vessel instructions, " +
+                "project instructions, and this mission brief win on conflict.\n" +
                 "\n" +
                 "Snippets may reflect the default branch and must be verified against the current branch before editing.\n" +
-                "\n";
-
-            if (!String.IsNullOrWhiteSpace(vesselId))
-            {
-                content +=
-                    "If the pack is absent or misses material files, call `armada_code_search` with " +
-                    "`vesselId: \"" + vesselId + "\"` and a focused query before falling back to broad Grep/Glob. " +
-                    "For a fresh pack, call `armada_context_pack` with the same vessel id and this mission goal: `" +
-                    escapedGoal + "`.\n";
-            }
-            else
-            {
-                content +=
-                    "If the pack is absent or misses material files, use `armada_code_search` or " +
-                    "`armada_context_pack` with this mission's vessel id before falling back to broad Grep/Glob.\n";
-            }
-
-            content +=
+                "\n" +
+                "If the pack is absent or misses material files, search the worktree directly.\n" +
                 "\n" +
                 "Final report must include one `Pack:` line: `read before search`, `search before read`, " +
                 "`not staged`, or `miss`, with a short reason.\n";

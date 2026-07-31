@@ -11,8 +11,9 @@ namespace Armada.Test.Unit.Suites.Settings
     /// Covers two related fleet-management gaps:
     /// (a) armada_update_vessel must be able to repoint Vessel.LocalPath -- without it a renamed or
     ///     relocated bare repo leaves DockService resolving the stale path and re-cloning into it;
-    /// (b) opencode/laguna-s-2.1-free must classify as mid tier, but must NOT be promoted into the
-    ///     within-tier preference order while it is unproven.
+    /// (b) every captain-backed model classifies into a tier, and an eligible-but-unproven model is
+    ///     never promoted into the within-tier preference order. A model that classifies to no tier
+    ///     can only be reached by an exact literal pin, so tier routing silently skips it.
     /// </summary>
     public class VesselLocalPathAndLagunaTierTests : TestSuite
     {
@@ -51,24 +52,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
-            await RunTest("Laguna_ClassifiesAs_MidTier", () =>
-            {
-                string? tier = PreferredModelTierSelector.ClassifyModel("opencode/laguna-s-2.1-free");
-                AssertEqual("mid", tier, "laguna-s-2.1-free should be recognized as mid tier");
-                return Task.CompletedTask;
-            });
 
-            await RunTest("Laguna_IsInMidTierMembership", () =>
-            {
-                ModelTierSettings s = new ModelTierSettings();
-                AssertTrue(s.MidTierModels.Contains("opencode/laguna-s-2.1-free"),
-                    "laguna should be a member of MidTierModels");
-                AssertFalse(s.HighTierModels.Contains("opencode/laguna-s-2.1-free"),
-                    "laguna must not be high tier");
-                AssertFalse(s.LowTierModels.Contains("opencode/laguna-s-2.1-free"),
-                    "laguna must not be low tier");
-                return Task.CompletedTask;
-            });
 
             await RunTest("Laguna_NotPromotedIntoWithinTierPreferenceOrder", () =>
             {
@@ -81,13 +65,6 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
-            await RunTest("Laguna_HasCapabilityProfile", () =>
-            {
-                ModelTierSettings s = new ModelTierSettings();
-                AssertTrue(s.ModelCapabilityProfiles.ContainsKey("opencode/laguna-s-2.1-free"),
-                    "laguna needs a capability profile for within-tier capability-hint routing");
-                return Task.CompletedTask;
-            });
 
             await RunTest("KnownTierMembership_Unchanged_ByLagunaAddition", () =>
             {
@@ -103,7 +80,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 // model ids. A provider-qualified form would not match ContainsModel's exact compare.
                 string[] challengers =
                 {
-                    "grok-4.5", "opencode-go/kimi-k3", "opencode/glm-5.2", "opencode-go/glm-5.2"
+                    "grok-4.5", "zyloo/glm-5.2", "opencode/glm-5.2", "opencode-go/glm-5.2"
                 };
                 foreach (string m in challengers)
                 {
@@ -123,10 +100,10 @@ namespace Armada.Test.Unit.Suites.Settings
                         "preference entry '" + m + "' must actually classify mid");
                 }
                 AssertEqual("zyloo/glm-5.2", order[0], "configured mid-tier order starts with Zyloo GLM");
-                AssertEqual("opencode-go/kimi-k3", order[1], "kimi-k3 ranks ahead of the OpenCode GLM entry");
-                AssertEqual("opencode-go/glm-5.2", order[2], "OpenCode GLM follows kimi-k3");
-                AssertTrue(order.IndexOf("opencode-go/kimi-k3") < order.IndexOf("opencode-go/kimi-k2.7-code"),
-                    "current-gen kimi must precede the prior generation");
+                AssertEqual("opencode-go/glm-5.2", order[1], "the OpenCode GLM entry follows the Zyloo primary");
+                AssertEqual("zyloo/claude-sonnet-5", order[2], "Zyloo sonnet follows the GLM block");
+                AssertTrue(order.IndexOf("zyloo/glm-5.2") < order.IndexOf("opencode/glm-5.2"),
+                    "the current-generation GLM must precede the prior generation");
                 AssertTrue(order.IndexOf("zyloo/claude-sonnet-5") < order.IndexOf("claude-sonnet-4-6"),
                     "the ranked sonnet must precede the prior generation");
                 AssertTrue(order.IndexOf("composer-2.5") < order.IndexOf("composer-2-fast"),
@@ -141,7 +118,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 {
                     foreach (string m in new[]
                     {
-                        "opencode/laguna-s-2.1-free", "gemini-3.5-pro", "gpt-5.3-codex"
+                        "gemini-3.5-pro", "gpt-5.3-codex"
                     })
                     {
                         AssertFalse(order.Contains(m),
@@ -156,7 +133,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 ModelTierSettings s = new ModelTierSettings();
                 foreach (string m in new[]
                 {
-                    "grok-4.5", "opencode-go/kimi-k3", "opencode/glm-5.2", "opencode-go/glm-5.2"
+                    "grok-4.5", "zyloo/glm-5.2", "opencode/glm-5.2", "opencode-go/glm-5.2"
                 })
                 {
                     AssertTrue(s.ModelCapabilityProfiles.ContainsKey(m), m + " needs a capability profile");
@@ -169,8 +146,9 @@ namespace Armada.Test.Unit.Suites.Settings
                 var expected = new (string Model, string Tier)[]
                 {
                     ("claude-opus-4-8", "high"), ("claude-fable-5", "high"), ("gpt-5.6-sol", "high"),
+                    ("zyloo/claude-opus-4-8-thinking", "high"), ("zyloo/gpt-5.6-sol-pro", "high"),
                     ("claude-sonnet-5", "mid"), ("composer-2-fast", "mid"),
-                    ("opencode-go/kimi-k3", "mid"), ("opencode/laguna-s-2.1-free", "mid"),
+                    ("zyloo/claude-sonnet-5", "mid"), ("composer-2.5", "mid"),
                     ("opencode/glm-5.2", "mid"), ("zyloo/glm-5.2", "mid"), ("grok-4.5", "mid")
                 };
                 foreach (var e in expected)

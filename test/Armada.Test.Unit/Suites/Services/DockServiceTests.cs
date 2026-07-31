@@ -130,6 +130,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("By default a dock gets no MCP client config but keeps OpenCode permissions", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    LockingGitService git = new LockingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("no-mcp-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_workdir_" + Guid.NewGuid().ToString("N"));
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("no-mcp-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/no-mcp/msn_one", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned");
+
+                    // No runtime may be given MCP tools while the others are not: a brief whose
+                    // instructions are valid for one captain and impossible for another is the defect
+                    // this default removes. So all four client configs are absent together.
+                    AssertFalse(File.Exists(Path.Combine(dock!.WorktreePath!, ".mcp.json")), "project MCP config must not be seeded by default");
+                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".cursor", "mcp.json")), "Cursor MCP config must not be seeded by default");
+                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".codex", "config.toml")), "Codex MCP config must not be seeded by default");
+                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".gemini", "settings.json")), "Gemini MCP config must not be seeded by default");
+
+                    // The OpenCode permission document is not MCP. It grants reads outside the dock,
+                    // which captains need for playbooks, sibling repositories, and shared memory.
+                    string openCodePath = Path.Combine(dock.WorktreePath!, "opencode.json");
+                    AssertTrue(File.Exists(openCodePath), "OpenCode permission config must still be written");
+                    string openCode = await File.ReadAllTextAsync(openCodePath).ConfigureAwait(false);
+                    AssertContains("external_directory", openCode, "OpenCode permission config must still grant external directory access");
+                    AssertFalse(openCode.Contains("mcpServers", StringComparison.Ordinal), "the permission config must not declare an MCP server");
+                }
+            });
+
             await RunTest("ProvisionAsync writes dock start commit metadata and ReclaimAsync removes it", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -141,6 +185,10 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
                     settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    // Captains do not receive the Armada MCP server by default. This case covers the
+                    // opt-in seeding path, so it enables the setting explicitly; the default-off
+                    // behaviour is asserted separately below.
+                    settings.SeedDockRuntimeMcpConfig = true;
 
                     LockingGitService git = new LockingGitService();
                     DockService service = new DockService(logging, testDb.Driver, settings, git);
