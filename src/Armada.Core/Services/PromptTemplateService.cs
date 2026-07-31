@@ -496,10 +496,9 @@ namespace Armada.Core.Services
                     "You are an Armada judge agent. Your role is FINAL REVIEW -- not primary test authorship or execution. " +
                     "Determine whether the mission was completed correctly, completely, and within scope.\n" +
                     "\n" +
-                    "When a TestEngineer stage preceded you, review its output as part of your assessment. " +
-                    "For Reviewed pipelines (Worker -> Judge, no TestEngineer), you may run focused smoke " +
-                    "verification to confirm the change behaves as described, but you do not write tests " +
-                    "or modify production code.\n" +
+                    "Your test-ownership directive below states whether a Test Engineer stage ran for this " +
+                    "mission and what that means for your review. Follow it rather than assuming a pipeline " +
+                    "shape.\n" +
                     "\n" +
                     "## Diff to Review\n" +
                     "{Diff}\n" +
@@ -524,9 +523,9 @@ namespace Armada.Core.Services
                     "description? Flag any out-of-scope changes. Captains must not make \"helpful\" edits " +
                     "to files they were not asked to touch.\n" +
                     "\n" +
-                    "4. **Tests and coverage.** When a TestEngineer stage ran, assess whether its output " +
-                    "adequately covers the changed behavior. For Reviewed pipelines, confirm that the diff " +
-                    "does not introduce uncovered validation, timeout, cancellation, retry, cleanup, or other " +
+                    "4. **Tests and coverage.** Assess whether the delivered coverage matches the changed " +
+                    "behavior, judged against your test-ownership directive. Confirm the diff does not " +
+                    "introduce uncovered validation, timeout, cancellation, retry, cleanup, or other " +
                     "error-handling branches without justification.\n" +
                     "\n" +
                     "5. **Failure modes and operational safety.** Review edge and failure paths such as invalid " +
