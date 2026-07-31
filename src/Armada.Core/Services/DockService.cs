@@ -1007,34 +1007,48 @@ namespace Armada.Core.Services
 
             try
             {
-                string projectMcpPath = Path.Combine(worktreePath, ".mcp.json");
-                if (!File.Exists(projectMcpPath))
+                // The Armada MCP client configs are opt-in and off by default: captains are not given
+                // the MCP server. Delivery is all-or-nothing across runtimes -- exposing tools to one
+                // runtime and not another produces briefs whose instructions are valid for some
+                // captains and impossible for others -- and the full catalog costs more than the
+                // mission brief while being dominated by orchestration tools a captain must never
+                // call. Re-enable only together with a scoped per-mission tool profile.
+                //
+                // The OpenCode permission document below is NOT MCP and is always written: it grants
+                // reads outside the dock, which captains need for playbooks, sibling repositories,
+                // and shared memory.
+                if (_Settings.SeedDockRuntimeMcpConfig)
                 {
-                    await File.WriteAllTextAsync(projectMcpPath, projectConfig, token).ConfigureAwait(false);
-                }
+                    string projectMcpPath = Path.Combine(worktreePath, ".mcp.json");
+                    if (!File.Exists(projectMcpPath))
+                    {
+                        await File.WriteAllTextAsync(projectMcpPath, projectConfig, token).ConfigureAwait(false);
+                    }
 
-                string cursorDir = Path.Combine(worktreePath, ".cursor");
-                Directory.CreateDirectory(cursorDir);
-                string cursorMcpPath = Path.Combine(cursorDir, "mcp.json");
-                if (!File.Exists(cursorMcpPath))
-                {
-                    await File.WriteAllTextAsync(cursorMcpPath, cursorConfig, token).ConfigureAwait(false);
-                }
+                    string cursorDir = Path.Combine(worktreePath, ".cursor");
+                    Directory.CreateDirectory(cursorDir);
+                    string cursorMcpPath = Path.Combine(cursorDir, "mcp.json");
+                    if (!File.Exists(cursorMcpPath))
+                    {
+                        await File.WriteAllTextAsync(cursorMcpPath, cursorConfig, token).ConfigureAwait(false);
+                    }
 
-                string codexDir = Path.Combine(worktreePath, ".codex");
-                Directory.CreateDirectory(codexDir);
-                string codexMcpPath = Path.Combine(codexDir, "config.toml");
-                if (!File.Exists(codexMcpPath))
-                {
-                    await File.WriteAllTextAsync(codexMcpPath, codexConfig, token).ConfigureAwait(false);
-                }
+                    string codexDir = Path.Combine(worktreePath, ".codex");
+                    Directory.CreateDirectory(codexDir);
+                    string codexMcpPath = Path.Combine(codexDir, "config.toml");
+                    if (!File.Exists(codexMcpPath))
+                    {
+                        await File.WriteAllTextAsync(codexMcpPath, codexConfig, token).ConfigureAwait(false);
+                    }
 
-                string geminiDir = Path.Combine(worktreePath, ".gemini");
-                Directory.CreateDirectory(geminiDir);
-                string geminiMcpPath = Path.Combine(geminiDir, "settings.json");
-                if (!File.Exists(geminiMcpPath))
-                {
-                    await File.WriteAllTextAsync(geminiMcpPath, geminiConfig, token).ConfigureAwait(false);
+                    string geminiDir = Path.Combine(worktreePath, ".gemini");
+                    Directory.CreateDirectory(geminiDir);
+                    string geminiMcpPath = Path.Combine(geminiDir, "settings.json");
+                    if (!File.Exists(geminiMcpPath))
+                    {
+                        await File.WriteAllTextAsync(geminiMcpPath, geminiConfig, token).ConfigureAwait(false);
+                    }
+
                 }
 
                 // Seed the OpenCode reasonable-trust permission document so OpenCode captains
@@ -1053,10 +1067,14 @@ namespace Armada.Core.Services
                 string? excludePath = ResolveGitInfoExcludePath(worktreePath);
                 if (!String.IsNullOrWhiteSpace(excludePath))
                 {
-                    await EnsureGitExcludeEntryAsync(excludePath, ".mcp.json", token).ConfigureAwait(false);
-                    await EnsureGitExcludeEntryAsync(excludePath, ".cursor/mcp.json", token).ConfigureAwait(false);
-                    await EnsureGitExcludeEntryAsync(excludePath, ".codex/config.toml", token).ConfigureAwait(false);
-                    await EnsureGitExcludeEntryAsync(excludePath, ".gemini/settings.json", token).ConfigureAwait(false);
+                    if (_Settings.SeedDockRuntimeMcpConfig)
+                    {
+                        await EnsureGitExcludeEntryAsync(excludePath, ".mcp.json", token).ConfigureAwait(false);
+                        await EnsureGitExcludeEntryAsync(excludePath, ".cursor/mcp.json", token).ConfigureAwait(false);
+                        await EnsureGitExcludeEntryAsync(excludePath, ".codex/config.toml", token).ConfigureAwait(false);
+                        await EnsureGitExcludeEntryAsync(excludePath, ".gemini/settings.json", token).ConfigureAwait(false);
+                    }
+
                     await EnsureGitExcludeEntryAsync(excludePath, "opencode.json", token).ConfigureAwait(false);
                 }
             }

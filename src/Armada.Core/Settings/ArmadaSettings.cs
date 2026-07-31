@@ -440,6 +440,39 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Absolute path to the shared AI-Memory root on the host where captains run, or null to omit
+        /// the AI-Memory module from captain instructions.
+        ///
+        /// When set, every generated instruction file names the memory index once, for every runtime.
+        /// Only the index path is emitted, never memory content: inlining it would re-create the very
+        /// prompt bloat this module is measured against, and the captain can read what it needs.
+        /// Set the path as it resolves on the captain's host; a workstation path handed to a server
+        /// captain is a path it cannot open.
+        /// </summary>
+        public string? AiMemoryRoot
+        {
+            get => _AiMemoryRoot;
+            set => _AiMemoryRoot = String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>
+        /// Whether to seed runtime MCP client configuration into every dock, pointing captains at the
+        /// Armada MCP server.
+        ///
+        /// Default false. Measurement across runtimes found that captains either never received the
+        /// tools (the client config was ignored, or the runtime was launched with flags that exclude
+        /// project-level MCP config) or would have received the entire tool catalog, which is far
+        /// larger than the mission brief itself and dominated by orchestration tools a captain must
+        /// never call: dispatch, vessel administration, backup and restore, deployment rollback.
+        /// Captains completed their work without those tools, so the cost bought nothing.
+        ///
+        /// Enable only alongside a scoped tool profile, so a dock receives the few tools its mission
+        /// mode actually needs rather than the whole catalog. When enabling, verify by having a
+        /// captain list the tools it received; do not infer delivery from the config file existing.
+        /// </summary>
+        public bool SeedDockRuntimeMcpConfig { get; set; } = false;
+
+        /// <summary>
         /// Default test command for merge queue verification.
         /// Individual merge entries can override this.
         /// </summary>
@@ -1086,6 +1119,7 @@ namespace Armada.Core.Settings
         private int _MaxCaptains = 0;
         private int _MaxConcurrentCaptainWorkloads = 0;
         private int _CaptainInstructionByteBudget = 32768;
+        private string? _AiMemoryRoot = null;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private int _DefaultReflectionThreshold = 15;
         private int _InitialReflectionWindow = 100;

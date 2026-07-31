@@ -336,7 +336,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "kimi-captain", "opencode-go/kimi-k3").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
                     Captain glmCaptain = await CreateCaptainAsync(testDb.Driver, "glm-captain", "zyloo/glm-5.2").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked preferred worker", "mid", "Worker").ConfigureAwait(false);
 
@@ -358,7 +358,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain kimiCaptain = await CreateCaptainAsync(testDb.Driver, "kimi-captain", "opencode-go/kimi-k3").ConfigureAwait(false);
+                    Captain fallbackCaptain = await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "composer-captain", "composer-2.5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked busy fallback", "mid", "Worker").ConfigureAwait(false);
 
@@ -367,7 +367,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertTrue(assigned, "Mid-tier Worker mission should fall back to the next ranked model");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(kimiCaptain.Id, readBack.CaptainId, "kimi-k3 should be chosen as the fallback for the busy top-ranked model");
+                    AssertEqual(fallbackCaptain.Id, readBack.CaptainId, "the next ranked mid model should be chosen when the top-ranked model is busy");
                 }
             });
 
