@@ -84,7 +84,8 @@ namespace Armada.Core.Services
             Mission mission,
             Vessel vessel,
             Captain? captain = null,
-            Dock? dock = null)
+            Dock? dock = null,
+            TestOwnershipEnum ownership = TestOwnershipEnum.Unknown)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
@@ -108,6 +109,9 @@ namespace Armada.Core.Services
                 ["CaptainId"] = captain?.Id ?? "",
                 ["CaptainName"] = captain?.Name ?? "",
                 ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona, mission.Mode),
+                // Always written, empty string included: RenderAsync substitutes only keys present in
+                // the dictionary and would otherwise leave a literal {TestOwnership} in the brief.
+                ["TestOwnership"] = TestOwnershipResolver.BuildDirective(mission.Persona, ownership),
                 ["Timestamp"] = DateTime.UtcNow.ToString("o")
             };
         }
@@ -147,7 +151,17 @@ namespace Armada.Core.Services
                     return rendered;
             }
 
-            return GetPersonaPromptFallback(persona);
+            // The fallback path must carry the same ownership directive as the template path, or a
+            // mission whose template is missing silently loses the rule.
+            string fallback = GetPersonaPromptFallback(persona);
+            string? ownershipDirective;
+            if (templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
+                !String.IsNullOrEmpty(ownershipDirective))
+            {
+                fallback = fallback + "\n\n" + ownershipDirective;
+            }
+
+            return fallback;
         }
 
         /// <summary>

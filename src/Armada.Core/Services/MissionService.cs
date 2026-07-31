@@ -1369,7 +1369,8 @@ namespace Armada.Core.Services
                 : instructionsFileName;
             string instructionsPath = Path.Combine(worktreePath, instructionsRelativePath);
 
-            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain);
+            TestOwnershipEnum testOwnership = await ResolveTestOwnershipAsync(mission, vessel, token).ConfigureAwait(false);
+            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, testOwnership);
             List<MissionPlaybookSnapshot> playbookSnapshots = await LoadMissionPlaybookSnapshotsAsync(mission, token).ConfigureAwait(false);
 
             string content = "";
@@ -2066,6 +2067,46 @@ namespace Armada.Core.Services
         /// <summary>
         /// Resolve a persona prompt template by persona name. Falls back to default worker preamble.
         /// </summary>
+        /// <summary>
+        /// Resolves who owns tests for this mission. The dispatch pipeline id is not persisted on the
+        /// mission or the voyage, so ownership is read from the stage missions the dispatch actually
+        /// created, and only falls back to a pipeline definition when the voyage has no siblings yet.
+        /// A brief must never fail a dispatch, so any lookup error resolves to sole ownership: telling
+        /// a producing captain it owns tests is safe, while assuming a stage that may not exist is the
+        /// failure this resolves.
+        /// </summary>
+        /// <param name="mission">Mission being briefed.</param>
+        /// <param name="vessel">Vessel the mission runs on; may be null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The resolved ownership.</returns>
+        private async Task<TestOwnershipEnum> ResolveTestOwnershipAsync(Mission mission, Vessel? vessel, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+
+            try
+            {
+                if (!String.IsNullOrEmpty(mission.VoyageId))
+                {
+                    List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId!, token).ConfigureAwait(false);
+                    if (voyageMissions != null && voyageMissions.Count > 0)
+                        return TestOwnershipResolver.Resolve(mission, voyageMissions);
+                }
+
+                if (vessel == null) return TestOwnershipEnum.SoleTestOwner;
+
+                string? pipelineId = vessel.DefaultPipelineId;
+                if (String.IsNullOrEmpty(pipelineId)) return TestOwnershipEnum.SoleTestOwner;
+
+                Pipeline? pipeline = await _Database.Pipelines.ReadAsync(pipelineId!, token).ConfigureAwait(false);
+                return TestOwnershipResolver.Resolve(mission, pipeline);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve test ownership for mission " + mission.Id + ": " + ex.Message);
+                return TestOwnershipEnum.SoleTestOwner;
+            }
+        }
+
         private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, CancellationToken token)
         {
             return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, token).ConfigureAwait(false);

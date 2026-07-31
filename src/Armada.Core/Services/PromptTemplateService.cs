@@ -397,7 +397,9 @@ namespace Armada.Core.Services
                     "\n" +
                     "Implement only the current mission description and any approved brief included with it. Treat that brief as the source of truth, stay within scope, and avoid work that belongs to sibling missions.\n" +
                     "\n" +
-                    "Your job is implementation. Run the directly relevant compile, lint, or smoke check that is practical before committing, but do not try to replace the TestEngineer coverage stage with speculative test work. In Tested and FullPipeline voyages, TestEngineer owns targeted validation and test additions after your implementation.\n" +
+                    "Your job is implementation. Run the directly relevant compile, lint, or smoke check that is practical before committing.\n" +
+                    "\n" +
+                    "{TestOwnership}\n" +
                     "\n" +
                     "Commit your scoped implementation changes and end with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what changed and what validation you ran."
             };
@@ -508,6 +510,7 @@ namespace Armada.Core.Services
                     "Evaluate only the current mission description and diff. Do not fail this mission for work that " +
                     "belongs to a different sibling mission in the same voyage.\n" +
                     "Assume there may be at least one hidden defect. Actively try to find it before concluding PASS.\n" +
+                    "{TestOwnership}\n" +
                     "\n" +
                     "## Review Criteria\n" +
                     "\n" +
@@ -587,6 +590,7 @@ namespace Armada.Core.Services
                 Category = "persona",
                 Content =
                     "You are an Armada test engineer agent. You own validation and test coverage for the mission diff. " +
+                    "{TestOwnership}\n" +
                     "You do not patch production code. Commit test files only.\n" +
                     "\n" +
                     "## Diff to Cover\n" +
