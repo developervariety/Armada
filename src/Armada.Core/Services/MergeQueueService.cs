@@ -1742,6 +1742,32 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "failed to land " + entry.Id + ": " + ex.Message);
+
+                // The push is a compare-and-swap against the head captured before the attempt. On a
+                // retry that captured value is stale, so a landing that already succeeded is pushed
+                // a second time and the remote rejects it with "incorrect old value provided". The
+                // catch below then recorded a successful landing as Failed and, worse,
+                // RollbackTargetIfAdvancedAsync force-pushed the target back to the pre-land head --
+                // discarding the very commit that had just landed. Only branch protection stopped
+                // that in practice. Re-read the remote first: if it already holds the integration
+                // head, the landing did succeed and there is nothing to undo.
+                if (!String.IsNullOrWhiteSpace(integrationHead) &&
+                    await RemoteTargetMatchesAsync(repoPath, entry.TargetBranch, integrationHead, token).ConfigureAwait(false))
+                {
+                    _Logging.Info(_Header + "landing for " + entry.Id + " already reflected on origin/" + entry.TargetBranch +
+                        " at " + integrationHead + "; treating as landed and skipping rollback");
+
+                    entry.Status = MergeStatusEnum.Landed;
+                    entry.CompletedUtc = DateTime.UtcNow;
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    await UpdateLandingJobFromEntryAsync(entry, null, token).ConfigureAwait(false);
+                    FireIndexRefreshForVessel(entry.VesselId);
+                    await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Complete,
+                        "Landed via merge queue entry " + entry.Id, token, entry.TenantId).ConfigureAwait(false);
+                    return;
+                }
+
                 await RollbackTargetIfAdvancedAsync(entry, repoPath, preLandRemoteTargetHead, integrationHead, ex.Message, token).ConfigureAwait(false);
                 entry.Status = MergeStatusEnum.Failed;
                 entry.TestOutput = "Landing failed: " + ex.Message;
@@ -1772,6 +1798,28 @@ namespace Armada.Core.Services
         /// Restore the target branch if a failed landing attempt already pushed
         /// the integration head to origin.
         /// </summary>
+        /// <summary>
+        /// Re-read origin/&lt;target&gt; and report whether it already points at the expected commit.
+        /// Used to tell a landing that genuinely failed from one whose push already succeeded.
+        /// Returns false when the remote cannot be inspected, so the caller stays on the safe path.
+        /// </summary>
+        private async Task<bool> RemoteTargetMatchesAsync(string repoPath, string targetBranch, string expectedHead, CancellationToken token)
+        {
+            try
+            {
+                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                GitProcessResult result = await RunGitCapturingAsync(
+                    repoPath, token, "rev-parse", "--verify", "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
+                if (result.ExitCode != 0) return false;
+
+                return String.Equals(result.StandardOutput.Trim(), expectedHead, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private async Task RollbackTargetIfAdvancedAsync(MergeEntry entry, string repoPath, string preLandRemoteTargetHead, string integrationHead, string reason, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(preLandRemoteTargetHead))
