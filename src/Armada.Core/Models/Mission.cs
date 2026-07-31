@@ -161,6 +161,25 @@ namespace Armada.Core.Models
         public string? CapabilityHint { get; set; } = null;
 
         /// <summary>
+        /// What kind of work this mission is. Decides which instruction modules the captain receives
+        /// and how completion is judged: an Audit or Research mission that produces no commit has
+        /// succeeded, while an Implementation mission that produces no commit has not. Defaults to
+        /// Implementation so existing dispatches keep their current behaviour.
+        /// </summary>
+        public MissionModeEnum Mode { get; set; } = MissionModeEnum.Implementation;
+
+        /// <summary>
+        /// True when this mission is not expected to produce a commit, because its deliverable is a
+        /// report rather than a change. Convenience for the completion gate and the prompt builder,
+        /// so neither has to enumerate the mode values itself.
+        /// </summary>
+        [JsonIgnore]
+        public bool IsReadOnlyMode
+        {
+            get { return Mode == MissionModeEnum.Audit || Mode == MissionModeEnum.Research; }
+        }
+
+        /// <summary>
         /// Human-readable reason for failure or landing failure.
         /// Set when a mission transitions to Failed or LandingFailed status.
         /// </summary>

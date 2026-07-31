@@ -16,4 +16,15 @@
     <NoWarn>1701;1702;CS1591;CS1998;CS8600;CS8602;CS8603;CS8604;CS8618;CS8625;CS0108;CS8601;CS0618;CS8632</NoWarn>
   </PropertyGroup>
 
+  <!--
+    Exclude macOS AppleDouble sidecars from the SDK's default item globs, same reason as
+    src/Directory.Build.props: editing a file on a mounted volume creates a "._<name>" resource-fork
+    companion that the default Compile glob treats as a source file, failing the build with CS2015.
+    Must be DefaultItemExcludes rather than a Compile Remove, because this file is imported before
+    the SDK builds those globs.
+  -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/._*</DefaultItemExcludes>
+  </PropertyGroup>
+
 </Project>

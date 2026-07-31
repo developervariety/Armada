@@ -81,6 +81,266 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("OpenCode missions write AGENTS.md, the file OpenCode loads natively", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("OpenCodeVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("OpenCodeCaptain");
+                        captain.Runtime = AgentRuntimeEnum.OpenCode;
+
+                        Mission mission = new Mission();
+                        mission.Title = "Implement feature";
+                        mission.Description = "OpenCode must get its own instruction filename.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                        AssertTrue(File.Exists(Path.Combine(tempDir, "AGENTS.md")), "OpenCode missions should write AGENTS.md");
+                        AssertFalse(File.Exists(Path.Combine(tempDir, "CLAUDE.md")), "OpenCode missions should no longer fall through to CLAUDE.md");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A runtime that auto-loads the root file gets a pointer, not a second copy", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        string rootPath = Path.Combine(tempDir, "CLAUDE.md");
+                        await File.WriteAllTextAsync(rootPath, "# Durable project rules\nUnique-root-marker-9f3a\n");
+
+                        Vessel vessel = new Vessel("PointerVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("ClaudeCaptain");
+                        captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+
+                        Mission mission = new Mission();
+                        mission.Title = "Avoid the double load";
+                        mission.Description = "Claude Code already loaded the root file.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                        string generated = await File.ReadAllTextAsync(Path.Combine(tempDir, ".armada", "instructions", "CLAUDE.md"));
+                        AssertContains("## Existing Project Instructions", generated, "the pointer section must still be present");
+                        AssertContains("already loaded `CLAUDE.md`", generated, "the pointer must name the auto-loaded file");
+                        AssertFalse(
+                            generated.Contains("Unique-root-marker-9f3a", StringComparison.Ordinal),
+                            "root instruction text must not be inlined for a runtime that auto-loads it");
+
+                        string rootAfter = await File.ReadAllTextAsync(rootPath);
+                        AssertContains("Unique-root-marker-9f3a", rootAfter, "the root file itself must be untouched");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A runtime that does not auto-load its file still gets the root text inlined", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(tempDir, "CURSOR.md"), "# Durable project rules\nUnique-root-marker-7c1b\n");
+
+                        Vessel vessel = new Vessel("CursorVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("CursorCaptain");
+                        captain.Runtime = AgentRuntimeEnum.Cursor;
+
+                        Mission mission = new Mission();
+                        mission.Title = "Keep the inline";
+                        mission.Description = "Nothing else surfaces CURSOR.md.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                        string generated = await File.ReadAllTextAsync(Path.Combine(tempDir, ".armada", "instructions", "CURSOR.md"));
+                        AssertContains("Unique-root-marker-7c1b", generated, "Cursor still needs the root text inlined");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A stale Armada model-context dump at the repo root is never inlined", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        // Shape of the Armada vessel's tracked 26,293-byte CURSOR.md.
+                        string dump =
+                            "## Model Context\n" +
+                            "The following context was accumulated by AI agents during previous missions on this repository.\n\n" +
+                            "## Test Framework\nStale-dump-marker-4e2d\n";
+                        await File.WriteAllTextAsync(Path.Combine(tempDir, "CURSOR.md"), dump);
+
+                        Vessel vessel = new Vessel("DumpVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("CursorCaptain");
+                        captain.Runtime = AgentRuntimeEnum.Cursor;
+
+                        Mission mission = new Mission();
+                        mission.Title = "Reject the dump";
+                        mission.Description = "A generated dump is not project instructions.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                        string generated = await File.ReadAllTextAsync(Path.Combine(tempDir, ".armada", "instructions", "CURSOR.md"));
+                        AssertFalse(
+                            generated.Contains("Stale-dump-marker-4e2d", StringComparison.Ordinal),
+                            "a stale generated dump must not be re-fed to the captain");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Instruction filename and auto-load mapping covers every runtime", async () =>
+            {
+                AssertEqual("CLAUDE.md", MissionPromptBuilder.GetInstructionsFileName("ClaudeCode"), "ClaudeCode filename");
+                AssertEqual("CODEX.md", MissionPromptBuilder.GetInstructionsFileName("Codex"), "Codex filename");
+                AssertEqual("CURSOR.md", MissionPromptBuilder.GetInstructionsFileName("Cursor"), "Cursor filename");
+                AssertEqual("GEMINI.md", MissionPromptBuilder.GetInstructionsFileName("Gemini"), "Gemini filename");
+                AssertEqual("MUX.md", MissionPromptBuilder.GetInstructionsFileName("Mux"), "Mux filename");
+                AssertEqual("AGENTS.md", MissionPromptBuilder.GetInstructionsFileName("OpenCode"), "OpenCode filename");
+
+                foreach (AgentRuntimeEnum runtime in Enum.GetValues<AgentRuntimeEnum>())
+                {
+                    string fileName = MissionPromptBuilder.GetInstructionsFileName(runtime.ToString());
+                    AssertTrue(!String.IsNullOrEmpty(fileName), "every runtime must resolve an instruction filename");
+                }
+
+                AssertTrue(MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile("ClaudeCode"), "Claude Code auto-loads CLAUDE.md");
+                AssertTrue(MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile("OpenCode"), "OpenCode auto-loads AGENTS.md");
+                AssertTrue(MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile("Gemini"), "Gemini auto-loads GEMINI.md");
+                AssertFalse(MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile("Cursor"), "CURSOR.md is an Armada convention");
+                AssertFalse(MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile("Codex"), "Codex reads AGENTS.md, not CODEX.md");
+                AssertFalse(MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile("Mux"), "MUX.md is an Armada convention");
+                AssertFalse(MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile(null), "an unknown runtime must not be assumed to auto-load");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("GenerateClaudeMdAsync records per-module prompt-budget telemetry", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainInstructionByteBudget = 1;
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("BudgetVessel", "https://github.com/test/repo");
+                        vessel.ProjectContext = "Telemetry probe vessel context.";
+
+                        Mission mission = new Mission();
+                        mission.Title = "Record prompt budget";
+                        mission.Description = "Verify the admiral measures what it sent.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        int fileBytes = System.Text.Encoding.UTF8.GetByteCount(content);
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.prompt_budget", 10);
+                        AssertEqual(1, events.Count, "exactly one prompt-budget event must be recorded");
+
+                        string payload = events[0].Payload ?? "";
+                        AssertContains("\"InstructionFileBytes\":" + fileBytes, payload, "recorded file size must match the written file");
+                        AssertContains("mission.rules", payload, "module names must be recorded");
+                        AssertContains("mission.project_context_wrapper", payload, "vessel context module must be recorded");
+                        AssertContains("\"OverBudget\":true", payload, "a file over the configured budget must be flagged");
+                        AssertEqual(mission.Id, events[0].MissionId, "the event must be attributed to the mission");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("GenerateClaudeMdAsync leaves prompt-budget telemetry unflagged when under budget", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainInstructionByteBudget = 5000000;
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("BudgetVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Stay under budget";
+                        mission.Description = "Small brief.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.prompt_budget", 10);
+                        AssertEqual(1, events.Count, "exactly one prompt-budget event must be recorded");
+                        AssertContains("\"OverBudget\":false", events[0].Payload ?? "", "a file under budget must not be flagged");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync writes runtime-specific instruction file", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

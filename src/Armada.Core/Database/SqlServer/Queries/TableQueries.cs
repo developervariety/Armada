@@ -648,6 +648,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                     57,
                     "Add stage_order to missions so parallel sibling stages form an identifiable group",
                     @"IF COL_LENGTH('missions', 'stage_order') IS NULL ALTER TABLE missions ADD stage_order INT;"
+                ),
+                new SchemaMigration(59, "Add mission_mode column to missions",
+                    @"ALTER TABLE missions ADD COLUMN mission_mode TEXT;"
                 )
             };
         }

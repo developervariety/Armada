@@ -66,10 +66,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description,
                         status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
+                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description,
                         @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     AddMissionParameters(cmd, mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -141,6 +141,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         prestaged_files = @prestaged_files,
                         preferred_model = @preferred_model,
                         capabilityhint = @capabilityhint,
+                        mission_mode = @mission_mode,
                         requires_review = @requires_review,
                         review_deny_action = @review_deny_action,
                         review_comment = @review_comment,
@@ -819,6 +820,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@capabilityhint", (object?)mission.CapabilityHint ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@mission_mode", mission.Mode.ToString());
             cmd.Parameters.AddWithValue("@requires_review", mission.RequiresReview);
             cmd.Parameters.AddWithValue("@review_deny_action", mission.ReviewDenyAction.ToString());
             cmd.Parameters.AddWithValue("@review_comment", (object?)mission.ReviewComment ?? DBNull.Value);
@@ -936,6 +938,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { mission.PrestagedFiles = DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
             try { mission.CapabilityHint = NullableString(reader["capabilityhint"]); } catch { }
+            try { mission.Mode = Armada.Core.Enums.MissionModes.Parse(NullableString(reader["mission_mode"])); } catch { }
             try { mission.RequiresReview = Convert.ToBoolean(reader["requires_review"]); } catch { }
             try
             {

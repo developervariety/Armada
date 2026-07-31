@@ -518,7 +518,13 @@ namespace Armada.Server
                         // *Analyst, *Reviewer) approve/reject without committing -- for them an empty
                         // diff is a legitimate successful no-op. A Worker that produced nothing is a
                         // hard failure routed through the same no-commits path as a rescue no-op.
-                        if (PersonaMustProduceChanges(mission.Persona) && !IsDocOnlyMission(mission))
+                        //
+                        // An Audit or Research mission is exempt whatever its persona: its deliverable is
+                        // a report, so producing no commit is the success condition, not a failure. Before
+                        // mission modes existed this gate marked correct read-only work Failed -- mission
+                        // msn_ms6ujibm_V5dj7XUow1s on 2026-07-30 reported exactly what was asked and was
+                        // failed for "worker_produced_no_commits" while its branch matched main by design.
+                        if (PersonaMustProduceChanges(mission.Persona) && !IsDocOnlyMission(mission) && !mission.IsReadOnlyMode)
                         {
                             landingSucceeded = false;
                             workerProducedNoCommits = true;
@@ -532,6 +538,11 @@ namespace Armada.Server
                             // mark complete. If the branch still exists, clean it up so successful
                             // no-op missions do not leak stale local or remote branches.
                             landingSucceeded = true;
+                            if (mission.IsReadOnlyMode)
+                            {
+                                _Logging.Info(_Header + "mission " + mission.Id + " is " + mission.Mode +
+                                    " mode and produced no commit, which is its success condition -- landing as a no-op");
+                            }
                             if (branchExists && !String.IsNullOrEmpty(dock.BranchName))
                             {
                                 await CleanupMissionBranchAsync(

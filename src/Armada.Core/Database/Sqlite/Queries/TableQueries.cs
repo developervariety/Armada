@@ -1292,6 +1292,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(58, "Add stage_order to missions so parallel sibling stages form an identifiable group",
                     @"ALTER TABLE missions ADD COLUMN stage_order INTEGER;"
+                ),
+                new SchemaMigration(59, "Add mission_mode column to missions",
+                    @"ALTER TABLE missions ADD COLUMN mission_mode TEXT;"
                 )
             };
         }

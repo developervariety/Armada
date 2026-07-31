@@ -17,4 +17,20 @@
     <NoWarn>1701;1702;CS8600;CS8602;CS8603;CS8618;CS8625;CS0108;CS8601;CS0618</NoWarn>
   </PropertyGroup>
 
+  <!--
+    Exclude macOS AppleDouble sidecars from the SDK's default item globs. Editing a source file on a
+    mounted volume (SMB, exFAT, or a network share) makes macOS write a "._<name>" companion holding
+    the resource fork. The default Compile glob picks it up and the build dies with
+    "error CS2015: '._Foo.cs' is a binary file instead of a text file", which reads like a corrupt
+    source file rather than a filesystem artifact. .gitignore already keeps these out of git; this
+    keeps them out of the build. Harmless on Linux and Windows, where the files never exist.
+
+    This must be DefaultItemExcludes, not <Compile Remove="**/._*" />: Directory.Build.props is
+    imported BEFORE the SDK creates its default globs, so a Remove here has no items to act on yet.
+    DefaultItemExcludes is a property the SDK reads later, when it builds those globs.
+  -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/._*</DefaultItemExcludes>
+  </PropertyGroup>
+
 </Project>

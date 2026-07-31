@@ -17,7 +17,11 @@ namespace Armada.Core.Services
         private const int MaxMissionDescriptionChars = 3500;
 
         /// <summary>
-        /// Resolve the runtime-specific mission instructions filename.
+        /// Resolve the runtime-specific mission instructions filename. Every runtime in
+        /// AgentRuntimeEnum must be listed explicitly: OpenCode was previously absent and fell through
+        /// to CLAUDE.md, which is why no OPENCODE-named instruction snapshot has ever existed.
+        /// OpenCode is mapped to AGENTS.md, the file it loads natively, so the mission brief arrives
+        /// without a separate read step.
         /// </summary>
         public static string GetInstructionsFileName(string? runtime)
         {
@@ -30,7 +34,37 @@ namespace Armada.Core.Services
                 "Cursor" => "CURSOR.md",
                 "Gemini" => "GEMINI.md",
                 "Mux" => "MUX.md",
+                "OpenCode" => "AGENTS.md",
                 _ => "CLAUDE.md"
+            };
+        }
+
+        /// <summary>
+        /// Reports whether the runtime loads its Armada instruction filename by itself, with no prompt
+        /// instruction to read it. True only when the filename Armada writes is also the runtime's own
+        /// convention: CLAUDE.md for Claude Code, AGENTS.md for OpenCode, GEMINI.md for Gemini.
+        ///
+        /// It is false for Cursor and Mux, whose Armada filenames (CURSOR.md, MUX.md) are Armada
+        /// conventions that no runtime reads on its own, and false for Codex, which writes CODEX.md
+        /// while Codex natively reads AGENTS.md. Those cases still need the read instruction, and
+        /// still need an existing root file inlined, because nothing else would surface it.
+        ///
+        /// Callers use this to avoid paying twice for the same text: when the runtime already
+        /// auto-loads the root file, inlining that file into the generated brief duplicates it. A
+        /// ClaudeCode dock measured on 2026-07-30 carried its 3,445-byte root CLAUDE.md both ways.
+        /// </summary>
+        /// <param name="runtime">Runtime name.</param>
+        /// <returns>True when the runtime auto-loads the file Armada names for it.</returns>
+        public static bool RuntimeAutoLoadsInstructionsFile(string? runtime)
+        {
+            if (String.IsNullOrWhiteSpace(runtime)) return false;
+
+            return runtime.Trim() switch
+            {
+                "ClaudeCode" => true,
+                "OpenCode" => true,
+                "Gemini" => true,
+                _ => false
             };
         }
 

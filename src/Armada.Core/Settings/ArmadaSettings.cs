@@ -425,6 +425,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Byte budget for a generated captain instruction file. Exceeding it does not block the mission;
+        /// it emits a warning and is recorded in the mission.prompt_budget telemetry event, so an oversized
+        /// brief cannot ship unnoticed. A 106,750-byte brief shipped silently on 2026-07-30 against a median
+        /// of about 12,000 bytes. Set to 0 to disable the warning. Must be >= 0.
+        /// </summary>
+        public int CaptainInstructionByteBudget
+        {
+            get => _CaptainInstructionByteBudget;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(CaptainInstructionByteBudget), "Must be >= 0");
+                _CaptainInstructionByteBudget = value;
+            }
+        }
+
+        /// <summary>
         /// Default test command for merge queue verification.
         /// Individual merge entries can override this.
         /// </summary>
@@ -1070,6 +1086,7 @@ namespace Armada.Core.Settings
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _MaxConcurrentCaptainWorkloads = 0;
+        private int _CaptainInstructionByteBudget = 32768;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private int _DefaultReflectionThreshold = 15;
         private int _InitialReflectionWindow = 100;
