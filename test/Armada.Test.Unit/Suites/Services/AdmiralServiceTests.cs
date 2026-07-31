@@ -101,6 +101,58 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(45, settings.LaunchProcessIdGraceSeconds, "Launch PID grace should preserve in-range values");
             });
 
+            await RunTest("SpendCapBench BenchesOnlyTheCappedModel", async () =>
+            {
+                // A provider spend cap is scoped to the model, not the provider account: an expensive frontier
+                // model can be capped while the cheap models on the SAME provider still answer. Benching the whole
+                // "zyloo/" prefix took working captains offline, so only the capped model may be benched here.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Captain capped = new Captain("capped-1");
+                    capped.Model = "zyloo/claude-opus-4-8";
+                    Captain sameModel = new Captain("capped-2");
+                    sameModel.Model = "zyloo/claude-opus-4-8";
+                    Captain sameProviderOtherModel = new Captain("cheap-1");
+                    sameProviderOtherModel.Model = "zyloo/glm-5.2";
+                    Captain otherProvider = new Captain("native-1");
+                    otherProvider.Model = "opencode-go/glm-5.2";
+
+                    await db.Captains.CreateAsync(capped);
+                    await db.Captains.CreateAsync(sameModel);
+                    await db.Captains.CreateAsync(sameProviderOtherModel);
+                    await db.Captains.CreateAsync(otherProvider);
+
+                    System.Reflection.MethodInfo? bench = typeof(AdmiralService).GetMethod(
+                        "BenchProviderGroupAsync",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    if (bench == null) throw new InvalidOperationException("Could not find BenchProviderGroupAsync.");
+
+                    DateTime until = DateTime.UtcNow.AddHours(25);
+                    await (Task)bench.Invoke(service, new object[]
+                    {
+                        capped, "Provider daily spend cap reached.", until, CancellationToken.None
+                    })!;
+
+                    Captain? benched1 = await db.Captains.ReadAsync(capped.Id);
+                    Captain? benched2 = await db.Captains.ReadAsync(sameModel.Id);
+                    Captain? cheap = await db.Captains.ReadAsync(sameProviderOtherModel.Id);
+                    Captain? native = await db.Captains.ReadAsync(otherProvider.Id);
+
+                    AssertTrue(benched1!.QuarantineUntilUtc.HasValue,
+                        "The captain that returned the cap must be benched");
+                    AssertTrue(benched2!.QuarantineUntilUtc.HasValue,
+                        "A second captain on the SAME capped model must be benched in the same pass");
+                    AssertFalse(cheap!.QuarantineUntilUtc.HasValue,
+                        "A cheaper model on the same provider still answers and must NOT be benched");
+                    AssertFalse(native!.QuarantineUntilUtc.HasValue,
+                        "A captain on another provider must never be benched by this path");
+                }
+            });
+
             await RunTest("GetStatusAsync EmptyDatabase ReturnsDefaults", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

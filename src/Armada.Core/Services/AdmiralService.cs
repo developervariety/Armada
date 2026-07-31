@@ -2270,10 +2270,11 @@ namespace Armada.Core.Services
                 {
                     DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow);
 
-                    // An ACCOUNT-WIDE spend cap kills every captain sharing that provider account, not just this
-                    // one. Benching them one-per-re-route would exhaust the re-route budget before reaching a
-                    // native-runtime peer. Bench the whole provider group at once, until well past the daily reset
-                    // (25h), so the immediate re-route skips them all and lands on a native runtime.
+                    // A provider spend cap kills every captain on the CAPPED MODEL, not the whole provider
+                    // account: cheaper models on the same provider keep answering. Benching them one-per-re-route
+                    // would exhaust the re-route budget before reaching a peer that still works, so bench the
+                    // model group at once, until well past the daily reset (25h). Everything else stays eligible
+                    // and benches only if it returns the cap itself.
                     if (isAccountSpendLimit)
                     {
                         DateTime benchUntil = DateTime.UtcNow.AddHours(25);
@@ -2457,28 +2458,26 @@ namespace Armada.Core.Services
         // out-of-quota captain until its retry window and re-route to a compatible peer that still has quota. Thin
         // wrapper over the shared recoverable-failure re-route.
         /// <summary>
-        /// Bench every captain that shares the failing captain's PROVIDER prefix (the model segment before the
-        /// first '/', e.g. "zyloo/"). Used for an ACCOUNT-WIDE spend cap: one account limit disables the whole
-        /// account, so benching the group at once lets the mission re-route straight to a native-runtime peer
-        /// instead of walking (and exhausting) the per-re-route budget one sibling at a time. Provider-neutral:
-        /// the prefix is derived from the captain's model, never a hard-coded name. Native-runtime captains (no
-        /// "provider/" model) are left untouched so they can take over. <paramref name="untilUtc"/> is when the
-        /// benched captains auto-clear (past the provider's daily reset).
+        /// Bench every captain running the SAME MODEL as the failing captain. Used for a provider spend cap: the
+        /// cap is scoped to the model (or its price tier), NOT to the whole provider account -- a cap reached on
+        /// an expensive frontier model leaves the cheap models on the same provider answering normally. Benching
+        /// the whole provider prefix therefore disabled captains that still worked. Benching the model group at
+        /// once still avoids walking (and exhausting) the per-re-route budget one identical sibling at a time.
+        /// Model-neutral: the model comes from the failing captain, never a hard-coded name. Every other model --
+        /// same provider or native runtime -- is left untouched, and benches only when it returns the cap itself.
+        /// <paramref name="untilUtc"/> is when the benched captains auto-clear (past the provider's daily reset).
         /// </summary>
         private async Task BenchProviderGroupAsync(Captain failingCaptain, string reason, DateTime untilUtc, CancellationToken token)
         {
             string? model = failingCaptain.Model;
             if (String.IsNullOrEmpty(model)) return;
-            int slash = model.IndexOf('/');
-            if (slash <= 0) return;
-            string prefix = model.Substring(0, slash + 1);
 
             List<Captain> all = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
             int benched = 0;
             foreach (Captain c in all)
             {
                 if (String.IsNullOrEmpty(c.Model)) continue;
-                if (!c.Model.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!String.Equals(c.Model, model, StringComparison.OrdinalIgnoreCase)) continue;
                 try
                 {
                     await _CaptainQuarantine.QuarantineAsync(c, reason, untilUtc, token).ConfigureAwait(false);
@@ -2489,9 +2488,9 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "provider-group bench: could not bench captain " + c.Id + ": " + ex.Message);
                 }
             }
-            _Logging.Warn(_Header + "provider account spend cap: benched " + benched + " captain(s) on provider '" +
-                prefix + "' until " + untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) +
-                "; native runtimes will take over");
+            _Logging.Warn(_Header + "provider spend cap: benched " + benched + " captain(s) on model '" +
+                model + "' until " + untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) +
+                "; other models on this provider stay available until they hit the cap themselves");
         }
 
         private Task HandleQuotaFailureRerouteAsync(
