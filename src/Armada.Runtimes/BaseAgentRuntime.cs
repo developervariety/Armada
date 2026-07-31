@@ -342,15 +342,32 @@ namespace Armada.Runtimes
 
                 if (RedirectStdin)
                 {
-                    if (UsePromptStdin)
+                    try
                     {
-                        await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
-                        await process.StandardInput.FlushAsync().ConfigureAwait(false);
-                    }
+                        if (UsePromptStdin)
+                        {
+                            await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
+                            await process.StandardInput.FlushAsync().ConfigureAwait(false);
+                        }
 
-                    // Close stdin after writing any prompt content so the agent doesn't block
-                    // waiting for piped input.
-                    process.StandardInput.Close();
+                        // Close stdin after writing any prompt content so the agent doesn't block
+                        // waiting for piped input.
+                        process.StandardInput.Close();
+                    }
+                    catch (IOException ex)
+                    {
+                        // The agent exited before it read the prompt, so the read end of the pipe
+                        // is already gone and the write raises EPIPE ("Broken pipe"). That is a
+                        // normal race with a fast-exiting agent, not a launch failure: the process
+                        // did start, and its exit code and buffered output are still the useful
+                        // diagnostic. Treating it as fatal threw away that output and aborted a
+                        // launch that had in fact succeeded.
+                        _Logging.Warn(_Header + "agent closed stdin before the prompt was written: " + ex.Message);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Same race, surfaced as a disposed stream rather than EPIPE.
+                    }
                 }
 
                 process.BeginOutputReadLine();
@@ -362,8 +379,17 @@ namespace Armada.Runtimes
             }
             catch
             {
-                // Launch failed before the process is alive. process.Exited will not fire,
-                // so dispose the writer + process here to release the file/pipe handles.
+                // Release the exit handler FIRST. If the process did start and has already exited,
+                // process.Exited is running and is parked in readersAttached.Wait(10s). Dispose()
+                // unregisters the exit watch and therefore waits for that callback to return, so
+                // disposing before signalling deadlocks the two against each other until the wait
+                // times out -- a fixed 10-second stall on every failed launch. Set() is idempotent
+                // and is still called in the finally below.
+                try { readersAttached.Set(); } catch { }
+
+                // Dispose the writer + process here to release the file/pipe handles. Note the
+                // process MAY be alive or already exited: the earlier assumption that a launch can
+                // only fail before the process starts is not true for a fast-exiting agent.
                 try { logWriter?.Dispose(); } catch { }
                 try { process.Dispose(); } catch { }
                 throw;
