@@ -1440,7 +1440,14 @@ namespace Armada.Core.Services
             }
 
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
-            string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
+            // A read-only mission takes the mode-aware output contract instead of the persona template.
+            // The producing templates carry implementation language of their own -- commit your scoped
+            // changes, run checks before committing -- which contradicts the read-only rules further
+            // down the same brief. Reviewer personas are unaffected: their contract already reports
+            // rather than changes.
+            string personaPrompt = mission.IsReadOnlyMode
+                ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode)
+                : await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
             content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
             content += "\n";

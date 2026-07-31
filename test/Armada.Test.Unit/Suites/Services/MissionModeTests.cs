@@ -149,6 +149,14 @@ namespace Armada.Test.Unit.Suites.Services
                             "an audit brief must not carry a test-ownership directive");
                         AssertFalse(auditBrief.Contains("{TestOwnership}", StringComparison.Ordinal),
                             "the placeholder must never survive into a brief");
+                        // The producing persona templates carry their own commit language, which would
+                        // contradict the read-only rules in the same brief.
+                        AssertFalse(auditBrief.Contains("Commit your scoped implementation changes", StringComparison.Ordinal),
+                            "the worker persona template must not reach a read-only brief");
+                        AssertFalse(auditBrief.Contains("before committing", StringComparison.Ordinal),
+                            "no pre-commit check instruction may reach a read-only brief");
+                        AssertContains("your deliverable is a report", auditBrief,
+                            "a read-only brief states the deliverable instead");
                         AssertContains("Producing no commit is the expected outcome", auditBrief, "audit brief must state the completion contract");
 
                         // The implementation brief must be unchanged in those respects.
