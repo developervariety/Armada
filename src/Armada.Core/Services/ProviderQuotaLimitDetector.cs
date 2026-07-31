@@ -52,7 +52,29 @@ namespace Armada.Core.Services
             return ContainsUsageLimitText(normalized) ||
                 normalized.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase);
+                normalized.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("spend limit", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="text"/> is an ACCOUNT-WIDE spend cap (e.g. "Daily spend limit of
+        /// $2000.00 reached for this user"), as opposed to a per-key quota. An account cap disables EVERY captain
+        /// sharing that provider account until the daily reset, so the caller benches the whole provider group at
+        /// once rather than walking siblings one re-route at a time. Provider-neutral: matches the cap phrasing,
+        /// never a provider name.
+        /// </summary>
+        /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
+        /// <returns>True when the text indicates an account-wide daily spend cap.</returns>
+        public static bool IsProviderAccountSpendLimitSignal(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            string normalized = Normalize(text);
+            return normalized.Contains("spend limit", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("daily spend", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

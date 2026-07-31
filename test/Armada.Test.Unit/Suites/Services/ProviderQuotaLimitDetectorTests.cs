@@ -22,6 +22,30 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsProviderAccountSpendLimitSignal_DailySpendCap_ReturnsTrue", () =>
+            {
+                // The exact Zyloo account-wide daily cap message that previously went undetected and
+                // cascade-cancelled voyages instead of benching the provider group.
+                string msg = "Daily spend limit of $2000.00 reached for this user. Contact an admin to increase or remove the limit.";
+                AssertTrue(ProviderQuotaLimitDetector.IsProviderAccountSpendLimitSignal(msg),
+                    "Daily spend cap must be recognised as an account-wide spend limit");
+                // It must ALSO count as a quota signal so the recoverable re-route path fires.
+                AssertTrue(ProviderQuotaLimitDetector.IsQuotaLimitSignal(msg),
+                    "Daily spend cap must also register as a quota signal so the mission re-routes");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsProviderAccountSpendLimitSignal_OrdinaryFailures_ReturnFalse", () =>
+            {
+                AssertFalse(ProviderQuotaLimitDetector.IsProviderAccountSpendLimitSignal("Assert.Equal() Failure"),
+                    "A plain test failure is not an account spend cap");
+                AssertFalse(ProviderQuotaLimitDetector.IsProviderAccountSpendLimitSignal("insufficient_quota"),
+                    "A per-key quota error is not the account-wide spend cap");
+                AssertFalse(ProviderQuotaLimitDetector.IsProviderAccountSpendLimitSignal(null),
+                    "Null is not an account spend cap");
+                return Task.CompletedTask;
+            });
+
             await RunTest("IsProviderSafeguardBlockSignal_ProviderContentGates_ReturnTrue_ModelNeutral", () =>
             {
                 AssertTrue(
