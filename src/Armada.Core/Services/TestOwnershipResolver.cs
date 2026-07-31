@@ -121,7 +121,12 @@ namespace Armada.Core.Services
         /// <returns>The directive text, or an empty string.</returns>
         public static string BuildDirective(string? persona, TestOwnershipEnum ownership)
         {
-            string normalized = PersonaCatalog.NormalizeName(persona);
+            // A mission dispatched without an explicit persona still renders the worker template, the
+            // same default GetPersonaTemplateName applies. Treating an absent persona as "not a
+            // producing role" would silently drop the directive from exactly those missions.
+            string normalized = String.IsNullOrWhiteSpace(persona)
+                ? PersonaCatalog.Worker
+                : PersonaCatalog.NormalizeName(persona);
 
             if (String.Equals(normalized, PersonaCatalog.Worker, StringComparison.Ordinal))
             {

@@ -133,8 +133,13 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 AssertEqual("", TestOwnershipResolver.BuildDirective("Architect", TestOwnershipEnum.SoleTestOwner),
                     "an Architect brief must not carry a testing sentence");
-                AssertEqual("", TestOwnershipResolver.BuildDirective(null, TestOwnershipEnum.Unknown),
-                    "an unknown persona must not carry a testing sentence");
+                // A mission dispatched with no persona still renders the worker template, so it must
+                // still be told who owns tests.
+                AssertContains("You own the tests for this change",
+                    TestOwnershipResolver.BuildDirective(null, TestOwnershipEnum.Unknown),
+                    "an absent persona defaults to Worker, matching the template default");
+                AssertEqual("", TestOwnershipResolver.BuildDirective("Product Manager", TestOwnershipEnum.Unknown),
+                    "a non-producing, non-judging persona must not carry a testing sentence");
 
                 await Task.CompletedTask;
             });

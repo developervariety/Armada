@@ -218,6 +218,7 @@ namespace Armada.Core.Services
                 mission.VesselId = vesselId;
                 mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                 mission.PreferredModel = md.PreferredModel;
+                mission.Mode = MissionModes.Parse(md.Mode);
                 if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                     mission.DependsOnMissionId = md.DependsOnMissionId;
                 mission.AssignmentState = MissionAssignmentStateEnum.Pending;
@@ -463,6 +464,7 @@ namespace Armada.Core.Services
                     mission.VesselId = vesselId;
                     mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                     mission.PreferredModel = md.PreferredModel;
+                    mission.Mode = MissionModes.Parse(md.Mode);
                     if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                         mission.DependsOnMissionId = md.DependsOnMissionId;
 
@@ -506,6 +508,7 @@ namespace Armada.Core.Services
                                 stage.PreferredModel ?? md.PreferredModel,
                                 stage.PersonaName,
                                 _Settings.ModelTier.SpecialistPersonas);
+                            mission.Mode = MissionModes.Parse(md.Mode);
 
                             bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
                             if (isFirstChainMission)
