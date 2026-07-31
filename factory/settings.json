@@ -119,15 +119,15 @@
     "reservedHighTierSlots": 1,
     "withinTierPreferenceOrder": {
       "high": [
-        "zyloo/claude-fable-5-thinking",
+        "zyloo/claude-fable-5",
         "claude-fable-5",
-        "zyloo/claude-opus-4-8-thinking",
+        "zyloo/claude-opus-4-8",
         "claude-opus-4-8",
         "zyloo/gpt-5.6-sol-pro",
         "gpt-5.6-sol"
       ],
       "mid": [
-        "zyloo/claude-opus-4-7-thinking",
+        "zyloo/claude-opus-4-7",
         "claude-opus-4-7",
         "zyloo/gpt-5.5",
         "gpt-5.5",
@@ -152,7 +152,7 @@
         "mechanicalThroughput": 55,
         "cost": 95
       },
-      "zyloo/claude-fable-5-thinking": {
+      "zyloo/claude-fable-5": {
         "telemetryRichness": 96,
         "auditReasoningFit": 96,
         "mechanicalThroughput": 55,
@@ -164,7 +164,7 @@
         "mechanicalThroughput": 55,
         "cost": 95
       },
-      "zyloo/claude-opus-4-8-thinking": {
+      "zyloo/claude-opus-4-8": {
         "telemetryRichness": 95,
         "auditReasoningFit": 95,
         "mechanicalThroughput": 55,
@@ -188,7 +188,7 @@
         "mechanicalThroughput": 58,
         "cost": 90
       },
-      "zyloo/claude-opus-4-7-thinking": {
+      "zyloo/claude-opus-4-7": {
         "telemetryRichness": 92,
         "auditReasoningFit": 92,
         "mechanicalThroughput": 58,
@@ -274,15 +274,15 @@
       "doc-only": "MechanicalThroughput"
     },
     "highTierModels": [
-      "zyloo/claude-fable-5-thinking",
+      "zyloo/claude-fable-5",
       "claude-fable-5",
-      "zyloo/claude-opus-4-8-thinking",
+      "zyloo/claude-opus-4-8",
       "claude-opus-4-8",
       "zyloo/gpt-5.6-sol-pro",
       "gpt-5.6-sol"
     ],
     "midTierModels": [
-      "zyloo/claude-opus-4-7-thinking",
+      "zyloo/claude-opus-4-7",
       "claude-opus-4-7",
       "zyloo/gpt-5.5",
       "gpt-5.5",
