@@ -725,11 +725,20 @@ Performance note: signature generation costs one inference call plus one embeddi
 
 Set `codeIndex.enabled` to `false` to disable indexing and remove code-index guidance from captain prompts. Set `learnedFactsEnabled` to `false` to omit legacy model context, learned playbooks, and learned-fact proposal guidance.
 
+Three further switches shape what a captain receives:
+
+- `aiMemoryRoot` names the shared memory root. When set, every brief carries one pointer to `<root>/shared/INDEX.md`, for every runtime. Only the index is named; memory content is never inlined. Use the path as it resolves on the host the captain runs on, not a workstation path.
+- `captainInstructionByteBudget` (default `32768`, `0` disables) warns when a generated instruction file exceeds it, naming the largest module. Every dispatch also records a `mission.prompt_budget` event with per-module byte counts and a `mission.launch_prompt_budget` event with the launch-prompt size, so prompt cost is measured by the admiral rather than estimated by the captain. Read them with `armada_enumerate` on `events` with `includePayload`.
+- `seedDockRuntimeMcpConfig` (default `false`) controls whether docks receive MCP client configuration pointing captains at the Armada MCP server. It is off because delivery is all-or-nothing across runtimes: exposing tools to one runtime and not another produces briefs whose instructions are valid for some captains and impossible for others. Enable it only alongside a scoped per-mission tool profile, and verify by having a captain list the tools it received. The OpenCode permission document is not MCP and is always written, since captains need reads outside the dock for playbooks, sibling repositories, and shared memory.
+
 ```json
 {
   "admiralPort": 7890,
   "mcpPort": 7891,
   "learnedFactsEnabled": false,
+  "aiMemoryRoot": "/srv/armada/AI-Memory",
+  "captainInstructionByteBudget": 32768,
+  "seedDockRuntimeMcpConfig": false,
   "codeIndex": {
     "enabled": false,
     "useSemanticSearch": true,

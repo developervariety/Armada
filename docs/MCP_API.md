@@ -757,6 +757,8 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 
 `armada_dispatch` returns after the voyage and mission records are durably created. Assignment, dock provisioning, worktree setup, and captain launch are queued in the background. This keeps stdio clients responsive even when first-time repository setup is slow. A successful response means the voyage exists; use `armada_voyage_status`, `armada_mission_status`, or `armada_enumerate` to watch missions move from `Pending` to `Assigned` or `InProgress`.
 
+Each mission accepts an optional `mode`: `Implementation` (default), `Audit`, or `Research`. Implementation changes code and must commit. Audit and Research deliver a report instead: they receive a reduced instruction set without commit, merge-conflict, or learned-fact guidance, and producing no commit is their success condition rather than a `worker_produced_no_commits` failure. Every stage of the voyage inherits the mode, so a read-only dispatch cannot become an implementing one at a later stage. An unrecognized value is rejected with `invalid_mission_mode` rather than defaulting, because a silent downgrade would put a read-only mission back under the commit gate. `armada_create_mission` takes the same field.
+
 **Input Schema:**
 
 ```json

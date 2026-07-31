@@ -101,6 +101,12 @@ For a single-stage pipeline (like WorkerOnly), Armada behaves as it always has. 
 multi-stage pipelines, the Admiral creates one mission per stage, each depending on the
 previous one.
 
+Test ownership follows the stages that were actually created, not the pipeline's name.
+When no Test Engineer stage exists, the Worker is told it owns the tests for its change,
+and the Judge is told not to withhold a PASS for the absence of a stage the pipeline never
+had. When a Test Engineer does follow, the Worker still tests its own change and the Test
+Engineer adds gap coverage rather than first coverage.
+
 ### Built-in Pipelines
 
 | Pipeline | Stages | Description |
