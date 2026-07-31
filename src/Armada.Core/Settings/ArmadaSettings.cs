@@ -427,8 +427,7 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Byte budget for a generated captain instruction file. Exceeding it does not block the mission;
         /// it emits a warning and is recorded in the mission.prompt_budget telemetry event, so an oversized
-        /// brief cannot ship unnoticed. A 106,750-byte brief shipped silently on 2026-07-30 against a median
-        /// of about 12,000 bytes. Set to 0 to disable the warning. Must be >= 0.
+        /// brief cannot ship unnoticed. Set to 0 to disable the warning. Must be >= 0.
         /// </summary>
         public int CaptainInstructionByteBudget
         {

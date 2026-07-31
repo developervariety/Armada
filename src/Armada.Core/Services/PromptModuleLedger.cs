@@ -6,9 +6,9 @@ namespace Armada.Core.Services
     /// <summary>
     /// Records the byte size of every module written into a generated captain instruction file, so the
     /// admiral can report what it actually sent instead of asking the captain to estimate it. Captain
-    /// self-reports are approximate by nature: a 2026-07-30 diagnostic captain could only describe its
-    /// tool definitions as "about 42,000 visible characters" and reported no provider total at all.
-    /// Sizes are counted in UTF-8 bytes so they match a wc -c taken against the written file.
+    /// self-reports are approximate by nature, and several runtimes report no token usage at all, so a
+    /// measured byte count is the only figure available on every runtime. Sizes are counted in UTF-8
+    /// bytes so they match a wc -c taken against the written file.
     /// </summary>
     public sealed class PromptModuleLedger
     {

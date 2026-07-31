@@ -51,8 +51,7 @@ namespace Armada.Core.Services
         /// still need an existing root file inlined, because nothing else would surface it.
         ///
         /// Callers use this to avoid paying twice for the same text: when the runtime already
-        /// auto-loads the root file, inlining that file into the generated brief duplicates it. A
-        /// ClaudeCode dock measured on 2026-07-30 carried its 3,445-byte root CLAUDE.md both ways.
+        /// auto-loads the root file, inlining that file into the generated brief delivers it twice.
         /// </summary>
         /// <param name="runtime">Runtime name.</param>
         /// <returns>True when the runtime auto-loads the file Armada names for it.</returns>

@@ -209,7 +209,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     try
                     {
-                        // Shape of the Armada vessel's tracked 26,293-byte CURSOR.md.
+                        // Shape of a stale Armada-generated model-context dump left in a tracked file.
                         string dump =
                             "## Model Context\n" +
                             "The following context was accumulated by AI agents during previous missions on this repository.\n\n" +

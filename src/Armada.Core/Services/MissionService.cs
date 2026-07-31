@@ -1429,10 +1429,10 @@ namespace Armada.Core.Services
             // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback.
             //
             // An Audit or Research mission gets the read-only rule set instead of the implementation
-            // one. The modules dropped here are the ones a read-only captain measured as unusable on
-            // 2026-07-30: commit and push rules, merge-conflict avoidance (nothing is edited), and the
-            // learned-fact request. Keeping them produced a brief that contradicted its own mission,
-            // and captains reported the conflict rather than obeying it.
+            // one. The modules dropped here are the ones a read-only captain cannot use: commit and push
+            // rules, merge-conflict avoidance (nothing is edited), and the learned-fact request. Keeping
+            // them produces a brief that contradicts its own mission, which captains report as a conflict
+            // rather than silently obeying.
             if (mission.IsReadOnlyMode)
             {
                 content += ledger.Track("mission.rules_read_only", BuildReadOnlyRulesSection(mission.Mode));
@@ -1471,9 +1471,9 @@ namespace Armada.Core.Services
                 string sanitizedExisting = SanitizeExistingInstructions(existing);
 
                 // A root file that is itself a stale Armada model-context dump is not project
-                // instructions and must not be re-fed to a captain. The Armada vessel's tracked
-                // CURSOR.md is 26,293 bytes of exactly this, and it survives SanitizeExistingInstructions
-                // because it carries no "Mission Instructions" header to cut at.
+                // instructions and must not be re-fed to a captain. Such a file survives
+                // SanitizeExistingInstructions because it carries no "Mission Instructions" header to
+                // cut at, and it can reach tens of kilobytes of accumulated learned facts.
                 if (IsGeneratedModelContextDump(sanitizedExisting))
                 {
                     _Logging.Warn(_Header + "root instruction file " + rootInstructionsPath +
@@ -2727,8 +2727,7 @@ namespace Armada.Core.Services
             // Idempotency: strip any prior handoff block for this same upstream mission, and do not
             // re-prepend a persona preamble that is already present. Without this, a handoff that runs
             // twice for the same pair (batch path plus the lazy self-heal path, or a rescue re-prepare)
-            // duplicates the entire block -- observed as a 106,750-byte brief in which the preamble and
-            // the prior-stage block each appeared twice.
+            // duplicates the entire block, which can multiply a brief several times over.
             string existingDescription = StripHandoffBlock(nextMission.Description ?? "", completedMission.Id);
 
             string handoffDescription = personaPreamble.Length > 0 && !ContainsPersonaPreamble(existingDescription, personaPreamble)

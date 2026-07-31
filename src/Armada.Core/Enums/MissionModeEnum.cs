@@ -6,11 +6,10 @@ namespace Armada.Core.Enums
     /// What kind of work a mission is, which decides both the instruction modules it receives and how
     /// its completion is judged.
     ///
-    /// Armada previously had one mission shape: implement, test, commit. A read-only diagnostic mission
-    /// still received commit, merge-conflict, and test-writing instructions that contradicted its own
-    /// brief, and the completion gate then failed it for producing no commit. A correct read-only
-    /// mission (msn_ms6ujibm_V5dj7XUow1s, 2026-07-30) was marked Failed with
-    /// "worker_produced_no_commits" even though its branch matched main exactly as intended.
+    /// Armada previously had one mission shape: implement, test, commit. A read-only mission still
+    /// received commit, merge-conflict, and test-writing instructions that contradicted its own brief,
+    /// and the completion gate then failed it for producing no commit even though an unchanged branch
+    /// was the intended outcome.
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum MissionModeEnum

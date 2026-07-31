@@ -6,8 +6,8 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Covers the pipeline-handoff idempotency guards. A handoff that runs twice for the same upstream
     /// mission (batch path plus the lazy self-heal path, or a rescue re-prepare) previously appended the
-    /// whole prior-stage block a second time, which produced a 106,750-byte captain brief in which the
-    /// persona preamble and the prior-stage block each appeared twice.
+    /// whole prior-stage block a second time, so the persona preamble and the prior-stage block could
+    /// each appear more than once in a captain brief.
     /// </summary>
     public class MissionHandoffIdempotencyTests : TestSuite
     {

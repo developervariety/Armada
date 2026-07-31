@@ -521,9 +521,8 @@ namespace Armada.Server
                         //
                         // An Audit or Research mission is exempt whatever its persona: its deliverable is
                         // a report, so producing no commit is the success condition, not a failure. Before
-                        // mission modes existed this gate marked correct read-only work Failed -- mission
-                        // msn_ms6ujibm_V5dj7XUow1s on 2026-07-30 reported exactly what was asked and was
-                        // failed for "worker_produced_no_commits" while its branch matched main by design.
+                        // mission modes existed this gate marked correct read-only work Failed, because an
+                        // unchanged branch is indistinguishable here from a Worker that did nothing.
                         if (PersonaMustProduceChanges(mission.Persona) && !IsDocOnlyMission(mission) && !mission.IsReadOnlyMode)
                         {
                             landingSucceeded = false;

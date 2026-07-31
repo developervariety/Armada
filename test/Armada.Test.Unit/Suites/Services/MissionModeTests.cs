@@ -13,7 +13,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Covers the mission Mode field: its default, its parsing, its database round trip, and the
     /// completion-gate exemption it exists for. Before modes existed, a correct read-only mission was
-    /// marked Failed with "worker_produced_no_commits" because the gate assumed every Worker commits.
+    /// marked Failed for producing no commit, because the gate assumed every Worker commits.
     /// </summary>
     public class MissionModeTests : TestSuite
     {
