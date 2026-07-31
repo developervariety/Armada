@@ -375,6 +375,78 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProcessEntryByIdAsync_LocalTargetAheadOfOrigin_StillLandsInsteadOfFalseNoOp", async () =>
+            {
+                // Regression for the landing deadlock. A landing that advances the LOCAL target but
+                // fails to push leaves the local ref permanently ahead of origin. Every later
+                // attempt then cuts its integration worktree from that stale-ahead ref, finds the
+                // branch already contained, and fails as "does not advance target branch". The work
+                // can never reach the remote: the first failed push poisons the vessel forever.
+                // Observed on EcuLink, where local main sat 9 commits ahead of origin/main and
+                // three voyages reported Complete while origin/main never moved.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_aheadlocal_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    string remoteMainBefore = (await RunGitAsync(repos.RemoteDir, "rev-parse", "main").ConfigureAwait(false)).Trim();
+                    // Resolve from the remote itself: the bare clone may carry the captain branch as
+                    // a local ref rather than a remote-tracking one, depending on how it was cloned.
+                    string captainHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", repos.CaptainBranch).ConfigureAwait(false)).Trim();
+
+                    // Reproduce the poisoned state: local main already carries the captain commit,
+                    // while origin/main does not. This is exactly what a failed push leaves behind.
+                    await RunGitAsync(repos.BareDir, "update-ref", "refs/heads/main", captainHead).ConfigureAwait(false);
+                    string localMain = (await RunGitAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false)).Trim();
+                    AssertEqual(captainHead, localMain, "Precondition: local main must be ahead, carrying the captain commit");
+                    AssertFalse(String.Equals(remoteMainBefore, captainHead, StringComparison.OrdinalIgnoreCase),
+                        "Precondition: origin/main must NOT yet have the captain commit");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("ahead-local-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertFalse(
+                            (updated!.TestOutput ?? "").Contains("does not advance", StringComparison.OrdinalIgnoreCase),
+                            "A stale-ahead local target must not produce a false no-op verdict");
+
+                        // The real assertion: the work must reach the REMOTE, not just a local ref.
+                        string remoteMainAfter = (await RunGitAsync(repos.RemoteDir, "rev-parse", "main").ConfigureAwait(false)).Trim();
+                        AssertEqual(captainHead, remoteMainAfter, "origin/main must carry the captain commit after landing");
+
+                        string mainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertTrue(mainFiles.Contains("feature.txt"), "The captain file must be present on the remote default branch");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("RemoteTargetMatchesAsync_DistinguishesAlreadyLandedFromGenuineFailure", async () =>
             {
                 // Regression guard for the rollback defect. The landing push is a compare-and-swap

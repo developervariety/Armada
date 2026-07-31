@@ -897,7 +897,67 @@ namespace Armada.Core.Services
             catch (Exception ex) { _Logging.Debug(_Header + "integration branch cleanup skipped for " + integrationBranch + ": " + ex.Message); }
 
             await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+            await SyncLocalTargetToRemoteAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false);
             await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token: token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Reset the local target branch to its remote counterpart before an integration worktree
+        /// is cut from it.
+        /// </summary>
+        /// <remarks>
+        /// A landing that advances the local target but then fails to push leaves the local ref
+        /// permanently ahead of origin. Every later attempt cuts its integration worktree from that
+        /// stale-ahead local ref, finds the branch already contained, reports "does not advance
+        /// target branch", and fails as a no-op. The work can then NEVER reach the remote: the
+        /// first failed push poisons every subsequent attempt for that vessel.
+        ///
+        /// Observed on EcuLink 2026-07-31: local main sat 9 commits ahead of origin/main and three
+        /// separate voyages reported Complete while origin/main never moved. Resetting the local
+        /// ref let the very next queue run land the work unchanged.
+        ///
+        /// The remote is the authority for where a landing starts. Local-only commits on the target
+        /// are never legitimate here, because everything the queue lands is pushed.
+        /// </remarks>
+        private async Task SyncLocalTargetToRemoteAsync(string repoPath, string targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(targetBranch)) return;
+
+            try
+            {
+                GitProcessResult remote = await RunGitCapturingAsync(
+                    repoPath, token, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
+                if (remote.ExitCode != 0) return;
+
+                GitProcessResult local = await RunGitCapturingAsync(
+                    repoPath, token, "rev-parse", "--verify", "--quiet", "refs/heads/" + targetBranch).ConfigureAwait(false);
+                if (local.ExitCode != 0) return;
+
+                string remoteHead = remote.StandardOutput.Trim();
+                string localHead = local.StandardOutput.Trim();
+                if (String.Equals(remoteHead, localHead, StringComparison.OrdinalIgnoreCase)) return;
+
+                // Only correct a local ref that is AHEAD of the remote. Behind is normal and the
+                // fetch plus worktree creation handle it.
+                GitProcessResult ahead = await RunGitCapturingAsync(
+                    repoPath, token, "merge-base", "--is-ancestor", remoteHead, localHead).ConfigureAwait(false);
+                if (ahead.ExitCode != 0) return;
+
+                if (await IsBranchCheckedOutInWorktreeAsync(repoPath, targetBranch, token).ConfigureAwait(false))
+                {
+                    _Logging.Warn(_Header + "local " + targetBranch + " is ahead of origin at " + localHead +
+                        " but is checked out in a worktree, so it was not reset; landings may report a false no-op");
+                    return;
+                }
+
+                await RunGitAsync(repoPath, token, "branch", "-f", targetBranch, "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
+                _Logging.Warn(_Header + "reset local " + targetBranch + " from " + localHead + " to origin at " + remoteHead +
+                    "; a previous landing advanced the local ref without pushing");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not reconcile local " + targetBranch + " with origin: " + ex.Message);
+            }
         }
 
         private async Task MergeIntegrationWorktreeAsync(MergeEntry entry, CancellationToken token)
