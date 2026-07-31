@@ -1405,13 +1405,22 @@ namespace Armada.Core.Services
 
             if (playbookSnapshots.Count > 0)
             {
-                templateParams["SelectedPlaybooksMarkdown"] = await RenderSelectedPlaybooksMarkdownAsync(
+                string playbooksMarkdown = await RenderSelectedPlaybooksMarkdownAsync(
                     worktreePath,
                     mission,
                     playbookSnapshots,
                     token).ConfigureAwait(false);
-                content += ledger.Track("mission.playbooks_wrapper", await ResolveSectionAsync("mission.playbooks_wrapper", templateParams, token).ConfigureAwait(false));
-                content += "\n";
+
+                // The renderer can drop every snapshot: a learned-fact playbook while learned facts are
+                // disabled, or a body that holds only a heading or a placeholder line. The wrapper calls
+                // its content required reading, so emitting it empty tells a captain to read material
+                // that the brief does not contain.
+                if (!String.IsNullOrWhiteSpace(playbooksMarkdown))
+                {
+                    templateParams["SelectedPlaybooksMarkdown"] = playbooksMarkdown;
+                    content += ledger.Track("mission.playbooks_wrapper", await ResolveSectionAsync("mission.playbooks_wrapper", templateParams, token).ConfigureAwait(false));
+                    content += "\n";
+                }
             }
 
             if (_Settings.CodeIndex.Enabled)

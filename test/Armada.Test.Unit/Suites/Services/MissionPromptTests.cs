@@ -891,6 +891,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GenerateClaudeMdAsync omits the playbook wrapper when every playbook is filtered out", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LearnedFactsEnabled = false;
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("OnlyLearnedPlaybookVessel", "https://github.com/test/repo");
+
+                        // The only attached playbook is a learned-fact one, which the renderer drops
+                        // while learned facts are disabled. The wrapper calls its content required
+                        // reading, so an empty wrapper points the captain at material it never got.
+                        Mission mission = new Mission("Task", "Do something.");
+                        mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>
+                        {
+                            new MissionPlaybookSnapshot
+                            {
+                                FileName = "vessel-onlylearned-learned.md",
+                                Content = "# Learned\n\nSecret learned guidance that must be disabled."
+                            }
+                        };
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertFalse(content.Contains("Secret learned guidance"), "the learned playbook body must be suppressed");
+                        AssertFalse(content.Contains("## Playbooks"), "an empty playbook wrapper must not be emitted");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync omits ModelContext when disabled", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
