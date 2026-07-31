@@ -1198,6 +1198,11 @@ namespace Armada.Core.Settings
                     "--agent --prompt"));
 
                 Agents.Add(new AgentSettings(
+                    Enums.AgentRuntimeEnum.OpenCode,
+                    "opencode",
+                    "run --format json --dangerously-skip-permissions"));
+
+                Agents.Add(new AgentSettings(
                     Enums.AgentRuntimeEnum.Mux,
                     "mux",
                     "print --yolo"));
