@@ -1803,7 +1803,7 @@ namespace Armada.Core.Services
         /// Used to tell a landing that genuinely failed from one whose push already succeeded.
         /// Returns false when the remote cannot be inspected, so the caller stays on the safe path.
         /// </summary>
-        private async Task<bool> RemoteTargetMatchesAsync(string repoPath, string targetBranch, string expectedHead, CancellationToken token)
+        internal async Task<bool> RemoteTargetMatchesAsync(string repoPath, string targetBranch, string expectedHead, CancellationToken token)
         {
             try
             {

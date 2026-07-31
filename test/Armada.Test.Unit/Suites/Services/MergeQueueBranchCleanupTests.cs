@@ -375,6 +375,56 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("RemoteTargetMatchesAsync_DistinguishesAlreadyLandedFromGenuineFailure", async () =>
+            {
+                // Regression guard for the rollback defect. The landing push is a compare-and-swap
+                // against a head captured before the attempt. On a retry that value is stale, so a
+                // landing whose push already succeeded is pushed again and the remote rejects it
+                // with "incorrect old value provided". The catch path then recorded a SUCCESSFUL
+                // landing as Failed and force-pushed the target back to the pre-land head,
+                // discarding the commit it had just landed. Only branch protection prevented the
+                // loss in production. This helper is the discriminator that stops that: it answers
+                // whether the remote already holds the commit we were trying to land.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_remotematch_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                        string remoteMain = (await RunGitAsync(repos.RemoteDir, "rev-parse", "main").ConfigureAwait(false)).Trim();
+                        AssertFalse(String.IsNullOrWhiteSpace(remoteMain), "Precondition: remote main must resolve");
+
+                        // Landing already succeeded: the remote holds exactly what we pushed.
+                        // The caller must treat this as landed and must NOT roll back.
+                        bool matches = await service.RemoteTargetMatchesAsync(repos.BareDir, "main", remoteMain, default).ConfigureAwait(false);
+                        AssertTrue(matches, "Remote already at the integration head must be reported as a match");
+
+                        // A genuine failure: the remote does not hold that commit. Rollback stays available.
+                        string captainHead = (await RunGitAsync(repos.BareDir, "rev-parse", "origin/" + repos.CaptainBranch).ConfigureAwait(false)).Trim();
+                        AssertFalse(String.Equals(captainHead, remoteMain, StringComparison.OrdinalIgnoreCase),
+                            "Precondition: captain head must differ from main");
+                        bool mismatched = await service.RemoteTargetMatchesAsync(repos.BareDir, "main", captainHead, default).ConfigureAwait(false);
+                        AssertFalse(mismatched, "A commit the remote does not hold must not be reported as a match");
+
+                        // Unknown branch must be false, never an exception, so the caller stays on
+                        // the safe path rather than skipping a rollback it genuinely needed.
+                        bool unknownBranch = await service.RemoteTargetMatchesAsync(repos.BareDir, "no-such-branch", remoteMain, default).ConfigureAwait(false);
+                        AssertFalse(unknownBranch, "An unresolvable target branch must return false, not throw");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("ProcessEntryByIdAsync_BranchMissingEntirely_ReportsNotFoundNotConflict", async () =>
             {
                 // A name that resolves to no ref at all must be reported as a missing branch. It
