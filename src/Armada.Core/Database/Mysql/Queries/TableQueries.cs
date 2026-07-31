@@ -939,6 +939,16 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v58 statements recording the exact failing git command and stderr on merge entries
+        /// so operators do not have to reconstruct the failure from the admiral debug log.
+        /// </summary>
+        public static readonly string[] MigrationV58Statements = new string[]
+        {
+            @"ALTER TABLE merge_entries ADD COLUMN failed_git_command LONGTEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN failed_git_stderr LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

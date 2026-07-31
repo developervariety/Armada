@@ -697,6 +697,11 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(57, "Add stage_order to missions so parallel sibling stages form an identifiable group",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS stage_order INTEGER;"
                 )
+                ,
+                new SchemaMigration(58, "Record exact failing git command and stderr on merge entries",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS failed_git_command TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS failed_git_stderr TEXT;"
+                )
             };
         }
 

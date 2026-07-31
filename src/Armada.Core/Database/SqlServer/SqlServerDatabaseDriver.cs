@@ -659,6 +659,8 @@ namespace Armada.Core.Database.SqlServer
             try { entry.ConflictedFiles = reader["conflicted_files"] as string; } catch { }
             try { entry.MergeFailureSummary = reader["merge_failure_summary"] as string; } catch { }
             try { object dlc = reader["diff_line_count"]; entry.DiffLineCount = (dlc == null || dlc == DBNull.Value) ? 0 : Convert.ToInt32(dlc); } catch { }
+            try { entry.FailedGitCommand = reader["failed_git_command"] as string; } catch { }
+            try { entry.FailedGitStderr = reader["failed_git_stderr"] as string; } catch { }
             return entry;
         }
 

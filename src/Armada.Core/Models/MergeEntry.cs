@@ -186,6 +186,22 @@ namespace Armada.Core.Models
         /// </summary>
         public int DiffLineCount { get; set; } = 0;
 
+        /// <summary>
+        /// Exact git command line (argv joined by spaces) that produced the final failure
+        /// captured at fail-time. Null on landed entries and on failures that did not
+        /// originate from a git subprocess. Recorded so operators can reproduce the
+        /// failure without reconstructing it from the debug log.
+        /// </summary>
+        public string? FailedGitCommand { get; set; } = null;
+
+        /// <summary>
+        /// Raw stderr from the git subprocess whose non-zero exit produced the final
+        /// failure. Null on landed entries and on failures that did not originate from a
+        /// git subprocess. Recorded alongside <see cref="FailedGitCommand"/> so an
+        /// operator can classify the failure directly from the merge entry.
+        /// </summary>
+        public string? FailedGitStderr { get; set; } = null;
+
         #endregion
 
         #endregion

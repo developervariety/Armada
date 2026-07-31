@@ -1292,6 +1292,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(58, "Add stage_order to missions so parallel sibling stages form an identifiable group",
                     @"ALTER TABLE missions ADD COLUMN stage_order INTEGER;"
+                ),
+                new SchemaMigration(59, "Record exact failing git command and stderr on merge entries",
+                    @"ALTER TABLE merge_entries ADD COLUMN failed_git_command TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN failed_git_stderr TEXT;"
                 )
             };
         }

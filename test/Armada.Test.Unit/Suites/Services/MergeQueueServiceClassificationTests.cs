@@ -375,6 +375,236 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProcessEntry_ConcurrentTicks_DoNotBothAdvanceSameEntry", async () =>
+            {
+                // Regression for the false-conflict bug: two concurrent state-machine advances
+                // (ProcessQueueAsync + a Reconcile tick) on the same entry used to race the
+                // Prepare/Merge worktree operations, producing git-exit-1-with-empty-conflicts.
+                // The per-entry lock must serialize them: one processes, the other is a no-op.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_concurrent_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    ConflictRepoSetup repos = await CreateFastForwardReposAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+                        RecordingMergeFailureClassifier classifier = new RecordingMergeFailureClassifier(
+                            new MergeFailureClassification(
+                                MergeFailureClassEnum.Unknown,
+                                "should not be called on a clean branch",
+                                new List<string>()));
+
+                        Vessel vessel = new Vessel("concurrent-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, classifier);
+
+                        // Simulate the race that used to fabricate the false verdict: two
+                        // concurrent processors kicked off on the same entry within one tick.
+                        Task tA = Task.Run(() => service.ProcessEntryByIdAsync(entry.Id));
+                        Task tB = Task.Run(() => service.ProcessEntryByIdAsync(entry.Id));
+                        await Task.WhenAll(tA, tB).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "entry should exist");
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status,
+                            "concurrent ticks on the same clean branch must still land it, not fabricate a conflict");
+                        AssertEqual(0, classifier.CallCount,
+                            "the failure classifier must never run when the branch is clean, even under a race");
+                        AssertNull(updated.FailedGitCommand,
+                            "a clean landing must not persist a failed git command");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntry_MergeConflict_RecordsExactGitCommandAndStderr", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_cmd_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    ConflictRepoSetup repos = await CreateConflictingReposAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+                        MergeFailureClassifier classifier = new MergeFailureClassifier();
+
+                        Vessel vessel = new Vessel("cmd-record-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, classifier);
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "entry should exist after conflict");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "entry must fail on a real conflict");
+                        // Regression teeth: operators must be able to read the exact failing command
+                        // directly from the entry without hunting through the debug log.
+                        AssertNotNull(updated.FailedGitCommand, "FailedGitCommand must be persisted on a failed merge");
+                        AssertContains("git merge", updated.FailedGitCommand!, "FailedGitCommand must record the actual git merge invocation");
+                        AssertContains(repos.CaptainBranch, updated.FailedGitCommand, "FailedGitCommand must include the branch that was merged");
+                        // FailedGitStderr is always populated (may be empty when git wrote only to
+                        // stdout, which is where CONFLICT (content) lines go); the field being
+                        // non-null is the persistence contract.
+                        AssertNotNull(updated.FailedGitStderr, "FailedGitStderr must be persisted (even if empty) on a failed merge");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntry_MergeFailureWithEmptyConflictList_NotReportedAsMergeConflict", async () =>
+            {
+                // Regression for the bug: a Failed merge that returned git exit=1 with no
+                // conflicted paths and no CONFLICT marker (e.g. worktree torn down under a
+                // racing tick, subprocess killed, signing failure) MUST NOT be classified as
+                // "Merge conflict with main". This test forces that shape via a fake git
+                // service so the guard is exercised deterministically without racing threads.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_emptyconflict_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    ConflictRepoSetup repos = await CreateFastForwardReposAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+                        MergeFailureClassifier classifier = new MergeFailureClassifier();
+
+                        Vessel vessel = new Vessel("emptyconflict-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        // Simulate the buggy verdict shape that used to be persisted (Failed,
+                        // "Merge conflict with main", empty ConflictedFiles). The classifier
+                        // should have refused this shape; if the entry lands cleanly the guard
+                        // is doing its job because a real fast-forward would have overwritten
+                        // both fields with real values.
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, classifier);
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "entry should exist");
+                        // The clean branch must land -- the guard's job is to make sure that
+                        // git-exit-1-with-no-conflict never manufactures a fake conflict verdict.
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "clean fast-forward branch must land");
+                        AssertFalse(
+                            updated.TestOutput != null && updated.TestOutput.Contains("Merge conflict"),
+                            "clean branch must not carry a 'Merge conflict' TestOutput");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntry_MergeConflict_PopulatesConflictedPaths", async () =>
+            {
+                // The complement of the guard: a REAL content conflict must still be
+                // classified as a merge conflict AND surface the conflicted-path list. This
+                // is what the guard exists to preserve -- refusing false conflicts must not
+                // silently swallow real ones.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_realconflict_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    ConflictRepoSetup repos = await CreateConflictingReposAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+                        MergeFailureClassifier classifier = new MergeFailureClassifier();
+
+                        Vessel vessel = new Vessel("realconflict-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, classifier);
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "entry should exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "genuine conflict must fail");
+                        AssertNotNull(updated.TestOutput, "TestOutput must be populated on a conflict");
+                        AssertContains("Merge conflict", updated.TestOutput!, "real conflicts must carry the 'Merge conflict' text");
+                        AssertNotNull(updated.ConflictedFiles, "ConflictedFiles JSON must be populated");
+                        List<string>? files = JsonSerializer.Deserialize<List<string>>(updated.ConflictedFiles!);
+                        AssertNotNull(files, "ConflictedFiles must deserialize as a JSON array");
+                        AssertTrue(files!.Count > 0, "conflicted-file list must be non-empty for a real conflict");
+                        AssertEqual(MergeFailureClassEnum.TextConflict, updated.MergeFailureClass!.Value,
+                            "classifier must record TextConflict when the path list is populated");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("Constructor_NullClassifier_ThrowsArgumentNullException", async () =>
             {
                 LoggingModule logging = CreateLogging();

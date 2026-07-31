@@ -54,8 +54,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc, audit_lane, audit_convention_passed, audit_convention_notes, audit_critical_trigger, audit_deep_picked, audit_deep_completed_utc, audit_deep_verdict, audit_deep_notes, audit_deep_recommended_action, pr_url, pr_base_branch, merge_failure_class, conflicted_files, merge_failure_summary, diff_line_count)
-                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc, @audit_lane, @audit_convention_passed, @audit_convention_notes, @audit_critical_trigger, @audit_deep_picked, @audit_deep_completed_utc, @audit_deep_verdict, @audit_deep_notes, @audit_deep_recommended_action, @pr_url, @pr_base_branch, @merge_failure_class, @conflicted_files, @merge_failure_summary, @diff_line_count);";
+                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc, audit_lane, audit_convention_passed, audit_convention_notes, audit_critical_trigger, audit_deep_picked, audit_deep_completed_utc, audit_deep_verdict, audit_deep_notes, audit_deep_recommended_action, pr_url, pr_base_branch, merge_failure_class, conflicted_files, merge_failure_summary, diff_line_count, failed_git_command, failed_git_stderr)
+                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc, @audit_lane, @audit_convention_passed, @audit_convention_notes, @audit_critical_trigger, @audit_deep_picked, @audit_deep_completed_utc, @audit_deep_verdict, @audit_deep_notes, @audit_deep_recommended_action, @pr_url, @pr_base_branch, @merge_failure_class, @conflicted_files, @merge_failure_summary, @diff_line_count, @failed_git_command, @failed_git_stderr);";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
@@ -88,6 +88,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@conflicted_files", (object?)entry.ConflictedFiles ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@merge_failure_summary", (object?)entry.MergeFailureSummary ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@diff_line_count", entry.DiffLineCount);
+                    cmd.Parameters.AddWithValue("@failed_git_command", (object?)entry.FailedGitCommand ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@failed_git_stderr", (object?)entry.FailedGitStderr ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -159,7 +161,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         merge_failure_class = @merge_failure_class,
                         conflicted_files = @conflicted_files,
                         merge_failure_summary = @merge_failure_summary,
-                        diff_line_count = @diff_line_count
+                        diff_line_count = @diff_line_count,
+                        failed_git_command = @failed_git_command,
+                        failed_git_stderr = @failed_git_stderr
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
@@ -192,6 +196,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@conflicted_files", (object?)entry.ConflictedFiles ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@merge_failure_summary", (object?)entry.MergeFailureSummary ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@diff_line_count", entry.DiffLineCount);
+                    cmd.Parameters.AddWithValue("@failed_git_command", (object?)entry.FailedGitCommand ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@failed_git_stderr", (object?)entry.FailedGitStderr ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }

@@ -601,6 +601,11 @@ namespace Armada.Core.Database.Mysql
                     57,
                     "Add stage_order to missions so parallel sibling stages form an identifiable group",
                     TableQueries.MigrationV57Statements
+                ),
+                new SchemaMigration(
+                    58,
+                    "Record exact failing git command and stderr on merge entries",
+                    TableQueries.MigrationV58Statements
                 )
             };
         }

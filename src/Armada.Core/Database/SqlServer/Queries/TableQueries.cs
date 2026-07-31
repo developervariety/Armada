@@ -648,6 +648,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     57,
                     "Add stage_order to missions so parallel sibling stages form an identifiable group",
                     @"IF COL_LENGTH('missions', 'stage_order') IS NULL ALTER TABLE missions ADD stage_order INT;"
+                ),
+                new SchemaMigration(
+                    58,
+                    "Record exact failing git command and stderr on merge entries",
+                    @"IF COL_LENGTH('merge_entries', 'failed_git_command') IS NULL ALTER TABLE merge_entries ADD failed_git_command NVARCHAR(MAX);",
+                    @"IF COL_LENGTH('merge_entries', 'failed_git_stderr') IS NULL ALTER TABLE merge_entries ADD failed_git_stderr NVARCHAR(MAX);"
                 )
             };
         }

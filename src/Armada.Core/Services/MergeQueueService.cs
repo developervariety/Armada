@@ -35,6 +35,15 @@ namespace Armada.Core.Services
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
 
+        // Per-entry serialization so ProcessQueueAsync and
+        // ReconcileLandingStateMachineAsync cannot walk the state machine for the same
+        // merge entry concurrently. Concurrent advancement caused racing
+        // PrepareIntegrationWorktree / MergeIntegrationWorktree calls to tear down the
+        // integration worktree under a running `git merge`, producing exit=1 with no
+        // conflicted files and the wrong "Merge conflict" verdict on clean branches.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.SemaphoreSlim> _EntryLocks =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.SemaphoreSlim>(StringComparer.Ordinal);
+
         #endregion
 
         #region Constructors-and-Factories
@@ -668,16 +677,30 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                try
+                IDisposable? entryLock = TryAcquireEntryLock(entry.Id);
+                if (entryLock == null)
                 {
-                    bool didAdvance = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
-                    if (didAdvance) advanced++;
+                    // Another thread (typically ProcessEntryAsync from a fresh enqueue) is
+                    // already walking this entry. Skipping this tick avoids the racing
+                    // Prepare / Merge worktree teardown that used to fabricate a
+                    // "Merge conflict" verdict on a branch nobody had actually merged.
+                    _Logging.Debug(_Header + "reconcile skipping entry " + entry.Id + " -- already being processed");
+                    continue;
                 }
-                catch (Exception ex)
+
+                using (entryLock)
                 {
-                    _Logging.Warn(_Header + "landing state-machine error for " + entry.Id + ": " + ex.Message);
-                    await TransitionEntryToFailureAsync(entry, "Landing state-machine error: " + ex.Message, token).ConfigureAwait(false);
-                    advanced++;
+                    try
+                    {
+                        bool didAdvance = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
+                        if (didAdvance) advanced++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "landing state-machine error for " + entry.Id + ": " + ex.Message);
+                        await TransitionEntryToFailureAsync(entry, "Landing state-machine error: " + ex.Message, token).ConfigureAwait(false);
+                        advanced++;
+                    }
                 }
             }
 
@@ -767,25 +790,37 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Core single-entry processing with a known repo path.
+        /// Core single-entry processing with a known repo path. Held under the per-entry
+        /// lock end-to-end so a concurrent Reconcile tick cannot advance the same entry
+        /// mid-loop (which used to race the Prepare/Merge steps on the same integration
+        /// worktree and produce false "Merge conflict" verdicts).
         /// </summary>
         private async Task ProcessEntryAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
-            LandingJob job = await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
-            entry = await SyncEntryToLandingJobAsync(entry, job, token).ConfigureAwait(false);
-
-            _Logging.Info(_Header + "processing " + entry.Id + " branch " + entry.BranchName);
-
-            for (int i = 0; i < 10; i++)
+            using (IDisposable? entryLock = TryAcquireEntryLock(entry.Id))
             {
-                if (!IsLandingState(entry.Status)) return;
+                if (entryLock == null)
+                {
+                    _Logging.Debug(_Header + "entry " + entry.Id + " already being processed -- skipping ProcessEntryAsync");
+                    return;
+                }
 
-                bool advanced = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
-                if (!advanced) return;
+                LandingJob job = await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
+                entry = await SyncEntryToLandingJobAsync(entry, job, token).ConfigureAwait(false);
 
-                MergeEntry? refreshed = await _Database.MergeEntries.ReadAsync(entry.Id, token).ConfigureAwait(false);
-                if (refreshed == null) return;
-                entry = refreshed;
+                _Logging.Info(_Header + "processing " + entry.Id + " branch " + entry.BranchName);
+
+                for (int i = 0; i < 10; i++)
+                {
+                    if (!IsLandingState(entry.Status)) return;
+
+                    bool advanced = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
+                    if (!advanced) return;
+
+                    MergeEntry? refreshed = await _Database.MergeEntries.ReadAsync(entry.Id, token).ConfigureAwait(false);
+                    if (refreshed == null) return;
+                    entry = refreshed;
+                }
             }
         }
 
@@ -920,15 +955,23 @@ namespace Armada.Core.Services
                     : await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
                 if (!mergeAttempt.Ok)
                 {
-                    // git exits 1 when the merge stopped on conflicting content and 128 for fatal
-                    // errors (bad identity, signing, corrupt ref). Only the former is a conflict.
-                    // The worktree has already been reset by `merge --abort`, so the exit code is
-                    // the reliable discriminator rather than the conflicted-file listing.
-                    bool isContentConflict = mergeAttempt.GitExitCode == 1;
+                    // Exit 1 is git's "content conflict" code, but a killed subprocess, a
+                    // worktree torn down under a racing tick, a committer-identity failure,
+                    // or a corrupt ref can all produce exit 1 with an empty conflicted-file
+                    // list and no CONFLICT marker on stderr. Refusing to classify those as
+                    // conflicts is the guard that prevents "Merge conflict with main /
+                    // ConflictedFiles=[]" reports. The path listing and stderr are the
+                    // primary evidence; the exit code is only a supporting signal.
+                    List<string> conflictedFiles = new List<string>(mergeAttempt.ConflictedFilesSnapshot);
+                    string gitStderr = mergeAttempt.StandardError ?? String.Empty;
+                    string gitStdout = mergeAttempt.StandardOutput ?? String.Empty;
+                    bool hasConflictMarker = HasMergeConflictMarker(gitStdout) || HasMergeConflictMarker(gitStderr);
+                    bool isContentConflict = mergeAttempt.GitExitCode == 1 && (conflictedFiles.Count > 0 || hasConflictMarker);
                     _Logging.Warn(_Header + (isContentConflict ? "merge conflict for " : "merge failed (not a conflict) for ") +
-                        entryTag + " gitExitCode=" + mergeAttempt.GitExitCode);
+                        entryTag + " gitExitCode=" + mergeAttempt.GitExitCode +
+                        " conflictedFiles=" + conflictedFiles.Count +
+                        " marker=" + (hasConflictMarker ? "yes" : "no"));
 
-                    List<string> conflictedFiles = await CollectConflictedFilesAsync(integrationPath, token).ConfigureAwait(false);
                     int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
                     MergeFailureContext mergeContext = new MergeFailureContext
                     {
@@ -941,6 +984,8 @@ namespace Armada.Core.Services
                     ApplyClassification(entry, mergeContext);
 
                     entry.Status = MergeStatusEnum.Failed;
+                    entry.FailedGitCommand = mergeAttempt.CommandLine;
+                    entry.FailedGitStderr = TruncateOutput(gitStderr);
                     entry.TestOutput = isContentConflict
                         ? "Merge conflict with " + entry.TargetBranch
                         : "Merge of " + entry.BranchName + " into " + entry.TargetBranch +
@@ -2062,15 +2107,29 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<MergeAttemptResult> FastForwardBranchAsync(string worktreePath, string branchName, CancellationToken token)
         {
+            string commandLine = FormatGitCommandLine("merge", "--ff-only", branchName);
             GitProcessResult result = await RunGitCapturingAsync(worktreePath, token, "merge", "--ff-only", branchName).ConfigureAwait(false);
             if (result.ExitCode == 0)
             {
-                return new MergeAttemptResult(true, result.ExitCode, result.StandardOutput, result.StandardError);
+                return new MergeAttemptResult(true, result.ExitCode, result.StandardOutput, result.StandardError, commandLine, Array.Empty<string>());
             }
 
             // A refused fast-forward means the branch was not actually a descendant; fall back to a
             // real merge so genuine divergence is still surfaced through the normal conflict path.
             return await MergeBranchAsync(worktreePath, branchName, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Return true if git's stdout or stderr contains the canonical
+        /// content-conflict markers ("CONFLICT (" or "Automatic merge failed").
+        /// Mirrors the marker set used by the recovery classifier so the verdict
+        /// emitted by the merge queue lines up with what the classifier will decide.
+        /// </summary>
+        private static bool HasMergeConflictMarker(string gitOutput)
+        {
+            if (String.IsNullOrEmpty(gitOutput)) return false;
+            return gitOutput.IndexOf("CONFLICT (", StringComparison.Ordinal) >= 0
+                || gitOutput.IndexOf("Automatic merge failed", StringComparison.Ordinal) >= 0;
         }
 
         /// <summary>
@@ -2088,16 +2147,55 @@ namespace Armada.Core.Services
 
         private async Task<MergeAttemptResult> MergeBranchAsync(string worktreePath, string branchName, CancellationToken token)
         {
+            string commandLine = FormatGitCommandLine("merge", "--no-ff", branchName);
             GitProcessResult mergeResult = await RunGitCapturingAsync(worktreePath, token, "merge", "--no-ff", branchName).ConfigureAwait(false);
             if (mergeResult.ExitCode == 0)
             {
-                return new MergeAttemptResult(true, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
+                return new MergeAttemptResult(true, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError, commandLine, Array.Empty<string>());
             }
+
+            // Snapshot the conflicted paths BEFORE aborting the merge. `git merge --abort`
+            // resets the index, so `git diff --name-only --diff-filter=U` would return an
+            // empty list post-abort even for a genuine content conflict -- that was the
+            // origin of the "Merge conflict with main / ConflictedFiles=[]" report.
+            List<string> conflictedFiles = await CollectConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
 
             // Abort the failed merge so the worktree is in a clean state for cleanup.
             try { await RunGitCapturingAsync(worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
             catch { }
-            return new MergeAttemptResult(false, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
+            return new MergeAttemptResult(false, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError, commandLine, conflictedFiles);
+        }
+
+        /// <summary>
+        /// Render a git argv into a single shell-safe command line. Arguments containing
+        /// whitespace or shell metacharacters are single-quoted; embedded single quotes
+        /// are escaped as <c>'\''</c>. Used to record the exact failing command on a
+        /// merge entry so an operator can reproduce the failure verbatim.
+        /// </summary>
+        private static string FormatGitCommandLine(params string[] args)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder("git");
+            foreach (string arg in args)
+            {
+                sb.Append(' ');
+                sb.Append(QuoteShellArg(arg));
+            }
+            return sb.ToString();
+        }
+
+        private static string QuoteShellArg(string arg)
+        {
+            if (String.IsNullOrEmpty(arg)) return "''";
+            bool needsQuoting = false;
+            foreach (char c in arg)
+            {
+                if (Char.IsLetterOrDigit(c)) continue;
+                if (c == '/' || c == '-' || c == '_' || c == '.' || c == ':' || c == '=' || c == '@' || c == '+') continue;
+                needsQuoting = true;
+                break;
+            }
+            if (!needsQuoting) return arg;
+            return "'" + arg.Replace("'", "'\\''") + "'";
         }
 
         /// <summary>
@@ -2319,7 +2417,33 @@ namespace Armada.Core.Services
 
         private sealed record GitProcessResult(int ExitCode, string StandardOutput, string StandardError);
 
-        private sealed record MergeAttemptResult(bool Ok, int GitExitCode, string StandardOutput, string StandardError);
+        private sealed record MergeAttemptResult(bool Ok, int GitExitCode, string StandardOutput, string StandardError, string CommandLine, IReadOnlyList<string> ConflictedFilesSnapshot);
+
+        /// <summary>
+        /// Try to acquire the per-entry semaphore without waiting. Returns a disposable
+        /// that releases on <c>Dispose</c>, or <c>null</c> if another thread is already
+        /// advancing this entry's state machine. Callers that get null MUST skip this
+        /// entry for the current tick rather than blocking; blocking would just serialize
+        /// the same duplicate work the lock is designed to prevent.
+        /// </summary>
+        private IDisposable? TryAcquireEntryLock(string entryId)
+        {
+            if (String.IsNullOrEmpty(entryId)) return null;
+            System.Threading.SemaphoreSlim sem = _EntryLocks.GetOrAdd(entryId, _ => new System.Threading.SemaphoreSlim(1, 1));
+            if (!sem.Wait(0)) return null;
+            return new EntryLockHandle(sem);
+        }
+
+        private sealed class EntryLockHandle : IDisposable
+        {
+            private System.Threading.SemaphoreSlim? _Sem;
+            public EntryLockHandle(System.Threading.SemaphoreSlim sem) { _Sem = sem; }
+            public void Dispose()
+            {
+                System.Threading.SemaphoreSlim? sem = System.Threading.Interlocked.Exchange(ref _Sem, null);
+                sem?.Release();
+            }
+        }
 
         private async Task CleanupWorktreeAsync(string worktreePath, CancellationToken token)
         {
