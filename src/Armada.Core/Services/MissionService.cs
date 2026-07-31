@@ -1373,24 +1373,25 @@ namespace Armada.Core.Services
             List<MissionPlaybookSnapshot> playbookSnapshots = await LoadMissionPlaybookSnapshotsAsync(mission, token).ConfigureAwait(false);
 
             string content = "";
+            PromptModuleLedger ledger = new PromptModuleLedger();
 
             // Captain instructions
             if (captain != null && !String.IsNullOrEmpty(captain.SystemInstructions))
             {
-                content += await ResolveSectionAsync("mission.captain_instructions_wrapper", templateParams, token).ConfigureAwait(false);
+                content += ledger.Track("mission.captain_instructions_wrapper", await ResolveSectionAsync("mission.captain_instructions_wrapper", templateParams, token).ConfigureAwait(false));
                 content += "\n";
             }
 
             // Vessel context sections
             if (!String.IsNullOrEmpty(vessel.ProjectContext))
             {
-                content += await ResolveSectionAsync("mission.project_context_wrapper", templateParams, token).ConfigureAwait(false);
+                content += ledger.Track("mission.project_context_wrapper", await ResolveSectionAsync("mission.project_context_wrapper", templateParams, token).ConfigureAwait(false));
                 content += "\n";
             }
 
             if (!String.IsNullOrEmpty(vessel.StyleGuide))
             {
-                content += await ResolveSectionAsync("mission.code_style_wrapper", templateParams, token).ConfigureAwait(false);
+                content += ledger.Track("mission.code_style_wrapper", await ResolveSectionAsync("mission.code_style_wrapper", templateParams, token).ConfigureAwait(false));
                 content += "\n";
             }
 
@@ -1398,7 +1399,7 @@ namespace Armada.Core.Services
                 vessel.EnableModelContext &&
                 !String.IsNullOrEmpty(vessel.ModelContext))
             {
-                content += await ResolveSectionAsync("mission.model_context_wrapper", templateParams, token).ConfigureAwait(false);
+                content += ledger.Track("mission.model_context_wrapper", await ResolveSectionAsync("mission.model_context_wrapper", templateParams, token).ConfigureAwait(false));
                 content += "\n";
             }
 
@@ -1409,36 +1410,56 @@ namespace Armada.Core.Services
                     mission,
                     playbookSnapshots,
                     token).ConfigureAwait(false);
-                content += await ResolveSectionAsync("mission.playbooks_wrapper", templateParams, token).ConfigureAwait(false);
+                content += ledger.Track("mission.playbooks_wrapper", await ResolveSectionAsync("mission.playbooks_wrapper", templateParams, token).ConfigureAwait(false));
                 content += "\n";
             }
 
             if (_Settings.CodeIndex.Enabled)
             {
-                content += BuildCodeRetrievalSection(worktreePath, mission);
+                content += ledger.Track("mission.code_index", BuildCodeRetrievalSection(worktreePath, mission));
                 content += "\n";
             }
 
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
-            content += await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false);
+            content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
             content += "\n";
 
-            // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback
-            content += await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false);
-            content += "\n";
-            content += await ResolveSectionAsync("mission.context_conservation", templateParams, token).ConfigureAwait(false);
-            content += "\n";
-            content += await ResolveSectionAsync("mission.merge_conflict_avoidance", templateParams, token).ConfigureAwait(false);
-            content += "\n";
-            content += await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false);
+            // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback.
+            //
+            // An Audit or Research mission gets the read-only rule set instead of the implementation
+            // one. The modules dropped here are the ones a read-only captain cannot use: commit and push
+            // rules, merge-conflict avoidance (nothing is edited), and the learned-fact request. Keeping
+            // them produces a brief that contradicts its own mission, which captains report as a conflict
+            // rather than silently obeying.
+            if (mission.IsReadOnlyMode)
+            {
+                content += ledger.Track("mission.rules_read_only", BuildReadOnlyRulesSection(mission.Mode));
+            }
+            else
+            {
+                content += ledger.Track("mission.rules", await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false));
+            }
 
-            // Model context updates
-            if (vessel.EnableModelContext && _Settings.LearnedFactsEnabled)
+            content += "\n";
+            content += ledger.Track("mission.context_conservation", await ResolveSectionAsync("mission.context_conservation", templateParams, token).ConfigureAwait(false));
+
+            if (!mission.IsReadOnlyMode)
             {
                 content += "\n";
-                content += await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false);
+                content += ledger.Track("mission.merge_conflict_avoidance", await ResolveSectionAsync("mission.merge_conflict_avoidance", templateParams, token).ConfigureAwait(false));
+            }
+
+            content += "\n";
+            content += ledger.Track("mission.progress_signals", await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false));
+
+            // Model context updates. A read-only mission discovers nothing durable about the repository
+            // by definition, so it is never asked for learned-fact proposals.
+            if (vessel.EnableModelContext && _Settings.LearnedFactsEnabled && !mission.IsReadOnlyMode)
+            {
+                content += "\n";
+                content += ledger.Track("mission.model_context_updates", await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false));
             }
 
             // If there's an existing repository instruction file, preserve it as read-only
@@ -1449,15 +1470,38 @@ namespace Armada.Core.Services
                 string existing = await File.ReadAllTextAsync(rootInstructionsPath).ConfigureAwait(false);
                 string sanitizedExisting = SanitizeExistingInstructions(existing);
 
-                if (!String.IsNullOrWhiteSpace(sanitizedExisting))
+                // A root file that is itself a stale Armada model-context dump is not project
+                // instructions and must not be re-fed to a captain. Such a file survives
+                // SanitizeExistingInstructions because it carries no "Mission Instructions" header to
+                // cut at, and it can reach tens of kilobytes of accumulated learned facts.
+                if (IsGeneratedModelContextDump(sanitizedExisting))
+                {
+                    _Logging.Warn(_Header + "root instruction file " + rootInstructionsPath +
+                        " looks like a stale Armada model-context dump (" + sanitizedExisting.Length +
+                        " chars); not inlining it into the mission brief");
+                }
+                else if (!String.IsNullOrWhiteSpace(sanitizedExisting))
                 {
                     if (!String.Equals(existing, sanitizedExisting, StringComparison.Ordinal))
                     {
                         _Logging.Info(_Header + "sanitized generated mission sections from existing instructions at " + rootInstructionsPath);
                     }
 
-                    templateParams["ExistingClaudeMd"] = sanitizedExisting;
-                    content += await ResolveSectionAsync("mission.existing_instructions_wrapper", templateParams, token).ConfigureAwait(false);
+                    // When the runtime loads the root file by itself, inlining it here would deliver the
+                    // same text twice. Point at it instead of repeating it.
+                    if (MissionPromptBuilder.RuntimeAutoLoadsInstructionsFile(runtimeName))
+                    {
+                        content += ledger.Track("mission.existing_instructions_pointer",
+                            "\n## Existing Project Instructions\n" +
+                            "Your runtime already loaded `" + instructionsFileName + "` from the working directory. " +
+                            "It holds the durable project rules for this repository and is not repeated here. " +
+                            "Those rules apply; this mission brief wins on conflict.\n");
+                    }
+                    else
+                    {
+                        templateParams["ExistingClaudeMd"] = sanitizedExisting;
+                        content += ledger.Track("mission.existing_instructions_wrapper", await ResolveSectionAsync("mission.existing_instructions_wrapper", templateParams, token).ConfigureAwait(false));
+                    }
                 }
             }
 
@@ -1498,6 +1542,107 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "generated mission instructions at " + instructionsPath);
+
+            await RecordPromptBudgetAsync(mission, captain, ledger, instructionsRelativePath, content, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Persists what the admiral actually sent: the byte size of every module written into the generated
+        /// instruction file plus the file total, as a mission.prompt_budget event. Warns when the file exceeds
+        /// the configured budget. Telemetry must never fail a dispatch, so every error here is swallowed with
+        /// a warning.
+        /// </summary>
+        /// <param name="mission">Mission the instructions were generated for.</param>
+        /// <param name="captain">Captain the instructions were generated for; may be null.</param>
+        /// <param name="ledger">Ledger populated while the file was assembled.</param>
+        /// <param name="instructionsRelativePath">Dock-relative path the file was written to.</param>
+        /// <param name="content">Final file content.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task RecordPromptBudgetAsync(
+            Mission mission,
+            Captain? captain,
+            PromptModuleLedger ledger,
+            string instructionsRelativePath,
+            string content,
+            CancellationToken token)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (ledger == null) throw new ArgumentNullException(nameof(ledger));
+
+            try
+            {
+                int fileBytes = System.Text.Encoding.UTF8.GetByteCount(content ?? "");
+                int budget = _Settings.CaptainInstructionByteBudget;
+                bool overBudget = budget > 0 && fileBytes > budget;
+
+                List<KeyValuePair<string, int>> largestFirst = ledger.GetModulesLargestFirst();
+
+                if (overBudget)
+                {
+                    string largest = largestFirst.Count > 0
+                        ? largestFirst[0].Key + " at " + largestFirst[0].Value + " bytes"
+                        : "no tracked module";
+                    _Logging.Warn(_Header + "mission " + mission.Id + " instruction file is " + fileBytes +
+                        " bytes, over the " + budget + " byte budget. Largest module: " + largest);
+                }
+
+                Dictionary<string, int> modules = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, int> entry in largestFirst) modules[entry.Key] = entry.Value;
+
+                ArmadaEvent budgetEvent = new ArmadaEvent(
+                    "mission.prompt_budget",
+                    "Instruction file: " + fileBytes + " bytes across " + modules.Count + " modules");
+                budgetEvent.TenantId = mission.TenantId;
+                budgetEvent.UserId = mission.UserId;
+                budgetEvent.EntityType = "mission";
+                budgetEvent.EntityId = mission.Id;
+                budgetEvent.CaptainId = captain?.Id;
+                budgetEvent.MissionId = mission.Id;
+                budgetEvent.VesselId = mission.VesselId;
+                budgetEvent.VoyageId = mission.VoyageId;
+                budgetEvent.Payload = JsonSerializer.Serialize(new
+                {
+                    MissionId = mission.Id,
+                    Runtime = captain != null ? captain.Runtime.ToString() : null,
+                    InstructionsRelativePath = instructionsRelativePath,
+                    InstructionFileBytes = fileBytes,
+                    TrackedModuleBytes = ledger.TotalBytes,
+                    ModuleCount = modules.Count,
+                    ByteBudget = budget,
+                    OverBudget = overBudget,
+                    Modules = modules
+                });
+
+                await _Database.Events.CreateAsync(budgetEvent, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record prompt budget telemetry for " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Builds the rule set for a mission whose deliverable is a report rather than a change. It
+        /// replaces the implementation rules, which require commits and pushes, with the boundaries a
+        /// read-only mission actually needs. It also states the completion contract explicitly, so a
+        /// captain is not left inferring that producing nothing is a failure.
+        /// </summary>
+        /// <param name="mode">The mission mode; named in the text so the captain knows why.</param>
+        /// <returns>The rules section.</returns>
+        internal static string BuildReadOnlyRulesSection(MissionModeEnum mode)
+        {
+            return
+                "## Rules (" + mode + " mission, read-only)\n" +
+                "- This mission delivers a report. Do not edit, create, or delete repository files.\n" +
+                "- Do not commit, stage, or push anything. Producing no commit is the expected outcome, not a failure.\n" +
+                "- Do not run builds, tests, or any command that changes repository state.\n" +
+                "- Read anything you need. Prefer targeted reads over broad exploration.\n" +
+                "- Report exact evidence: file paths, line numbers, command output, and counts you actually observed.\n" +
+                "- If a question cannot be answered from the evidence available, say so plainly rather than estimating.\n" +
+                "- Work only within this worktree, except for paths this mission explicitly names.\n" +
+                "- Put your findings in your final message. That message is the deliverable.\n" +
+                "- Exit with code 0 on success.\n" +
+                "- Use only ASCII characters in all output. No ANSI colour codes or terminal formatting.\n";
         }
 
         private static string BuildCodeRetrievalSection(string worktreePath, Mission mission)
@@ -1903,6 +2048,30 @@ namespace Armada.Core.Services
         /// Generated Armada mission blocks are stripped to avoid recursively injecting stale
         /// mission objectives into future captain prompts.
         /// </summary>
+        /// <summary>
+        /// Detects a root instruction file that is really a stale Armada-generated model-context dump
+        /// rather than hand-written project rules. Such a file accumulates learned facts from earlier
+        /// missions, can reach tens of kilobytes, and must never be inlined back into a captain brief.
+        /// Matched on the generated header that opens every such dump.
+        /// </summary>
+        /// <param name="existing">Sanitized contents of a root instruction file.</param>
+        /// <returns>True when the file is a generated model-context dump.</returns>
+        internal static bool IsGeneratedModelContextDump(string? existing)
+        {
+            if (String.IsNullOrWhiteSpace(existing)) return false;
+
+            // The generated dump opens with the Model Context heading followed by its provenance
+            // sentence. A hand-written file that merely mentions model context does not match, because
+            // the marker sentence is unique to Armada's own generator.
+            const string marker = "context was accumulated by AI agents during previous missions";
+            int markerIndex = existing.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0) return false;
+
+            // Only treat it as a dump when the marker leads the file, so a project file that quotes it
+            // far below real rules is still inlined.
+            return markerIndex < 400;
+        }
+
         private static string SanitizeExistingInstructions(string existing)
         {
             if (String.IsNullOrWhiteSpace(existing)) return String.Empty;
@@ -2517,8 +2686,11 @@ namespace Armada.Core.Services
                     break;
             }
 
-            // Inject context from the completed stage into the next stage's description
+            // Inject context from the completed stage into the next stage's description.
+            // The block opens with a per-upstream marker so a repeated handoff for the same
+            // completed mission REPLACES the previous block instead of appending a second copy.
             string handoffContext = "\n\n---\n" +
+                BuildHandoffMarker(completedMission.Id) + "\n" +
                 "## Prior Stage Output\n" +
                 "The previous pipeline stage (" + (completedMission.Persona ?? "Worker") + ") " +
                 "completed mission \"" + completedMission.Title + "\" (" + completedMission.Id + ").\n" +
@@ -2552,9 +2724,15 @@ namespace Armada.Core.Services
                 handoffContext += "\n*No diff available from prior stage. The work is on the branch above.*\n";
             }
 
-            string handoffDescription = personaPreamble.Length > 0
-                ? personaPreamble + (nextMission.Description ?? "") + handoffContext
-                : (nextMission.Description ?? "") + handoffContext;
+            // Idempotency: strip any prior handoff block for this same upstream mission, and do not
+            // re-prepend a persona preamble that is already present. Without this, a handoff that runs
+            // twice for the same pair (batch path plus the lazy self-heal path, or a rescue re-prepare)
+            // duplicates the entire block, which can multiply a brief several times over.
+            string existingDescription = StripHandoffBlock(nextMission.Description ?? "", completedMission.Id);
+
+            string handoffDescription = personaPreamble.Length > 0 && !ContainsPersonaPreamble(existingDescription, personaPreamble)
+                ? personaPreamble + existingDescription + handoffContext
+                : existingDescription + handoffContext;
 
             // Drain unread mailbox signals and prepend at the absolute top of the brief
             List<Signal> applicableSignals = GetApplicableMailboxSignals(unreadMailboxSignals, nextMission.Id, nextMission.VoyageId);
@@ -2562,6 +2740,15 @@ namespace Armada.Core.Services
             {
                 handoffDescription = BuildMailboxNotesBlock(applicableSignals) + "\n\n" + handoffDescription;
                 foreach (Signal s in applicableSignals) appliedSignalIds.Add(s.Id);
+            }
+
+            if (handoffDescription.Length > _MaxMissionDescriptionChars)
+            {
+                _Logging.Warn(_Header + "pipeline handoff: mission " + nextMission.Id + " description of " +
+                    handoffDescription.Length + " chars exceeds the " + _MaxMissionDescriptionChars +
+                    " char budget; truncating the tail. The full change remains on branch " +
+                    (completedMission.BranchName ?? "unknown"));
+                handoffDescription = TruncateMissionDescription(handoffDescription, _MaxMissionDescriptionChars);
             }
 
             nextMission.Description = handoffDescription;
@@ -2578,6 +2765,105 @@ namespace Armada.Core.Services
         // (e.g. a regenerated data-file snapshot with hundreds of files) can otherwise overflow the reviewing
         // model's context ("Prompt is too long"). The full change always remains on the branch for inspection.
         private const int _MaxReviewDiffChars = 60000;
+
+        // Hard ceiling on a persisted mission description. The per-part caps above bound one handoff block
+        // (8,000 chars of agent output plus _MaxReviewDiffChars of diff), but they cannot bound the total
+        // once a brief carries a base description, a persona preamble, and a handoff block. This is the
+        // backstop that keeps a runaway brief out of the captain prompt entirely.
+        private const int _MaxMissionDescriptionChars = 90000;
+
+        // Opening marker of a prior-stage handoff block, keyed by the upstream mission id. Present so a
+        // repeated handoff replaces its own previous block rather than appending a duplicate.
+        private const string _HandoffMarkerPrefix = "<!-- ARMADA:HANDOFF:";
+
+        private const string _HandoffMarkerSuffix = " -->";
+
+        /// <summary>
+        /// Builds the idempotency marker that opens a prior-stage handoff block for one upstream mission.
+        /// </summary>
+        /// <param name="completedMissionId">Id of the upstream mission that produced the work.</param>
+        /// <returns>The marker text.</returns>
+        internal static string BuildHandoffMarker(string completedMissionId)
+        {
+            return _HandoffMarkerPrefix + (completedMissionId ?? "") + _HandoffMarkerSuffix;
+        }
+
+        /// <summary>
+        /// Removes a previously injected handoff block for one upstream mission from a description, so the
+        /// caller can re-append a fresh block without duplicating it. The block runs from the "\n\n---\n"
+        /// separator that precedes its marker (or from the marker itself when the separator is absent) to
+        /// the start of the next handoff marker, or to the end of the description. A description with no
+        /// matching marker is returned unchanged.
+        /// </summary>
+        /// <param name="description">Existing mission description; may be null or empty.</param>
+        /// <param name="completedMissionId">Id of the upstream mission whose block should be removed.</param>
+        /// <returns>The description without that upstream mission's handoff block.</returns>
+        internal static string StripHandoffBlock(string? description, string completedMissionId)
+        {
+            if (String.IsNullOrEmpty(description)) return description ?? "";
+            if (String.IsNullOrEmpty(completedMissionId)) return description;
+
+            string marker = BuildHandoffMarker(completedMissionId);
+            int markerIndex = description.IndexOf(marker, StringComparison.Ordinal);
+            if (markerIndex < 0) return description;
+
+            const string separator = "\n\n---\n";
+            int blockStart = markerIndex;
+            if (markerIndex >= separator.Length &&
+                String.CompareOrdinal(description, markerIndex - separator.Length, separator, 0, separator.Length) == 0)
+            {
+                blockStart = markerIndex - separator.Length;
+            }
+
+            int nextMarkerIndex = description.IndexOf(_HandoffMarkerPrefix, markerIndex + marker.Length, StringComparison.Ordinal);
+            if (nextMarkerIndex < 0)
+                return description.Substring(0, blockStart).TrimEnd();
+
+            int nextBlockStart = nextMarkerIndex;
+            if (nextMarkerIndex >= separator.Length &&
+                String.CompareOrdinal(description, nextMarkerIndex - separator.Length, separator, 0, separator.Length) == 0)
+            {
+                nextBlockStart = nextMarkerIndex - separator.Length;
+            }
+
+            return description.Substring(0, blockStart) + description.Substring(nextBlockStart);
+        }
+
+        /// <summary>
+        /// Reports whether a description already carries a persona preamble, so a repeated handoff does not
+        /// prepend a second copy. Matching is on the preamble's heading line, because the body below it can
+        /// be reworded between releases while the heading stays stable.
+        /// </summary>
+        /// <param name="description">Existing mission description.</param>
+        /// <param name="personaPreamble">Persona preamble that the caller is about to prepend.</param>
+        /// <returns>True when the preamble heading is already present.</returns>
+        internal static bool ContainsPersonaPreamble(string? description, string? personaPreamble)
+        {
+            if (String.IsNullOrEmpty(description) || String.IsNullOrEmpty(personaPreamble)) return false;
+
+            int headingEnd = personaPreamble.IndexOf('\n');
+            string heading = headingEnd > 0 ? personaPreamble.Substring(0, headingEnd).TrimEnd() : personaPreamble.TrimEnd();
+            if (String.IsNullOrEmpty(heading)) return false;
+
+            return description.Contains(heading, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Truncates an over-budget mission description from the tail, keeping the head where the actual
+        /// brief lives, and leaves a visible note so the captain knows content was cut and where the whole
+        /// change still is. Returns the input unchanged when it fits.
+        /// </summary>
+        /// <param name="description">Description to bound.</param>
+        /// <param name="maxChars">Maximum characters allowed.</param>
+        /// <returns>The bounded description.</returns>
+        internal static string TruncateMissionDescription(string description, int maxChars)
+        {
+            if (String.IsNullOrEmpty(description) || description.Length <= maxChars) return description;
+
+            const string note = "\n\n...(brief truncated to fit the mission description budget; the full change is on the branch above)\n";
+            int allowed = Math.Max(0, maxChars - note.Length);
+            return description.Substring(0, allowed).TrimEnd() + note;
+        }
 
         /// <summary>
         /// Scopes a git diff so it fits a reviewing model's context. Under the budget it is returned unchanged.

@@ -34,6 +34,13 @@ namespace Armada.Server.Mcp
         public string? Persona { get; set; }
 
         /// <summary>
+        /// Optional mission mode: Implementation (default), Audit, or Research. Audit and Research
+        /// deliver a report rather than a commit, so they receive a reduced instruction set and a
+        /// missing commit is their success condition. An unrecognized value is rejected.
+        /// </summary>
+        public string? Mode { get; set; }
+
+        /// <summary>
         /// Optional mission ID (msn_ prefix) this mission must wait for. The
         /// dependent mission stays Pending until the referenced mission reaches
         /// a completion state.

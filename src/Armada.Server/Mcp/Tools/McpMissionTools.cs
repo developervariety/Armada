@@ -99,6 +99,7 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Target vessel ID (vsl_ prefix)" },
                         voyageId = new { type = "string", description = "Optional voyage ID to associate with (vyg_ prefix)" },
                         persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" },
+                        mode = new { type = "string", description = "Optional mission mode: Implementation (default), Audit, or Research. Implementation changes code and must commit. Audit and Research deliver a report: they receive a reduced instruction set and producing no commit is their success condition, not a failure. An unrecognized value is rejected." },
                         dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
                         selectedPlaybooks = new
                         {
@@ -129,6 +130,17 @@ namespace Armada.Server.Mcp.Tools
                     if (request.VoyageId != null)
                         mission.VoyageId = request.VoyageId;
                     mission.Persona = request.Persona;
+
+                    // Reject an unrecognized mode instead of parsing it down to Implementation: a typo
+                    // would otherwise produce an implementing mission judged by the commit gate, which
+                    // is the failure mode modes exist to remove.
+                    if (!String.IsNullOrWhiteSpace(request.Mode) && !Armada.Core.Enums.MissionModes.IsKnown(request.Mode))
+                        return (object)new
+                        {
+                            Error = "Unknown mission mode: " + request.Mode + ". Use Implementation, Audit, or Research, or omit mode to default to Implementation."
+                        };
+                    mission.Mode = Armada.Core.Enums.MissionModes.Parse(request.Mode);
+
                     if (!String.IsNullOrEmpty(request.DependsOnMissionId))
                     {
                         Mission? referenced = await database.Missions.ReadAsync(request.DependsOnMissionId).ConfigureAwait(false);

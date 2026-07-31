@@ -413,6 +413,10 @@ namespace Armada.Server
                     prompt += "\n\n" + commitInstructions;
             }
 
+            // Record what the launch prompt actually cost. Measured here rather than asked of the captain:
+            // a captain can only estimate its own prompt, and some runtimes report no token usage at all.
+            await RecordLaunchPromptBytesAsync(mission, captain, prompt).ConfigureAwait(false);
+
             string missionLogDir = Path.Combine(_Settings.LogDirectory, "missions");
             string logFilePath = Path.Combine(missionLogDir, mission.Id + ".log");
             string finalMessageDir = Path.Combine(_Settings.LogDirectory, "final-messages");
@@ -969,6 +973,50 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Records the launch-prompt size the admiral handed to the runtime, as a
+        /// mission.launch_prompt_budget event. This is the Armada-measured counterpart to the
+        /// runtime-reported token usage captured after the run: OpenCode and Cursor report no token
+        /// counts at all, so the measured byte size is the only figure available on every runtime.
+        /// Telemetry must never block a launch, so failures are swallowed with a warning.
+        /// </summary>
+        /// <param name="mission">Mission being launched.</param>
+        /// <param name="captain">Captain being launched.</param>
+        /// <param name="prompt">Final launch prompt, including any appended commit instructions.</param>
+        private async Task RecordLaunchPromptBytesAsync(Mission mission, Captain captain, string prompt)
+        {
+            if (mission == null) return;
+
+            try
+            {
+                int promptBytes = System.Text.Encoding.UTF8.GetByteCount(prompt ?? string.Empty);
+
+                ArmadaEvent promptEvent = new ArmadaEvent(
+                    "mission.launch_prompt_budget",
+                    "Launch prompt: " + promptBytes + " bytes");
+                promptEvent.TenantId = mission.TenantId;
+                promptEvent.UserId = mission.UserId;
+                promptEvent.EntityType = "mission";
+                promptEvent.EntityId = mission.Id;
+                promptEvent.CaptainId = captain?.Id;
+                promptEvent.MissionId = mission.Id;
+                promptEvent.VesselId = mission.VesselId;
+                promptEvent.VoyageId = mission.VoyageId;
+                promptEvent.Payload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    MissionId = mission.Id,
+                    Runtime = captain != null ? captain.Runtime.ToString() : null,
+                    LaunchPromptBytes = promptBytes
+                });
+
+                await _Database.Events.CreateAsync(promptEvent).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record launch prompt telemetry for " + mission.Id + ": " + ex.Message);
+            }
+        }
 
         /// <summary>
         /// Append a line to a per-mission output buffer with a tail-retention cap.

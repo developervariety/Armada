@@ -502,6 +502,7 @@ namespace Armada.Core.Database.SqlServer
             try { mission.PrestagedFiles = Implementations.MissionMethods.DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
             try { mission.CapabilityHint = NullableString(reader["capabilityhint"]); } catch { }
+            try { mission.Mode = Armada.Core.Enums.MissionModes.Parse(NullableString(reader["mission_mode"])); } catch { }
             try { mission.RequiresReview = Convert.ToBoolean(reader["requires_review"]); } catch { }
             try
             {

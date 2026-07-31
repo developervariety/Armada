@@ -939,6 +939,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v58 statements adding the mission mode that decides which instruction modules a
+        /// captain receives and whether a missing commit counts as a failure.
+        /// </summary>
+        public static readonly string[] MigrationV58Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN mission_mode LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

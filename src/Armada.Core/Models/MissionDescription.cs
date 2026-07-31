@@ -54,6 +54,17 @@ namespace Armada.Core.Models
         public string? CapabilityHint { get; set; } = null;
 
         /// <summary>
+        /// Optional mission mode. Plumbed through to <see cref="Mission.Mode"/> on the created
+        /// mission. Accepted values are Implementation, Audit, and Research, case-insensitive.
+        /// Implementation is the default and is what every mission was before modes existed:
+        /// it changes code and is expected to commit. Audit and Research deliver a report instead,
+        /// so producing no commit is their success condition rather than a failure, and they receive
+        /// a reduced instruction set. An unrecognized value is rejected rather than silently
+        /// downgraded, so a typo cannot quietly turn a read-only mission back into an implementing one.
+        /// </summary>
+        public string? Mode { get; set; } = null;
+
+        /// <summary>
         /// Optional ID of a mission this mission must wait for. The dependent
         /// mission stays Pending until the referenced mission reaches a
         /// completion state. Plumbed through to <see cref="Mission.DependsOnMissionId"/>

@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System.Text.RegularExpressions;
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -17,7 +18,11 @@ namespace Armada.Core.Services
         private const int MaxMissionDescriptionChars = 3500;
 
         /// <summary>
-        /// Resolve the runtime-specific mission instructions filename.
+        /// Resolve the runtime-specific mission instructions filename. Every runtime in
+        /// AgentRuntimeEnum must be listed explicitly: OpenCode was previously absent and fell through
+        /// to CLAUDE.md, which is why no OPENCODE-named instruction snapshot has ever existed.
+        /// OpenCode is mapped to AGENTS.md, the file it loads natively, so the mission brief arrives
+        /// without a separate read step.
         /// </summary>
         public static string GetInstructionsFileName(string? runtime)
         {
@@ -30,7 +35,36 @@ namespace Armada.Core.Services
                 "Cursor" => "CURSOR.md",
                 "Gemini" => "GEMINI.md",
                 "Mux" => "MUX.md",
+                "OpenCode" => "AGENTS.md",
                 _ => "CLAUDE.md"
+            };
+        }
+
+        /// <summary>
+        /// Reports whether the runtime loads its Armada instruction filename by itself, with no prompt
+        /// instruction to read it. True only when the filename Armada writes is also the runtime's own
+        /// convention: CLAUDE.md for Claude Code, AGENTS.md for OpenCode, GEMINI.md for Gemini.
+        ///
+        /// It is false for Cursor and Mux, whose Armada filenames (CURSOR.md, MUX.md) are Armada
+        /// conventions that no runtime reads on its own, and false for Codex, which writes CODEX.md
+        /// while Codex natively reads AGENTS.md. Those cases still need the read instruction, and
+        /// still need an existing root file inlined, because nothing else would surface it.
+        ///
+        /// Callers use this to avoid paying twice for the same text: when the runtime already
+        /// auto-loads the root file, inlining that file into the generated brief delivers it twice.
+        /// </summary>
+        /// <param name="runtime">Runtime name.</param>
+        /// <returns>True when the runtime auto-loads the file Armada names for it.</returns>
+        public static bool RuntimeAutoLoadsInstructionsFile(string? runtime)
+        {
+            if (String.IsNullOrWhiteSpace(runtime)) return false;
+
+            return runtime.Trim() switch
+            {
+                "ClaudeCode" => true,
+                "OpenCode" => true,
+                "Gemini" => true,
+                _ => false
             };
         }
 
@@ -73,7 +107,7 @@ namespace Armada.Core.Services
                 ["SelectedPlaybooksMarkdown"] = "",
                 ["CaptainId"] = captain?.Id ?? "",
                 ["CaptainName"] = captain?.Name ?? "",
-                ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona),
+                ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona, mission.Mode),
                 ["Timestamp"] = DateTime.UtcNow.ToString("o")
             };
         }
@@ -200,10 +234,10 @@ namespace Armada.Core.Services
             return GetPersonaPromptFallback(persona);
         }
 
-        private static string BuildCaptainInstructions(string? existingInstructions, string? persona)
+        private static string BuildCaptainInstructions(string? existingInstructions, string? persona, MissionModeEnum mode)
         {
             string existing = existingInstructions?.Trim() ?? String.Empty;
-            string outputContract = GetPersonaOutputContract(persona);
+            string outputContract = GetPersonaOutputContract(persona, mode);
 
             if (String.IsNullOrEmpty(outputContract))
                 return existing;
@@ -232,6 +266,37 @@ namespace Armada.Core.Services
 
         internal static string GetPersonaOutputContract(string? persona)
         {
+            return GetPersonaOutputContract(persona, MissionModeEnum.Implementation);
+        }
+
+        /// <summary>
+        /// Resolves the persona output contract for a mission mode. In Audit and Research modes the
+        /// deliverable is a report, so a producing persona must not be told to make changes: the
+        /// Worker contract would otherwise instruct a read-only captain to "make the requested
+        /// changes", directly contradicting its own brief.
+        /// </summary>
+        /// <param name="persona">Mission persona.</param>
+        /// <param name="mode">Mission mode.</param>
+        /// <returns>The output contract text.</returns>
+        internal static string GetPersonaOutputContract(string? persona, MissionModeEnum mode)
+        {
+            if (mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research)
+            {
+                string normalizedForMode = PersonaCatalog.NormalizeName(persona);
+
+                // Reviewer personas already have report-shaped contracts that do not ask for changes,
+                // so they are left alone. Only the producing personas need the read-only wording.
+                if (normalizedForMode == PersonaCatalog.Worker ||
+                    normalizedForMode == PersonaCatalog.TestEngineer)
+                {
+                    return
+                        "This is a " + mode + " mission: your deliverable is a report, not a code change. " +
+                        "Do not edit, commit, or push. Report exact evidence for every claim, and state plainly " +
+                        "when the evidence does not settle a question. End with a standalone line " +
+                        "`[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
+                }
+            }
+
             return PersonaCatalog.NormalizeName(persona) switch
             {
                 PersonaCatalog.Architect =>
