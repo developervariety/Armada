@@ -905,7 +905,40 @@ namespace Armada.Core.Services
             string integrationPath = GetIntegrationPath(entry);
             string entryTag = entry.Id + " branch " + entry.BranchName;
             string headBeforeMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
-            bool alreadyMerged = await IsAncestorAsync(integrationPath, entry.BranchName, "HEAD", token).ConfigureAwait(false);
+
+            // The integration worktree is cut from a bare repo where a mission branch usually exists
+            // only as a remote-tracking ref. Git exits 1 for an unresolvable ref ("not something we
+            // can merge"), which is indistinguishable by exit code alone from a real content
+            // conflict, so an unmergeable name used to be reported as "Merge conflict with <target>"
+            // with an empty conflicted-file list. Resolve the name to a real ref up front instead.
+            string? mergeRef = await ResolveMergeRefAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(mergeRef))
+            {
+                _Logging.Warn(_Header + "merge failed (branch not found) for " + entryTag);
+
+                MergeFailureContext missingContext = new MergeFailureContext
+                {
+                    GitExitCode = 1,
+                    GitStandardOutput = String.Empty,
+                    GitStandardError = "branch " + entry.BranchName + " resolves to no local or remote-tracking ref",
+                    ConflictedFiles = new List<string>(),
+                    DiffLineCount = 0
+                };
+                ApplyClassification(entry, missingContext);
+
+                entry.Status = MergeStatusEnum.Failed;
+                entry.TestOutput = "Branch " + entry.BranchName + " was not found in the repository as a local branch or as origin/" +
+                    entry.BranchName + ", so there was nothing to merge into " + entry.TargetBranch + ".";
+                entry.CompletedUtc = DateTime.UtcNow;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                FireRecoveryHandlerForEntry(entry.Id);
+                return;
+            }
+
+            bool alreadyMerged = await IsAncestorAsync(integrationPath, mergeRef, "HEAD", token).ConfigureAwait(false);
 
             if (!alreadyMerged)
             {
@@ -914,17 +947,26 @@ namespace Armada.Core.Services
                 // Forcing --no-ff there only manufactures a commit that can fail for reasons that are
                 // not conflicts at all (absent committer identity, signing), which the caller below
                 // then reported as a merge conflict on a branch that had nothing to conflict with.
-                bool canFastForward = await IsAncestorAsync(integrationPath, "HEAD", entry.BranchName, token).ConfigureAwait(false);
+                bool canFastForward = await IsAncestorAsync(integrationPath, "HEAD", mergeRef, token).ConfigureAwait(false);
                 MergeAttemptResult mergeAttempt = canFastForward
-                    ? await FastForwardBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false)
-                    : await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
+                    ? await FastForwardBranchAsync(integrationPath, mergeRef, token).ConfigureAwait(false)
+                    : await MergeBranchAsync(integrationPath, mergeRef, token).ConfigureAwait(false);
                 if (!mergeAttempt.Ok)
                 {
                     // git exits 1 when the merge stopped on conflicting content and 128 for fatal
                     // errors (bad identity, signing, corrupt ref). Only the former is a conflict.
                     // The worktree has already been reset by `merge --abort`, so the exit code is
                     // the reliable discriminator rather than the conflicted-file listing.
-                    bool isContentConflict = mergeAttempt.GitExitCode == 1;
+                    // git exits 1 when the merge stopped on conflicting content and 128 for fatal
+                    // errors (bad identity, signing, corrupt ref). Only the former is a conflict.
+                    // The conflicted-file listing cannot be used as the discriminator here: the
+                    // worktree has already been reset by `merge --abort`, so the list is empty even
+                    // for a real conflict. git also exits 1 when it cannot resolve the ref at all,
+                    // so exclude that message explicitly rather than calling it a conflict.
+                    bool unmergeableRef =
+                        (mergeAttempt.StandardError ?? String.Empty).Contains("not something we can merge", StringComparison.OrdinalIgnoreCase) ||
+                        (mergeAttempt.StandardOutput ?? String.Empty).Contains("not something we can merge", StringComparison.OrdinalIgnoreCase);
+                    bool isContentConflict = mergeAttempt.GitExitCode == 1 && !unmergeableRef;
                     _Logging.Warn(_Header + (isContentConflict ? "merge conflict for " : "merge failed (not a conflict) for ") +
                         entryTag + " gitExitCode=" + mergeAttempt.GitExitCode);
 
@@ -2060,6 +2102,25 @@ namespace Armada.Core.Services
         /// Uses --ff-only so git refuses rather than silently creating a merge commit if the
         /// ancestry check and the actual repository state ever disagree.
         /// </summary>
+        /// <summary>
+        /// Resolve a merge-queue branch name to a ref that exists in the integration worktree.
+        /// Prefers a local branch, then the remote-tracking copy. Returns null when neither exists,
+        /// so the caller can report a missing branch rather than a merge conflict.
+        /// </summary>
+        private async Task<string?> ResolveMergeRefAsync(string worktreePath, string branchName, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(branchName)) return null;
+
+            foreach (string candidate in new[] { branchName, "origin/" + branchName })
+            {
+                GitProcessResult probe = await RunGitCapturingAsync(
+                    worktreePath, token, "rev-parse", "--verify", "--quiet", candidate + "^{commit}").ConfigureAwait(false);
+                if (probe.ExitCode == 0) return candidate;
+            }
+
+            return null;
+        }
+
         private async Task<MergeAttemptResult> FastForwardBranchAsync(string worktreePath, string branchName, CancellationToken token)
         {
             GitProcessResult result = await RunGitCapturingAsync(worktreePath, token, "merge", "--ff-only", branchName).ConfigureAwait(false);

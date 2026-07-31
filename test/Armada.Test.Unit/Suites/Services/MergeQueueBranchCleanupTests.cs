@@ -317,6 +317,114 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProcessEntryByIdAsync_BranchOnlyRemoteTracking_LandsInsteadOfReportingConflict", async () =>
+            {
+                // Regression: in a bare vessel repo a mission branch commonly exists only as
+                // origin/<branch>. The merge step used the raw name, git answered "not something we
+                // can merge" and exited 1, and exit 1 alone was read as a content conflict. Clean,
+                // landable work was then failed as "Merge conflict with main" with an empty
+                // conflicted-file list, which stranded the branch and hid the real cause.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_remoteonly_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    // Drop the local copy so the branch is reachable only through origin/<branch>.
+                    await RunGitAsync(repos.BareDir, "branch", "-D", repos.CaptainBranch).ConfigureAwait(false);
+                    string localBranches = await RunGitAsync(repos.BareDir, "branch", "--list", repos.CaptainBranch).ConfigureAwait(false);
+                    AssertTrue(String.IsNullOrWhiteSpace(localBranches), "Precondition: no local branch may remain");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("remote-only-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertFalse(
+                            (updated!.TestOutput ?? "").Contains("Merge conflict", StringComparison.OrdinalIgnoreCase),
+                            "A remote-tracking-only branch must never be reported as a merge conflict");
+
+                        string mainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertTrue(mainFiles.Contains("feature.txt"), "The captain commit should reach main");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntryByIdAsync_BranchMissingEntirely_ReportsNotFoundNotConflict", async () =>
+            {
+                // A name that resolves to no ref at all must be reported as a missing branch. It
+                // must not borrow the conflict wording, which sends triage looking for a merge
+                // problem that does not exist.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_missing_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("missing-branch-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = "armada/does-not-exist/msn_absent";
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "A missing branch must fail the entry");
+                        AssertContains("was not found", updated.TestOutput ?? "", "Failure should say the branch was not found");
+                        AssertFalse(
+                            (updated.TestOutput ?? "").Contains("Merge conflict", StringComparison.OrdinalIgnoreCase),
+                            "A missing branch must not be reported as a merge conflict");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("LandEntryAsync_GateFails_TargetHeadUnchanged", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gate_fail_" + Guid.NewGuid().ToString("N"));
