@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System.Text.RegularExpressions;
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -107,7 +108,7 @@ namespace Armada.Core.Services
                 ["SelectedPlaybooksMarkdown"] = "",
                 ["CaptainId"] = captain?.Id ?? "",
                 ["CaptainName"] = captain?.Name ?? "",
-                ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona),
+                ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona, mission.Mode),
                 ["Timestamp"] = DateTime.UtcNow.ToString("o")
             };
         }
@@ -234,10 +235,10 @@ namespace Armada.Core.Services
             return GetPersonaPromptFallback(persona);
         }
 
-        private static string BuildCaptainInstructions(string? existingInstructions, string? persona)
+        private static string BuildCaptainInstructions(string? existingInstructions, string? persona, MissionModeEnum mode)
         {
             string existing = existingInstructions?.Trim() ?? String.Empty;
-            string outputContract = GetPersonaOutputContract(persona);
+            string outputContract = GetPersonaOutputContract(persona, mode);
 
             if (String.IsNullOrEmpty(outputContract))
                 return existing;
@@ -266,6 +267,37 @@ namespace Armada.Core.Services
 
         internal static string GetPersonaOutputContract(string? persona)
         {
+            return GetPersonaOutputContract(persona, MissionModeEnum.Implementation);
+        }
+
+        /// <summary>
+        /// Resolves the persona output contract for a mission mode. In Audit and Research modes the
+        /// deliverable is a report, so a producing persona must not be told to make changes: the
+        /// Worker contract would otherwise instruct a read-only captain to "make the requested
+        /// changes", directly contradicting its own brief.
+        /// </summary>
+        /// <param name="persona">Mission persona.</param>
+        /// <param name="mode">Mission mode.</param>
+        /// <returns>The output contract text.</returns>
+        internal static string GetPersonaOutputContract(string? persona, MissionModeEnum mode)
+        {
+            if (mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research)
+            {
+                string normalizedForMode = PersonaCatalog.NormalizeName(persona);
+
+                // Reviewer personas already have report-shaped contracts that do not ask for changes,
+                // so they are left alone. Only the producing personas need the read-only wording.
+                if (normalizedForMode == PersonaCatalog.Worker ||
+                    normalizedForMode == PersonaCatalog.TestEngineer)
+                {
+                    return
+                        "This is a " + mode + " mission: your deliverable is a report, not a code change. " +
+                        "Do not edit, commit, or push. Report exact evidence for every claim, and state plainly " +
+                        "when the evidence does not settle a question. End with a standalone line " +
+                        "`[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
+                }
+            }
+
             return PersonaCatalog.NormalizeName(persona) switch
             {
                 PersonaCatalog.Architect =>

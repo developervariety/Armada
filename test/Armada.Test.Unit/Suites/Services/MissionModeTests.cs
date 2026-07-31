@@ -3,8 +3,12 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
 
     /// <summary>
     /// Covers the mission Mode field: its default, its parsing, its database round trip, and the
@@ -90,6 +94,88 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(readPlain, "the plain mission must be readable");
                     AssertEqual(MissionModeEnum.Implementation, readPlain!.Mode, "an unset mode must persist as Implementation");
                 }
+            });
+
+            await RunTest("An Audit brief drops commit, merge-conflict and learned-fact modules", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LearnedFactsEnabled = true;
+
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    string auditDir = Path.Combine(Path.GetTempPath(), "armada_mode_audit_" + Guid.NewGuid().ToString("N"));
+                    string implDir = Path.Combine(Path.GetTempPath(), "armada_mode_impl_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(auditDir);
+                    Directory.CreateDirectory(implDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("ModeVessel", "https://github.com/test/repo");
+                        vessel.EnableModelContext = true;
+                        vessel.ModelContext = "Vessel model context.";
+
+                        Mission audit = new Mission();
+                        audit.Title = "Read-only probe";
+                        audit.Description = "Measure the received context.";
+                        audit.Persona = "Worker";
+                        audit.Mode = MissionModeEnum.Audit;
+                        await service.GenerateClaudeMdAsync(auditDir, audit, vessel);
+                        string auditBrief = await File.ReadAllTextAsync(Path.Combine(auditDir, "CLAUDE.md"));
+
+                        Mission implementation = new Mission();
+                        implementation.Title = "Ordinary work";
+                        implementation.Description = "Change the code.";
+                        implementation.Persona = "Worker";
+                        await service.GenerateClaudeMdAsync(implDir, implementation, vessel);
+                        string implBrief = await File.ReadAllTextAsync(Path.Combine(implDir, "CLAUDE.md"));
+
+                        // The audit brief must not carry implementation-only instructions.
+                        AssertFalse(auditBrief.Contains("Commit all changes to the current branch", StringComparison.Ordinal), "audit brief must not order commits");
+                        AssertFalse(auditBrief.Contains("Avoiding Merge Conflicts", StringComparison.Ordinal), "audit brief must not carry merge-conflict guidance");
+                        AssertFalse(auditBrief.Contains("LEARNED-FACT-PROPOSAL", StringComparison.Ordinal), "audit brief must not request learned facts");
+                        AssertContains("read-only", auditBrief, "audit brief must state that it is read-only");
+                        AssertContains("Producing no commit is the expected outcome", auditBrief, "audit brief must state the completion contract");
+
+                        // The implementation brief must be unchanged in those respects.
+                        AssertContains("Commit all changes to the current branch", implBrief, "implementation brief must still order commits");
+                        AssertContains("Avoiding Merge Conflicts", implBrief, "implementation brief must still carry merge-conflict guidance");
+
+                        AssertTrue(auditBrief.Length < implBrief.Length, "an audit brief must be smaller than the implementation brief");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(auditDir, true); } catch { }
+                        try { Directory.Delete(implDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A read-only Worker contract does not ask for code changes", async () =>
+            {
+                string implementationContract = MissionPromptBuilder.GetPersonaOutputContract("Worker", MissionModeEnum.Implementation);
+                AssertContains("make the requested changes", implementationContract, "an implementation Worker is still asked to make changes");
+
+                string auditContract = MissionPromptBuilder.GetPersonaOutputContract("Worker", MissionModeEnum.Audit);
+                AssertFalse(auditContract.Contains("make the requested changes", StringComparison.Ordinal), "an audit Worker must not be asked to make changes");
+                AssertContains("your deliverable is a report", auditContract, "an audit Worker must be told the deliverable is a report");
+
+                string researchContract = MissionPromptBuilder.GetPersonaOutputContract("TestEngineer", MissionModeEnum.Research);
+                AssertContains("your deliverable is a report", researchContract, "a research TestEngineer must not be asked to write tests");
+
+                // A reviewer persona already reports rather than changes, so its contract is untouched.
+                string judgeContract = MissionPromptBuilder.GetPersonaOutputContract("Judge", MissionModeEnum.Audit);
+                AssertContains("[ARMADA:VERDICT]", judgeContract, "a Judge keeps its verdict contract in every mode");
+
+                await Task.CompletedTask;
             });
 
             await RunTest("The no-commit gate exempts read-only modes and still catches implementation misses", async () =>

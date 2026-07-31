@@ -1426,17 +1426,37 @@ namespace Armada.Core.Services
             content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
             content += "\n";
 
-            // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback
-            content += ledger.Track("mission.rules", await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false));
+            // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback.
+            //
+            // An Audit or Research mission gets the read-only rule set instead of the implementation
+            // one. The modules dropped here are the ones a read-only captain measured as unusable on
+            // 2026-07-30: commit and push rules, merge-conflict avoidance (nothing is edited), and the
+            // learned-fact request. Keeping them produced a brief that contradicted its own mission,
+            // and captains reported the conflict rather than obeying it.
+            if (mission.IsReadOnlyMode)
+            {
+                content += ledger.Track("mission.rules_read_only", BuildReadOnlyRulesSection(mission.Mode));
+            }
+            else
+            {
+                content += ledger.Track("mission.rules", await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false));
+            }
+
             content += "\n";
             content += ledger.Track("mission.context_conservation", await ResolveSectionAsync("mission.context_conservation", templateParams, token).ConfigureAwait(false));
-            content += "\n";
-            content += ledger.Track("mission.merge_conflict_avoidance", await ResolveSectionAsync("mission.merge_conflict_avoidance", templateParams, token).ConfigureAwait(false));
+
+            if (!mission.IsReadOnlyMode)
+            {
+                content += "\n";
+                content += ledger.Track("mission.merge_conflict_avoidance", await ResolveSectionAsync("mission.merge_conflict_avoidance", templateParams, token).ConfigureAwait(false));
+            }
+
             content += "\n";
             content += ledger.Track("mission.progress_signals", await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false));
 
-            // Model context updates
-            if (vessel.EnableModelContext && _Settings.LearnedFactsEnabled)
+            // Model context updates. A read-only mission discovers nothing durable about the repository
+            // by definition, so it is never asked for learned-fact proposals.
+            if (vessel.EnableModelContext && _Settings.LearnedFactsEnabled && !mission.IsReadOnlyMode)
             {
                 content += "\n";
                 content += ledger.Track("mission.model_context_updates", await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false));
@@ -1599,6 +1619,30 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not record prompt budget telemetry for " + mission.Id + ": " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Builds the rule set for a mission whose deliverable is a report rather than a change. It
+        /// replaces the implementation rules, which require commits and pushes, with the boundaries a
+        /// read-only mission actually needs. It also states the completion contract explicitly, so a
+        /// captain is not left inferring that producing nothing is a failure.
+        /// </summary>
+        /// <param name="mode">The mission mode; named in the text so the captain knows why.</param>
+        /// <returns>The rules section.</returns>
+        internal static string BuildReadOnlyRulesSection(MissionModeEnum mode)
+        {
+            return
+                "## Rules (" + mode + " mission, read-only)\n" +
+                "- This mission delivers a report. Do not edit, create, or delete repository files.\n" +
+                "- Do not commit, stage, or push anything. Producing no commit is the expected outcome, not a failure.\n" +
+                "- Do not run builds, tests, or any command that changes repository state.\n" +
+                "- Read anything you need. Prefer targeted reads over broad exploration.\n" +
+                "- Report exact evidence: file paths, line numbers, command output, and counts you actually observed.\n" +
+                "- If a question cannot be answered from the evidence available, say so plainly rather than estimating.\n" +
+                "- Work only within this worktree, except for paths this mission explicitly names.\n" +
+                "- Put your findings in your final message. That message is the deliverable.\n" +
+                "- Exit with code 0 on success.\n" +
+                "- Use only ASCII characters in all output. No ANSI colour codes or terminal formatting.\n";
         }
 
         private static string BuildCodeRetrievalSection(string worktreePath, Mission mission)

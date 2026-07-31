@@ -318,6 +318,18 @@ namespace Armada.Server
                     Reason = "Mission " + missionNumber + " had a null or whitespace description.",
                     Action = "Provide a non-empty description for mission " + missionNumber + "."
                 });
+
+                // Reject an unrecognized mode rather than parsing it down to Implementation. A typo
+                // such as "audits" would otherwise produce an implementing mission that is judged by
+                // the commit gate, which is the exact failure mode modes exist to remove.
+                if (!String.IsNullOrWhiteSpace(mission.Mode) && !Armada.Core.Enums.MissionModes.IsKnown(mission.Mode))
+                    return VoyageDispatchResult.BadRequest(new
+                    {
+                        Error = "armada_dispatch mission " + missionNumber + " has an unknown mode: " + mission.Mode + ".",
+                        Code = "invalid_mission_mode",
+                        Reason = "Mission " + missionNumber + " requested mode '" + mission.Mode + "', which Armada does not recognize.",
+                        Action = "Use Implementation, Audit, or Research, or omit mode to default to Implementation."
+                    });
             }
 
             return null;
@@ -1072,6 +1084,7 @@ namespace Armada.Server
                     mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
                     mission.PreferredModel = md.PreferredModel;
                     mission.CapabilityHint = md.CapabilityHint;
+                    mission.Mode = Armada.Core.Enums.MissionModes.Parse(md.Mode);
                     mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     mission.DependsOnMissionId = externalDep;
 
@@ -1113,6 +1126,9 @@ namespace Armada.Server
                             stage.PersonaName,
                             settings?.ModelTier.SpecialistPersonas);
                         stageMission.CapabilityHint = md.CapabilityHint;
+                        // Every stage of a read-only voyage stays read-only: a pipeline must not
+                        // silently turn an audit into an implementing mission at stage 2.
+                        stageMission.Mode = Armada.Core.Enums.MissionModes.Parse(md.Mode);
                         stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
 
                         bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
