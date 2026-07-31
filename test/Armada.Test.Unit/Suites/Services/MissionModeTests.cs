@@ -143,6 +143,12 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(auditBrief.Contains("Avoiding Merge Conflicts", StringComparison.Ordinal), "audit brief must not carry merge-conflict guidance");
                         AssertFalse(auditBrief.Contains("LEARNED-FACT-PROPOSAL", StringComparison.Ordinal), "audit brief must not request learned facts");
                         AssertContains("read-only", auditBrief, "audit brief must state that it is read-only");
+                        // The test-ownership directive tells a producing captain to run tests and commit
+                        // them, which contradicts a read-only brief.
+                        AssertFalse(auditBrief.Contains("You own the tests for this change", StringComparison.Ordinal),
+                            "an audit brief must not carry a test-ownership directive");
+                        AssertFalse(auditBrief.Contains("{TestOwnership}", StringComparison.Ordinal),
+                            "the placeholder must never survive into a brief");
                         AssertContains("Producing no commit is the expected outcome", auditBrief, "audit brief must state the completion contract");
 
                         // The implementation brief must be unchanged in those respects.

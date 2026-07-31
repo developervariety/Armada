@@ -111,7 +111,13 @@ namespace Armada.Core.Services
                 ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona, mission.Mode),
                 // Always written, empty string included: RenderAsync substitutes only keys present in
                 // the dictionary and would otherwise leave a literal {TestOwnership} in the brief.
-                ["TestOwnership"] = TestOwnershipResolver.BuildDirective(mission.Persona, ownership),
+                //
+                // A read-only mission writes no tests, so it gets no ownership directive. Emitting one
+                // would tell an audit captain to run tests and commit them, contradicting the read-only
+                // rules in the same brief.
+                ["TestOwnership"] = mission.IsReadOnlyMode
+                    ? String.Empty
+                    : TestOwnershipResolver.BuildDirective(mission.Persona, ownership),
                 ["Timestamp"] = DateTime.UtcNow.ToString("o")
             };
         }
