@@ -53,6 +53,17 @@ namespace Armada.Runtimes
 
         #endregion
 
+        #region Protected-Members
+
+        /// <summary>
+        /// Working directory of the running agent, captured at launch. Runtimes strip this prefix
+        /// from paths in activity records so the mission log shows dock-relative paths instead of
+        /// repeating the full dock root on every line.
+        /// </summary>
+        protected string? WorkingDirectory { get; set; }
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[BaseAgentRuntime] ";
@@ -98,6 +109,10 @@ namespace Armada.Runtimes
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
+
+            // Recorded so activity records can render dock-relative paths. A runtime instance is
+            // created per launch (AgentRuntimeFactory.Create), so this is not shared across missions.
+            WorkingDirectory = workingDirectory;
 
             string command = GetCommand();
             List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
@@ -284,6 +299,25 @@ namespace Armada.Runtimes
                 int processId = 0;
                 try { processId = process.Id; } catch { }
                 try { code = ((Process?)sender)?.ExitCode; } catch { }
+
+                // Give the runtime a chance to write records it was still holding. A runtime that
+                // correlates a tool call with a later result event has nothing to write when the
+                // process is killed mid-call -- and that unfinished call is the most useful line
+                // in the log when diagnosing a hang. Written here, while the writer is open.
+                try
+                {
+                    foreach (string exitRecord in BuildProcessExitRecords())
+                    {
+                        if (String.IsNullOrEmpty(exitRecord)) continue;
+
+                        try { logWriter?.WriteLine(exitRecord); }
+                        catch (ObjectDisposedException) { }
+
+                        try { OnOutputReceived?.Invoke(processId, exitRecord); }
+                        catch { }
+                    }
+                }
+                catch (Exception ex) { _Logging.Warn(_Header + "error building process-exit records: " + ex.Message); }
 
                 // Parity echo: when stderr is suppressed from the log file, the agent's
                 // final answer (captured via the runtime's final-message file) would
@@ -541,6 +575,16 @@ namespace Armada.Runtimes
         protected virtual IEnumerable<string> TransformOutputRecords(string line)
         {
             return new string[] { TransformOutputLine(line) };
+        }
+
+        /// <summary>
+        /// Build any mission-log records the runtime is still holding when the agent process
+        /// exits. Called once, while the log writer is still open. The default is none.
+        /// </summary>
+        /// <returns>Zero or more mission-log records; empty records are skipped by the caller.</returns>
+        protected virtual IEnumerable<string> BuildProcessExitRecords()
+        {
+            return Array.Empty<string>();
         }
 
         /// <summary>

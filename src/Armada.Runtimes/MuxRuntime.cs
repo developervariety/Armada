@@ -124,7 +124,7 @@ namespace Armada.Runtimes
             if (!String.IsNullOrEmpty(evt.Content))
                 return evt.Content;
 
-            if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, out string activity))
+            if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, WorkingDirectory, out string activity))
                 return activity;
 
             return String.Empty;

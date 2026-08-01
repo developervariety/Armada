@@ -208,38 +208,47 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Render one completed Codex item. Agent prose and reasoning are logged as text; every
-        /// other item becomes a named activity record carrying its primary argument. Item output
-        /// (aggregated command output, diffs) is deliberately excluded because it is potentially
-        /// large and sensitive.
+        /// Render one completed Codex item. Agent prose is logged as text; every other item
+        /// becomes a named activity record carrying its primary argument. Item output (aggregated
+        /// command output, diffs) and reasoning are deliberately excluded -- output is unbounded
+        /// and can carry secrets, and reasoning is private model deliberation that every runtime
+        /// drops so the log reads the same everywhere.
         /// </summary>
-        private static string RenderItem(CodexItem item)
+        private string RenderItem(CodexItem item)
         {
             if (String.Equals(item.Type, "agent_message", StringComparison.Ordinal))
                 return item.Text ?? String.Empty;
 
             if (String.Equals(item.Type, "reasoning", StringComparison.Ordinal))
-                return String.IsNullOrEmpty(item.Text)
-                    ? String.Empty
-                    : StructuredRuntimeLogFormatter.RedactSecretValues(item.Text);
+                return String.Empty;
 
             if (String.Equals(item.Type, "command_execution", StringComparison.Ordinal))
                 return StructuredRuntimeLogFormatter.BuildToolActivity(
                     "bash",
-                    StructuredRuntimeLogFormatter.TruncateActivityText(item.Command ?? String.Empty, StructuredRuntimeLogFormatter.CommandDetailLimit),
-                    BuildCommandStatus(item));
+                    item.Command,
+                    BuildCommandStatus(item),
+                    WorkingDirectory);
 
             if (String.Equals(item.Type, "file_change", StringComparison.Ordinal))
-                return StructuredRuntimeLogFormatter.BuildToolActivity("edit", BuildFileChangeDetail(item), item.Status);
+                return StructuredRuntimeLogFormatter.BuildToolActivity(
+                    "edit",
+                    BuildFileChangeDetail(item),
+                    item.Status,
+                    WorkingDirectory);
 
             if (String.Equals(item.Type, "mcp_tool_call", StringComparison.Ordinal))
-                return StructuredRuntimeLogFormatter.BuildToolActivity(BuildMcpToolName(item), null, item.Status);
+                return StructuredRuntimeLogFormatter.BuildToolActivity(
+                    BuildMcpToolName(item),
+                    null,
+                    item.Status,
+                    WorkingDirectory);
 
             if (String.Equals(item.Type, "web_search", StringComparison.Ordinal))
                 return StructuredRuntimeLogFormatter.BuildToolActivity(
                     "web_search",
-                    StructuredRuntimeLogFormatter.TruncateActivityText(item.Query ?? String.Empty, StructuredRuntimeLogFormatter.ShortDetailLimit),
-                    null);
+                    item.Query,
+                    null,
+                    WorkingDirectory);
 
             if (String.Equals(item.Type, "error", StringComparison.Ordinal))
                 return String.IsNullOrEmpty(item.Message)

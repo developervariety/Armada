@@ -60,7 +60,20 @@ namespace Armada.Runtimes
 
         #region Private-Members
 
+        /// <summary>
+        /// Ceiling on tool calls awaiting a result. Far above any real turn, so it only ever
+        /// bounds a stream whose results stopped arriving.
+        /// </summary>
+        private const int _MaxPendingToolCalls = 512;
+
         private string _ExecutablePath = "claude";
+
+        private readonly object _PendingLock = new object();
+
+        private readonly Dictionary<string, PendingToolCall> _PendingToolCalls =
+            new Dictionary<string, PendingToolCall>(StringComparer.Ordinal);
+
+        private readonly Queue<string> _PendingOrder = new Queue<string>();
 
         #endregion
 
@@ -166,11 +179,12 @@ namespace Armada.Runtimes
         /// <summary>
         /// Build the mission-log records for one Claude Code stream-json event.
         /// Named tool activity is preserved (name plus its primary argument, redacted); tool
-        /// output, session bookkeeping, and partial-message deltas are suppressed because they
-        /// are large, duplicated, or carry no operator value. Unrecognized event types keep a
-        /// generic activity record so new CLI events (e.g. rate-limit notices) stay visible.
+        /// output, session bookkeeping, reasoning, and partial-message deltas are suppressed
+        /// because they are large, duplicated, private, or carry no operator value.
+        /// Unrecognized event types keep a generic activity record so new CLI events
+        /// (e.g. rate-limit notices) stay visible.
         /// </summary>
-        private static List<string> BuildRecords(string line)
+        private List<string> BuildRecords(string line)
         {
             List<string> records = new List<string>();
 
@@ -193,8 +207,8 @@ namespace Armada.Runtimes
                 return records;
             }
 
-            // Session bookkeeping (init, compact boundary) and partial-message deltas add no
-            // operator value; the deltas also duplicate the completed assistant event.
+            // Session bookkeeping and partial-message deltas add no operator value; the deltas
+            // also duplicate the completed assistant event.
             if (IsSuppressedSystemEvent(evt) ||
                 String.Equals(evt.Type, "stream_event", StringComparison.Ordinal))
             {
@@ -203,6 +217,9 @@ namespace Armada.Runtimes
 
             if (String.Equals(evt.Type, "result", StringComparison.Ordinal))
             {
+                // Terminal event: any call still open never reported an outcome, so render it
+                // now rather than dropping it silently.
+                FlushPendingToolCalls(records);
                 records.Add(BuildResultActivity(evt));
                 return records;
             }
@@ -216,9 +233,16 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Append assistant text, extended-thinking text, and named tool calls in message order.
+        /// Append assistant text in message order and register each tool call for correlation.
         /// </summary>
-        private static void AppendAssistantRecords(ClaudeEvent evt, List<string> records)
+        /// <remarks>
+        /// A tool call is NOT rendered here. Claude Code reports the call and its outcome as two
+        /// separate events, so rendering at call time can only ever produce a status-less line --
+        /// which is why a ClaudeCode log used to show a bare "tool result (error)" that did not
+        /// even name the failing tool. The call is held until its result arrives and then written
+        /// once, with a status, matching what every other runtime writes.
+        /// </remarks>
+        private void AppendAssistantRecords(ClaudeEvent evt, List<string> records)
         {
             if (evt.Message?.Content == null)
                 return;
@@ -239,22 +263,16 @@ namespace Armada.Runtimes
                     text.Clear();
                 }
 
-                if (String.Equals(content.Type, "thinking", StringComparison.Ordinal) && !String.IsNullOrEmpty(content.Thinking))
-                {
-                    records.Add(StructuredRuntimeLogFormatter.RedactSecretValues(content.Thinking));
+                // Reasoning is private model deliberation, not mission progress. Every runtime
+                // drops it so the log reads the same everywhere.
+                if (String.Equals(content.Type, "thinking", StringComparison.Ordinal))
                     continue;
-                }
 
                 if (String.Equals(content.Type, "tool_use", StringComparison.Ordinal) ||
                     String.Equals(content.Type, "server_tool_use", StringComparison.Ordinal) ||
                     String.Equals(content.Type, "mcp_tool_use", StringComparison.Ordinal))
                 {
-                    string activity = StructuredRuntimeLogFormatter.BuildToolActivity(
-                        content.Name,
-                        BuildToolDetail(content.Input),
-                        null);
-                    if (!String.IsNullOrEmpty(activity))
-                        records.Add(activity);
+                    RegisterPendingToolCall(content, records);
                 }
             }
 
@@ -263,54 +281,146 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Append a record for each failed tool result. Successful results are suppressed because
-        /// the tool call itself is already logged and tool output can be large and sensitive.
+        /// Hold a tool call until its result arrives so the rendered record carries a status.
         /// </summary>
-        private static void AppendToolResultRecords(ClaudeEvent evt, List<string> records)
+        private void RegisterPendingToolCall(ClaudeContent content, List<string> records)
+        {
+            if (String.IsNullOrWhiteSpace(content.Name))
+                return;
+
+            PendingToolCall pending = new PendingToolCall
+            {
+                Name = content.Name!,
+                Detail = BuildToolDetail(content.Input)
+            };
+
+            if (String.IsNullOrWhiteSpace(content.Id))
+            {
+                // Nothing to correlate on. Render immediately without a status rather than lose
+                // the call entirely.
+                records.Add(RenderToolCall(pending, null));
+                return;
+            }
+
+            lock (_PendingLock)
+            {
+                // Bound the map: a run whose results never arrive must not grow it without limit.
+                if (_PendingOrder.Count >= _MaxPendingToolCalls)
+                {
+                    string oldestId = _PendingOrder.Dequeue();
+                    PendingToolCall? evicted;
+                    if (_PendingToolCalls.Remove(oldestId, out evicted) && evicted != null)
+                        records.Add(RenderToolCall(evicted, StructuredRuntimeLogFormatter.IncompleteStatus));
+                }
+
+                _PendingToolCalls[content.Id!] = pending;
+                _PendingOrder.Enqueue(content.Id!);
+            }
+        }
+
+        /// <summary>
+        /// Render each tool result against the call it belongs to. Tool output itself is never
+        /// copied because it is unbounded and can carry secrets.
+        /// </summary>
+        private void AppendToolResultRecords(ClaudeEvent evt, List<string> records)
         {
             if (evt.Message?.Content == null)
                 return;
 
             foreach (ClaudeContent content in evt.Message.Content)
             {
-                if (String.Equals(content.Type, "tool_result", StringComparison.Ordinal) && content.IsError == true)
+                if (!String.Equals(content.Type, "tool_result", StringComparison.Ordinal))
+                    continue;
+
+                string status = content.IsError == true
+                    ? StructuredRuntimeLogFormatter.ErrorStatus
+                    : StructuredRuntimeLogFormatter.OkStatus;
+
+                PendingToolCall? pending = null;
+                if (!String.IsNullOrWhiteSpace(content.ToolUseId))
+                {
+                    lock (_PendingLock)
+                    {
+                        _PendingToolCalls.Remove(content.ToolUseId!, out pending);
+                    }
+                }
+
+                if (pending != null)
+                {
+                    records.Add(RenderToolCall(pending, status));
+                    continue;
+                }
+
+                // Result with no matching call (truncated stream, resumed session). Keep failures
+                // visible; a nameless success record would carry no information.
+                if (content.IsError == true)
                     records.Add("[ARMADA:ACTIVITY] tool result (error)");
             }
         }
 
         /// <summary>
-        /// Select the most useful single argument of a tool call for the mission log.
-        /// Argument values other than the primary one are excluded to keep the record compact
-        /// and to avoid copying tool payloads into durable telemetry.
+        /// Render one correlated tool call in the shared activity format.
+        /// </summary>
+        private string RenderToolCall(PendingToolCall pending, string? status)
+        {
+            return StructuredRuntimeLogFormatter.BuildToolActivity(
+                pending.Name,
+                pending.Detail,
+                status,
+                WorkingDirectory);
+        }
+
+        /// <summary>
+        /// Render any tool call still open when the process exits. A killed or crashed captain
+        /// never emits its terminal result event, and the call that was in flight is usually the
+        /// reason it died -- so it has to reach the log.
+        /// </summary>
+        /// <returns>One record per unfinished tool call.</returns>
+        protected override IEnumerable<string> BuildProcessExitRecords()
+        {
+            List<string> records = new List<string>();
+            FlushPendingToolCalls(records);
+            return records;
+        }
+
+        /// <summary>
+        /// Render every still-open tool call as incomplete. Called on the terminal result event.
+        /// </summary>
+        private void FlushPendingToolCalls(List<string> records)
+        {
+            lock (_PendingLock)
+            {
+                while (_PendingOrder.Count > 0)
+                {
+                    string id = _PendingOrder.Dequeue();
+                    PendingToolCall? pending;
+                    if (_PendingToolCalls.Remove(id, out pending) && pending != null)
+                        records.Add(RenderToolCall(pending, StructuredRuntimeLogFormatter.IncompleteStatus));
+                }
+
+                _PendingToolCalls.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Select the most useful single argument of a tool call for the mission log. Argument
+        /// values other than the primary one are excluded to keep the record compact and to avoid
+        /// copying tool payloads into durable telemetry. Relativizing, redaction, and truncation
+        /// are applied centrally by the formatter.
         /// </summary>
         private static string? BuildToolDetail(ClaudeToolInput? input)
         {
             if (input == null)
                 return null;
 
-            if (!String.IsNullOrWhiteSpace(input.FilePath))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.FilePath.Trim(), StructuredRuntimeLogFormatter.ShortDetailLimit);
-
-            if (!String.IsNullOrWhiteSpace(input.NotebookPath))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.NotebookPath.Trim(), StructuredRuntimeLogFormatter.ShortDetailLimit);
-
-            if (!String.IsNullOrWhiteSpace(input.Command))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.Command.Trim(), StructuredRuntimeLogFormatter.CommandDetailLimit);
-
-            if (!String.IsNullOrWhiteSpace(input.Pattern))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.Pattern.Trim(), StructuredRuntimeLogFormatter.ShortDetailLimit);
-
-            if (!String.IsNullOrWhiteSpace(input.Path))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.Path.Trim(), StructuredRuntimeLogFormatter.ShortDetailLimit);
-
-            if (!String.IsNullOrWhiteSpace(input.Url))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.Url.Trim(), StructuredRuntimeLogFormatter.ShortDetailLimit);
-
-            if (!String.IsNullOrWhiteSpace(input.Query))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.Query.Trim(), StructuredRuntimeLogFormatter.ShortDetailLimit);
-
-            if (!String.IsNullOrWhiteSpace(input.Description))
-                return StructuredRuntimeLogFormatter.TruncateActivityText(input.Description.Trim(), StructuredRuntimeLogFormatter.ShortDetailLimit);
+            if (!String.IsNullOrWhiteSpace(input.FilePath)) return input.FilePath;
+            if (!String.IsNullOrWhiteSpace(input.NotebookPath)) return input.NotebookPath;
+            if (!String.IsNullOrWhiteSpace(input.Command)) return input.Command;
+            if (!String.IsNullOrWhiteSpace(input.Pattern)) return input.Pattern;
+            if (!String.IsNullOrWhiteSpace(input.Path)) return input.Path;
+            if (!String.IsNullOrWhiteSpace(input.Url)) return input.Url;
+            if (!String.IsNullOrWhiteSpace(input.Query)) return input.Query;
+            if (!String.IsNullOrWhiteSpace(input.Description)) return input.Description;
 
             return null;
         }
@@ -336,16 +446,20 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// True for system events that only report session bookkeeping.
+        /// True for system events. Every one of them reports session bookkeeping.
         /// </summary>
+        /// <remarks>
+        /// This used to suppress only the blank, "init", and "compact_boundary" subtypes. Any
+        /// other subtype fell through to the generic branch and was written as
+        /// "[ARMADA:ACTIVITY] claude system &lt;subtype&gt;" -- which the read-side noise filter
+        /// could not remove, because it matches "[ARMADA:ACTIVITY] claude system" exactly and the
+        /// suffix made every line distinct. A single run can emit dozens of them. Events that
+        /// genuinely matter, such as rate-limit notices, arrive with their own type and are
+        /// unaffected.
+        /// </remarks>
         private static bool IsSuppressedSystemEvent(ClaudeEvent evt)
         {
-            if (!String.Equals(evt.Type, "system", StringComparison.Ordinal))
-                return false;
-
-            return String.IsNullOrWhiteSpace(evt.Subtype)
-                || String.Equals(evt.Subtype, "init", StringComparison.Ordinal)
-                || String.Equals(evt.Subtype, "compact_boundary", StringComparison.Ordinal);
+            return String.Equals(evt.Type, "system", StringComparison.Ordinal);
         }
 
         private static ClaudeEvent? Deserialize(string line)
@@ -470,6 +584,22 @@ namespace Armada.Runtimes
             }
         }
 
+        /// <summary>
+        /// A tool call held until its result event arrives.
+        /// </summary>
+        private sealed class PendingToolCall
+        {
+            /// <summary>
+            /// Tool name as reported by the CLI.
+            /// </summary>
+            public string Name { get; set; } = String.Empty;
+
+            /// <summary>
+            /// Primary argument, unnormalized. The formatter relativizes and redacts it.
+            /// </summary>
+            public string? Detail { get; set; }
+        }
+
         private sealed class ClaudeContent
         {
             [JsonPropertyName("type")]
@@ -483,6 +613,18 @@ namespace Armada.Runtimes
 
             [JsonPropertyName("name")]
             public string? Name { get; set; }
+
+            /// <summary>
+            /// Identifier of a tool_use block, correlated against a later tool_result.
+            /// </summary>
+            [JsonPropertyName("id")]
+            public string? Id { get; set; }
+
+            /// <summary>
+            /// Identifier of the tool_use block a tool_result answers.
+            /// </summary>
+            [JsonPropertyName("tool_use_id")]
+            public string? ToolUseId { get; set; }
 
             [JsonPropertyName("input")]
             [JsonConverter(typeof(ClaudeToolInputConverter))]

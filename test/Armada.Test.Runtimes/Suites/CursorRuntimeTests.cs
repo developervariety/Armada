@@ -26,6 +26,10 @@ namespace Armada.Test.Runtimes.Suites
             public bool StdinEnabled() => UsePromptStdin;
 
             public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
+
+            public string TransformLine(string line) => TransformOutputLine(line);
+
+            public void SetDock(string directory) => WorkingDirectory = directory;
         }
 
         // Overrides GetWindowsOfficialInstallPath() to inject a controlled path
@@ -279,6 +283,61 @@ namespace Armada.Test.Runtimes.Suites
                     }
                 });
             }
+
+            // --- Real cursor-agent capture (v2026.07.23-e383d2b, --output-format stream-json) ---
+            //
+            // Captured from a headless cursor-agent run against a scratch directory; identifiers
+            // and paths are replaced with placeholders. Pinned verbatim because the shape is the whole reason Cursor tool calls
+            // were invisible: the tool is named by the KEY of the tool_call payload, and the map
+            // also holds a string ("toolCallId"), an array ("hookAdditionalContexts"), and the
+            // full tool OUTPUT, none of which may reach the mission log.
+
+            await RunTest("RealJsonl_ReadToolCall_RendersRelativePathAndStatus", () =>
+            {
+                InspectableCursorRuntime runtime = CreateRuntime();
+                runtime.SetDock("/work/example-dock");
+
+                string line = "{\"type\":\"tool_call\",\"subtype\":\"completed\",\"call_id\":\"call-example-0\",\"tool_call\":{\"readToolCall\":{\"args\":{\"path\":\"/work/example-dock/sample.txt\"},\"result\":{\"success\":{\"content\":\"hello world\\n\",\"isEmpty\":false,\"exceededLimit\":false,\"totalLines\":2,\"fileSize\":12,\"path\":\"/work/example-dock/sample.txt\",\"readRange\":{\"startLine\":1,\"endLine\":2},\"relatedCursorRulePaths\":[],\"relatedCursorRules\":[]}}},\"hookAdditionalContexts\":[],\"toolCallId\":\"call-example-0\",\"startedAtMs\":\"1785547476498\",\"completedAtMs\":\"1785547476528\"},\"model_call_id\":\"model-call-example\",\"session_id\":\"session-example\",\"timestamp_ms\":1785547476534}";
+
+                string result = runtime.TransformLine(line);
+                AssertEqual("[ARMADA:ACTIVITY] tool read sample.txt (ok)", result,
+                    "A real read call must render with a canonical name, a dock-relative path, and a status");
+                AssertFalse(result.Contains("hello world"), "File contents must never reach the mission log");
+                AssertFalse(result.Contains("\"type\""), "The raw event must not leak into the mission log");
+            });
+
+            await RunTest("RealJsonl_ShellToolCall_RendersCommandWithoutOutput", () =>
+            {
+                InspectableCursorRuntime runtime = CreateRuntime();
+
+                string line = "{\"type\":\"tool_call\",\"subtype\":\"completed\",\"call_id\":\"call-example-1\",\"tool_call\":{\"shellToolCall\":{\"args\":{\"command\":\"ls -la\",\"workingDirectory\":\"\",\"timeout\":30000,\"toolCallId\":\"call-example-1\",\"simpleCommands\":[\"ls\"],\"hasInputRedirect\":false,\"hasOutputRedirect\":false,\"parsingResult\":{\"parsingFailed\":false,\"executableCommands\":[{\"name\":\"ls\",\"args\":[{\"type\":\"word\",\"value\":\"-la\"}],\"fullText\":\"ls -la\"}],\"hasRedirects\":false,\"hasCommandSubstitution\":false,\"redirects\":[]},\"fileOutputThresholdBytes\":\"40000\",\"isBackground\":false,\"skipApproval\":false,\"timeoutBehavior\":\"TIMEOUT_BEHAVIOR_BACKGROUND\",\"hardTimeout\":86400000,\"description\":\"List directory contents in detail\",\"closeStdin\":true,\"conversationId\":\"session-example\"},\"result\":{\"success\":{\"command\":\"ls -la\",\"workingDirectory\":\"\",\"exitCode\":0,\"signal\":\"\",\"stdout\":\"total 16\\ndrwx------ 2 ubuntu ubuntu 4096 Aug  1 01:24 .\\ndrwxrwxrwt 1 root   root   4096 Aug  1 01:24 ..\\n-rw-r--r-- 1 ubuntu ubuntu   12 Aug  1 01:24 sample.txt\\n\",\"stderr\":\"\",\"executionTime\":58,\"interleavedOutput\":\"total 16\\ndrwx------ 2 ubuntu ubuntu 4096 Aug  1 01:24 .\\ndrwxrwxrwt 1 root   root   4096 Aug  1 01:24 ..\\n-rw-r--r-- 1 ubuntu ubuntu   12 Aug  1 01:24 sample.txt\\n\",\"localExecutionTimeMs\":22},\"isBackground\":false},\"description\":\"List directory contents in detail\"},\"hookAdditionalContexts\":[],\"toolCallId\":\"call-example-1\",\"startedAtMs\":\"1785547476502\",\"completedAtMs\":\"1785547476560\"},\"model_call_id\":\"model-call-example\",\"session_id\":\"session-example\",\"timestamp_ms\":1785547476568}";
+
+                string result = runtime.TransformLine(line);
+                AssertEqual("[ARMADA:ACTIVITY] tool bash ls -la (ok)", result,
+                    "shellToolCall must collapse to the canonical bash verb");
+                AssertFalse(result.Contains("drwx"), "Command output must never reach the mission log");
+                AssertFalse(result.Contains("TIMEOUT_BEHAVIOR"), "Tool plumbing arguments must not reach the mission log");
+            });
+
+            await RunTest("RealJsonl_StartedAndThinkingEvents_AreSuppressed", () =>
+            {
+                InspectableCursorRuntime runtime = CreateRuntime();
+
+                string started = "{\"type\":\"tool_call\",\"subtype\":\"started\",\"call_id\":\"c0\",\"tool_call\":{\"readToolCall\":{\"args\":{\"path\":\"/tmp/x/sample.txt\"}},\"hookAdditionalContexts\":[],\"toolCallId\":\"c0\",\"startedAtMs\":\"1785547476498\"}}";
+                AssertEqual(String.Empty, runtime.TransformLine(started),
+                    "The started event duplicates the completed one and carries no outcome");
+
+                string thinking = "{\"type\":\"thinking\",\"subtype\":\"delta\",\"text\":\"Reading sample.txt and\",\"session_id\":\"s\",\"timestamp_ms\":1785547476510}";
+                AssertEqual(String.Empty, runtime.TransformLine(thinking),
+                    "Reasoning is dropped by every runtime");
+
+                string init = "{\"type\":\"system\",\"subtype\":\"init\",\"apiKeySource\":\"login\",\"cwd\":\"/tmp/x\",\"model\":\"Cursor Grok 4.5 High Fast\"}";
+                AssertEqual(String.Empty, runtime.TransformLine(init), "Session bookkeeping must not be logged");
+
+                string assistant = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"I'll read sample.txt.\"}]},\"session_id\":\"s\"}";
+                AssertEqual("I'll read sample.txt.", runtime.TransformLine(assistant),
+                    "Assistant narration is the one thing Cursor logs today and must survive");
+            });
         }
     }
 }

@@ -299,6 +299,14 @@ namespace Armada.Runtimes
                 // Non-JSON line: fall through and return the line as-is.
             }
 
+            // Reasoning is private model deliberation, not mission progress. Every runtime drops
+            // it so the log reads the same everywhere. This test must come BEFORE the fall-through
+            // below, which would otherwise write the raw JSON line into the log.
+            if (evt != null && IsReasoningContentEvent(evt))
+            {
+                return String.Empty;
+            }
+
             if (evt != null && IsAssistantContentEvent(evt))
             {
                 _SawContent = true;
@@ -325,7 +333,7 @@ namespace Armada.Runtimes
         {
             return evt != null
                 && evt.Part != null
-                && (IsTextContentEvent(evt) || IsReasoningContentEvent(evt))
+                && IsTextContentEvent(evt)
                 && !String.IsNullOrEmpty(evt.Part.Text);
         }
 
@@ -353,40 +361,30 @@ namespace Armada.Runtimes
         /// </summary>
         private static string BuildAssistantContent(OpenCodeEvent evt)
         {
-            string text = evt.Part!.Text!;
-            return IsReasoningContentEvent(evt) ? RedactSecretValues(text) : text;
+            return evt.Part!.Text!;
         }
 
         /// <summary>
-        /// Build a compact, redacted tool activity record for the shared mission-log timeline.
-        /// Tool output is deliberately excluded because it is potentially large and sensitive.
+        /// Build the canonical activity record for one OpenCode tool call. Tool output is
+        /// deliberately excluded because it is potentially large and sensitive.
         /// </summary>
-        private static string BuildToolActivity(OpenCodeEvent evt)
+        private string BuildToolActivity(OpenCodeEvent evt)
         {
             OpenCodeToolInput? input = evt.Part!.State?.Input;
-            string detail = String.Empty;
+            string? detail = null;
             if (input != null)
             {
-                if (!String.IsNullOrWhiteSpace(input.FilePath))
-                    detail = " " + RedactSecretValues(input.FilePath.Trim());
-                else if (!String.IsNullOrWhiteSpace(input.Command))
-                    detail = " " + RedactSecretValues(TruncateActivityText(input.Command.Trim(), 240));
-                else if (!String.IsNullOrWhiteSpace(input.Pattern))
-                    detail = " " + RedactSecretValues(TruncateActivityText(input.Pattern.Trim(), 160));
+                if (!String.IsNullOrWhiteSpace(input.FilePath)) detail = input.FilePath;
+                else if (!String.IsNullOrWhiteSpace(input.Command)) detail = input.Command;
+                else if (!String.IsNullOrWhiteSpace(input.Pattern)) detail = input.Pattern;
+                else if (!String.IsNullOrWhiteSpace(input.Path)) detail = input.Path;
             }
 
-            string status = String.IsNullOrWhiteSpace(evt.Part.State?.Status)
-                ? String.Empty
-                : " (" + TruncateActivityText(evt.Part.State.Status.Trim(), 40) + ")";
-            return "[ARMADA:ACTIVITY] tool " + evt.Part.Tool!.Trim() + detail + status;
-        }
-
-        /// <summary>
-        /// Bound activity text before it reaches durable telemetry.
-        /// </summary>
-        private static string TruncateActivityText(string value, int maximumLength)
-        {
-            return StructuredRuntimeLogFormatter.TruncateActivityText(value, maximumLength);
+            return StructuredRuntimeLogFormatter.BuildToolActivity(
+                evt.Part.Tool,
+                detail,
+                evt.Part.State?.Status,
+                WorkingDirectory);
         }
 
         /// <summary>
@@ -400,14 +398,6 @@ namespace Armada.Runtimes
                 && evt.Part != null
                 && String.Equals(evt.Part.Type, "tool", StringComparison.Ordinal)
                 && !String.IsNullOrEmpty(evt.Part.Tool);
-        }
-
-        /// <summary>
-        /// Redact token/password/key-shaped material while preserving structural text.
-        /// </summary>
-        private static string RedactSecretValues(string value)
-        {
-            return StructuredRuntimeLogFormatter.RedactSecretValues(value);
         }
 
         /// <summary>

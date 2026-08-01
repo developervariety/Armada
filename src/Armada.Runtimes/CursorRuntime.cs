@@ -188,6 +188,18 @@ namespace Armada.Runtimes
         /// <summary>
         /// Render Cursor stream events without leaking JSON into mission logs.
         /// </summary>
+        /// <remarks>
+        /// cursor-agent reports a tool call as
+        /// <c>{"type":"tool_call","subtype":"completed","tool_call":{"readToolCall":{...}}}</c>:
+        /// the tool is named by the KEY of the payload object, and there is no "name" or "tool"
+        /// property anywhere. The generic name finder therefore matched nothing and every Cursor
+        /// tool call was silently dropped from the mission log, which is why Cursor logs read as
+        /// clean prose with no audit trail at all. This typed model restores them.
+        ///
+        /// Only the terminal <c>completed</c> event is rendered. The matching <c>started</c>
+        /// event describes the same call and carries no outcome, so logging both would double
+        /// every line and the first copy would always claim an unknown status.
+        /// </remarks>
         protected override string TransformOutputLine(string line)
         {
             CursorEvent? evt = Deserialize(line);
@@ -206,10 +218,63 @@ namespace Armada.Runtimes
                     return builder.ToString();
             }
 
-            if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, out string activity))
+            // Reasoning is private model deliberation, not mission progress. Every runtime drops
+            // it so the log reads the same everywhere.
+            if (String.Equals(evt.Type, "thinking", StringComparison.Ordinal))
+                return String.Empty;
+
+            if (String.Equals(evt.Type, "tool_call", StringComparison.Ordinal))
+                return BuildToolCallActivity(evt, line, WorkingDirectory);
+
+            if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, WorkingDirectory, out string activity))
                 return activity;
 
             return String.Empty;
+        }
+
+        /// <summary>
+        /// Render one cursor-agent tool_call event as a canonical activity record.
+        /// </summary>
+        private static string BuildToolCallActivity(CursorEvent evt, string line, string? workingDirectory)
+        {
+            if (!String.Equals(evt.Subtype, "completed", StringComparison.Ordinal))
+                return String.Empty;
+
+            CursorToolCall? call = null;
+            string? toolName = null;
+
+            if (evt.ToolCall != null)
+            {
+                foreach (KeyValuePair<string, CursorToolCall?> entry in evt.ToolCall)
+                {
+                    if (entry.Value == null) continue;
+                    if (!entry.Key.EndsWith("ToolCall", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    toolName = entry.Key;
+                    call = entry.Value;
+                    break;
+                }
+            }
+
+            if (call == null || String.IsNullOrWhiteSpace(toolName))
+            {
+                // Unknown payload shape: fall back to the generic finder rather than dropping the
+                // call, so a new cursor-agent tool still leaves a trace in the log.
+                string fallback;
+                return StructuredRuntimeLogFormatter.TryBuildToolActivity(line, workingDirectory, out fallback)
+                    ? fallback
+                    : String.Empty;
+            }
+
+            string status = call.Result?.Error != null
+                ? StructuredRuntimeLogFormatter.ErrorStatus
+                : StructuredRuntimeLogFormatter.OkStatus;
+
+            return StructuredRuntimeLogFormatter.BuildToolActivity(
+                toolName,
+                call.Args?.PrimaryDetail(),
+                status,
+                workingDirectory);
         }
 
         private static CursorEvent? Deserialize(string line)
@@ -246,11 +311,171 @@ namespace Armada.Runtimes
             [JsonPropertyName("type")]
             public string? Type { get; set; }
 
+            [JsonPropertyName("subtype")]
+            public string? Subtype { get; set; }
+
             [JsonPropertyName("message")]
             public CursorMessage? Message { get; set; }
 
+            /// <summary>
+            /// Tool call payload. cursor-agent keys the payload by tool name
+            /// ("readToolCall", "shellToolCall"), and mixes in non-tool bookkeeping entries
+            /// ("toolCallId", "hookAdditionalContexts") at the same level.
+            /// </summary>
+            [JsonPropertyName("tool_call")]
+            public Dictionary<string, CursorToolCall?>? ToolCall { get; set; }
+
             [JsonPropertyName("usage")]
             public CursorUsage? Usage { get; set; }
+        }
+
+        /// <summary>
+        /// One cursor-agent tool invocation.
+        /// </summary>
+        [JsonConverter(typeof(CursorToolCallConverter))]
+        private sealed class CursorToolCall
+        {
+            [JsonPropertyName("args")]
+            public CursorToolArgs? Args { get; set; }
+
+            [JsonPropertyName("result")]
+            public CursorToolResult? Result { get; set; }
+        }
+
+        /// <summary>
+        /// Reads a tool_call entry only when it is an object. The same map holds a string
+        /// ("toolCallId") and an array ("hookAdditionalContexts"); without this the whole event
+        /// would fail to deserialize and the raw JSON line would land in the mission log.
+        /// </summary>
+        private sealed class CursorToolCallConverter : JsonConverter<CursorToolCall?>
+        {
+            public override CursorToolCall? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            {
+                if (reader.TokenType != JsonTokenType.StartObject)
+                {
+                    reader.Skip();
+                    return null;
+                }
+
+                CursorToolCall call = new CursorToolCall();
+                while (reader.Read())
+                {
+                    if (reader.TokenType == JsonTokenType.EndObject) break;
+                    if (reader.TokenType != JsonTokenType.PropertyName) continue;
+
+                    string? propertyName = reader.GetString();
+                    reader.Read();
+
+                    if (String.Equals(propertyName, "args", StringComparison.Ordinal))
+                        call.Args = ReadNestedObject<CursorToolArgs>(ref reader, options);
+                    else if (String.Equals(propertyName, "result", StringComparison.Ordinal))
+                        call.Result = ReadNestedObject<CursorToolResult>(ref reader, options);
+                    else
+                        reader.Skip();
+                }
+
+                return call;
+            }
+
+            private static TValue? ReadNestedObject<TValue>(ref Utf8JsonReader reader, JsonSerializerOptions options)
+                where TValue : class
+            {
+                if (reader.TokenType != JsonTokenType.StartObject)
+                {
+                    reader.Skip();
+                    return null;
+                }
+
+                return JsonSerializer.Deserialize<TValue>(ref reader, options);
+            }
+
+            public override void Write(Utf8JsonWriter writer, CursorToolCall? value, JsonSerializerOptions options)
+            {
+                throw new NotSupportedException("Cursor tool calls are read-only telemetry.");
+            }
+        }
+
+        /// <summary>
+        /// The subset of cursor-agent tool arguments rendered in activity records. Any other
+        /// argument is intentionally not deserialized so it cannot reach the log.
+        /// </summary>
+        private sealed class CursorToolArgs
+        {
+            [JsonPropertyName("path")]
+            public string? Path { get; set; }
+
+            [JsonPropertyName("filePath")]
+            public string? FilePath { get; set; }
+
+            [JsonPropertyName("relativeWorkspacePath")]
+            public string? RelativeWorkspacePath { get; set; }
+
+            [JsonPropertyName("command")]
+            public string? Command { get; set; }
+
+            [JsonPropertyName("pattern")]
+            public string? Pattern { get; set; }
+
+            [JsonPropertyName("query")]
+            public string? Query { get; set; }
+
+            [JsonPropertyName("url")]
+            public string? Url { get; set; }
+
+            /// <summary>
+            /// Select the one argument that best identifies what the call acted on.
+            /// </summary>
+            /// <returns>Primary argument, or null when the tool takes none.</returns>
+            public string? PrimaryDetail()
+            {
+                if (!String.IsNullOrWhiteSpace(RelativeWorkspacePath)) return RelativeWorkspacePath;
+                if (!String.IsNullOrWhiteSpace(FilePath)) return FilePath;
+                if (!String.IsNullOrWhiteSpace(Path)) return Path;
+                if (!String.IsNullOrWhiteSpace(Command)) return Command;
+                if (!String.IsNullOrWhiteSpace(Pattern)) return Pattern;
+                if (!String.IsNullOrWhiteSpace(Query)) return Query;
+                if (!String.IsNullOrWhiteSpace(Url)) return Url;
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Outcome of a completed cursor-agent tool call. Only which branch is present matters;
+        /// the payload itself is tool output and is never rendered.
+        /// </summary>
+        private sealed class CursorToolResult
+        {
+            [JsonPropertyName("success")]
+            public CursorToolOutcome? Success { get; set; }
+
+            [JsonPropertyName("error")]
+            public CursorToolOutcome? Error { get; set; }
+        }
+
+        /// <summary>
+        /// Presence marker for a result branch. Tolerates a branch reported as a bare string
+        /// instead of an object.
+        /// </summary>
+        [JsonConverter(typeof(CursorToolOutcomeConverter))]
+        private sealed class CursorToolOutcome
+        {
+        }
+
+        /// <summary>
+        /// Reads a result branch of any JSON shape as a presence marker.
+        /// </summary>
+        private sealed class CursorToolOutcomeConverter : JsonConverter<CursorToolOutcome?>
+        {
+            public override CursorToolOutcome? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            {
+                reader.Skip();
+                return new CursorToolOutcome();
+            }
+
+            public override void Write(Utf8JsonWriter writer, CursorToolOutcome? value, JsonSerializerOptions options)
+            {
+                throw new NotSupportedException("Cursor tool results are read-only telemetry.");
+            }
         }
 
         private sealed class CursorMessage

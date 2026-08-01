@@ -499,13 +499,17 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(result.Contains(secretValue), "tool activity must not leak secret bytes");
             });
 
-            await RunTest("TransformOutputLine_ReasoningEvent_ReturnsRedactedText", () =>
+            await RunTest("TransformOutputLine_ReasoningEvent_IsDropped", () =>
             {
+                // Reasoning is private model deliberation, not mission progress. Every runtime
+                // drops it so the mission log reads the same whichever captain produced it. The
+                // suppression must happen before the non-JSON fall-through, or the raw event
+                // would be written to the log verbatim.
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string secretValue = "abcdefabcdefabcdefabcdefabcdefabcdefabcd";
                 string line = "{\"type\":\"reasoning\",\"part\":{\"type\":\"reasoning\",\"text\":\"Need to avoid token=" + secretValue + "\"}}";
                 string result = runtime.TransformLine(line);
-                AssertContains("Need to avoid token=<redacted len=40>", result);
+                AssertEqual(String.Empty, result, "Reasoning must not reach the mission log");
                 AssertFalse(result.Contains(secretValue), "Reasoning text must not leak secret-shaped values");
                 AssertFalse(result.Contains("\"type\""), "Reasoning event must not leak raw JSON");
             });
@@ -547,7 +551,7 @@ namespace Armada.Test.Runtimes.Suites
                 InspectableOpenCodeRuntime runtime = CreateRuntime();
                 string line = "{\"type\":\"tool_use\",\"timestamp\":1781834748604,\"sessionID\":\"ses_x\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"callID\":\"read_0\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"src/File.cs\"},\"output\":\"<path>...</path>\"},\"title\":\"\"}}";
                 string result = runtime.TransformLine(line);
-                AssertEqual("[ARMADA:ACTIVITY] tool read src/File.cs (completed)", result, "Live tool_use event must be readable with no raw JSON or output leak");
+                AssertEqual("[ARMADA:ACTIVITY] tool read src/File.cs (ok)", result, "Live tool_use event must be readable with no raw JSON or output leak");
             });
 
             await RunTest("RealJsonl_TextAndToolUseStream_SurfacesTextOnly", () =>

@@ -54,6 +54,15 @@ namespace Armada.Runtimes
                 return true;
             }
 
+            // Claude Code session bookkeeping. The exact-match set above cannot catch these: the
+            // runtime appended the event subtype, so every line was distinct
+            // ("claude system thinking tokens" x20+ in a single mission). The runtime no longer
+            // writes them, but existing logs are full of them and are still read.
+            if (line.StartsWith("[ARMADA:ACTIVITY] claude system ", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
             if (line.StartsWith("[ARMADA:ACTIVITY] cursor ", StringComparison.Ordinal)
                 || line.StartsWith("[ARMADA:ACTIVITY] gemini ", StringComparison.Ordinal)
                 || line.StartsWith("[ARMADA:ACTIVITY] mux ", StringComparison.Ordinal))
