@@ -14,7 +14,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         public override string Name => "Runtime Output Formatting";
 
-        private const string _Dock = "/work/example-dock";
+        private const string _Dock = "/work/fleet/example-dock";
 
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
@@ -295,6 +295,73 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            // Defects found by reading 160 real mission logs after the first deployment.
+            await RunTest("Claude_SuppressesToolProgressHeartbeat", () =>
+            {
+                // The CLI emits one of these every 30s while a long command runs. It carries no
+                // tool name, argument, or outcome, and one mission logged 22 of them.
+                TestClaudeCodeRuntime runtime = new TestClaudeCodeRuntime();
+                AssertEqual(String.Empty, runtime.Format("{\"type\":\"tool_progress\",\"tool_use_id\":\"tu_1\"}"));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Claude_ErroredResult_DoesNotAlsoClaimSuccess", () =>
+            {
+                // The CLI reports subtype "success" even on an errored turn, which rendered as
+                // the self-contradicting "claude result success error".
+                TestClaudeCodeRuntime runtime = new TestClaudeCodeRuntime();
+                AssertEqual(
+                    "[ARMADA:ACTIVITY] claude result error (1 turns)",
+                    runtime.Format("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"num_turns\":1}"));
+                AssertEqual(
+                    "[ARMADA:ACTIVITY] claude result success (17 turns)",
+                    runtime.Format("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":17}"));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Redaction_LeavesCamelCaseIdentifiersIntact", () =>
+            {
+                // A batch of long CamelCase source file names was logged as "<redacted len=40>.cs",
+                // which hides what the captain touched and protects nothing.
+                TestClaudeCodeRuntime runtime = new TestClaudeCodeRuntime();
+                string activity = runtime.Format("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"for f in AftOutletNOxSensorExampleJ1939.cs AirHandlingPerformanceExampleJ1939.cs; do echo $f; done\"}}]}}");
+                AssertContains("AftOutletNOxSensorExampleJ1939.cs", activity, "A long identifier is not a secret");
+                AssertFalse(activity.Contains("<redacted"), "Identifiers must survive redaction intact");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Redaction_StillCatchesLabelledCredentials", () =>
+            {
+                TestClaudeCodeRuntime runtime = new TestClaudeCodeRuntime();
+
+                string header = runtime.Format("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"curl -H 'Authorization: Bearer sk0aBcD1efGh2IjKl3MnOp4QrSt5UvWx'\"}}]}}");
+                AssertContains("Bearer <redacted len=", header, "A bearer credential must be redacted, with the scheme left readable");
+                AssertFalse(header.Contains("sk0aBcD1efGh2IjKl3MnOp4QrSt5UvWx"), "Raw bearer token must not survive");
+
+                string pair = runtime.Format("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"deploy --api-key=abcdefabcdefabcdefabcdefabcdefab\"}}]}}");
+                AssertContains("<redacted len=", pair, "A labelled key must be redacted");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SiblingCheckouts_RenderAsParentRelativePaths", () =>
+            {
+                // Sibling source trees sit next to the dock and mission briefs address them as
+                // "../Name". Rendering the absolute form put the same long prefix on hundreds of
+                // lines and did not match how the captain was asked to reach them.
+                TestOpenCodeRuntime runtime = new TestOpenCodeRuntime();
+                runtime.SetDock(_Dock);
+                AssertEqual(
+                    "[ARMADA:ACTIVITY] tool read ../SiblingSource/output/Decoded/Widget.cs (ok)",
+                    runtime.Format("{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"/work/fleet/SiblingSource/output/Decoded/Widget.cs\"}}}}"));
+
+                // Anything further away keeps its absolute form; at that distance the location is
+                // the information.
+                AssertEqual(
+                    "[ARMADA:ACTIVITY] tool read /elsewhere/entirely/Other.cs (ok)",
+                    runtime.Format("{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"/elsewhere/entirely/Other.cs\"}}}}"));
+                return Task.CompletedTask;
+            });
+
             await RunTest("ExistingLogs_FilterEnvelopeOnlyActivityRecords", () =>
             {
                 string[] filtered = RuntimeLogNoiseFilter.Filter(new[]
@@ -303,6 +370,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "[ARMADA:ACTIVITY] claude user",
                     "[ARMADA:ACTIVITY] claude system",
                     "[ARMADA:ACTIVITY] claude system thinking tokens",
+                    "[ARMADA:ACTIVITY] claude tool progress",
                     "[ARMADA:ACTIVITY] codex item completed",
                     "[ARMADA:ACTIVITY] claude rate limit event",
                     "[ARMADA:ACTIVITY] tool read src/Program.cs (ok)",

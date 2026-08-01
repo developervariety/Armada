@@ -208,9 +208,13 @@ namespace Armada.Runtimes
             }
 
             // Session bookkeeping and partial-message deltas add no operator value; the deltas
-            // also duplicate the completed assistant event.
+            // also duplicate the completed assistant event. A tool_progress heartbeat carries no
+            // tool name, argument, or outcome -- the CLI emits one every 30s while a long command
+            // runs, so a single mission logged 22 identical "claude tool progress" lines. The
+            // call itself is already recorded once, with its result.
             if (IsSuppressedSystemEvent(evt) ||
-                String.Equals(evt.Type, "stream_event", StringComparison.Ordinal))
+                String.Equals(evt.Type, "stream_event", StringComparison.Ordinal) ||
+                String.Equals(evt.Type, "tool_progress", StringComparison.Ordinal))
             {
                 return records;
             }
@@ -433,11 +437,16 @@ namespace Armada.Runtimes
         {
             StringBuilder builder = new StringBuilder("[ARMADA:ACTIVITY] claude result");
 
-            if (!String.IsNullOrWhiteSpace(evt.Subtype))
-                builder.Append(' ').Append(StructuredRuntimeLogFormatter.TruncateActivityText(evt.Subtype.Trim(), 40));
-
+            // The CLI still reports subtype "success" on a turn that errored, so printing both
+            // produced the self-contradicting "claude result success error". The outcome wins.
             if (evt.IsError == true)
-                builder.Append(" error");
+            {
+                builder.Append(' ').Append(StructuredRuntimeLogFormatter.ErrorStatus);
+            }
+            else if (!String.IsNullOrWhiteSpace(evt.Subtype))
+            {
+                builder.Append(' ').Append(StructuredRuntimeLogFormatter.TruncateActivityText(evt.Subtype.Trim(), 40));
+            }
 
             if (evt.NumTurns.HasValue)
                 builder.Append(" (").Append(Math.Max(0, evt.NumTurns.Value)).Append(" turns)");

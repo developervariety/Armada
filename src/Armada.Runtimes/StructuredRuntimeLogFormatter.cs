@@ -347,13 +347,14 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Strip the dock root from every path in a value so the log shows repository-relative
-        /// paths. Paths outside the dock keep their absolute form because the location is the
-        /// information -- a sibling source tree is not the same as a file in the checkout.
+        /// Rewrite absolute paths the way the captain was told to address them: files in its own
+        /// dock become repository-relative, and files in a dock sibling become "../Name/...".
+        /// Anything further away keeps its absolute form, because at that distance the location
+        /// IS the information.
         /// </summary>
         /// <param name="value">Text that may contain absolute paths.</param>
         /// <param name="workingDirectory">Dock root.</param>
-        /// <returns>Text with dock-rooted paths made relative.</returns>
+        /// <returns>Text with dock-rooted and sibling paths made relative.</returns>
         public static string RelativizePaths(string value, string? workingDirectory)
         {
             if (String.IsNullOrEmpty(value) || String.IsNullOrWhiteSpace(workingDirectory))
@@ -368,6 +369,17 @@ namespace Armada.Runtimes
 
             // A bare reference to the dock root itself still has to read as a path.
             rendered = rendered.Replace(root, ".", StringComparison.Ordinal);
+
+            // Sibling checkouts sit next to the dock, and mission briefs point at them as
+            // "../Name". Rendering the absolute form instead put the same long prefix on hundreds
+            // of lines and did not match how the captain was asked to reach them.
+            string? parent = GetParentDirectory(root);
+            if (!String.IsNullOrEmpty(parent))
+            {
+                rendered = rendered.Replace(parent + "/", "../", StringComparison.Ordinal);
+                rendered = rendered.Replace(parent + "\\", "..\\", StringComparison.Ordinal);
+            }
+
             return rendered;
         }
 
@@ -410,21 +422,49 @@ namespace Armada.Runtimes
                 "\\b[0-9a-fA-F]{32,}\\b",
                 RedactMatchedSecret);
 
-            // Standalone high-entropy blobs. The character class deliberately excludes '/':
-            // including it let a single match span a whole filesystem path, so an ordinary
-            // recursive-grep command was logged as "<redacted len=81>" and the reader could not
-            // tell what the captain had searched.
+            // Credentials carried by an auth scheme rather than a key=value pair.
             redacted = Regex.Replace(
                 redacted,
-                "\\b[A-Za-z0-9+]{40,}={0,2}\\b",
-                RedactHighEntropyValue);
+                "(?i)\\b(bearer|basic)\\s+([A-Za-z0-9+/=_.-]{16,})",
+                RedactSchemeCredential);
 
+            // There is deliberately NO generic "long random-looking blob" rule. Two attempts at
+            // one both did more harm than good: the first spanned whole filesystem paths, and a
+            // narrower mixed-case-plus-digit version still ate ordinary CamelCase identifiers --
+            // a batch of 40-character source file names logged as "<redacted len=40>.cs", which
+            // hides what the captain touched while protecting nothing. A secret in a command
+            // essentially always arrives labelled (key=value, Bearer, Basic) or as a PEM block or
+            // a hex string, and those are matched above. An unlabelled blob is not distinguishable
+            // from an identifier by shape, so guessing costs readability on every line and buys
+            // little.
             return redacted;
         }
 
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Return the parent of a directory path, or null when it is too shallow to be a useful
+        /// prefix. A near-root parent such as "/home" would match far more than dock siblings.
+        /// </summary>
+        private static string? GetParentDirectory(string path)
+        {
+            int lastSeparator = path.LastIndexOfAny(new char[] { '/', '\\' });
+            if (lastSeparator <= 0)
+                return null;
+
+            string parent = path.Substring(0, lastSeparator);
+
+            // Require at least two segments ("/a/b"), so a shallow prefix never becomes "../".
+            int segments = 0;
+            foreach (char character in parent)
+            {
+                if (character == '/' || character == '\\') segments++;
+            }
+
+            return segments >= 2 ? parent : null;
+        }
 
         /// <summary>
         /// Regex evaluator for key=value secret values.
@@ -443,29 +483,11 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Regex evaluator for standalone blobs. A long run of characters is only treated as a
-        /// secret when it also LOOKS random: mixed case plus at least one digit. Identifiers a
-        /// captain legitimately logs -- long snake_case symbols, package names, path segments --
-        /// fail that test and survive, which keeps commands readable.
+        /// Regex evaluator for a credential carried by an auth scheme, keeping the scheme visible.
         /// </summary>
-        private static string RedactHighEntropyValue(Match match)
+        private static string RedactSchemeCredential(Match match)
         {
-            string value = match.Value;
-            bool hasDigit = false;
-            bool hasUpper = false;
-            bool hasLower = false;
-
-            foreach (char character in value)
-            {
-                if (Char.IsDigit(character)) hasDigit = true;
-                else if (Char.IsUpper(character)) hasUpper = true;
-                else if (Char.IsLower(character)) hasLower = true;
-            }
-
-            if (hasDigit && hasUpper && hasLower)
-                return "<redacted len=" + value.Length + ">";
-
-            return value;
+            return match.Groups[1].Value + " <redacted len=" + match.Groups[2].Value.Length + ">";
         }
 
         private static bool ContainsToolMarker(JsonElement element, int depth)

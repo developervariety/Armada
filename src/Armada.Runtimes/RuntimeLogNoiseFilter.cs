@@ -18,6 +18,7 @@ namespace Armada.Runtimes
             "[ARMADA:ACTIVITY] claude system",
             "[ARMADA:ACTIVITY] claude result",
             "[ARMADA:ACTIVITY] claude stream event",
+            "[ARMADA:ACTIVITY] claude tool progress",
             "[ARMADA:ACTIVITY] codex item completed",
             "[ARMADA:ACTIVITY] codex item started",
             "[ARMADA:ACTIVITY] codex item updated",
