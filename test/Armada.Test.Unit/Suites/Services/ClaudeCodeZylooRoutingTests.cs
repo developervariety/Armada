@@ -48,8 +48,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertEqual("https://api.zyloo.io", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "A Zyloo captain must be pointed at Zyloo's Anthropic-native endpoint");
-                    AssertEqual("test-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_AUTH_TOKEN"],
-                        "The Zyloo key must be supplied as the Anthropic auth token");
+                    AssertEqual("test-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
+                        "The Zyloo key must be supplied as ANTHROPIC_API_KEY, the form Zyloo documents");
                     return Task.CompletedTask;
                 });
 
@@ -62,7 +62,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "A native Claude captain must never be redirected to another endpoint");
-                    AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_AUTH_TOKEN"),
+                    AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_API_KEY"),
                         "A native Claude captain must never receive the Zyloo credential");
                     return Task.CompletedTask;
                 });
@@ -83,20 +83,20 @@ namespace Armada.Test.Unit.Suites.Services
                     return Task.CompletedTask;
                 });
 
-                await RunTest("InheritedApiKey_IsClearedForZylooCaptainsOnly", () =>
+                await RunTest("InheritedAuthToken_IsClearedForZylooCaptainsOnly", () =>
                 {
-                    // ANTHROPIC_API_KEY would win over the auth token inside the CLI, so it must be
-                    // cleared for the Zyloo child -- and left intact for everyone else.
+                    // An inherited ANTHROPIC_AUTH_TOKEN outranks the API key inside the CLI, so it must
+                    // be cleared for the Zyloo child -- and left intact for everyone else.
                     ProcessStartInfo zyloo = new ProcessStartInfo();
-                    zyloo.Environment["ANTHROPIC_API_KEY"] = "inherited-native-key";
+                    zyloo.Environment["ANTHROPIC_AUTH_TOKEN"] = "inherited-native-token";
                     InvokeRouting(zyloo, CaptainWithModel("zyloo-3", "zyloo/claude-opus-4-7"));
-                    AssertFalse(zyloo.Environment.ContainsKey("ANTHROPIC_API_KEY"),
-                        "A stale inherited API key must not override the Zyloo token");
+                    AssertFalse(zyloo.Environment.ContainsKey("ANTHROPIC_AUTH_TOKEN"),
+                        "A stale inherited auth token must not override the Zyloo API key");
 
                     ProcessStartInfo native = new ProcessStartInfo();
-                    native.Environment["ANTHROPIC_API_KEY"] = "inherited-native-key";
+                    native.Environment["ANTHROPIC_AUTH_TOKEN"] = "inherited-native-token";
                     InvokeRouting(native, CaptainWithModel("native-3", "claude-opus-4-7"));
-                    AssertEqual("inherited-native-key", native.Environment["ANTHROPIC_API_KEY"],
+                    AssertEqual("inherited-native-token", native.Environment["ANTHROPIC_AUTH_TOKEN"],
                         "A native captain's own credential must be left untouched");
                     return Task.CompletedTask;
                 });

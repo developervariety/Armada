@@ -41,18 +41,6 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Strips the <c>zyloo/</c> prefix, yielding the identifier Zyloo's own API expects.
-        /// </summary>
-        /// <param name="model">Canonical Zyloo model identifier.</param>
-        /// <returns>The provider-side model id, or the input unchanged when it carries no prefix.</returns>
-        public static string StripZylooPrefix(string? model)
-        {
-            if (String.IsNullOrWhiteSpace(model)) return model ?? String.Empty;
-            string trimmed = model.Trim();
-            return IsZylooModel(trimmed) ? trimmed.Substring(_ModelPrefix.Length) : trimmed;
-        }
-
-        /// <summary>
         /// Anthropic-native base URL for Zyloo. The Anthropic clients append <c>/v1/messages</c>
         /// themselves, so this deliberately omits the <c>/v1</c> segment that the OpenAI-compatible
         /// overlay carries.

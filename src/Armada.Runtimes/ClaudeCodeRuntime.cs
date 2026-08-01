@@ -124,11 +124,8 @@ namespace Armada.Runtimes
 
             if (!String.IsNullOrEmpty(model))
             {
-                // A Zyloo model reaches the CLI as "zyloo/<id>", but the request goes to Zyloo's own
-                // Anthropic-native endpoint, which expects the bare id. ApplyEnvironment points the
-                // process at that endpoint; this strips the prefix the endpoint does not want.
                 args.Add("--model");
-                args.Add(Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.StripZylooPrefix(model));
+                args.Add(model);
             }
 
             if (SkipPermissions)
@@ -549,13 +546,16 @@ namespace Armada.Runtimes
             string? key = Environment.GetEnvironmentVariable("ZYLOO_KEY");
             if (String.IsNullOrWhiteSpace(key)) return;
 
+            // Exactly the form Zyloo documents for Claude Code: base URL, ANTHROPIC_API_KEY, and the
+            // model id kept at its canonical "zyloo/<id>". The provider routes on that prefix, so it
+            // is passed through to --model unchanged rather than rewritten here.
             startInfo.Environment["ANTHROPIC_BASE_URL"] =
                 Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.AnthropicBaseUrl;
-            startInfo.Environment["ANTHROPIC_AUTH_TOKEN"] = key;
+            startInfo.Environment["ANTHROPIC_API_KEY"] = key;
 
-            // A stale key of the other kind in the inherited environment would win over the token
-            // above inside the CLI, so clear it for this child only.
-            startInfo.Environment.Remove("ANTHROPIC_API_KEY");
+            // An inherited auth token outranks the API key inside the CLI, so clear it for this child
+            // only; the native captain beside it keeps its own.
+            startInfo.Environment.Remove("ANTHROPIC_AUTH_TOKEN");
         }
 
         /// <summary>
