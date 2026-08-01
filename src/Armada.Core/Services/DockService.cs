@@ -136,6 +136,19 @@ namespace Armada.Core.Services
                             .Select(d => d.WorktreePath!),
                         StringComparer.OrdinalIgnoreCase);
 
+                    // Sibling worktrees (e.g. docks/<Vessel>/JproDeobfuscator) live alongside the
+                    // per-mission dock directories and are SHARED by every concurrent dock on the
+                    // vessel. They are owned by ProvisionSiblingReposAsync, which reuses a healthy
+                    // checkout and rebuilds only a stale one, so the generic stale-worktree sweep
+                    // below must never remove them: doing so mid-run erases the decompiled-source
+                    // view a sibling-reading captain in another dock is actively using.
+                    HashSet<string> siblingDirPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (SiblingRepo siblingRepo in vessel.GetSiblingRepos())
+                    {
+                        if (siblingRepo == null || String.IsNullOrWhiteSpace(siblingRepo.RelativePath)) continue;
+                        siblingDirPaths.Add(Path.GetFullPath(Path.Combine(worktreePath, siblingRepo.RelativePath)));
+                    }
+
                     foreach (string existingDir in Directory.GetDirectories(vesselDockDir))
                     {
                         string dirName = Path.GetFileName(existingDir);
@@ -147,6 +160,13 @@ namespace Armada.Core.Services
                         if (activeDockPaths.Contains(existingDir))
                         {
                             _Logging.Info(_Header + "skipping cleanup of " + existingDir + ": still in use by an active dock");
+                            continue;
+                        }
+
+                        // Skip shared sibling worktrees -- managed by ProvisionSiblingReposAsync
+                        if (siblingDirPaths.Contains(Path.GetFullPath(existingDir)))
+                        {
+                            _Logging.Debug(_Header + "skipping cleanup of sibling worktree " + existingDir + ": managed by sibling provisioning");
                             continue;
                         }
 
@@ -726,6 +746,17 @@ namespace Armada.Core.Services
                     continue;
                 }
 
+                // The shared sibling worktree is populated once by the first dock and reused by every
+                // concurrent dock on the vessel. Re-copying on each reuse both wastes IO on large
+                // extraction trees and, worse, briefly overwrites files a sibling-reading captain in
+                // another dock may be mid-read on. Skip when the destination is already populated;
+                // ProvisionSiblingReposAsync rebuilds the sibling from scratch when it goes stale.
+                if (Directory.Exists(destDir) && Directory.EnumerateFileSystemEntries(destDir).Any())
+                {
+                    _Logging.Debug(_Header + "extraction artifacts already present at " + destDir + "; skipping re-copy (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
+                    continue;
+                }
+
                 try
                 {
                     CopyDirectoryRecursive(sourceDir, destDir);
@@ -851,6 +882,31 @@ namespace Armada.Core.Services
 
             List<SiblingRepo> siblings = vessel.GetSiblingRepos();
             if (siblings.Count == 0) return;
+
+            // Sibling worktrees are SHARED by every concurrent dock on the vessel (they resolve to
+            // one path such as docks/<Vessel>/JproDeobfuscator, one level above each dock worktree).
+            // Tearing them down on one dock's teardown while another dock's captain is still reading
+            // them erases that captain's cross-repo source view. Reference-count: only remove the
+            // shared siblings when this is the last active dock on the vessel.
+            try
+            {
+                List<Dock> vesselDocks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+                foreach (Dock otherDock in vesselDocks)
+                {
+                    if (otherDock == null) continue;
+                    if (String.Equals(otherDock.Id, dock.Id, StringComparison.Ordinal)) continue;
+                    if (otherDock.Active)
+                    {
+                        _Logging.Info(_Header + "keeping shared sibling worktrees for vessel " + vessel.Id
+                            + ": dock " + otherDock.Id + " is still active");
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not reference-count docks for sibling cleanup on vessel " + vessel.Id + ": " + ex.Message);
+            }
 
             foreach (SiblingRepo sibling in siblings)
             {
