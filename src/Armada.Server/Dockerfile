@@ -1,3 +1,23 @@
+# --- Mux runtime stage ---
+# Build the Mux runtime (jchristn/Mux, .NET) from source and stage it to a fixed
+# tool path. This is the CLI agent Armada drives via `mux print` -- NOT the
+# unrelated npm "coder multiplexer" that also claims the `mux` name and whose
+# CLI (`mux run --dir --quiet`) and headless behavior are incompatible.
+#
+# This stage must not depend on the Armada source tree. A step placed after the
+# source COPY is invalidated by every commit, and each rebuild leaves a fresh
+# multi-gigabyte record in the builder cache. Keep source-independent work in a
+# stage of its own so it is built once and reused. Change MUX_REF to pick up a
+# new Mux revision; the layer is cached until that value changes.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS mux
+ARG MUX_REF=main
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone --depth 1 --branch "${MUX_REF}" https://github.com/jchristn/Mux.git /tmp/Mux \
+    && dotnet pack /tmp/Mux/src/Mux.Cli/Mux.Cli.csproj -c Release -p:TargetFrameworks=net10.0 -o /tmp/mux-pkg \
+    && dotnet tool install --tool-path /opt/mux --framework net10.0 --disable-parallel --add-source /tmp/mux-pkg Mux.Cli \
+    && rm -rf /tmp/Mux /tmp/mux-pkg /root/.nuget/packages /tmp/NuGetScratch
+
 # --- Build stage ---
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -15,17 +35,6 @@ COPY src/Armada.Core/ src/Armada.Core/
 COPY src/Armada.Runtimes/ src/Armada.Runtimes/
 COPY src/Armada.Server/ src/Armada.Server/
 RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore
-
-# Build the Mux runtime (jchristn/Mux, .NET) from source and stage it to a fixed
-# tool path. This is the CLI agent Armada drives via `mux print` -- NOT the
-# unrelated npm "coder multiplexer" that also claims the `mux` name and whose
-# CLI (`mux run --dir --quiet`) and headless behavior are incompatible.
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/* \
-    && git clone --depth 1 https://github.com/jchristn/Mux.git /tmp/Mux \
-    && dotnet pack /tmp/Mux/src/Mux.Cli/Mux.Cli.csproj -c Release -p:TargetFrameworks=net10.0 -o /tmp/mux-pkg \
-    && dotnet tool install --tool-path /opt/mux --framework net10.0 --disable-parallel --add-source /tmp/mux-pkg Mux.Cli \
-    && rm -rf /tmp/Mux /tmp/mux-pkg
 
 # --- Runtime stage ---
 # Captains run repository checks inside mission docks. Use the SDK image so
@@ -49,10 +58,10 @@ RUN apt-get update \
 
 COPY --from=build /app .
 
-# jchristn/Mux runtime (built in the build stage). Expose it on PATH as `mux`
+# jchristn/Mux runtime (built in the mux stage). Expose it on PATH as `mux`
 # so Armada's Mux runtime launches it. The npm `mux` (coder) is intentionally
 # NOT installed above.
-COPY --from=build /opt/mux /opt/mux
+COPY --from=mux /opt/mux /opt/mux
 RUN ln -sf /opt/mux/mux /usr/local/bin/mux
 
 # Armada default ports: 7890 (Admiral + WebSocket at /ws), 7891 (MCP)

@@ -122,6 +122,28 @@ if ! command -v docker >/dev/null; then
 fi
 ok "docker $(docker --version | awk '{print $3}' | tr -d ,)"
 
+# The admiral image is rebuilt on the server on every deploy, so the builder
+# cache grows without limit unless a garbage-collection policy bounds it. Cap it
+# here rather than relying on a manual prune, which is forgotten until the disk
+# fills. Raise the ceiling only if a normal build stops hitting its cache.
+if [ ! -f /etc/docker/daemon.json ]; then
+  install -m 0755 -d /etc/docker
+  cat > /etc/docker/daemon.json <<'DAEMONJSON'
+{
+  "builder": {
+    "gc": {
+      "enabled": true,
+      "defaultKeepStorage": "20GB"
+    }
+  }
+}
+DAEMONJSON
+  systemctl restart docker
+  ok "docker builder cache capped at 20GB"
+else
+  warn "/etc/docker/daemon.json exists — check that builder.gc caps the cache"
+fi
+
 # gh — NOTE: must exist on the HOST too, not just in the image. Without it,
 # host-side GitHub operations fail with "gh: not found".
 if ! command -v gh >/dev/null; then
