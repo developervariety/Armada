@@ -1229,6 +1229,71 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Apply the runtime-tunable values from another settings instance into this
+        /// one, in place. Used by the settings file watcher so an edit to settings.json
+        /// takes effect without a restart, and available to any caller that must update
+        /// live settings without swapping the shared instance.
+        ///
+        /// Only values that are safe to change while the server runs are copied.
+        /// Ports, filesystem paths, database settings, API keys, agent runtime
+        /// definitions and remote-control settings are deliberately excluded: they are
+        /// bound at startup or carry their own change protocol, so changing them here
+        /// would leave the process inconsistent with its own bindings. Those still
+        /// require a restart.
+        ///
+        /// Nested sections are merged with CopyFrom rather than reference assignment
+        /// where a live service captures the nested object at construction, so the
+        /// running service observes the new values.
+        /// </summary>
+        /// <param name="source">Settings to copy runtime-tunable values from. Null is ignored.</param>
+        public void ApplyHotReloadableFrom(ArmadaSettings source)
+        {
+            if (source == null) return;
+
+            // Capacity and dispatch pacing.
+            MinIdleCaptains = source.MinIdleCaptains;
+            MaxCaptains = source.MaxCaptains;
+            MaxConcurrentCaptainWorkloads = source.MaxConcurrentCaptainWorkloads;
+            HeartbeatIntervalSeconds = source.HeartbeatIntervalSeconds;
+            LaunchProcessIdGraceSeconds = source.LaunchProcessIdGraceSeconds;
+            StallThresholdMinutes = source.StallThresholdMinutes;
+            StageWatchdogTimeoutMinutes = source.StageWatchdogTimeoutMinutes;
+            IdleCaptainTimeoutSeconds = source.IdleCaptainTimeoutSeconds;
+            MaxRecoveryAttempts = source.MaxRecoveryAttempts;
+            MaxLandingRetries = source.MaxLandingRetries;
+            MaxMissionInputBlocks = source.MaxMissionInputBlocks;
+            CaptainInstructionByteBudget = source.CaptainInstructionByteBudget;
+
+            // Landing behaviour.
+            AutoPush = source.AutoPush;
+            AutoCreatePullRequests = source.AutoCreatePullRequests;
+            AutoMergePullRequests = source.AutoMergePullRequests;
+
+            // Planning-session lifecycle.
+            PlanningSessionRetentionDays = source.PlanningSessionRetentionDays;
+            PlanningSessionInactivityTimeoutMinutes = source.PlanningSessionInactivityTimeoutMinutes;
+            PlanningSessionAbandonmentTimeoutMinutes = source.PlanningSessionAbandonmentTimeoutMinutes;
+
+            // The admission gate is constructed with a reference to this nested object,
+            // so it must be mutated in place or the running gate keeps the old limits.
+            ResourcePressureAdmission.CopyFrom(source.ResourcePressureAdmission);
+
+            // Read through the shared settings instance today, but merged in place so a
+            // future by-reference consumer does not silently go stale.
+            ModelTier.CopyFrom(source.ModelTier);
+
+            // Read through the shared settings instance on every use.
+            CaptainQuarantine = source.CaptainQuarantine;
+            AutonomousRecovery = source.AutonomousRecovery;
+            CrashLoopDetection = source.CrashLoopDetection;
+            AutonomousObjectiveScheduler = source.AutonomousObjectiveScheduler;
+            IncidentLifecycle = source.IncidentLifecycle;
+            DockBoundary = source.DockBoundary;
+            DefinitionOfDone = source.DefinitionOfDone;
+            Architect = source.Architect;
+        }
+
+        /// <summary>
         /// Save settings to a JSON file.
         /// </summary>
         /// <param name="path">File path. Defaults to ~/.armada/settings.json.</param>

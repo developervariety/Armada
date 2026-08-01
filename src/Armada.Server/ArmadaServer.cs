@@ -55,6 +55,7 @@ namespace Armada.Server
         private IBuildDriftService _BuildDriftService = null!;
         private ICaptainQuarantineService _CaptainQuarantine = null!;
         private AgentRuntimeFactory _RuntimeFactory = null!;
+        private SettingsFileWatcher? _SettingsWatcher;
 
         private Webserver _App = null!;
         private ArmadaMcpHttpServer _McpServer = null!;
@@ -499,6 +500,12 @@ namespace Armada.Server
             _App.Start(_TokenSource.Token);
             _Logging.Info(_Header + "REST API started on port " + _Settings.AdmiralPort);
 
+            // Settings are otherwise read once at startup, so a hand edit to
+            // settings.json would not take effect until the next restart. Started after
+            // the services above are wired so a reload cannot race construction.
+            _SettingsWatcher = new SettingsFileWatcher(_Settings, _Logging);
+            _SettingsWatcher.Start();
+
             // Initialize MCP server
             _McpServer = new ArmadaMcpHttpServer(_Settings.Rest.Hostname, _Settings.McpPort);
             _McpServer.ServerName = ArmadaConstants.ProductName;
@@ -643,6 +650,14 @@ namespace Armada.Server
             try
             {
                 _OpenCodeServerLauncher?.Dispose();
+            }
+            catch
+            {
+            }
+            try
+            {
+                _SettingsWatcher?.Dispose();
+                _SettingsWatcher = null;
             }
             catch
             {

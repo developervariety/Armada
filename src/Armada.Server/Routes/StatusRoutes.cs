@@ -409,6 +409,27 @@ namespace Armada.Server.Routes
                 if (remoteControlChanged)
                     _settings.RemoteControl = body.RemoteControl!;
 
+                // Applied in place. The resource-pressure gate is constructed with a
+                // reference to the nested settings object, so replacing the reference
+                // here would leave the running gate on the old limits until a restart.
+                if (body.ResourcePressureAdmission != null)
+                {
+                    body.ResourcePressureAdmission.ApplyTo(_settings.ResourcePressureAdmission);
+                    _logging.Info(_Header + "resource-pressure admission updated via API: enabled="
+                        + _settings.ResourcePressureAdmission.Enabled
+                        + " maxConcurrentBuilds=" + _settings.ResourcePressureAdmission.MaxConcurrentBuilds
+                        + " minAvailableMemoryMb=" + _settings.ResourcePressureAdmission.MinAvailableMemoryMb
+                        + " oomCooldownSeconds=" + _settings.ResourcePressureAdmission.OomCooldownSeconds);
+                }
+
+                if (body.ModelTier != null)
+                {
+                    body.ModelTier.ApplyTo(_settings.ModelTier);
+                    _logging.Info(_Header + "model-tier routing updated via API: reservedHighTierSlots="
+                        + _settings.ModelTier.ReservedHighTierSlots
+                        + " specialistPersonas=" + _settings.ModelTier.SpecialistPersonas.Count);
+                }
+
                 await _settings.SaveAsync().ConfigureAwait(false);
 
                 if (remoteControlChanged && _onRemoteControlSettingsChanged != null)
@@ -422,6 +443,30 @@ namespace Armada.Server.Routes
                 .WithTag("Settings")
                 .WithSummary("Update server settings")
                 .WithDescription("Accepts partial update of editable settings. Validates values and persists to settings file.")
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/settings/reload", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                ArmadaSettings loaded = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
+                _settings.ApplyHotReloadableFrom(loaded);
+
+                _logging.Info(_Header + "settings reloaded from file via API: maxConcurrentCaptainWorkloads="
+                    + _settings.MaxConcurrentCaptainWorkloads
+                    + " maxConcurrentBuilds=" + _settings.ResourcePressureAdmission.MaxConcurrentBuilds);
+
+                return BuildSettingsResponse();
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Reload settings from file")
+                .WithDescription("Re-reads settings.json and applies the runtime-tunable values in place, without a restart. Ports, paths, database, API key, agent definitions and remote-control settings are not reloaded and still require a restart.")
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/server/reset", async (ApiRequest req) =>
@@ -496,7 +541,9 @@ namespace Armada.Server.Routes
                 LogDirectory = _settings.LogDirectory,
                 DocksDirectory = _settings.DocksDirectory,
                 ReposDirectory = _settings.ReposDirectory,
-                RemoteControl = _settings.RemoteControl
+                RemoteControl = _settings.RemoteControl,
+                ResourcePressureAdmission = _settings.ResourcePressureAdmission,
+                ModelTier = _settings.ModelTier
             };
         }
 

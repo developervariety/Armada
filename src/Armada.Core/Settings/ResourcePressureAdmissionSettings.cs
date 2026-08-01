@@ -48,6 +48,23 @@ namespace Armada.Core.Settings
             set => _OomCooldownSeconds = Math.Max(1, Math.Min(7200, value));
         }
 
+        /// <summary>
+        /// Copy every value from another instance into this one, in place.
+        /// The live admission gate is constructed with a reference to this object
+        /// (see ArmadaServer wiring), so an update must mutate the existing instance
+        /// rather than replace the reference. Replacing it would leave the running
+        /// gate reading the old values until the next restart.
+        /// </summary>
+        /// <param name="source">Instance to copy values from. Null is ignored.</param>
+        public void CopyFrom(ResourcePressureAdmissionSettings source)
+        {
+            if (source == null) return;
+            Enabled = source.Enabled;
+            MinAvailableMemoryMb = source.MinAvailableMemoryMb;
+            MaxConcurrentBuilds = source.MaxConcurrentBuilds;
+            OomCooldownSeconds = source.OomCooldownSeconds;
+        }
+
         private int _MinAvailableMemoryMb = 512;
         private int _MaxConcurrentBuilds = 0;
         private int _OomCooldownSeconds = 120;

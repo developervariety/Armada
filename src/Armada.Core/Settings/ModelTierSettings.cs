@@ -167,6 +167,28 @@ namespace Armada.Core.Settings
             return false;
         }
 
+        /// <summary>
+        /// Copy every value from another instance into this one, in place.
+        /// Consumers may hold this object by reference, so an update must mutate the
+        /// existing instance rather than replace it. Collections are taken from the
+        /// source as-is, which is the same handoff the startup deserialization path
+        /// performs. A null member on the source restores that member's built-in
+        /// default, matching the individual property setters.
+        /// </summary>
+        /// <param name="source">Instance to copy values from. Null is ignored.</param>
+        public void CopyFrom(ModelTierSettings source)
+        {
+            if (source == null) return;
+            SpecialistPersonas = source.SpecialistPersonas;
+            ReservedHighTierSlots = source.ReservedHighTierSlots;
+            WithinTierPreferenceOrder = source.WithinTierPreferenceOrder;
+            ModelCapabilityProfiles = source.ModelCapabilityProfiles;
+            CapabilityHintDimensionMap = source.CapabilityHintDimensionMap;
+            LowTierModels = source.LowTierModels;
+            MidTierModels = source.MidTierModels;
+            HighTierModels = source.HighTierModels;
+        }
+
         #endregion
 
         #region Private-Methods
