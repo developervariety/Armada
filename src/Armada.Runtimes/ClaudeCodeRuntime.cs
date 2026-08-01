@@ -124,8 +124,11 @@ namespace Armada.Runtimes
 
             if (!String.IsNullOrEmpty(model))
             {
+                // A Zyloo model reaches the CLI as "zyloo/<id>", but the request goes to Zyloo's own
+                // Anthropic-native endpoint, which expects the bare id. ApplyEnvironment points the
+                // process at that endpoint; this strips the prefix the endpoint does not want.
                 args.Add("--model");
-                args.Add(model);
+                args.Add(Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.StripZylooPrefix(model));
             }
 
             if (SkipPermissions)
@@ -489,6 +492,8 @@ namespace Armada.Runtimes
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
 
+            ApplyZylooRouting(startInfo, captain);
+
             // Remove nesting detection variables so captains can launch
             // even when the Admiral or CLI was started from within a Claude Code session
             startInfo.Environment.Remove("CLAUDECODE");
@@ -510,6 +515,47 @@ namespace Armada.Runtimes
             {
                 startInfo.Environment["MAX_THINKING_TOKENS"] = thinkingBudget.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
+        }
+
+        /// <summary>
+        /// Point THIS captain process at Zyloo's Anthropic-native endpoint when its model is a
+        /// <c>zyloo/</c> model. Does nothing for every other model, so a captain on the native
+        /// Anthropic account is untouched.
+        /// </summary>
+        /// <remarks>
+        /// Why the runtime and not a provider overlay: Claude models cache only when the request
+        /// carries <c>cache_control</c> markers, and the OpenAI-compatible adapter Armada uses for
+        /// Zyloo on OpenCode cannot emit them. Served that way, a captain re-reads its whole context
+        /// at full price on every step -- 168M input tokens in one day, which reached the provider's
+        /// daily spend cap. The Claude Code CLI speaks Anthropic natively and sends the markers, so
+        /// pointing it at Zyloo's own Anthropic endpoint restores caching.
+        ///
+        /// Isolation is per process, not global: <see cref="ProcessStartInfo.Environment"/> is a
+        /// private copy for the child being launched. A native Claude captain launched in the same
+        /// second keeps its own credentials and endpoint. Nothing else in Armada sets ANTHROPIC_*,
+        /// so there is no value here to collide with.
+        ///
+        /// When the key is absent the captain is left on the native endpoint rather than launched
+        /// against a half-configured one, because an unauthenticated launch fails per step and reads
+        /// as a provider outage.
+        /// </remarks>
+        /// <param name="startInfo">Start info for the captain process being launched.</param>
+        /// <param name="captain">Captain being launched; may be null.</param>
+        private static void ApplyZylooRouting(ProcessStartInfo startInfo, Captain? captain)
+        {
+            string? model = captain?.Model;
+            if (!Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.IsZylooModel(model)) return;
+
+            string? key = Environment.GetEnvironmentVariable("ZYLOO_KEY");
+            if (String.IsNullOrWhiteSpace(key)) return;
+
+            startInfo.Environment["ANTHROPIC_BASE_URL"] =
+                Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.AnthropicBaseUrl;
+            startInfo.Environment["ANTHROPIC_AUTH_TOKEN"] = key;
+
+            // A stale key of the other kind in the inherited environment would win over the token
+            // above inside the CLI, so clear it for this child only.
+            startInfo.Environment.Remove("ANTHROPIC_API_KEY");
         }
 
         /// <summary>

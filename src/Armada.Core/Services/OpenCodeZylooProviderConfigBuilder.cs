@@ -41,6 +41,33 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Strips the <c>zyloo/</c> prefix, yielding the identifier Zyloo's own API expects.
+        /// </summary>
+        /// <param name="model">Canonical Zyloo model identifier.</param>
+        /// <returns>The provider-side model id, or the input unchanged when it carries no prefix.</returns>
+        public static string StripZylooPrefix(string? model)
+        {
+            if (String.IsNullOrWhiteSpace(model)) return model ?? String.Empty;
+            string trimmed = model.Trim();
+            return IsZylooModel(trimmed) ? trimmed.Substring(_ModelPrefix.Length) : trimmed;
+        }
+
+        /// <summary>
+        /// Anthropic-native base URL for Zyloo. The Anthropic clients append <c>/v1/messages</c>
+        /// themselves, so this deliberately omits the <c>/v1</c> segment that the OpenAI-compatible
+        /// overlay carries.
+        /// </summary>
+        /// <remarks>
+        /// This endpoint exists because the OpenAI-compatible route cannot carry Anthropic
+        /// <c>cache_control</c> markers, so a Claude model served through it never caches. Measured
+        /// 2026-08-01 on one identical 9k-token prefix: the OpenAI-compatible route billed 9,466
+        /// prompt tokens on every call and reported no cache field at all, while this route billed
+        /// 9,061 input tokens on the first call and 1 input token with 9,258 read from cache on each
+        /// repeat.
+        /// </remarks>
+        public static string AnthropicBaseUrl => "https://api.zyloo.io";
+
+        /// <summary>
         /// Builds an inline OpenCode configuration overlay for one Zyloo model.
         /// </summary>
         /// <param name="model">Canonical Zyloo model identifier.</param>

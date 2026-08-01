@@ -27,6 +27,29 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("StripZylooPrefix_YieldsProviderSideId", () =>
+            {
+                // Zyloo's own endpoint expects the bare id; only Armada carries the "zyloo/" prefix.
+                AssertEqual("claude-opus-4-8", OpenCodeZylooProviderConfigBuilder.StripZylooPrefix("zyloo/claude-opus-4-8"),
+                    "The provider prefix must be removed for the provider-side id");
+                AssertEqual("claude-opus-4-8", OpenCodeZylooProviderConfigBuilder.StripZylooPrefix("  ZYLOO/claude-opus-4-8 "),
+                    "Stripping must ignore case and surrounding whitespace");
+                AssertEqual("claude-opus-4-8", OpenCodeZylooProviderConfigBuilder.StripZylooPrefix("claude-opus-4-8"),
+                    "A model with no prefix must pass through unchanged");
+                AssertEqual("opencode-go/glm-5.2", OpenCodeZylooProviderConfigBuilder.StripZylooPrefix("opencode-go/glm-5.2"),
+                    "Another provider's prefix must never be stripped");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("AnthropicBaseUrl_OmitsTheVersionSegment", () =>
+            {
+                // The Anthropic clients append /v1/messages themselves. Carrying /v1 here would
+                // produce /v1/v1/messages and every captain would fail to reach the provider.
+                AssertEqual("https://api.zyloo.io", OpenCodeZylooProviderConfigBuilder.AnthropicBaseUrl,
+                    "The Anthropic base URL must not carry the /v1 segment the OpenAI-compatible overlay uses");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Build_EmitsExpectedProviderWithoutSecret", () =>
             {
                 string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/claude-opus-4-7");
