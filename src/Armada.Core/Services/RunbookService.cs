@@ -55,6 +55,7 @@ namespace Armada.Core.Services
             if (query == null) throw new ArgumentNullException(nameof(query));
 
             List<Runbook> runbooks = (await ReadPlaybooksAsync(auth, token).ConfigureAwait(false))
+                .Where(IsRunbookPlaybook)
                 .Select(ParseRunbook)
                 .ToList();
 
@@ -109,7 +110,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
 
             Playbook? playbook = await ReadPlaybookAsync(auth, id, token).ConfigureAwait(false);
-            return playbook != null ? ParseRunbook(playbook) : null;
+            return playbook != null && IsRunbookPlaybook(playbook) ? ParseRunbook(playbook) : null;
         }
 
         /// <summary>
@@ -144,6 +145,8 @@ namespace Armada.Core.Services
 
             Playbook existing = await ReadPlaybookAsync(auth, id, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Runbook not found.");
+            if (!IsRunbookPlaybook(existing))
+                throw new InvalidOperationException("Runbook not found.");
 
             Playbook updated = BuildPlaybook(auth, request, existing);
             updated.Id = existing.Id;
@@ -174,7 +177,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
 
             Playbook? existing = await ReadPlaybookAsync(auth, id, token).ConfigureAwait(false);
-            if (existing == null)
+            if (existing == null || !IsRunbookPlaybook(existing))
                 throw new InvalidOperationException("Runbook not found.");
 
             await _Database.Playbooks.DeleteAsync(id, token).ConfigureAwait(false);
@@ -396,6 +399,12 @@ namespace Armada.Core.Services
                 CreatedUtc = playbook.CreatedUtc,
                 LastUpdateUtc = playbook.LastUpdateUtc
             };
+        }
+
+        private static bool IsRunbookPlaybook(Playbook playbook)
+        {
+            return !String.IsNullOrWhiteSpace(playbook.Content)
+                && playbook.Content.TrimStart().StartsWith(_MetadataMarker, StringComparison.Ordinal);
         }
 
         private Playbook BuildPlaybook(AuthContext auth, RunbookUpsertRequest request, Playbook? existing)

@@ -6,10 +6,12 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
 
     /// <summary>
     /// Tests user-facing preferredModel guidance in docs and MCP schemas.
@@ -141,6 +143,44 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Do not expose its catalog to captains", guide,
                     "Operational asset guide should state the captain MCP boundary");
                 return Task.CompletedTask;
+            });
+
+            await RunTest("RunbookService_ListsOnlyRunbookBackedPlaybooks", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                Playbook ordinary = new Playbook
+                {
+                    TenantId = auth.TenantId,
+                    UserId = auth.UserId,
+                    FileName = "ordinary.md",
+                    Description = "Ordinary playbook",
+                    Content = "# Ordinary playbook"
+                };
+                await testDb.Driver.Playbooks.CreateAsync(ordinary).ConfigureAwait(false);
+
+                RunbookService service = new RunbookService(testDb.Driver, new LoggingModule());
+                Runbook created = await service.CreateAsync(auth, new RunbookUpsertRequest
+                {
+                    FileName = "RUNBOOK-test.md",
+                    Title = "Test runbook",
+                    OverviewMarkdown = "# Test runbook",
+                    Steps = new List<RunbookStep>
+                    {
+                        new RunbookStep { Title = "Inspect", Instructions = "Record evidence." }
+                    }
+                }).ConfigureAwait(false);
+
+                EnumerationResult<Runbook> result = await service.EnumerateAsync(auth, new RunbookQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 100
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, result.TotalRecords);
+                AssertEqual(created.Id, result.Objects[0].Id);
+                AssertTrue(await service.ReadAsync(auth, ordinary.Id).ConfigureAwait(false) == null,
+                    "A normal playbook must not be readable through the runbook API");
             });
         }
 
