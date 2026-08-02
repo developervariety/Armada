@@ -498,7 +498,7 @@ namespace Armada.Runtimes
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
 
-            ApplyZylooRouting(startInfo, captain?.Model ?? model);
+            ApplyZylooModelRouting(startInfo, captain?.Model ?? model);
 
             // Remove nesting detection variables so captains can launch
             // even when the Admiral or CLI was started from within a Claude Code session
@@ -549,7 +549,7 @@ namespace Armada.Runtimes
         /// <param name="captain">Captain being launched; may be null.</param>
         private static void ApplyZylooRouting(ProcessStartInfo startInfo, Captain? captain)
         {
-            ApplyZylooRouting(startInfo, captain?.Model);
+            ApplyZylooModelRouting(startInfo, captain?.Model);
         }
 
         /// <summary>
@@ -561,7 +561,7 @@ namespace Armada.Runtimes
         /// </summary>
         /// <param name="startInfo">Start info for the captain process being launched.</param>
         /// <param name="model">Zyloo model id to validate, or null when not a Zyloo model.</param>
-        private static void ApplyZylooRouting(ProcessStartInfo startInfo, string? model)
+        private static void ApplyZylooModelRouting(ProcessStartInfo startInfo, string? model)
         {
             if (!Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.IsZylooModel(model)) return;
 
