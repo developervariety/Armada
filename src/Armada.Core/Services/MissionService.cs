@@ -905,6 +905,49 @@ namespace Armada.Core.Services
             return mission;
         }
 
+
+        /// <summary>
+        /// Detect a captain "false complete" event: the captain emitted
+        /// [ARMADA:RESULT] COMPLETE after running briefly with no commits and
+        /// no real tool activity beyond reading the brief. This pattern shows up
+        /// most often on the GLM 5.2 / Zyloo provider where the captain reads
+        /// AGENTS.md, emits COMPLETE, and exits cleanly without doing the work.
+        /// Without detection the mission transitions to WorkProduced and the
+        /// pipeline downstream accepts an empty diff as real progress.
+        /// </summary>
+        internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
+        {
+            if (mission == null) return false;
+            // Read-only missions (Audit/Research) are exempt: a correct audit deliverable
+            // can legitimately have no diff.
+            if (!(mission.Mode == MissionModeEnum.Implementation)) return false;
+            // A real captain writes a result line and an AgentOutput body. A unit-test
+            // stub does not set AgentOutput at all. The presence of an AgentOutput is
+            // the signal that a real captain ran (even briefly). Without that signal we
+            // cannot distinguish a stub from a false-complete.
+            if (!hasAgentOutput) return false;
+            // Captured diff must be empty.
+            if (diffLineCount > 0) return false;
+            // Captain ran in less than the threshold (typical false-complete 8-30s).
+            // A real Implementation mission always takes longer than that.
+            const int noOpMaxSeconds = 60;
+            if (runtime.TotalSeconds >= noOpMaxSeconds) return false;
+            // AgentOutput should hold at least the [ARMADA:RESULT] COMPLETE line plus a
+            // small summary. False-complete outputs are ~113 chars; legitimate summaries
+            // are 200+ chars and describe the change.
+            if (agentOutputLength >= 200) return false;
+            return true;
+        }
+
+        internal static string BuildNoOpCompletionFailureReason(TimeSpan runtime, int agentOutputLength)
+        {
+            return "no_op_completion_detected: captain exited with [ARMADA:RESULT] COMPLETE after "
+                + Math.Round(runtime.TotalSeconds, 1)
+                + "s with an empty diff and "
+                + agentOutputLength
+                + " chars of AgentOutput. This is the false-complete pattern (typical for GLM 5.2 / Zyloo when the captain reads the brief and exits without working). The mission is re-queued rather than marked WorkProduced so the rescue path can retry with a different captain.";
+        }
+
         /// <summary>
         /// Core completion logic, called under in-flight deduplication guard.
         /// </summary>
@@ -991,6 +1034,36 @@ namespace Armada.Core.Services
                 failedForScopeViolation = await TryFailMissionForScopeViolationAsync(mission, dock, token).ConfigureAwait(false);
             }
 
+            // Detect "false complete": a captain that emits [ARMADA:RESULT] COMPLETE after
+            // running briefly with an empty diff and a tiny AgentOutput. The captain-side
+            // fix is not always available (provider-side behavior), so the platform has
+            // to catch it. A no-op completion that reaches WorkProduced corrupts the
+            // downstream pipeline with empty progress and breaks rescue judgment.
+            bool failedForNoOpCompletion = false;
+            if (!failedForScopeViolation && mission.StartedUtc.HasValue)
+            {
+                TimeSpan runtime = (mission.CompletedUtc ?? DateTime.UtcNow) - mission.StartedUtc.Value;
+                int diffLineCount = String.IsNullOrEmpty(mission.DiffSnapshot)
+                    ? 0
+                    : mission.DiffSnapshot.Split('\n').Length;
+                int agentOutputLength = mission.AgentOutput?.Length ?? 0;
+                bool hasAgentOutput = !String.IsNullOrEmpty(mission.AgentOutput);
+                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput))
+                {
+                    failedForNoOpCompletion = true;
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission.FailureReason = BuildNoOpCompletionFailureReason(runtime, agentOutputLength);
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "mission " + mission.Id + " failed no-op-completion check runtime="
+                        + Math.Round(runtime.TotalSeconds, 1) + "s diffLines=" + diffLineCount + " agentOutputLen=" + agentOutputLength);
+                }
+            }
+
+
+
             // Capture accumulated agent stdout output before pipeline handoff
             if (OnGetMissionOutput != null)
             {
@@ -1004,7 +1077,7 @@ namespace Armada.Core.Services
 
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
             bool failedForDodGate = false;
-            if (!failedForScopeViolation && dock != null && _DefinitionOfDoneGate != null)
+            if (!failedForScopeViolation && !failedForNoOpCompletion && dock != null && _DefinitionOfDoneGate != null)
             {
                 try
                 {
