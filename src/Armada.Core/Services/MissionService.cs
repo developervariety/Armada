@@ -918,14 +918,19 @@ namespace Armada.Core.Services
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
             if (mission == null) return false;
-            // Read-only missions (Audit/Research) are exempt: a correct audit deliverable
-            // can legitimately have no diff.
+            // Read-only missions (Audit/Research) and Architect decomposition missions are
+            // exempt: they can legitimately produce no code diff while still producing a
+            // valid report or downstream mission plan.
             if (!(mission.Mode == MissionModeEnum.Implementation)) return false;
+            if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) return false;
             // A real captain writes a result line and an AgentOutput body. A unit-test
             // stub does not set AgentOutput at all. The presence of an AgentOutput is
             // the signal that a real captain ran (even briefly). Without that signal we
             // cannot distinguish a stub from a false-complete.
             if (!hasAgentOutput) return false;
+            // Only apply this guard to the explicit false-complete signal. Short output
+            // without the result marker can be a legitimate test stub or runtime failure.
+            if (!mission.AgentOutput!.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal)) return false;
             // Captured diff must be empty.
             if (diffLineCount > 0) return false;
             // Captain ran in less than the threshold (typical false-complete 8-30s).
