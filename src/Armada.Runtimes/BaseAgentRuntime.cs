@@ -437,6 +437,14 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Grace period, in milliseconds, to wait for a stopped agent to exit on its own
+        /// before falling back to a hard kill. The previous 10s value was chosen against
+        /// a hang-model that never materialised and made every captain stop -- and a
+        /// fleet-wide stop -- pay the full timeout serially.
+        /// </summary>
+        protected const int StopGracePeriodMs = 3000;
+
+        /// <summary>
         /// Stop an agent process gracefully.
         /// </summary>
         /// <param name="processId">Process ID to stop.</param>
@@ -446,24 +454,35 @@ namespace Armada.Runtimes
             try
             {
                 Process process = Process.GetProcessById(processId);
-                if (!process.HasExited)
+                if (process.HasExited) return;
+
+                // Note: process was obtained via Process.GetProcessById, which returns a handle
+                // that does NOT own the child's redirected streams. The previous implementation
+                // closed StandardInput here to "ask the child to exit", but that access is on a
+                // handle with no writer and the access itself can throw; the bare catch was
+                // hiding that. The graceful path on a re-fetched handle is unusable, so we
+                // attempt the exit wait directly. Subclasses that keep the original Process
+                // reference can override StopAsync to perform a real graceful shutdown.
+
+                using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                linkedCts.CancelAfter(StopGracePeriodMs);
+
+                try
                 {
-                    // Try graceful shutdown first by closing stdin
+                    await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    _Logging.Warn(_Header + "process " + processId + " did not exit within " + StopGracePeriodMs + "ms, killing");
                     try
                     {
-                        process.StandardInput.Close();
-                    }
-                    catch
-                    {
-                        // stdin may already be closed
-                    }
-
-                    // Wait up to 10 seconds for graceful exit
-                    bool exited = process.WaitForExit(10000);
-                    if (!exited)
-                    {
-                        _Logging.Warn(_Header + "process " + processId + " did not exit gracefully, killing");
                         process.Kill(entireProcessTree: true);
+                    }
+                    catch (Exception killEx)
+                    {
+                        // The process may exit between the timeout and the kill attempt; surface
+                        // the kill failure but do not propagate -- the stop attempt is over.
+                        _Logging.Warn(_Header + "kill of process " + processId + " after grace timeout failed: " + killEx.Message);
                     }
                 }
 
@@ -472,6 +491,12 @@ namespace Armada.Runtimes
             catch (ArgumentException)
             {
                 _Logging.Debug(_Header + "process " + processId + " already exited");
+            }
+            catch (InvalidOperationException)
+            {
+                // Process.GetProcessById throws InvalidOperationException on Unix when the
+                // pid is not a current process; treat that as already-exited.
+                _Logging.Debug(_Header + "process " + processId + " not running");
             }
             catch (Exception ex)
             {
