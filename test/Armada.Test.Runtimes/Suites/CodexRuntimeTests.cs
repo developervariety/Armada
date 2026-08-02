@@ -104,7 +104,13 @@ namespace Armada.Test.Runtimes.Suites
                 InspectableCodexRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
                 AssertEqual("exec", args[0]);
-                if (OperatingSystem.IsWindows())
+
+                // Mirror the runtime's own condition. It bypasses on Linux as well as Windows,
+                // because Codex's nested bubblewrap sandbox fails on user-namespace and loopback
+                // setup inside a container. Testing only for Windows meant this assertion was
+                // wrong on Linux -- the platform the admiral actually runs on -- so the suite
+                // could never pass there.
+                if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
                     AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
                 else
                     AssertTrue(args.Contains("--full-auto"));
