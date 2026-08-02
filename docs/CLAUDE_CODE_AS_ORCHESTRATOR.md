@@ -93,7 +93,10 @@ Vessel ID: vsl_xxxxxxxx
 Fleet ID: flt_xxxxxxxx
 ```
 
-For full tool reference and decision-making guidance, see [`INSTRUCTIONS_FOR_CLAUDE_CODE.md`](INSTRUCTIONS_FOR_CLAUDE_CODE.md).
+Use [`INSTRUCTIONS_FOR_CLAUDE_CODE.md`](INSTRUCTIONS_FOR_CLAUDE_CODE.md) as
+the prompt bootstrap. The canonical workflow and complete MCP catalog are in
+[`armada-ops.md`](armada-ops.md). Live tool schemas come from paginated
+`tools/list` discovery.
 
 ---
 

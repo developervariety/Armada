@@ -18,7 +18,10 @@ namespace Armada.Server.Mcp
     /// </summary>
     public sealed class ArmadaMcpHttpServer : IAsyncDisposable
     {
-        private const int _PAGE_SIZE = 100;
+        // Some MCP clients do not follow nextCursor during initial tool discovery. Keep the
+        // normal Armada catalog on one page, while retaining pagination for unusually large
+        // extension catalogs.
+        private const int _PAGE_SIZE = 500;
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {

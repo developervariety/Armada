@@ -60,7 +60,10 @@ Gemini will call `armada_status` and report active captains, missions, and voyag
 
 ## Giving Gemini Full Instructions
 
-For Gemini to effectively orchestrate Armada, paste the contents of [`INSTRUCTIONS_FOR_GEMINI.md`](INSTRUCTIONS_FOR_GEMINI.md) into your system prompt or project instructions. That document contains the complete tool reference, workflow patterns, and decision-making guidance Gemini needs to manage fleets, voyages, missions, and captains.
+Use [`INSTRUCTIONS_FOR_GEMINI.md`](INSTRUCTIONS_FOR_GEMINI.md) as the Gemini
+prompt bootstrap. The canonical workflow and complete MCP catalog are in
+[`armada-ops.md`](armada-ops.md). Live tool schemas come from paginated
+`tools/list` discovery.
 
 ## Quick Start
 

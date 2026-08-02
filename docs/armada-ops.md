@@ -1,840 +1,462 @@
 # Armada Operator Guide
 
-This document describes operational workflows for the Armada multi-agent orchestration system.
+This guide is the canonical operating procedure for Armada. It describes how
+an orchestrator creates, monitors, verifies, lands, and closes work. It also
+lists every MCP tool that the server registers.
+
+Use [MCP_API.md](MCP_API.md) for transport and schema discovery. Use
+[DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for release and deployment
+detail. Use [MERGING.md](MERGING.md), [PIPELINES.md](PIPELINES.md), and
+[SCHEDULING.md](SCHEDULING.md) for subsystem detail.
+
+## 1. Source Of Truth
+
+Armada records are the source of truth for work and delivery state.
+
+| Record | Owns |
+| --- | --- |
+| Objective or backlog item | Scope, acceptance criteria, priority, constraints, and deferred work |
+| Planning or refinement session | Decisions made while the scope is not ready for dispatch |
+| Voyage and mission | Work assignment and captain execution |
+| Check | Command evidence and gates |
+| Merge entry | Review, integration, test, and landing state |
+| Release | A candidate or shipped unit |
+| Deployment | Rollout, approval, verification, and rollback |
+| Incident | Failure impact, diagnosis, mitigation, and closure evidence |
+| Runbook execution | Evidence that a repeatable procedure ran |
+| Event, signal, and request history | Timeline and communication evidence |
+
+Do not use mission prose as a replacement for these records. Do not treat a
+captain report as proof. Run the command or query that proves the result.
 
----
+## 2. Available Features And Active Policy
+
+The repository contains features that an operator can disable. Documentation
+of a feature does not mean that a deployment enables it.
 
-## Current Operator Notes
+Check these settings before you depend on the related workflow:
 
-Last upstream sync: upstream `e9e3021f` via merge `cb9030bd` on 2026-05-24. The fork now includes upstream v0.8.0 delivery-management surfaces plus fork orchestration features.
+| Setting or record | Effect |
+| --- | --- |
+| `codeIndex.enabled` | Enables code search, graph search, and context packs. |
+| `learnedFactsEnabled` | Enables learned-playbook injection and reflection workflows. |
+| `seedDockRuntimeMcpConfig` | Gives compatible captains dock-local Armada MCP configuration. |
+| `autonomousRecovery.enabled` | Enables bounded server-side mission recovery. |
+| `incidentLifecycle.enabled` | Enables evidence-driven incident transitions. |
+| Objective `AutoDispatchEnabled` and scheduler state | Enables autonomous objective dispatch. |
+| Vessel or voyage landing mode | Selects `LocalMerge`, `PullRequest`, `MergeQueue`, or `None`. |
+| Vessel default pipeline | Selects the normal persona path. |
+| Workflow profile | Defines the commands that Checks and delivery operations run. |
+
+When a feature is off, use the explicit fallback. For example, search the
+checkout directly when code indexing is off. Do not call disabled tools in a
+loop.
+
+## 3. Connection And Discovery
+
+The Admiral exposes stateless Streamable HTTP MCP at `/mcp`. `/rpc` is a
+compatibility alias. An SSH stdio bridge can forward a local MCP client to a
+loopback-bound remote Admiral. The bridge must connect to the running Admiral.
+It must not start a second embedded Admiral process.
+
+Start each operator session with:
+
+1. Call `armada_status`.
+2. Call `armada_enumerate` with small pages for active voyages, missions,
+   captains, merge entries, incidents, objectives, and checks.
+3. Call `armada_drain_audit_queue` before new dispatches.
+4. Read each relevant open objective in full.
+5. Check incidents and the merge queue before you create more work.
+6. Check `armada_unlanded_branches` when prior work can exist outside the
+   normal landing path.
+
+MCP `tools/list` is paginated. Follow `nextCursor` until it is absent. The
+normal built-in catalog fits on one 500-tool page. Pagination remains active
+for larger extension catalogs. A client that ignores `nextCursor` can hide
+valid tools.
+
+`armada_enumerate` supports these entity types:
+
+`fleets`, `vessels`, `captains`, `missions`, `voyages`, `docks`, `signals`,
+`events`, `merge_queue`, `personas`, `prompt_templates`, `pipelines`,
+`playbooks`, `objectives`, `incidents`, `checks`, `releases`, and
+`deployments`.
+
+Use `pageSize` from 10 to 25 unless a larger page is necessary. Large text
+fields are excluded by default. Request `includeDescription`, `includeContext`,
+`includeTestOutput`, `includePayload`, or `includeMessage` only when needed.
+
+## 4. Standard Workflow
 
-For non-trivial work, start from an objective/backlog item and keep the evidence there. Use objective refinement or Planning for fuzzy scope, Workspace/context packs for file-grounded scope, and structured check runs for repeatable validation. Dispatch missions with objective IDs, selected playbooks, expected checks, and explicit file boundaries.
+### 4.1 Capture The Work
+
+For non-trivial work, find or create an objective before dispatch.
 
-Armada should be the system of record for autonomous operation. Do not build parallel TODO/spec/memory-note workflows when an Armada surface exists:
+1. Search with `list_objectives`, `list_backlog`, or
+   `armada_enumerate(entityType: "objectives")`.
+2. Read the selected record with `get_objective` or `get_backlog_item`.
+3. Add clear acceptance criteria and verification requirements.
+4. Put deferred work in a separate objective or backlog item. Do not bury it
+   in closed-record prose.
+
+Use backlog refinement when intent is still unclear and repository context is
+not yet needed. Use a planning session when the work is tied to a vessel and
+must become dispatch-ready.
 
-- Objectives and Backlog are the durable work queue, including nightly or unattended continuation candidates.
-- Planning Sessions replace ad-hoc markdown specs for interactive refinement and plan-to-dispatch handoff.
-- Workflow Profiles define commands; Pending Checks define gates; check execution provides the evidence.
-- Releases, Deployments, Incidents, and Runbooks own operational progress and recovery.
-- History and Requests own replay/audit evidence.
-- External resume mechanisms such as AgentWake are transports, not the work queue. Autonomous rescue and continuation loops should read Armada records first.
-- Autonomous mission recovery is server-side Armada policy. Failed and landing-failed missions are classified, linked to an Incident, and recorded through the system `Autonomous Mission Recovery` runbook. Recoverable non-landing mission failures receive a bounded linked rescue mission. Cancellation is authoritative: cancelled parent voyages suppress new rescue work and cancel active linked rescues. Landing/merge failures stay owned by landing and merge recovery workflows. Auth/quota/review/protected-path/dependency/recovery-exhausted failures stay as open incidents for human review.
-- Incident lifecycle is also server-side Armada policy. Failed checks open incidents with the failed `chk_` link attached. Later passing matching check evidence, successful rescue missions, shipped releases, successful verified deployments, completed rollbacks, or superseding cancellation/shipping evidence move incidents through `Mitigated`, `RolledBack`, and `Closed` after the quiet window. New matching failures reopen mitigated incidents and raise severity rather than hiding regressions.
+### 4.2 Inspect Before Dispatch
 
-Use these upstream surfaces when they fit:
+Read the target repository rules and inspect the current code and git history.
+Confirm that the requested work is not already present. Confirm the vessel,
+pipeline, model tier, landing mode, protected paths, and workflow profile.
 
-- `list_objectives`, `create_objective`, `update_objective`, and backlog aliases for durable scope, priority, acceptance criteria, rollout constraints, and evidence links.
-- `run_check`, `get_check_run`, and `retry_check_run` for build/test/deploy validation records instead of only mission logs. Pending check records are durable gates; the server heartbeat auto-runs eligible non-deployment gates when linked voyages/missions complete, releases become ready, or vessels are idle. Deployment-linked gates are resolved by `DeploymentService` during deploy, verify, rollback, and rollout-monitoring actions.
+If code indexing is enabled, use `armada_index_status` before index-dependent
+work. If it is disabled, use checkout search and set `codeContextMode` to
+`off`.
 
-  **Build/UnitTest isolated checkout.** Armada-generated `Build` and `UnitTest` check runs execute inside a temporary git checkout cloned from `vessel.LocalPath` or `vessel.RepoUrl`, not from the live `WorkingDirectory`. This prevents a running Admiral process from locking build outputs and causing false check failures. The checkout ref is resolved from `CommitHash`, then `BranchName`, then the vessel default branch; the `--no-restore` flag is stripped so the isolated clone always runs a full restore. For the armada vessel specifically, a voyage Judge's in-dock build/test result is accepted as authoritative `Build`/`UnitTest` evidence when a structured check is known to be environmental (e.g. file-lock interference from the live Admiral). The live workflow profile row (`wfp_mpk5voip`) still needs an operator data update if the stored command text should be changed at rest.
+### 4.3 Select Mission Shape
 
-- `create_release`, `create_deployment`, deployment approval/verify/rollback tools, and runbook tools for release and operations work.
-- Workspace, request history/API Explorer, history timeline, GitHub evidence, and captain tool visibility from the dashboard when investigating or resuming work.
-- Pipeline review gates for human checkpoints; approve or deny via mission detail or `/api/v1/missions/{id}/review/*` before merge queue/audit/PR fallback.
+Use mission mode `Implementation` for work that must produce a commit. Use
+`Audit` or `Research` for report-only work. Read-only modes do not require a
+commit and must not receive implementation-only instructions.
 
-### Autonomous Recovery Policy
+Use the vessel's configured pipeline unless the approved work calls for a
+different existing pipeline. Use the full configured persona path. Do not
+remove review stages only to make a voyage faster.
 
-The server heartbeat and mission-outcome hook run `AutonomousRecoveryOrchestrator` when `settings.autonomousRecovery.enabled` is true. The default policy is intentionally bounded:
+Dispatch with `preferredModel: "low"`, `"mid"`, or `"high"`. Do not put a
+concrete provider model in an ordinary mission brief.
 
-- Live captains that go quiet before the hard stall threshold receive a throttled `Mail` nudge with an `ARMADA_AUTO_NUDGE` marker. Mail is only for live work; terminal failed missions get rescue records instead.
-- Terminal `Failed` and `LandingFailed` missions create or update an Incident with vessel/mission/voyage context.
-- Armada creates a runbook execution against the system `Autonomous Mission Recovery` runbook so the decision is visible in Runbooks and History.
-- Recoverable non-landing failures dispatch standalone rescue missions with `ParentMissionId` set to the failed mission. The default budget is one rescue; raising `maxMissionRecoveryAttempts` allows another rescue only after prior rescue missions have reached a retryable terminal failure.
-- Cancelled missions and voyages do not create new rescue missions. If a linked rescue is still active when the parent voyage is cancelled, Armada cancels the rescue too.
-- A captain marked Working on an active mission with no recorded process id is treated as a fail-loud recovery case. Armada fails the mission with an explicit missing-PID reason, halts the voyage, releases the captain, and records incident evidence instead of treating the missing process as success.
-- Landing and merge failures do not receive generic rescue missions; those remain under landing, merge-queue, and merge-recovery ownership.
-- Serious blockers do not dispatch rescue work. They remain open incidents for human action.
+### 4.4 Dispatch
 
-Tune this with `autonomousRecovery.dispatchRescueMissions`, `maxMissionRecoveryAttempts`, `failedMissionLookbackHours`, `sendStallMailNudges`, `stallMailNudgeThresholdRatio`, and `stallMailNudgeCooldownMinutes`.
+Use `armada_dispatch` for a voyage. Put all ordered missions for one vessel in
+one request. Use aliases and dependency aliases when order matters.
 
-### Incident Lifecycle Policy
+Include:
 
-The server heartbeat and mission-outcome hook run `IncidentLifecycleOrchestrator` when `settings.incidentLifecycle.enabled` is true. The policy is evidence-gated:
+- `objectiveId` for durable work;
+- the vessel ID;
+- the pipeline when the vessel default is not correct;
+- one mission title and complete description per unit of work;
+- mission mode;
+- model tier;
+- exact scope and exclusions;
+- required verification;
+- only the prestaged files that downstream stages can read and need.
 
-- Failed automatic checks create incidents linked to the exact failed `CheckRunId`.
-- A newer matching passed check for the same vessel/context/type mitigates the incident.
-- A completed linked rescue mission mitigates the failed-mission incident that spawned it.
-- A verified successful deployment or shipped release mitigates linked delivery incidents.
-- A completed rollback moves linked incidents to `RolledBack`.
-- A later matching passing check for the same vessel can close stale infrastructure-blocked check incidents, including stale Docker/setup failures that were superseded by later shipped work.
-- Cancelled/superseded mission evidence can close stale rescue and landing incidents once the linked work is no longer actionable.
-- Mitigated incidents close automatically only after `closeQuietPeriodMinutes` and no newer linked failure evidence.
-- Newer matching failures reopen `Mitigated`/`Monitoring` incidents to `Open` and raise severity to at least `High`.
+`armada_dispatch` is durable-first. A successful response means that the
+voyage and mission rows exist. Assignment, dock provisioning, and captain
+launch continue asynchronously. Save the voyage ID. Do not redispatch only
+because the first status call shows `Pending`.
 
-Tune this with `incidentLifecycle.enabled`, `autoMitigate`, `autoClose`, `closeQuietPeriodMinutes`, and `maxIncidentsPerSweep`. Do not manually close incidents just because a mission says "done"; close them by producing the linked check, rescue, release, deployment, or rollback evidence Armada can read.
+Long operations can return an accepted job. Poll `armada_job_status` with the
+returned job ID.
 
-## Structured-First Operating Contract
+### 4.5 Monitor
 
-Treat the dashboard sections as first-class records with ownership boundaries:
+Dispatch is the start of the operator loop.
 
-| Surface | Use it for | Do not pack this into |
-|---------|------------|-----------------------|
-| Backlog/Objectives | Scope, acceptance criteria, priority, rollout constraints, evidence links | Mission prose, release notes |
-| Planning | Fuzzy discovery, transcript-backed decomposition, dispatch handoff | Ad-hoc chat summaries |
-| Workflow Profiles | Build/test/package/release/deploy/rollback/verify command definitions | Per-mission shell instructions |
-| Checks | Repeatable validation runs, logs, artifacts, parsed test/coverage summaries, pending gates auto-resolved from lifecycle state | Mission final comments |
-| Environments | Named rollout targets, URLs, approval policy, access/deployment rules | Deployment notes only |
-| Releases | Candidate/shipped work, version/tag, linked voyages/missions/checks/artifacts | Voyage descriptions |
-| Deployments | Rollout approval, execution, verification, monitoring, rollback | Incident notes only |
-| Incidents | Impact, root cause, recovery, rollback, hotfix handoff, postmortem | Dispatch prompts |
-| Runbooks | Repeatable operational steps and execution history | Freeform operator memory |
-| History/Requests | Cross-entity chronology and API/request evidence | Manual status summaries |
+1. Poll `armada_voyage_status` in summary mode.
+2. Read `armada_mission_status` for the active or failed stage.
+3. Read mission and captain logs when progress is unclear.
+4. Use `armada_captain_diagnostics` before deep process inspection.
+5. Poll incidents and Checks on the same cadence.
+6. Use `armada_nudge_voyage` or `armada_send_signal` only for live work that
+   needs missing context.
+7. Do not steer a terminal mission. Use restart, recovery, or a new mission.
 
-Default flow for meaningful work:
+A quiet captain is not proof of a stall. Compare the mission state, process
+ID, dock status, log activity, and elapsed time.
 
-1. Find or create an objective/backlog item.
-2. Scope with Planning, objective refinement, Workspace, context packs, and graph tools.
-3. Confirm or create the workflow profile and environments needed for checks, releases, and deployments.
-4. Dispatch with `objectiveId`, pipeline/playbook selections, expected checks, and tight file boundaries.
-5. Record validation with `run_check`/Checks, not just mission logs. Create Pending gates early; Armada resolves eligible non-destructive gates automatically, and deployment actions consume matching Pending deploy/verify/rollback checks.
-6. Create release and deployment records when work is a candidate for shipping or has rolled out anywhere.
-7. Create incidents from affected deployments/environments when regressions occur.
-8. Start runbook executions for repeatable release, deploy, rollback, migration, or incident procedures.
-9. Link every produced check, release, deployment, incident, and final mission result back to the objective before closing it.
+### 4.6 Verify With Checks
 
-Only skip a structured record when the work is genuinely ephemeral and has no expected future audit, release, deployment, incident, or repeatable validation value.
+Create Pending Checks when the objective or voyage is created. Build and unit
+test are the minimum for code changes. Add the vessel-profile gates that the
+change needs.
 
-### Dispatch Preflight And Code Indexing
+Use `run_check` to execute a check. Use `retry_check_run` for a real rerun.
+Use `resolve_check` only when valid evidence was produced outside Armada. Do
+not use it to hide a failure.
 
-`armada_dispatch` is durable-first. It returns after the voyage and mission rows are persisted; assignment, dock provisioning, worktree setup, and captain launch run asynchronously. If the response is successful but missions remain `Pending`, check `armada_voyage_status`, vessel serialization (`AllowConcurrentMissions=false`), captain persona/model filters, and active code-index updates before redispatching.
+A passing suite proves only that the suite passed. It proves a fix only when
+the check covers the original symptom. Record before and after evidence when
+the task is a defect.
 
-Code indexing is incremental where possible. Post-land refreshes reuse unchanged chunk embeddings and graph sidecars, batch embedding-provider calls, and keep lexical search as the reliable fallback even when semantic search is disabled. Dispatch blocks only while a refresh is currently in progress and returns `code_index_update_in_progress` without creating a voyage. Poll `armada_index_status` and retry once `updateInProgress` is false.
+### 4.7 Review And Land
 
-`armada_index_status` includes active-update heartbeat, stage, progress percent, `lastEmbeddingBatchUtc`, and `chunksEmbeddedSinceStart`. Treat a moving heartbeat or embedding batch timestamp as slow progress, not a stall. Context pack calls default to a longer direct timeout and return `code_context_timeout` with an action hint when they still cannot finish.
-
-### MCP Operations Surface
-
-Use MCP for normal structured-delivery triage. `armada_enumerate` covers objectives/backlog, incidents, checks, releases, and deployments in addition to core Armada entities. Writers are available for incident close/update, check resolution, release update, deployment update, and backlog/objective create/update, with enum errors returned as structured responses rather than generic JSON-RPC `-32603`.
-
-For large voyages, call `armada_voyage_status` in summary mode first. When mission details are needed, use `summary=false`, `includeMissions=true`, and `includeFields` to opt into only the fields needed; mission descriptions and agent output are capped with `truncated`/`fullLength` metadata.
-
-### Remote Mux/Zyloo Provider
-
-Provider configuration and credentials are managed outside this repository.
-Use the model identifier and provider settings configured for the selected
-runtime; do not add deployment paths, credential locations, or host-specific
-details to repository documentation.
-
-Adding a new remote-provider model (e.g. a new Zyloo model) requires two
-separate registrations: the OpenCode/Mux provider config above, **and** an
-entry in `modelTier.lowTierModels`/`midTierModels`/`highTierModels` (and
-`withinTierPreferenceOrder` if it should be preferred within its tier) in
-the deployed `.armada/settings.json`. The in-repo `ModelTierSettings.cs`
-defaults are only a fallback used when no `settings.json` override is
-present -- once an operator has customized `modelTier` in `settings.json`,
-that file is the sole source of truth and code-default additions do not
-merge in. Skipping the `settings.json` registration leaves the model fully
-unreachable via tier-based dispatch (`low`/`mid`/`high`), with no error
-surfaced. `factory/settings.json` seeds a `modelTier` block for fresh
-deployments; keep it in sync with any deployed override changes so a
-factory reset does not silently regress captain routing.
-
-### Recovery Watchdogs
-
-`StageWatchdogTimeoutMinutes` defaults to 30 minutes and is clamped between 5 and 180. Health checks fail stale `Assigned` or `WorkProduced` missions that have no captain/process heartbeat with `stage_watchdog_no_captain_heartbeat` and emit an error signal, while preserving already-running work that still has captain and process IDs.
-
-## Pipeline Selection
-
-Choose the default pipeline per vessel based on the repository's dominant risk profile, then override per voyage when the work calls for a different review path.
-
-| Pipeline | Use when |
-|----------|----------|
-| `WorkerOnly` | Tiny, low-risk operational edits where review would add more queue time than value. |
-| `Reviewed` | Narrow implementation work that needs a final Judge but not a dedicated test-writing stage. |
-| `Tested` | Default for most backend/library changes: Worker, TestEngineer, Judge. |
-| `FullPipeline` | Ambiguous engineering work that benefits from Architect decomposition before implementation. |
-| `ProductDevelopment` | Product-facing features, dashboard/workflow changes, onboarding/setup flows, or anything where user value, UX, and acceptance criteria are still fuzzy. Stages: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge. |
-| `DiagnosticProtocolTested` | Binary/wire protocol parsing, security-sensitive access paths, or high-risk hardware-affecting operations. |
-| `TenantSecurityTested` | Authn/authz, tenant isolation, secrets, auditability, or cross-tenant data exposure risk. |
-| `MigrationDataTested` | Schema migrations, provider parity, backfills, indexes, retention, data loss, or restart safety. |
-| `PerformanceMemoryTested` | Memory growth, output/log retention, large DB materialization, throughput, disposal, timers, or repeated background work. |
-| `ReferencePortingTested` | Porting from decompiler output, traces, vendor references, protocol captures, or source-bundle evidence. |
-| `FrontendWorkflowTested` | UI workflow, accessibility, responsive/i18n states, validation/error surfaces, or design-system consistency. |
-| `Reflections` / `ReflectionsDualJudge` | Memory consolidation only; do not use for normal code delivery. |
-
-Personas are not interchangeable labels. `Product Manager` clarifies product intent before architecture; `Usability Engineer` reviews the resulting experience after implementation; specialist reviewers are high-tier focused reviewers for known risk domains; `TestEngineer` owns test coverage; `Judge` is final review. If a vessel is mostly product/UI work, set its default pipeline to `ProductDevelopment` or `FrontendWorkflowTested`; if it is mostly library/protocol/security/data work, set the matching specialist tested pipeline as the vessel default. Use `WorkerOnly` only when the blast radius is deliberately small.
-
----
-
-## Reflection Workflow (Memory Consolidation)
-
-### Overview
-
-Reflections is Armada's mechanism for mining completed-mission evidence into a per-vessel learned playbook. The system periodically analyzes terminal missions (Complete, Failed, Cancelled) and proposes updates to the vessel's `vessel-<repo>-learned` playbook, which auto-attaches to every dispatch on that vessel.
-
-### Operational Flow
-
-#### 1. Audit Drain with Auto-Dispatch
-
-Run `armada_drain_audit_queue` as part of your normal dispatch-kernel pre-flight:
-
-```json
-// Request
-{
-  "limit": 10
-}
-
-// Response
-{
-  "entries": [
-    {
-      "entryId": "mrg_abc123def456ghi789jk",
-      "missionId": "msn_abc123def456ghi789jk",
-      "vesselId": "vsl_abc123def456ghi789jk",
-      "branchName": "armada/cursor-kimi-1/msn_abc123",
-      "auditLane": "standard",
-      "auditCriticalTrigger": false,
-      "auditConventionNotes": null,
-      "isCalibration": false
-    }
-  ],
-  "reflectionsDispatched": [
-    {
-      "vesselId": "vsl_abc123def456ghi789jk",
-      "missionId": "msn_def456ghi789jkl012mn"
-    }
-  ]
-}
-```
-
-The `reflectionsDispatched` array indicates vessels that exceeded their reflection threshold. Only **active vessels** are considered; inactive vessels are automatically skipped.
-
-#### 2. Check for Completed Reflections
-
-Query for completed reflection missions on vessels of interest:
-
-```json
-// armada_enumerate
-{
-  "entityType": "missions",
-  "vesselId": "vsl_abc123def456ghi789jk",
-  "status": "Complete"
-}
-```
-
-Identify missions with `Persona = "MemoryConsolidator"` that haven't been reviewed yet.
-
-#### 3. Review the Proposal
-
-For a completed reflection mission:
-
-1. **Get mission status:**
-   ```json
-   // armada_mission_status
-   { "missionId": "msn_def456ghi789jkl012mn" }
-   ```
-
-2. **Read the AgentOutput:** Extract the `reflections-candidate` and `reflections-diff` fenced blocks.
-
-3. **Render the diff** for fast scanning. The diff block contains:
-   - `added`: New entries proposed
-   - `removed`: Entries to remove
-   - `merged`: Entries being combined
-   - `unchangedCount`: Number of untouched entries
-   - `evidenceConfidence`: "high", "mixed", or "low"
-   - `notes`: Summary of what changed and why
-
-4. **For non-trivial diffs:** Read the candidate verbatim and sanity-check against the current playbook.
-
-#### 4. Accept or Reject
-
-**Accept Verbatim:**
-```json
-// armada_accept_memory_proposal
-{ "missionId": "msn_def456ghi789jkl012mn" }
-```
-
-**Accept with Edits:**
-```json
-// armada_accept_memory_proposal
-{
-  "missionId": "msn_def456ghi789jkl012mn",
-  "editsMarkdown": "# vessel-myrepo-learned\n\n[Your edited content here]"
-}
-```
-
-The orchestrator-edited version is applied, NOT the captain's version. This mirrors the surgical-fix pattern from standard mission workflows.
-
-**Reject:**
-```json
-// armada_reject_memory_proposal
-{
-  "missionId": "msn_def456ghi789jkl012mn",
-  "reason": "The proposed pattern is too specific to the service-a vessel and doesn't generalize"
-}
-```
-
-The rejection reason is recorded and fed into the next reflection's brief so the consolidator doesn't re-propose the same thing.
-
-#### 5. Review in Same Operator Pass
-
-**CRITICAL:** Reflection proposals get reviewed in the **same pass** as the audit queue. When `armada_drain_audit_queue` returns `reflectionsDispatched` entries OR a previously-dispatched reflection mission has reached `Complete`, review and accept/reject the proposal in the **same session** that drained the audit queue -- never deferred to "later".
-
-A reflection sitting un-reviewed gates the next reflection on that vessel (concurrency rule), so deferring breaks the feedback loop.
-
-### Threshold Configuration
-
-| Setting | Default | How to Configure |
-|---------|---------|----------------|
-| `DefaultReflectionThreshold` | 15 missions | Admiral options (env / config file) |
-| `Vessel.ReflectionThreshold` | NULL (use default) | `armada_update_vessel` |
-
-**Configure per-vessel threshold:**
-```json
-// armada_update_vessel
-{
-  "vesselId": "vsl_abc123def456ghi789jk",
-  "reflectionThreshold": 10
-}
-```
-
-Set to a lower value for high-activity vessels, higher for quiet repositories.
-
-### Manual Trigger
-
-For immediate consolidation (outside the audit-drain flow):
-
-```json
-// armada_consolidate_memory
-{
-  "vesselId": "vsl_abc123def456ghi789jk",
-  "instructions": "Focus on test patterns discovered in recent missions",
-  "tokenBudget": 300000
-}
-```
-
-Returns immediately with the dispatched mission ID. The mission runs asynchronously; poll `armada_mission_status` to detect completion.
-
-### Concurrency Behavior
-
-- **Per-vessel limit:** At most ONE pending/running reflection mission per vessel.
-- **Duplicate calls:** If `armada_consolidate_memory` is called while one is in-flight, returns the existing mission ID.
-- **Mission visibility:** The consolidator only sees terminal missions (`Complete`, `Failed`, `Cancelled`). In-progress missions are excluded from the evidence bundle.
-- **Vessel activity:** Auto-dispatch only considers active vessels. Inactive vessels are skipped even if they exceed the threshold.
-
-### Common Operations
-
-**Check vessel reflection state:**
-```json
-// armada_get_vessel
-{ "vesselId": "vsl_abc123def456ghi789jk" }
-
-// Look for:
-// - reflectionThreshold (custom or null)
-// - lastReflectionMissionId (pointer to most recent accepted reflection)
-```
-
-**List recent reflections on a vessel:**
-```json
-// armada_enumerate
-{
-  "entityType": "missions",
-  "vesselId": "vsl_abc123def456ghi789jk",
-  "pageSize": 10
-}
-// Filter for Persona = "MemoryConsolidator" in results
-```
-
-**Force re-consolidation from a specific point:**
-```json
-// armada_consolidate_memory
-{
-  "vesselId": "vsl_abc123def456ghi789jk",
-  "sinceMissionId": "msn_olderabc123def456ghi",
-  "instructions": "Re-analyze from March checkpoint"
-}
-```
-
-### Error Handling
-
-| Scenario | Response | Action |
-|----------|----------|--------|
-| Proposal already accepted/rejected | `proposal_already_processed` | No action needed; already handled |
-| Mission not a reflection | `mission_not_a_reflection` | Verify mission ID; may be a regular mission |
-| Output contract violation | `output_contract_violation` | Reject the proposal; next drain will re-dispatch |
-| No evidence available | `no_evidence_available` | Vessel has no terminal missions since last reflection |
-| Reflection already in flight | `reflection_already_in_flight` | Wait for existing mission; ID returned in payload |
-
-### Best Practices
-
-1. **Review promptly:** Don't let completed reflections sit un-reviewed. They block new reflections on the same vessel.
-
-2. **Edit surgically:** When accepting with edits, only change what's necessary. Preserve the captain's structure and formatting.
-
-3. **Explain rejections:** Provide clear, specific rejection reasons. They directly improve the next reflection attempt.
-
-4. **Monitor thresholds:** Adjust `ReflectionThreshold` per vessel based on activity. High-traffic repositories may benefit from more frequent, smaller consolidations.
-
-5. **Check confidence:** Review the `evidenceConfidence` field in the diff. "low" confidence indicates the consolidator was uncertain -- consider manual review or rejection with guidance.
-
-6. **Inactive vessel handling:** If you need reflections on an inactive vessel, manually trigger with `armada_consolidate_memory` rather than relying on auto-dispatch.
-
-## Playbook-Curate Operator Workflow
-
-Use `playbook-curate` when a captain had to search because the learned
-playbook did not contain enough repo-specific guidance. It is a manual
-reflection mode; it writes through the same `armada_accept_memory_proposal`
-review path as `consolidate`, but its brief is tuned to mission briefs plus
-Grep/Glob/`armada_code_search` evidence.
-
-1. **Single vessel:** call `armada_consolidate_memory` with
-   `vesselId` and `mode: "playbook-curate"`. Add `instructions` when you
-   want it to focus on a known search gap.
-
-2. **Active-vessel sweep:** call with `vesselId: null` and
-   `mode: "playbook-curate"`. Vessels without terminal missions in the
-   playbook-curate window are skipped with `no_playbook_gap_evidence`.
-
-3. **Review candidate carefully:** accept only durable facts that should
-   reduce future blind searching: repo locations, conventions, validation
-   commands, known pitfalls, or stable cross-file relationships. Reject or
-   edit one-off implementation detail.
-
-4. **Do not confuse stores:** use `pack-curate` for context-pack hint rows
-   and `playbook-curate` for vessel learned-playbook markdown.
-
-## Identity-Curate Operator Workflow (Reflections v2-F2)
-
-Persona-curate and captain-curate add cross-vessel identity-pinned
-learned-notes playbooks. Operator workflow extends the v1 review loop:
-
-1. **Audit-drain triggers** identity-curate auto-dispatches alongside
-   the per-vessel triggers. Look for `mode: "persona-curate"` and
-   `mode: "captain-curate"` entries in `reflectionsDispatched[]`. Each
-   carries `personaName` or `captainId` instead of `vesselId`.
-
-2. **Manual dispatch** for re-evaluation without new evidence: call
-   `armada_consolidate_memory` with `personaName` (or `captainId`) and
-   `mode`. Manual dispatches bypass the audit-drain anti-thrash gate;
-   the brief still surfaces existing notes plus rejection history.
-
-3. **Captain-curate fan-out** is gated by
-   `ArmadaSettings.AllowCaptainCurateFanOut` (default false). Enabling
-   it dispatches one captain-curate per active captain on a single
-   `armada_consolidate_memory(captainId: null)` call -- this can be
-   expensive with a 25+ captain pool and risks correlated bias, so
-   prefer single-target dispatches in normal operation.
-
-4. **Counter-evidence checks at accept time** are the bias-correction
-   loop. When the prior identity playbook had confidence-tagged notes,
-   the new candidate MUST disable or weaken any contradicted notes;
-   otherwise accept fails with
-   `persona_curate_ignored_counter_evidence` (or the captain variant).
-   Reject with a specific reason rather than `editsMarkdown`-overriding
-   so the next cycle's brief surfaces the gap.
-
-5. **Vessel conflict warnings** are non-blocking: identity notes
-   resembling vessel-learned content surface as
-   `identity_note_conflicts_vessel` warnings. Decide whether the
-   identity override is intentional (accept), redundant (reject), or
-   needs editing (`editsMarkdown`). The Jaccard threshold and vessel
-   sample size are tunable in `ArmadaSettings`.
-
-6. **Identity playbooks attach automatically** through the three-way
-   merge in `AdmiralService.PersistMissionPlaybooksAsync`
-   (vessel -> persona -> captain). Persona-pinned content lights up
-   on every mission running that persona; captain-pinned content
-   lights up the next time the captain is assigned. No manual
-   `selectedPlaybooks` editing is required.
-
-7. **Threshold tuning:** start with `Persona.CurateThreshold = 30`
-   for high-throughput personas (Architect, Worker) and leave others
-   null. Captain thresholds should be sparse -- enable per-captain
-   only when behavior signal is strong enough to justify the dispatch
-   cost.
-
-## Fleet-Curate Operator Workflow (Reflections v2-F3)
-
-Fleet-curate is the seventh `armada_consolidate_memory` mode and the
-last link in the v1 -> F4 -> F1 -> F2 -> F3 reflections chain. It
-promotes facts shared across vessels in a fleet to a fleet-pinned
-learned playbook with explicit `disableFromVessels` ripples.
-
-1. **Audit-drain auto-trigger** runs after the F2 captain-curate pass.
-   For each active fleet with a non-null `Fleet.CurateThreshold`, the
-   drain counts terminal missions across ACTIVE vessels in the fleet
-   since the last accepted fleet-curate; the anti-thrash gate ALSO
-   requires at least one consolidate / consolidate-and-reorganize
-   accept event on a member vessel since that timestamp (without fresh
-   vessel-learned acceptances, promotion candidates haven't moved).
-   Successful auto-dispatches surface as
-   `{fleetId, missionId, mode:"fleet-curate"}` in
-   `reflectionsDispatched[]`.
-
-2. **Manual dispatch** when anti-thrash suppresses the auto-trigger or
-   you want a fresh re-evaluation: call
-   `armada_consolidate_memory(fleetId, mode: "fleet-curate")`. Manual
-   dispatches bypass anti-thrash. Pass `fleetId: null` for cross-fleet
-   fan-out across active fleets.
-
-3. **Vessel-fleet conflict detection is BLOCKING** at accept time per
-   spec Q3. When a candidate fleet entry's 3-gram Jaccard similarity
-   to existing vessel-learned content exceeds
-   `FleetVesselConflictThreshold` (default 0.7) AND sentiment polarity
-   disagrees, accept fails with `fleet_curate_vessel_conflict`. The
-   `editsMarkdown` override is the safety valve when the consolidator
-   is right and the vessel content is stale; otherwise REJECT with a
-   reason and let the next cycle's brief surface the gap.
-
-4. **Promotion gates are strict.** Each new fleet entry MUST list at
-   least 2 contributing vessels (else
-   `fleet_promotion_insufficient_vessels`) and at least 3 supporting
-   missions across those vessels (else
-   `fleet_promotion_insufficient_missions`). Single-vessel facts
-   belong in vessel-curate (consolidate); reject the proposal and run
-   `armada_consolidate_memory(vesselId, mode: "consolidate")` instead.
-
-5. **Ripple disables** retire the original vessel-scope copy when a
-   fact is promoted. The candidate's JSON sidecar lists
-   `disableFromVessels: [{vesselId, noteRef, reason}]` per ripple;
-   accept applies them transactionally as `[disabled: <reason>]`
-   marker prefixes on the matching vessel-learned note line. The
-   marker preserves history so future fleet-curate cycles see the
-   disable trail. `noteRef` shape is `<Section>:<index>` (e.g.
-   `Project conventions:0`).
-
-6. **Cross-vessel suggestions in vessel-curate briefs** are passive
-   nudges. When a vessel-curate (consolidate) brief is assembled, the
-   dispatcher scans sibling vessels' learned playbooks and surfaces
-   facts whose 3-gram Jaccard similarity exceeds
-   `CrossVesselSuggestionThreshold` (default 0.5) as a
-   "Cross-vessel suggestion" hint section. The captain may mention
-   the suggestion in its diff `notes` paragraph or include a
-   `[CLAUDE.MD-PROPOSAL]` block; vessel-curate accept semantics are
-   unchanged. The actual promotion path is fleet-curate.
-
-7. **Four-way merge attaches fleet content automatically.**
-   `AdmiralService.PersistMissionPlaybooksAsync` layers
-   `fleet -> vessel -> persona -> captain` with fleet appearing first
-   (least specific). No manual `selectedPlaybooks` editing required.
-
-8. **Threshold tuning:** for the typical multi-repo project setup
-   (3-5 vessels in one fleet), start with `Fleet.CurateThreshold = 50`
-   so the auto-trigger fires after roughly two vessel-curate cycles
-   per member vessel. Leave the threshold null for fleets where
-   cross-vessel sharing is unlikely (single-repo projects, isolated
-   experimental repos).
-
-9. **Cross-fleet fan-out** is supported via
-   `armada_consolidate_memory(fleetId: null, mode: "fleet-curate")`
-   for multi-fleet admiral instances. Single-fleet setups (the common
-   case) see this dispatch as a single fleet-curate. The
-   `dual_judge_fan_out_starvation_risk` warning emits at N > 3 fleets
-   with `dualJudge=true`.
-
-10. **`armada_get_fleet` and `armada_update_fleet` extensions** carry
-    the F3 fields: `defaultPlaybooks`, `learnedPlaybookId`, and
-    `curateThreshold`. The `learnedPlaybookId` is read-only through
-    the update tool -- the accept path lazy-creates the playbook on
-    the first successful fleet-curate and writes the FK back to the
-    fleet row.
-
----
-
-## Codebase index and context packs
-
-The Admiral-owned per-vessel code index supports hybrid lexical + semantic search, cross-vessel fleet queries, supported-language symbol graph sidecars, graph-aware search boosts, and file-level signatures. The dashboard's **Code Index** page exposes vessel status/update controls plus search, symbol, file, and graph-explore views. The default embedding endpoint is DeepSeek-compatible (`EmbeddingModel = "deepseek-embedding"`), and settings can point the embedding/inference clients at another compatible service. Embeddings live inline with each chunk in `~/.armada/code-index/<vesselId>/chunks.jsonl`; graph sidecars live beside them as `symbols.jsonl` and `edges.jsonl`. The index is for repo discovery/evidence -- playbooks, vessel `CLAUDE.md`, and project `CLAUDE.md` win on conflict.
-
-### How to use
-
-**Dispatch-time auto-attach.** `armada_dispatch` defaults `codeContextMode` to `auto`. Every dock gets `_briefing/context-pack.md` staged automatically; captains are instructed (via `proj-corerules-summary` playbook) to read it before any `Grep`/`Glob`. Before pipeline resolution or context-pack generation, MCP dispatch checks the vessel's code-index status. If a post-land or manual update is still running, dispatch returns `Code = "code_index_update_in_progress"` and includes `codeIndex.updateInProgress`, `updateStartedUtc`, `updateHeartbeatUtc`, `updateStage`, progress fields, freshness, vessel id, and vessel name so the orchestrator can explain the wait and retry after the index is current. Mode catalog:
-
-- `auto` -- generate pack from title + description (default).
-- `force` -- regenerate even if a captain returned an empty pack; useful when the first pack was thin.
-- `off` -- skip entirely. Reserve for intentionally code-blind missions (pure docs, pure ops).
-
-Automatic dispatch-time context generation is bounded. In `auto` mode, a slow context-pack build logs a warning and dispatch continues without the pack so a voyage record is still created. In `force` mode, the same timeout returns a clear pre-dispatch error. The default timeout is 45 seconds and can be overridden with `ARMADA_CODE_CONTEXT_TIMEOUT_MS`.
-
-**`armada_code_search`** -- inspect the index directly when you want raw results, cross-vessel discovery, or to verify a captain's evidence. Filters narrow scope: `pathPrefix` clips to a directory, `language` filters by detected language (`csharp`, `markdown`, etc.). `Score` interpretation:
-
-- Lexical-only baseline clusters in the 60-200 range.
-- Hybrid (semantic + lexical) lifts conceptually relevant hits into the 300-700+ range.
-- Search records may include `EmbeddingVector` when semantic indexing is enabled; keep `limit` low and prefer context packs for larger evidence transfer until the response-shaping follow-up redacts vectors by default.
-
-Phrase queries by intent (`"binary frame parsing helper"`) rather than single common tokens (`"voyage"` gets swamped by domain noise -- "Voyage" is the orchestrator's dispatch-batch concept and dominates a lexical search).
-
-**Post-land refresh.** When a voyage lands through the local merge path or PR reconciler, Admiral starts a background `armada_index_update` for that vessel. This is intentionally asynchronous so landing is not held hostage by embedding/graph work, but it is treated as a dispatch pre-flight gate: do not dispatch more work for that vessel while `armada_index_status.updateInProgress` is true or `freshness` is `Stale`. The gate protects future missions from stale `armada_code_search` hits and context packs that miss the newly landed code.
-
-**`armada_context_pack`** -- build a dispatch-ready markdown briefing for a specific goal. Returns `Markdown`, `MaterializedPath`, and a `prestagedFiles` entry pointing at `_briefing/context-pack.md`. Pass the entry straight into `armada_dispatch` to override the auto pack with a tighter goal. Always list `_briefing/context-pack.md` in the mission's **Reads** section so the captain knows it is authoritative repo evidence. If pack generation exceeds `timeoutMs` (or `ARMADA_CODE_CONTEXT_TIMEOUT_MS`, default 120 seconds for direct pack tools), the tool returns `code_context_timeout`; use focused `armada_code_search` or retry with a smaller token budget/result count.
-
-Context-pack responses include a `metrics` object: `resultCount`, `includedFileCount`, `includedFiles`, `matchedHintCount`, `matchedHintIds`, `graphExpansionUsed`, `warningCount`, `isSummarized`, `prestagedFileCount`, and `estimatedTokens`. When graph sidecars resolve symbols from the goal or search results, `armada_context_pack` appends a `Symbol Graph Context` section with caller/callee neighborhoods, affected-test candidates, and `graphIncludedFiles`; in that case `graphExpansionUsed` is `true`. Fleet packs aggregate the same metric shape across vessels and prefix included files with `<vesselId>:`. Use these fields to compare pack breadth and hint usefulness before dispatching; use later pack-curate evidence (`filesReadFromPack`, `filesIgnoredFromPack`, `filesGrepDiscovered`, `filesEdited`) to judge whether the pack actually covered what the captain used.
-
-**Graph tools** -- after `armada_index_update`, supported source files are scanned into symbol and edge sidecars. The extractor covers C#, TypeScript/JavaScript, Python, Java/Kotlin, Go, and Rust symbols plus common ASP.NET, Express/router, FastAPI, Spring, and Go HTTP endpoint patterns. Use these when the question is symbol-oriented rather than full-text-oriented:
-
-- `armada_graph_search_symbols` finds symbols by simple or qualified name, with optional `kind` and `pathPrefix` filters.
-- `armada_graph_get_callers` / `armada_graph_get_callees` return direct neighbors for a seed symbol.
-- `armada_graph_get_node` returns resolved symbols, direct callers/callees, and an optional source excerpt for one symbol.
-- `armada_graph_get_files` returns indexed files grouped with their graph symbols.
-- `armada_graph_explore` returns a bounded graph neighborhood grouped by file, including relationships and optional source sections.
-- `armada_graph_get_impact` traverses callers, callees, or both with bounded depth.
-- `armada_graph_suggest_affected_tests` ranks likely test files using graph traversal plus path/name convention fallback.
-
-REST equivalents live under `/api/v1/vessels/{vesselId}/code-index/...`: `status`, `update`, `search`, `search-symbols`, `callers`, `callees`, `node`, `files`, `explore`, `impact`, and `affected-tests`. Graph responses include sidecar freshness warnings; refresh the index when the sidecars are missing, empty, stale, or commit-mismatched. Current scope remains a dependency-free lexical/regex extractor rather than a full AST parser; the extractor handles common endpoint-to-handler edges, simple import aliases, and known local call target qualification, while unsupported languages and complex dynamic call paths still rely on lexical/semantic search.
-
-**Semantic vs lexical activation.** Semantic ranking only kicks in when **both** `CodeIndex.UseSemanticSearch = true` and `CodeIndex.EmbeddingApiKey` are populated in settings. Without both, search silently degrades to lexical-only -- check this first when semantic results look weak.
-
-**Captain-side note.** Newly provisioned docks are seeded with dock-local Armada MCP config (`.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml`, and `.gemini/settings.json`) that points compatible clients at the local Admiral MCP endpoint. Captains should still start with the pre-attached `_briefing/context-pack.md`; direct `armada_code_search`, `armada_context_pack`, and graph-tool use depends on the captain runtime loading project MCP config and Admiral staying available. Existing docks must be reprovisioned before they receive the generated config. Mission instructions include a required final `Pack:` line, and Armada emits `mission.context_pack_usage` after completion to record whether the pack was read before search, search happened first, the pack was missing, or usage could not be observed.
-
-### Operator gotchas
-
-These are the operationally-painful lessons encountered in the field. Treat them as the checklist when something feels wrong.
-
-1. **`Armada.Server.exe` survives `dotnet` kill.** Stopping the orchestrator with `Get-Process -Name dotnet | Stop-Process` leaves the published binary running on port 7890. Always also run `Get-Process -Name "Armada.Server" -ErrorAction SilentlyContinue | Stop-Process -Force`. If the port stays bound, the Admin restart fails with a binding error.
-2. **Use the configured MCP bind host.** The official SDK runs on Kestrel and no longer depends on HTTP.sys URL ACLs. The default endpoint is `http://localhost:7891/mcp`; container deployments bind inside the container and keep the published host port loopback-only.
-3. **`UseSemanticSearch=false` is a silent-fallback footgun.** Embeddings are generated only when the flag is `true`. If the flag is false, `armada_index_update` writes `chunks.jsonl` with `embeddingVector=null` and burns no API quota -- but search silently drops to lexical-only with no warning. Check the flag first when semantic results look wrong.
-4. **MCP client timeout vs Admin progress.** An MCP client (e.g. Claude Code) can hit its own response timeout on a long `armada_index_update` call and report failure, while the Admin keeps running the indexing job to completion. Don't re-dispatch on timeout -- re-check `armada_index_status` first; `updateHeartbeatUtc`, `updateStage`, and `updateProgressPercent` show whether the job is still moving.
-5. **Captain dock MCP config is only seeded for new docks.** If a running captain cannot see `armada_code_search`, `armada_context_pack`, or graph tools, check whether the dock predates the seeding change, whether the runtime loads project MCP config (`.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml`, or `.gemini/settings.json`), and whether Admiral's MCP endpoint is running on the configured port.
-6. **Dispatch blocked by index update is expected.** If MCP returns `code_index_update_in_progress`, do not bypass with `codeContextMode=off` unless the user explicitly wants code-blind work. Poll `armada_index_status` until `updateInProgress` is false, then retry the same dispatch so the auto context pack is generated from the latest landed code.
-7. **Stale memory checks are read-only.** Use `armada_check_stale_memory` to inspect accepted reflection anchors for missing files or missing source missions. The same warnings are fed into future vessel reflection briefs so MemoryConsolidator can propose disable/merge/rewrite updates through normal review; the diagnostic itself never edits playbooks or events.
-8. **Self-deploy requires an external watchdog.** When `settings.selfDeploy.enabled` is true for the self-hosted armada vessel, a successful land to the vessel default branch schedules a debounced Release build. Build failure opens an incident and leaves the running admiral online. Build success spawns `scripts/windows/admiral-watchdog.ps1` (Windows) or `scripts/linux/admiral-watchdog.sh` / `scripts/macos/admiral-watchdog.sh`, then the current admiral exits so the watchdog can start the newly built `Armada.Server.dll`. Run the admiral with WorkingDirectory inside the armada repo. Self-deploy waits for merge-queue landing work to finish and refuses to hard-reset a WorkingDirectory that still has unpushed local commits.
-9. **Remote MCP must target the running Admiral.** Do not use SSH to launch `armada mcp stdio` inside an existing Admiral container: that creates a second embedded service graph without the running Admiral's lifecycle callbacks. Use `scripts/mcp-ssh-http-bridge.mjs` to forward stdio requests to the loopback `/mcp` endpoint. The bridge mirrors modern protocol headers, handles JSON and request-scoped SSE responses, and retains legacy initialization compatibility. Each request uses a short SSH channel, so an Admiral restart fails only the in-flight request and later calls can recover through the same client process.
-
-### Self-deploy runbook
-
-Self-deploy is opt-in and only applies when the landed vessel is the self-hosted armada vessel (resolved from `selfDeploy.selfVesselId` or from the admiral process running inside the vessel `workingDirectory`). After merge-queue cleanup and WorkingDirectory sync, Admiral emits structured `self_deploy.*` events for each step.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `selfDeploy.enabled` | `false` | Master enable for rebuild + supervised restart. |
-| `selfDeploy.selfVesselId` | `null` | Optional vessel pin. When null, auto-resolve from the running process path. |
-| `selfDeploy.debounceSeconds` | `30` | Coalesce burst lands into one deploy. |
-| `selfDeploy.mergeQueueDrainTimeoutSeconds` | `300` | Wait for in-flight landing work before building. |
-| `selfDeploy.buildTimeoutSeconds` | `600` | Release build timeout. |
-| `selfDeploy.solutionRelativePath` | `src/Armada.sln` | Solution built before restart. |
-| `selfDeploy.buildConfiguration` | `Release` | MSBuild configuration. |
-| `selfDeploy.targetFramework` | `net10.0` | Target framework for `dotnet build -f`. |
-| `selfDeploy.serverDllRelativePath` | `src/Armada.Server/bin/Release/net10.0/Armada.Server.dll` | DLL started by the watchdog. |
-| `selfDeploy.supervisorScriptRelativePath` | `null` | Override watchdog script path; defaults to `scripts/windows/admiral-watchdog.ps1` or the platform `scripts/linux|macos/admiral-watchdog.sh`. |
-
-Recovery notes:
-
-- Build failure: inspect the opened incident, fix compile errors in the synced WorkingDirectory, rebuild manually, then restart via the watchdog script.
-- Unpushed local commits: push or reconcile the WorkingDirectory before enabling another self-deploy attempt.
-- Port still bound after restart: stop orphaned `Armada.Server` / `dotnet` processes before manual restart (see operator gotcha 1).
-
-### CodeGraph implementation status
-
-The CodeGraph-inspired implementation is complete for Armada's current indexing/search scope: supported-language sidecars, graph query APIs, graph-expanded context packs, dock-local MCP config seeding, framework endpoint symbols, endpoint-handler and import-alias call edges, known local call target qualification, configurable graph-aware search boosts, vessel-scoped REST code-index routes, and the dashboard Code Index page are all shipped. Future parser swaps should be driven by concrete misses in the feedback log rather than treated as required remaining work.
-
-Notable misses, wins, and miss-class taxonomy live in `project/docs/armada-code-index-feedback.md`. When `armada_code_search` or a context pack misses badly enough to change the workflow, append an entry there per the templates at the top of that doc; captain-sourced feedback (the `[CONTEXT-PACK-FEEDBACK]` block in a final report) is transcribed by the orchestrator into the same log.
-
-### Semantic index, fleet tools, and V2 settings surface
-
-The V2 index surface (shipped in M1-M5) adds semantic search, cross-vessel fleet queries, and file-level signatures to the original lexical index.
-
-#### V2 CodeIndex settings
-
-All settings live under `CodeIndex` in `~/.armada/settings.json`:
-
-| Setting | Default | Range | Description |
-|---------|---------|-------|-------------|
-| `UseSemanticSearch` | `false` | boolean | Enable embedding-based semantic search. When `false`, search is lexical-only (V1 behavior). |
-| `EmbeddingModel` | `"deepseek-embedding"` | string | Model name passed to the embedding endpoint. |
-| `EmbeddingApiBaseUrl` | `"https://api.deepseek.com"` | string | Base URL for embedding API calls. |
-| `EmbeddingApiKey` | `""` | string | API key for embedding calls. Store the secret here; never commit real keys to git. |
-| `EmbeddingBatchSize` | `32` | 1-256 | Number of chunks sent per embedding request during index updates. |
-| `EmbeddingProgressLogInterval` | `200` | 50-2000 | Number of embedded chunks between progress log entries during index updates. |
-| `SemanticWeight` | `0.7` | 0.0-1.0 | Weight applied to semantic cosine similarity in hybrid scoring. |
-| `LexicalWeight` | `0.3` | 0.0-1.0 | Weight applied to lexical substring/term-occurrence score in hybrid scoring. |
-| `PostLandRefreshDebounceSeconds` | `30` | 0-3600 | Debounce window for coalescing post-land index refreshes per vessel. |
-| `UseSummarizer` | `false` | boolean | Enable context pack summarization via inference client. |
-| `SummarizerModel` | `"deepseek-chat"` | string | Model name for summarization calls. |
-| `SummarizerApiBaseUrl` | `""` | string | Falls back to `EmbeddingApiBaseUrl` when empty. |
-| `SummarizerApiKey` | `""` | string | Falls back to `EmbeddingApiKey` when empty. |
-| `MaxSummaryOutputTokens` | `2048` | 256-8192 | Maximum tokens the summarizer may emit. |
-| `UseFileSignatures` | `false` | boolean | Generate per-file natural-language signatures and embed them for file-level relevance boosting. |
-| `SignatureModel` | `""` | string | Model for signature generation. Falls back to `SummarizerModel` when empty. |
-| `FileSignatureBoostWeight` | `0.2` | 0.0-1.0 | Additive boost applied to chunk scores when a file's signature matches the query. |
-| `UseGraphSearchBoosts` | `true` | boolean | Apply graph-derived additive boosts when fresh sidecars can resolve query or result symbols. |
-| `GraphSeedBoost` | `18.0` | 0.0-100.0 | Boost applied to direct seed-symbol result files. |
-| `GraphNeighborBoost` | `8.0` | 0.0-100.0 | Boost applied to caller/callee neighbor files. |
-| `GraphEndpointBoost` | `12.0` | 0.0-100.0 | Boost applied to framework endpoint symbol files. |
-| `GraphFrameworkBoost` | `10.0` | 0.0-100.0 | Boost applied when framework-derived graph symbols match. |
-| `GraphTagBoost` | `6.0` | 0.0-100.0 | Boost applied to graph tag/path classification matches. |
-
-Each weight is clamped to 0.0-1.0 individually at config-load; weights are not renormalized at runtime, so the blended score magnitude scales with their sum.
-
-#### Fleet MCP tools
-
-Two fleet-scoped tools fan out across all vessels in a fleet and merge results:
-
-**armada_fleet_code_search**
-
-```json
-{
-  "fleetId": "flt_abc123def456ghi789jk",
-  "query": "tenant filter interceptor implementation",
-  "limit": 10,
-  "pathPrefix": "src/",
-  "language": "csharp",
-  "includeContent": false,
-  "includeReferenceOnly": false
-}
-```
-
-Response contains `Results` with `VesselId` and `VesselName` on every hit, sorted by score across the fleet. `Limit` is capped at 50.
-
-**armada_fleet_context_pack**
-
-```json
-{
-  "fleetId": "flt_abc123def456ghi789jk",
-  "goal": "How do I add a new vessel to an existing fleet?",
-  "tokenBudget": 8000,
-  "maxResultsPerVessel": 3
-}
-```
-
-Response contains combined markdown from all vessels with `## Vessel: {VesselName}` headings. When `UseSummarizer` is enabled, the combined pack is summarized once more at the fleet level.
-
-#### Summarizer behavior
-
-When `UseSummarizer` is enabled, context-pack chunks are compressed through the inference client before the pack is materialized for dispatch. `ContextPackResponse.Markdown` keeps the raw markdown, while `ContextPackResponse.SummarizedMarkdown` carries the compressed version when summarization succeeds. `prestagedFiles` points at the summarized materialized file when `SummarizedMarkdown` is present, otherwise it falls back to the raw markdown file. Operators can opt out by leaving `UseSummarizer` set to `false` in settings before making the request.
-
-#### OpenCode Server inference mode
-
-Armada can route summarizer and file-signature inference through a local OpenCode daemon instead of direct HTTP chat completions. Set:
-
-- `CodeIndex.InferenceClient = "OpenCodeServer"`
-- `CodeIndex.OpenCodeServer.AutoLaunch = true` (default)
-
-When enabled, Armada probes `GET {BaseUrl}/global/health` and either:
-
-1. Attaches to an already-running daemon when healthy, or
-2. Launches `opencode serve --port {Port} --hostname {Hostname}` and waits for health.
-
-OpenCode credentials are managed by the CLI, not by Armada. On Linux/macOS the auth state is stored in `~/.local/share/opencode/auth.json` (platform equivalents apply on Windows).
-
-To disable daemon auto-launch but keep OpenCode inference available, set:
-
-- `CodeIndex.OpenCodeServer.AutoLaunch = false`
-
-In that mode, operators start `opencode serve` manually before issuing index summarization/signature workflows.
-
-#### File signature behavior
-
-When `UseFileSignatures` is enabled:
-
-1. **Index time**: `UpdateAsync` generates a 1-2 sentence natural-language signature for each unique file using the inference client, embeds it via the embedding client, and stores it in `signatures.jsonl` alongside `chunks.jsonl`.
-2. **Search time**: After chunk-level scoring, file signature vectors are compared to the query vector. All chunks belonging to a file with high signature similarity receive an additive boost proportional to `FileSignatureBoostWeight * signatureSimilarity`.
-3. **Boost semantics**: The boost is additive post-scoring; it never overrides a strong chunk hit, only lifts file-level relevance on otherwise weaker chunks.
-
-Performance note: signature generation costs one inference call plus one embedding call per file at index time. A full fleet index of ~10,000-15,000 files therefore requires ~20,000-30,000 API calls during the initial build.
-
-#### Sample settings.json
-
-Set `codeIndex.enabled` to `false` to disable indexing and remove code-index guidance from captain prompts. Set `learnedFactsEnabled` to `false` to omit legacy model context, learned playbooks, and learned-fact proposal guidance.
-
-Three further switches shape what a captain receives:
-
-- `aiMemoryRoot` names the shared memory root. When set, every brief carries one pointer to `<root>/shared/INDEX.md`, for every runtime. Only the index is named; memory content is never inlined. Use the path as it resolves on the host the captain runs on, not a workstation path.
-- `captainInstructionByteBudget` (default `32768`, `0` disables) warns when a generated instruction file exceeds it, naming the largest module. Every dispatch also records a `mission.prompt_budget` event with per-module byte counts and a `mission.launch_prompt_budget` event with the launch-prompt size, so prompt cost is measured by the admiral rather than estimated by the captain. Read them with `armada_enumerate` on `events` with `includePayload`.
-- `seedDockRuntimeMcpConfig` (default `false`) controls whether docks receive MCP client configuration pointing captains at the Armada MCP server. It is off because delivery is all-or-nothing across runtimes: exposing tools to one runtime and not another produces briefs whose instructions are valid for some captains and impossible for others. Enable it only alongside a scoped per-mission tool profile, and verify by having a captain list the tools it received. The OpenCode permission document is not MCP and is always written, since captains need reads outside the dock for playbooks, sibling repositories, and shared memory.
-
-```json
-{
-  "admiralPort": 7890,
-  "mcpPort": 7891,
-  "learnedFactsEnabled": false,
-  "aiMemoryRoot": "/srv/armada/AI-Memory",
-  "captainInstructionByteBudget": 32768,
-  "seedDockRuntimeMcpConfig": false,
-  "codeIndex": {
-    "enabled": false,
-    "useSemanticSearch": true,
-    "embeddingModel": "deepseek-embedding",
-    "embeddingApiBaseUrl": "https://api.deepseek.com",
-    "embeddingApiKey": "sk-your-embedding-key",
-    "semanticWeight": 0.7,
-    "lexicalWeight": 0.3,
-    "useSummarizer": true,
-    "summarizerModel": "deepseek-chat",
-    "summarizerApiBaseUrl": "",
-    "summarizerApiKey": "",
-    "maxSummaryOutputTokens": 2048,
-    "useFileSignatures": true,
-    "signatureModel": "",
-    "fileSignatureBoostWeight": 0.2,
-    "useGraphSearchBoosts": true,
-    "graphSeedBoost": 18.0,
-    "graphNeighborBoost": 8.0,
-    "graphEndpointBoost": 12.0,
-    "graphFrameworkBoost": 10.0,
-    "graphTagBoost": 6.0
-  }
-}
-```
-
-Replace placeholder keys with actual secrets. `EmbeddingApiKey` is the sensitive field; keep it out of version control.
-
----
-
-## Sibling-Repo and Artifact Provisioning
-
-### Overview
-
-Some vessels depend on adjacent repositories or host-side build artifacts that must be present
-alongside their dock worktree for the project to compile and run its tests inside Armada. The
-`SiblingRepos` field on a vessel carries a JSON list of `SiblingRepo` declarations that control
-what is provisioned next to every dock created for that vessel.
-
-Single-repo vessels (no `SiblingRepos` declared) are completely unaffected by this mechanism.
-
-### Sibling Git Repository Provisioning
-
-Each `SiblingRepo` entry causes DockService to:
-
-1. Clone the sibling repository bare into the Armada repos directory (once; subsequent docks
-   reuse the local clone and fetch updates).
-2. Create a git worktree at `<dock-worktree>/<RelativePath>` (e.g. `../ExampleSibling`).
-3. Select the branch according to `BranchStrategy`:
-   - `MatchBranchElseDefault` -- checks whether the dock branch exists in the sibling repo and
-     checks it out if so; falls back to `DefaultBranch` (or "main") otherwise.
-   - `DefaultOnly` -- always checks out `DefaultBranch` regardless of the dock branch name.
-
-Required `SiblingRepo` fields: `RelativePath`. At least one of `VesselRef` or `RepoUrl` must be set.
-
-### Extraction Artifact Provisioning
-
-Git-ignored extraction outputs (large data files generated by a tool, e.g. an extraction tool's
-output artifacts) cannot be committed into the sibling repo. They exist on the Admiral host in the
-operator's local working checkout. The `ExtractionArtifactPaths` field on a `SiblingRepo` entry
-lists relative paths that are **copied** from the sibling vessel's `WorkingDirectory` into the
-same relative location inside the dock sibling worktree immediately after that worktree is
-provisioned.
-
-Requirements:
-- `VesselRef` must point to a registered Armada vessel.
-- That vessel must have `WorkingDirectory` configured (the operator's local checkout path).
-- Each entry in `ExtractionArtifactPaths` is a relative path under `WorkingDirectory`
-  (e.g. `output/extracted-artifacts`) that is copied recursively.
-
-If the source directory is **absent** at provisioning time (e.g. the extraction has not been
-run yet), DockService logs a high-importance warning and skips the copy cleanly. The dock is
-still created and the primary build succeeds; only data-dependent tests are gated until the
-artifacts are generated.
-
-### Example: service-a + ExampleSibling
-
-```json
-[
-  {
-    "vesselRef": "vsl_xxxx",
-    "repoUrl": "https://github.com/test/example-sibling.git",
-    "relativePath": "../ExampleSibling",
-    "branchStrategy": "MatchBranchElseDefault",
-    "defaultBranch": "main",
-    "extractionArtifactPaths": [
-      "output/extracted-artifacts"
-    ]
-  }
-]
-```
-
-Set `WorkingDirectory` on the ExampleSibling vessel to the operator's local checkout.
-After running the extraction tool locally, the next
-dock provisioned for service-a will copy `output/extracted-artifacts/` into the sibling worktree so
-the service-a MSBuild probes and data-tests resolve correctly.
-
-Do **not** commit the artifact files into any tracked repository -- they are git-ignored by
-design. The copy is purely local to the dock and is discarded when the dock is reclaimed.
+Read the mission diff and relevant logs. Drain the audit queue and record the
+audit verdict when needed. Check the merge entry before processing it.
+
+Use `armada_process_merge_entry` for one reviewed entry. Use
+`armada_process_merge_queue` only when the operator intends to start queue
+processing. It returns an accepted job and can no-op when a queue run is
+already active. Poll the job and merge entry.
+
+Landing behavior comes from the effective landing mode:
+
+| Mode | Result |
+| --- | --- |
+| `LocalMerge` | Merge into the configured working checkout. Do not push unless separate policy permits it. |
+| `PullRequest` | Create or update provider review state. |
+| `MergeQueue` | Use the durable integration, test, and landing state machine. |
+| `None` | Leave produced work for explicit operator handling. |
+
+Do not infer successful landing from a `Complete` label alone. Verify the
+target branch or remote commit that should contain the work.
+
+### 4.8 Close The Record Chain
+
+Before the objective becomes complete:
+
+1. Link the final voyage and missions.
+2. Link the passing Checks.
+3. Link a release and deployment when work shipped.
+4. Link incidents and their final evidence.
+5. Create a new record for every deferred task.
+6. Update the objective summary with the verified outcome.
+
+## 5. Recovery And Incident Workflow
+
+When autonomous recovery is enabled, Armada classifies failed missions,
+creates or updates an incident, records a recovery runbook execution, and can
+dispatch a bounded rescue mission. It does not use generic rescue missions for
+landing failures. Authentication, quota, review, protected-path, dependency,
+and exhausted-recovery failures remain for operator action.
+
+Use this order for manual diagnosis:
+
+1. Read the complete mission and captain logs.
+2. Use `armada_captain_diagnostics`.
+3. Compare with a known-good mission on the same runtime.
+4. Separate provider, host, repository, test, and model failures.
+5. Create or update the incident before repeated intervention.
+6. Cancel only the exact mission or voyage that must stop.
+7. Restart or retry only after the cause is understood.
+
+Incident closure is evidence-driven. Produce a newer passing check, successful
+rescue, shipped release, verified deployment, or completed rollback. Do not
+close an incident only because a captain reported success.
+
+## 6. Release And Deployment Workflow
+
+Use a workflow profile for repeatable commands. Use named environments for
+rollout targets.
+
+1. Create a release and link its objective, voyages, missions, artifacts, and
+   Checks.
+2. Move the release through its supported states only when evidence permits.
+3. Create a deployment against a named environment.
+4. Approve it when the environment requires approval.
+5. Run deployment verification.
+6. Use rollback on the same deployment record if verification fails.
+7. Link the related incident and runbook execution.
+
+See [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for the detailed procedure.
+
+## 7. Configuration And Administration
+
+Treat fleet, vessel, captain, persona, pipeline, playbook, template, backup,
+and server-stop tools as administrator surfaces. Read the existing record
+first. Validate provider models with a live provider call before putting them
+in a tier.
+
+Vessel instruction files and generated briefing files are protected paths.
+Captains must propose instruction changes. The orchestrator reviews and applies
+them outside the mission dock.
+
+Backups can contain operational state. Store them in an approved location and
+apply retention limits. Restore, delete, purge, stop, and bulk operations need
+an explicit operator decision.
+
+## 8. Complete MCP Tool Catalog
+
+The built-in catalog contains 155 names. Some names are compatibility aliases.
+Some tool families register only when their service is enabled.
+
+Risk labels:
+
+- **Read**: no intended state change.
+- **Write**: creates or updates Armada state.
+- **Execute**: starts work, a command, landing, or rollout.
+- **Interrupt**: stops or cancels active work.
+- **Destructive**: deletes, purges, restores, or stops the server.
+
+### 8.1 Status, Enumeration, Jobs, And Diagnostics
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_status`, `armada_enumerate`, `armada_job_status`, `armada_captain_diagnostics`, `armada_unlanded_branches` |
+
+### 8.2 Fleets And Vessels
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_get_fleet`, `armada_get_vessel` |
+| Write | `armada_create_fleet`, `armada_update_fleet`, `armada_add_vessel`, `armada_update_vessel`, `armada_update_vessel_context` |
+| Destructive | `armada_delete_fleet`, `armada_delete_fleets`, `armada_delete_vessel`, `armada_delete_vessels` |
+
+### 8.3 Captains
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_get_captain`, `armada_get_captain_log` |
+| Write | `armada_create_captain`, `armada_update_captain`, `armada_bench_captain`, `armada_unbench_captain` |
+| Interrupt | `armada_stop_captain`, `armada_stop_all` |
+| Destructive | `armada_delete_captain`, `armada_delete_captains` |
+
+### 8.4 Voyages And Missions
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_voyage_status`, `armada_mission_status`, `armada_get_mission_diff`, `armada_get_mission_log` |
+| Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status` |
+| Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing` |
+| Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
+| Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
+
+### 8.5 Planning, Objectives, And Backlog
+
+| Risk | Tools |
+| --- | --- |
+| Read | `list_objectives`, `list_backlog`, `get_objective`, `get_backlog_item`, `list_backlog_refinement_sessions`, `get_backlog_refinement_session`, `get_backlog_planning_session` |
+| Write | `create_objective`, `create_backlog_item`, `update_objective`, `update_backlog_item`, `reorder_objectives`, `reorder_backlog_items`, `create_backlog_refinement_session`, `send_backlog_refinement_message`, `summarize_backlog_refinement_session`, `apply_backlog_refinement_summary`, `stop_backlog_refinement_session`, `create_backlog_planning_session`, `delete_objective`, `delete_backlog_item` |
+| Execute | `dispatch_backlog_planning_session`, `armada_decompose_plan`, `armada_parse_architect_output` |
+
+### 8.6 Objective Scheduler
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_objective_scheduler_status` |
+| Write | `armada_objective_scheduler_set`, `armada_mark_objective_auto_dispatchable` |
+
+### 8.7 Checks
+
+| Risk | Tools |
+| --- | --- |
+| Read | `get_check_run` |
+| Write | `resolve_check`, `armada_resolve_check` |
+| Execute | `run_check`, `retry_check_run` |
+
+`armada_resolve_check` is a compatibility alias for `resolve_check`.
+
+### 8.8 Merge Queue And Audit
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_get_merge_entry`, `armada_drain_audit_queue` |
+| Write | `armada_enqueue_merge`, `armada_record_audit_verdict` |
+| Execute | `armada_process_merge_entry`, `armada_process_merge_queue` |
+| Interrupt | `armada_cancel_merge` |
+| Destructive | `armada_delete_merge`, `armada_purge_merge_queue`, `armada_purge_merge_entry`, `armada_purge_merge_entries` |
+
+### 8.9 Docks, Signals, And Events
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_get_dock` |
+| Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read` |
+| Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
+
+### 8.10 Incidents
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_list_incidents`, `armada_get_incident` |
+| Write | `armada_create_incident`, `armada_update_incident`, `armada_close_incident` |
+| Destructive | `armada_delete_incident` |
+
+### 8.11 Releases
+
+| Risk | Tools |
+| --- | --- |
+| Read | `get_release` |
+| Write | `create_release`, `update_release`, `armada_update_release` |
+
+`armada_update_release` is a compatibility alias for `update_release`.
+
+### 8.12 Deployments
+
+| Risk | Tools |
+| --- | --- |
+| Read | `get_deployment` |
+| Write | `create_deployment`, `update_deployment`, `armada_update_deployment` |
+| Execute | `approve_deployment`, `verify_deployment`, `rollback_deployment` |
+
+`armada_update_deployment` is a compatibility alias for
+`update_deployment`.
+
+### 8.13 Runbooks
+
+| Risk | Tools |
+| --- | --- |
+| Read | `get_runbook`, `get_runbook_execution` |
+| Execute | `start_runbook_execution` |
+
+### 8.14 Personas, Pipelines, Playbooks, And Templates
+
+| Risk | Tools |
+| --- | --- |
+| Read | `get_persona`, `get_pipeline`, `get_playbook`, `list_prompt_templates`, `get_prompt_template` |
+| Write | `create_persona`, `update_persona`, `create_pipeline`, `update_pipeline`, `create_playbook`, `update_playbook`, `create_prompt_template`, `update_prompt_template`, `reset_prompt_template` |
+| Destructive | `delete_persona`, `delete_pipeline`, `delete_playbook` |
+
+### 8.15 Code Index, Context Packs, And Graphs
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_index_status`, `armada_code_search`, `armada_context_pack`, `armada_fleet_code_search`, `armada_fleet_context_pack`, `armada_graph_search_symbols`, `armada_graph_get_callers`, `armada_graph_get_callees`, `armada_graph_get_impact`, `armada_graph_suggest_affected_tests`, `armada_graph_get_node`, `armada_graph_get_files`, `armada_graph_explore` |
+| Execute | `armada_index_update` |
+
+### 8.16 Reflection Memory
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_check_stale_memory` |
+| Execute | `armada_consolidate_memory` |
+| Write | `armada_accept_memory_proposal`, `armada_reject_memory_proposal` |
+
+### 8.17 AgentWake
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_agentwake_status` |
+| Write | `armada_register_agentwake_session` |
+
+AgentWake is a resume transport. It is not the work queue or the source of
+truth.
+
+### 8.18 Backup, Restore, And Server Control
+
+| Risk | Tools |
+| --- | --- |
+| Write | `armada_backup` |
+| Destructive | `armada_restore`, `armada_stop_server` |
+
+## 9. Safety Rules
+
+- Read before write.
+- Confirm the exact ID before a cancel, delete, purge, restore, rollback, or
+  server stop.
+- Do not use bulk deletion when a specific record is sufficient.
+- Do not retry a dispatch until you know whether the first request created a
+  voyage.
+- Do not call `resolve_check` to turn an unknown or failed result green.
+- Do not accept a reflection proposal without reading the proposed content.
+- Do not change vessel context or shared instructions from a captain mission.
+- Do not push, deploy, release, or roll back without the applicable operator
+  authority.
+- Never put credentials or private operational identifiers in public docs,
+  prompts, logs, examples, or commit messages.
+
+## 10. Verification Checklist
+
+Before you report completion:
+
+- The objective state matches the evidence.
+- The voyage and each mission have the expected terminal state.
+- Required Checks passed with real output.
+- The target branch contains the expected commit.
+- Release and deployment records match what shipped.
+- Incidents have evidence for their final state.
+- Deferred work has its own record.
+- No sensitive value or private operational identifier entered a public
+  artifact.

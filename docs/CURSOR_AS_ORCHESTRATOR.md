@@ -58,7 +58,10 @@ Cursor will call `armada_status` and report active captains, missions, and voyag
 
 ## Giving Cursor Full Instructions
 
-For Cursor to effectively orchestrate Armada, paste the contents of [`INSTRUCTIONS_FOR_CURSOR.md`](INSTRUCTIONS_FOR_CURSOR.md) into your project rules or system prompt. That document contains the complete tool reference, workflow patterns, and decision-making guidance Cursor needs to manage fleets, voyages, missions, and captains.
+Use [`INSTRUCTIONS_FOR_CURSOR.md`](INSTRUCTIONS_FOR_CURSOR.md) as the Cursor
+prompt bootstrap. The canonical workflow and complete MCP catalog are in
+[`armada-ops.md`](armada-ops.md). Live tool schemas come from paginated
+`tools/list` discovery.
 
 ## Quick Start
 

@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Text.Json;
+    using System.Text.RegularExpressions;
     using System.Threading.Tasks;
     using Armada.Core.Services;
     using Armada.Server.Mcp.Tools;
@@ -92,6 +93,31 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNoConcreteModelExamples(schemaJson, toolName);
                     }
                 }
+            });
+
+            await RunTest("OperatorGuide_NamesEveryRegisteredMcpTool", () =>
+            {
+                string guide = File.ReadAllText("docs/armada-ops.md");
+                string[] sourceFiles = Directory.GetFiles(
+                    "src/Armada.Server/Mcp/Tools",
+                    "Mcp*Tools.cs",
+                    SearchOption.TopDirectoryOnly);
+                HashSet<string> toolNames = new HashSet<string>(StringComparer.Ordinal);
+                Regex registration = new Regex("register\\(\\s*\"([^\"]+)\"", RegexOptions.Multiline);
+
+                foreach (string sourceFile in sourceFiles)
+                {
+                    string source = File.ReadAllText(sourceFile);
+                    MatchCollection matches = registration.Matches(source);
+                    foreach (Match match in matches)
+                        toolNames.Add(match.Groups[1].Value);
+                }
+
+                AssertTrue(toolNames.Count >= 155, "The source scan should find the current MCP catalog");
+                foreach (string toolName in toolNames)
+                    AssertContains("`" + toolName + "`", guide, "Operator guide should name " + toolName);
+
+                return Task.CompletedTask;
             });
         }
 

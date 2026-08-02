@@ -163,7 +163,7 @@ The Admiral resolves which pipeline to use in `ResolvePipelineAsync`. Resolution
 
 | Priority | Source | How to Set |
 |----------|--------|------------|
-| 1 (highest) | **Explicit dispatch parameter** | `pipelineId` or `pipeline` on `dispatch` / voyage create |
+| 1 (highest) | **Explicit dispatch parameter** | `pipelineId` or `pipeline` on `armada_dispatch` / voyage create |
 | 2 | **Vessel default** | `DefaultPipelineId` on the target vessel |
 | 3 | **Fleet default** | `DefaultPipelineId` on the vessel's parent fleet |
 | 4 (lowest) | **System fallback** | WorkerOnly (no pipeline, standard single-mission behavior) |
@@ -464,8 +464,8 @@ All migrations are implemented for SQLite, MySQL, PostgreSQL, and SQL Server. St
 | `get_prompt_template` | Get template by name |
 | `update_prompt_template` | Update template content |
 | `reset_prompt_template` | Reset to built-in default |
-| `dispatch` | Now accepts `pipelineId` and `pipeline` params |
-| `enumerate` | Now supports `personas`, `prompt_templates`, `pipelines` entity types |
+| `armada_dispatch` | Accepts `pipelineId` and `pipeline` parameters |
+| `armada_enumerate` | Supports `personas`, `prompt_templates`, and `pipelines` entity types |
 
 ### REST Endpoints
 

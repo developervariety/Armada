@@ -418,7 +418,7 @@ into mission instructions.
 
 | Store | Filename | Lifecycle |
 |---|---|---|
-| Persona-learned | `persona-<sanitized-name>-learned.md` | Bootstrapped at install for every registered persona; new personas registered later get the playbook auto-created via `ReflectionMemoryBootstrapService.BootstrapPersonaAsync` (also wired into `armada_create_persona`). |
+| Persona-learned | `persona-<sanitized-name>-learned.md` | Bootstrapped at install for every registered persona; new personas registered later get the playbook auto-created via `ReflectionMemoryBootstrapService.BootstrapPersonaAsync` (also wired into `create_persona`). |
 | Captain-learned | `captain-<sanitized-id>-learned.md` | Lazy-created on the first accepted captain-curate. Captain ids are kebab-cased for the filename (`cpt_aaa_BBB` -> `cpt-aaa-bbb`). |
 
 `Persona.LearnedPlaybookId`, `Persona.DefaultPlaybooks`, `Captain.Learned-
@@ -544,7 +544,7 @@ For persona-curate / captain-curate accept events the payload carries:
 | `IdentityNoteConflictThreshold` | 0.7 | `ArmadaSettings` |
 | `IdentityCurateDualJudgeFanOutWarnThreshold` | 3 | `ArmadaSettings` |
 | `AllowCaptainCurateFanOut` | false | `ArmadaSettings` |
-| `Persona.CurateThreshold` | NULL (auto-trigger disabled) | `armada_update_persona` (when surfaced) |
+| `Persona.CurateThreshold` | NULL (auto-trigger disabled) | `update_persona` |
 | `Captain.CurateThreshold` | NULL (auto-trigger disabled) | `armada_update_captain` (when surfaced) |
 
 ### Non-Goals (F2 Scope)
@@ -552,7 +552,7 @@ For persona-curate / captain-curate accept events the payload carries:
 - No auto-decay of low-confidence notes -- the consolidator must explicitly disable.
 - No time-based note expiry -- notes change via reflection, not by date.
 - No cross-persona inheritance -- each persona's notes are independent.
-- No direct-edit MCP tool for identity notes (`armada_update_*_notes`).
+- No direct-edit MCP tool for identity notes (`update_*_notes`).
 - No auto-routing based on captain notes -- admiral tier-routing remains the primary scheduler.
 - No schedule-based identity curate (cron); audit-drain auto-trigger is the only scheduled path.
 

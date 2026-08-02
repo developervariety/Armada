@@ -251,7 +251,11 @@ armada mcp     install|stdio
 
 **REST API** — Full CRUD on port 7890 under `/api/v1/`. See `docs/REST_API.md`.
 
-**MCP tools** — 43 tools for fleets, vessels, voyages, missions, captains, signals, events, docks, and the merge queue. Any MCP client can orchestrate Armada. See `docs/CLAUDE_CODE_AS_ORCHESTRATOR.md`.
+**MCP tools** — 155 built-in names cover planning, fleets, vessels, voyages,
+missions, captains, Checks, delivery, incidents, runbooks, indexing, memory,
+audit, and landing. The catalog can change before the stable release. Discover
+live schemas with paginated `tools/list`. See `docs/armada-ops.md` and
+`docs/MCP_API.md`.
 
 ---
 

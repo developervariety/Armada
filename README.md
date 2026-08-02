@@ -113,6 +113,7 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 
 - **Self-deploy with supervised restart.** The Admiral can rebuild and restart itself from a landed commit under a supervisor, so a fork change reaches the running server without a manual build step. Off by default (`b817f605`).
 - **One-shot server provisioning.** `bootstrap-server.sh` provisions a fresh host end to end — runtimes, Docker, Postgres, and the Admiral — so a new deployment does not depend on remembered steps (`241e7b1e`).
+- **Live admission and routing settings.** The settings API exposes resource-admission and model-tier policy, and the Admiral hot-reloads the settings file so an operator can correct routing without a restart (`847dbb39`).
 
 ### Captain prompt shaping and context budget
 
@@ -127,10 +128,10 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 
 ### Captains, runtimes, and interfaces
 
-- **Multi-runtime captain pool.** Claude Code, Codex, Cursor, Gemini, and OpenCode (Kimi K2.7) captains schedule through the same mission, voyage, dock, and merge-queue model. OpenCode is a fork-added fifth runtime with JSONL event parsing, standalone operation, tier registration, and a permission-config builder wired into dock provisioning. (The Mux runtime is [jchristn/Mux](https://github.com/jchristn/Mux), a .NET CLI agent driven headless via `mux print`; the image builds it from source in `src/Armada.Server/Dockerfile`. Do **not** install the npm package also named `mux` — that is Coder's unrelated "coder multiplexer" and its incompatible CLI silently breaks captain launches. It remains in-tree but is not part of the fork's default pool — configure it explicitly before relying on it.)
+- **Multi-runtime captain pool.** Claude Code, Codex, Cursor, Gemini, and OpenCode captains schedule through the same mission, voyage, dock, and merge-queue model. OpenCode is a fork-added runtime with JSONL event parsing, standalone operation, tier registration, custom OpenAI-compatible providers, and a permission-config builder wired into dock provisioning. Zyloo Claude captains use Claude Code's Anthropic-native provider form. (The Mux runtime is [jchristn/Mux](https://github.com/jchristn/Mux), a .NET CLI agent driven headless via `mux print`; the image builds it from source in `src/Armada.Server/Dockerfile`. Do **not** install the npm package also named `mux` — that is Coder's unrelated "coder multiplexer" and its incompatible CLI silently breaks captain launches. It remains in-tree but is not part of the fork's default pool — configure it explicitly before relying on it.)
 - **Captain health and quarantine.** Captains are auto-quarantined on provider quota / usage-limit and credit/auth signals (honoring per-provider reset times), and a health monitor detects near-instant crash loops, so tier selection only ever hands out live captains. Upstream has no quarantine state or health monitor.
 - **Cross-runtime hardening.** Role/persona context is injected uniformly into every runtime's prompt, provider usage-limit crash signatures are detected across runtimes, and MSBuild node-reuse is disabled on captain launch.
-- **Expanded MCP surface.** The `armada_*` tool catalog grows substantially, adding whole tool families for code-index retrieval, reflection memory, incidents, audits, Architect decomposition, agent-wake, long-running jobs, the objective scheduler, captain diagnostics, and unlanded branches.
+- **Expanded MCP surface.** The built-in catalog has 155 tool names for planning, code-index retrieval, reflection memory, Checks, delivery, incidents, audits, Architect decomposition, AgentWake, long-running jobs, objective scheduling, captain diagnostics, and unlanded branches. Normal discovery fits on one compatibility page, while larger extension catalogs retain standard cursor pagination.
 - **Shared REST/MCP dispatch parity.** Voyage dispatch is consolidated onto a single path shared by REST and MCP, mapping validation failures to structured MCP errors so orchestrator agents get the same semantics as REST clients.
 - **Per-captain reasoning effort.** A captain carries a reasoning-effort tier that each runtime translates to its own control: `-c model_reasoning_effort` for Codex, a `MAX_THINKING_TOKENS` budget for Claude Code, `--variant` for OpenCode. A companion flag lets recovery retry a Claude captain without extended thinking (`b5088b0d`, `bc038cf2`).
 - **Readable runtime logs.** A structured formatter resolves real tool names out of each CLI's nested JSON event schema, with redaction and truncation, and a noise filter drops envelope-only lifecycle records at both write and read. Mission logs show named tool activity instead of per-event narration (`4937f277`, `6fcae76d`).
@@ -390,6 +391,11 @@ Common MCP tool groups:
 - Check run, release, deployment, incident, and runbook operations.
 - Playbook management, mission playbook snapshots, and reflection memory.
 - Captain diagnostics, quarantine controls, AgentWake registration, long-running-job status, and wake notifications.
+
+Discover live tool descriptions and input schemas with `tools/list`. Follow
+`nextCursor` until it is absent. The complete operator workflow and current
+catalog are in [`docs/armada-ops.md`](docs/armada-ops.md); transport behavior
+is in [`docs/MCP_API.md`](docs/MCP_API.md).
 
 ---
 

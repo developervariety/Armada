@@ -175,7 +175,7 @@ curl -X PUT http://localhost:7890/api/v1/vessels/vsl_abc123 \
 ### Setting a Default Pipeline on a Fleet
 
 ```json
-// update_fleet
+// armada_update_fleet
 {
   "fleetId": "flt_abc123",
   "defaultPipelineId": "ppl_xyz789"
@@ -184,10 +184,10 @@ curl -X PUT http://localhost:7890/api/v1/vessels/vsl_abc123 \
 
 ### Overriding Per-Dispatch
 
-Pass `pipelineId` to `dispatch` to override for a single voyage:
+Pass `pipelineId` to `armada_dispatch` to override for a single voyage:
 
 ```json
-// dispatch
+// armada_dispatch
 {
   "title": "Add authentication",
   "vesselId": "vsl_abc123",
@@ -479,13 +479,13 @@ Each stage sees the diff from the previous stage.
 | `update_prompt_template` | Update template content and/or description |
 | `reset_prompt_template` | Reset a template to its built-in default |
 | **Enumeration** | |
-| `enumerate` | Use `entityType: "persona"`, `"pipeline"`, or `"prompt_template"` to list/filter/paginate |
+| `armada_enumerate` | Use `entityType: "persona"`, `"pipeline"`, or `"prompt_template"` to list/filter/paginate |
 | **Related** | |
-| `dispatch` | Pass `pipelineId` to override the default pipeline |
-| `update_vessel` | Set `defaultPipelineId` on a vessel |
-| `update_fleet` | Set `defaultPipelineId` on a fleet |
-| `create_captain` | Set `allowedPersonas` and `preferredPersona` |
-| `update_captain` | Update `allowedPersonas` and `preferredPersona` |
+| `armada_dispatch` | Pass `pipelineId` to override the default pipeline |
+| `armada_update_vessel` | Set `defaultPipelineId` on a vessel |
+| `armada_update_fleet` | Set `defaultPipelineId` on a fleet |
+| `armada_create_captain` | Set `allowedPersonas` and `preferredPersona` |
+| `armada_update_captain` | Update `allowedPersonas` and `preferredPersona` |
 
 ### REST Endpoints
 

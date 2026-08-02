@@ -163,7 +163,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 int port = GetAvailablePort();
                 await using ArmadaMcpHttpServer server = CreateServer(port);
-                for (int index = 0; index < 101; index++)
+                for (int index = 0; index < 501; index++)
                 {
                     string name = "armada_tool_" + index.ToString("D3");
                     server.RegisterTool(
@@ -185,20 +185,20 @@ namespace Armada.Test.Unit.Suites.Services
                     "tools/list",
                     new { }).ConfigureAwait(false);
                 JsonElement firstResult = first.GetProperty("result");
-                AssertEqual(100, firstResult.GetProperty("tools").GetArrayLength());
-                AssertEqual("100", firstResult.GetProperty("nextCursor").GetString());
+                AssertEqual(500, firstResult.GetProperty("tools").GetArrayLength());
+                AssertEqual("500", firstResult.GetProperty("nextCursor").GetString());
 
                 JsonElement second = await PostModernAsync(
                     client,
                     "/mcp",
                     21,
                     "tools/list",
-                    new { cursor = "100" }).ConfigureAwait(false);
+                    new { cursor = "500" }).ConfigureAwait(false);
                 JsonElement secondResult = second.GetProperty("result");
                 AssertEqual(1, secondResult.GetProperty("tools").GetArrayLength());
                 AssertFalse(secondResult.TryGetProperty("nextCursor", out _), "last page should not have a cursor");
                 AssertEqual(
-                    "armada_tool_100",
+                    "armada_tool_500",
                     secondResult.GetProperty("tools")[0].GetProperty("name").GetString());
             }).ConfigureAwait(false);
         }
