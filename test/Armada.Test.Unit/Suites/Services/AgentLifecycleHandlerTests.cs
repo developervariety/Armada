@@ -72,7 +72,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 using (CursorShimScope shim = CursorShimScope.Create())
                 {
-                    // The hang-model shim blocks ~10s. The production ceiling is 30s, so with the
+                    // The hang-model shim blocks ~4s. The production ceiling is 30s, so with the
                     // default this validation SUCCEEDS and the timeout path is never reached -- which
                     // is why this test could not pass on any platform since it was written. Drive a
                     // short ceiling instead of making the fake runtime outlast 30 seconds.
@@ -951,7 +951,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "  exit /b 3\r\n" +
                     ")\r\n" +
                     "if /I \"%MODEL%\"==\"hang-model\" (\r\n" +
-                    "  ping 127.0.0.1 -n 10 >nul\r\n" +
+                    "  ping 127.0.0.1 -n 5 >nul\r\n" +
                     "  exit /b 0\r\n" +
                     ")\r\n" +
                     "if /I \"%MODEL%\"==\"slow-launch-model\" (\r\n" +
@@ -981,7 +981,9 @@ namespace Armada.Test.Unit.Suites.Services
                     "  exit 3\n" +
                     "fi\n" +
                     "if [ \"$model\" = \"hang-model\" ]; then\n" +
-                    "  sleep 10\n" +
+                    // Only has to outlast the 2s ceiling the timeout test drives. It used to
+                    // sleep 10s, so the test spent 8s waiting on a result it already had.
+                    "  sleep 4\n" +
                     "  exit 0\n" +
                     "fi\n" +
                     "if [ \"$model\" = \"slow-launch-model\" ]; then\n" +

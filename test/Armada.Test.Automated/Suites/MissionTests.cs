@@ -20,6 +20,14 @@ namespace Armada.Test.Automated.Suites
 
         #region Private-Members
 
+        /// <summary>
+        /// Missions in the shared paging corpus. Two full pages of 10 plus a remainder, which is
+        /// the largest set any paging assertion in this suite needs.
+        /// </summary>
+        private const int _PaginationCorpusSize = 25;
+
+        private bool _PaginationCorpusReady;
+
         private HttpClient _AuthClient;
         private HttpClient _UnauthClient;
         private List<string> _CreatedMissionIds = new List<string>();
@@ -1037,11 +1045,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ListMissions_Pagination_25Missions_PageSize10_ReturnsCorrectCounts", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateMissionAsync(vesselId, "Page Mission " + i);
-                }
+                await EnsurePaginationCorpusAsync();
 
                 HttpResponseMessage page1Resp = await _AuthClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=1");
                 EnumerationResult<Mission> page1 = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(page1Resp);
@@ -1052,11 +1056,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ListMissions_Pagination_Page2", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateMissionAsync(vesselId, "Page2 Mission " + i);
-                }
+                await EnsurePaginationCorpusAsync();
 
                 HttpResponseMessage page2Resp = await _AuthClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=2");
                 EnumerationResult<Mission> page2 = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(page2Resp);
@@ -1066,11 +1066,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ListMissions_Pagination_LastPage_PartialResults", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateMissionAsync(vesselId, "LastPage Mission " + i);
-                }
+                await EnsurePaginationCorpusAsync();
 
                 // With shared data, just verify that a page beyond total returns empty
                 HttpResponseMessage resp = await _AuthClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=1");
@@ -1087,11 +1083,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ListMissions_Pagination_BeyondLastPage_ReturnsEmpty", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                for (int i = 1; i <= 5; i++)
-                {
-                    await CreateMissionAsync(vesselId, "Beyond Mission " + i);
-                }
+                await EnsurePaginationCorpusAsync();
 
                 HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=99");
                 EnumerationResult<Mission> result = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(response);
@@ -1100,10 +1092,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ListMissions_Pagination_PageSize1_EachPageHasOneRecord", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                await CreateMissionAsync(vesselId, "Single A");
-                await CreateMissionAsync(vesselId, "Single B");
-                await CreateMissionAsync(vesselId, "Single C");
+                await EnsurePaginationCorpusAsync();
 
                 HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions?pageSize=1&pageNumber=1");
                 EnumerationResult<Mission> result = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(response);
@@ -1126,11 +1115,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ListMissions_PagesContainDistinctRecords", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                for (int i = 1; i <= 6; i++)
-                {
-                    await CreateMissionAsync(vesselId, "Distinct Mission " + i);
-                }
+                await EnsurePaginationCorpusAsync();
 
                 HttpResponseMessage page1Resp = await _AuthClient.GetAsync("/api/v1/missions?pageSize=3&pageNumber=1");
                 EnumerationResult<Mission> page1 = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(page1Resp);
@@ -1280,11 +1265,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("Enumerate_WithPagination", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                for (int i = 1; i <= 15; i++)
-                {
-                    await CreateMissionAsync(vesselId, "EnumPage Mission " + i);
-                }
+                await EnsurePaginationCorpusAsync();
 
                 StringContent content = JsonHelper.ToJsonContent(new { PageNumber = 1, PageSize = 5 });
                 HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/missions/enumerate", content);
@@ -1389,11 +1370,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("Enumerate_Page2_ReturnsCorrectPage", async () =>
             {
-                string vesselId = await SetupVesselAsync();
-                for (int i = 1; i <= 8; i++)
-                {
-                    await CreateMissionAsync(vesselId, "EnumPage2 Mission " + i);
-                }
+                await EnsurePaginationCorpusAsync();
 
                 StringContent content = JsonHelper.ToJsonContent(new { PageNumber = 2, PageSize = 3 });
                 HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/missions/enumerate", content);
@@ -1620,6 +1597,31 @@ namespace Armada.Test.Automated.Suites
                 throw new Exception("CreateVesselAsync failed (" + (int)resp.StatusCode + "): " + body);
             _CreatedVesselIds.Add(vessel.Id);
             return vessel.Id;
+        }
+
+        /// <summary>
+        /// Create the shared mission corpus the paging tests read, once per run.
+        /// </summary>
+        /// <remarks>
+        /// Every paging test queries the GLOBAL mission list, not a vessel-scoped one, so none of
+        /// them needs rows of its own -- each only needs enough missions to exist. They used to
+        /// create their own batch anyway: 112 sequential HTTP creates at roughly a second each,
+        /// which made this suite alone about two thirds of the automated run. One shared batch of
+        /// 25 satisfies every assertion in the group (the largest asks for two full pages of 10).
+        /// The endpoint's own create path is covered by the create tests, not by these.
+        /// </remarks>
+        private async Task EnsurePaginationCorpusAsync()
+        {
+            if (_PaginationCorpusReady)
+                return;
+
+            string vesselId = await SetupVesselAsync();
+            for (int i = 1; i <= _PaginationCorpusSize; i++)
+            {
+                await CreateMissionAsync(vesselId, "Pagination Mission " + i);
+            }
+
+            _PaginationCorpusReady = true;
         }
 
         private async Task<Mission> CreateMissionAsync(string vesselId, string title, string? voyageId = null, int priority = 100, string? description = null, string? captainId = null)

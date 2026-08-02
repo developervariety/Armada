@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -392,12 +393,15 @@ namespace Armada.Test.Unit.Suites.Services
                     await EnsureVesselWithProfileAsync(testDb, "ten_timeout", "vsl_timeout",
                         worktreePath, HangCommand(), SuccessCommand()).ConfigureAwait(false);
 
-                    // 30 is the floor of CommandTimeoutSeconds (clamped), so this test waits ~30s
-                    // by design to prove the timeout path interrupts a hanging read instead of deadlocking.
-                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                    // CommandTimeoutSeconds has a 30-second floor, and honoring it here made this
+                    // the slowest test in the suite. The behavior under test is that the timeout
+                    // interrupts a hanging read instead of deadlocking -- which a one-second
+                    // timeout proves just as well. The production floor is untouched.
+                    DefinitionOfDoneGate gate = new FastTimeoutGate(
                         new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 30 },
                         testDb.Driver,
-                        logging);
+                        logging,
+                        TimeSpan.FromSeconds(1));
 
                     Mission mission = CreateWorkerMission("ten_timeout", "vsl_timeout");
                     Dock dock = new Dock { WorktreePath = worktreePath };
@@ -972,6 +976,26 @@ namespace Armada.Test.Unit.Suites.Services
                 DefaultBranch = "main"
             };
             await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// A gate whose command timeout is shorter than the production floor, so the timeout path
+        /// can be proven without the test waiting out a real 30 seconds.
+        /// </summary>
+        private sealed class FastTimeoutGate : DefinitionOfDoneGate
+        {
+            private readonly TimeSpan _Timeout;
+
+            public FastTimeoutGate(
+                DefinitionOfDoneSettings settings,
+                DatabaseDriver database,
+                LoggingModule logging,
+                TimeSpan timeout) : base(settings, database, logging)
+            {
+                _Timeout = timeout;
+            }
+
+            protected override TimeSpan ResolveCommandTimeout() => _Timeout;
         }
 
         #endregion

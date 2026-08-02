@@ -161,6 +161,22 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        /// <summary>
+        /// How long a single gate command may run before it is cancelled.
+        /// </summary>
+        /// <remarks>
+        /// Read from settings, where <c>CommandTimeoutSeconds</c> has a deliberate 30-second
+        /// floor: a shorter production timeout would kill legitimate builds. That floor also made
+        /// the "a hanging command is interrupted" test wait a real 30 seconds, which was the single
+        /// slowest test in the suite. Overriding this seam lets that test prove the same behavior
+        /// in about a second without lowering the floor for real captains.
+        /// </remarks>
+        /// <returns>Timeout for one command.</returns>
+        protected virtual TimeSpan ResolveCommandTimeout()
+        {
+            return TimeSpan.FromSeconds(_Settings.CommandTimeoutSeconds);
+        }
+
         private bool IsPersonaApplicable(string? persona)
         {
             if (_Settings.AppliedPersonas == null || _Settings.AppliedPersonas.Count == 0)
@@ -240,8 +256,8 @@ namespace Armada.Core.Services
                 CreateNoWindow = true
             };
 
-            using CancellationTokenSource timeoutCts = new CancellationTokenSource(
-                TimeSpan.FromSeconds(_Settings.CommandTimeoutSeconds));
+            TimeSpan commandTimeout = ResolveCommandTimeout();
+            using CancellationTokenSource timeoutCts = new CancellationTokenSource(commandTimeout);
             using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
 
             Task<string>? stdoutTask = null;
@@ -287,7 +303,11 @@ namespace Armada.Core.Services
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
             {
                 TryKillProcess(process);
-                string message = label + " command timed out after " + _Settings.CommandTimeoutSeconds + " seconds.";
+                // Report the timeout that actually fired, not the configured one, so the message
+                // stays true when the two differ.
+                string message = label + " command timed out after "
+                    + commandTimeout.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                    + " seconds.";
                 string partialOutput = await CaptureOutputAsync(stdoutTask, stderrTask).ConfigureAwait(false);
                 string combined = String.IsNullOrWhiteSpace(partialOutput) ? message : message + "\n" + partialOutput;
                 _Logging.Warn(_Header + message);

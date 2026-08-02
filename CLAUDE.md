@@ -35,6 +35,13 @@ dotnet run --project test/Armada.Test.Unit --framework net10.0
 dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 ```
 
+The suites are independent processes and share no state, so all three can run at
+once. `scripts/{linux,macos}/run-tests.sh` does that and prints a combined
+result; pass `unit`, `automated`, or `runtimes` to run just one. It also unsets
+`ANTHROPIC_*` for the child, because `ClaudeCodeZylooRoutingTests` asserts on the
+environment a captain process would inherit and fails when the caller exports
+those variables.
+
 ## Architecture
 - `Armada.Core` - Domain models, database interfaces, service interfaces, settings
 - `Armada.Runtimes` - Agent runtime adapters (Claude Code, Codex, extensible via IAgentRuntime)
