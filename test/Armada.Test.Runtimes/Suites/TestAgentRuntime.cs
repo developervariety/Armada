@@ -42,7 +42,7 @@ namespace Armada.Test.Runtimes.Suites
             string? finalMessageFilePath,
             Captain? captain) => ArgsOverride;
 
-        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
+        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain, string? model = null)
         {
             startInfo.Environment["TEST_AGENT_RUNTIME_ENVIRONMENT_APPLIED"] = "1";
 

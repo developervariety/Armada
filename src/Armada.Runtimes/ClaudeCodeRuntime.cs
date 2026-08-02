@@ -494,11 +494,11 @@ namespace Armada.Runtimes
         /// the Claude Code CLI honors as the per-process extended-thinking budget.
         /// Null/absent reasoningEffort preserves the CLI default (no env var set).
         /// </summary>
-        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
+        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain, string? model = null)
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
 
-            ApplyZylooRouting(startInfo, captain);
+            ApplyZylooRouting(startInfo, captain?.Model ?? model);
 
             // Remove nesting detection variables so captains can launch
             // even when the Admiral or CLI was started from within a Claude Code session
@@ -549,7 +549,20 @@ namespace Armada.Runtimes
         /// <param name="captain">Captain being launched; may be null.</param>
         private static void ApplyZylooRouting(ProcessStartInfo startInfo, Captain? captain)
         {
-            string? model = captain?.Model;
+            ApplyZylooRouting(startInfo, captain?.Model);
+        }
+
+        /// <summary>
+        /// Apply Zyloo routing when the requested model id is a Zyloo model. Used by both the
+        /// mission launch path (where the model comes from the captain record) and the captain
+        /// creation validation path (where the captain record has not been built yet, so the model
+        /// id is passed directly). Without this overload, model validation launches the Claude CLI
+        /// on the native endpoint and fails every Zyloo id with model_not_found.
+        /// </summary>
+        /// <param name="startInfo">Start info for the captain process being launched.</param>
+        /// <param name="model">Zyloo model id to validate, or null when not a Zyloo model.</param>
+        private static void ApplyZylooRouting(ProcessStartInfo startInfo, string? model)
+        {
             if (!Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.IsZylooModel(model)) return;
 
             string? key = Environment.GetEnvironmentVariable("ZYLOO_KEY");

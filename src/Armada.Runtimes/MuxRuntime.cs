@@ -150,7 +150,7 @@ namespace Armada.Runtimes
         /// <summary>
         /// Apply Mux-specific environment overrides.
         /// </summary>
-        protected override void ApplyEnvironment(System.Diagnostics.ProcessStartInfo startInfo, Captain? captain)
+        protected override void ApplyEnvironment(System.Diagnostics.ProcessStartInfo startInfo, Captain? captain, string? model = null)
         {
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
             if (!String.IsNullOrWhiteSpace(options?.ConfigDirectory))
