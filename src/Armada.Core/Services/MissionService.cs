@@ -1469,7 +1469,26 @@ namespace Armada.Core.Services
             }
 
             content += "\n";
-            content += ledger.Track("mission.context_conservation", await ResolveSectionAsync("mission.context_conservation", templateParams, token).ConfigureAwait(false));
+
+            // Context conservation is mode-aware. The implementation module forbids reading any file
+            // over 200 lines, which is right for an edit but wrong for an audit: a read-only captain
+            // comparing whole files against a reference then greps and measures each file before
+            // reading it anyway, spending three turns where one would do, and re-reads files it was
+            // told not to hold. The read-only variant trades that rule for a file budget.
+            if (mission.IsReadOnlyMode)
+            {
+                content += ledger.Track("mission.context_conservation_read_only", BuildReadOnlyContextConservationSection(mission.Mode));
+            }
+            else
+            {
+                content += ledger.Track("mission.context_conservation", await ResolveSectionAsync("mission.context_conservation", templateParams, token).ConfigureAwait(false));
+            }
+
+            // Independent tool calls can share one turn on every runtime Armada drives, but no module
+            // said so, and captains issued one call per turn as a result. Built in code rather than
+            // added to a template, so an existing stored template row cannot silently drop it.
+            content += "\n";
+            content += ledger.Track("mission.tool_batching", BuildToolBatchingSection());
 
             if (!mission.IsReadOnlyMode)
             {
@@ -1689,6 +1708,75 @@ namespace Armada.Core.Services
                 "- Put your findings in your final message. That message is the deliverable.\n" +
                 "- Exit with code 0 on success.\n" +
                 "- Use only ASCII characters in all output. No ANSI colour codes or terminal formatting.\n";
+        }
+
+        /// <summary>
+        /// Builds the context-conservation rules for a mission whose deliverable is a report. The
+        /// implementation module cannot be reused here. Its central rule -- never read a file over 200
+        /// lines, grep for the section first -- assumes the captain needs one region of one file. An
+        /// audit compares whole files against a reference, so the same rule makes the captain grep and
+        /// measure a file before reading all of it regardless, turning one read into three turns, and
+        /// makes it re-read files it was told not to retain. That module also tells the captain to
+        /// commit when scope runs long, which a read-only mission cannot do.
+        ///
+        /// The budget is therefore expressed in files rather than lines, and running out of budget
+        /// resolves to a partial report instead of a commit.
+        /// </summary>
+        /// <param name="mode">The mission mode; named in the text so the captain knows why.</param>
+        /// <returns>The context conservation section.</returns>
+        internal static string BuildReadOnlyContextConservationSection(MissionModeEnum mode)
+        {
+            return
+                "## Context Conservation (CRITICAL)\n" +
+                "\n" +
+                "You have a limited context window. Exceeding it will crash your process and fail the " +
+                "mission. This is a " + mode + " mission, so the budget is spent on files examined, not on " +
+                "lines per file:\n" +
+                "\n" +
+                "1. **Read each file you need once, in full, and keep it.** When your mission compares a " +
+                "file against a reference, the whole file is what you need. Do not grep it, measure it, " +
+                "and then read it anyway -- that costs three steps for one file's worth of evidence.\n" +
+                "\n" +
+                "2. **Never read the same path twice.** You already have it. If you are unsure what it " +
+                "said, say so in your report rather than reading it again.\n" +
+                "\n" +
+                "3. **Use grep instead of a read only when you want a specific value across many files.** " +
+                "For a single named file you are going to analyze, read it.\n" +
+                "\n" +
+                "4. **Do not explore beyond the files your mission names.** Locate the paths you were " +
+                "given, then stop searching and start reading.\n" +
+                "\n" +
+                "5. **If the file set is larger than about 15 files**, examine them in the order the " +
+                "mission lists, and when context runs short, report what you verified and what you did " +
+                "not reach. Name the unexamined files explicitly. A partial report with an honest " +
+                "boundary is a success; a crash is not.\n";
+        }
+
+        /// <summary>
+        /// Builds the tool-batching directive. Every runtime Armada drives can issue several
+        /// independent tool calls in one turn, but nothing in the brief said so, and captains issued
+        /// exactly one call per turn: a failed 96-turn audit made 95 tool calls. Turn count drives
+        /// wall-clock time and provider request volume, so the omission was expensive.
+        ///
+        /// This is built in code rather than folded into the context-conservation template because the
+        /// template can be overridden per deployment, and an existing stored row would silently drop a
+        /// line appended to the seeded default.
+        /// </summary>
+        /// <returns>The tool batching section.</returns>
+        internal static string BuildToolBatchingSection()
+        {
+            return
+                "## Tool Batching\n" +
+                "\n" +
+                "Issue independent tool calls together in one step rather than one per step. If the next " +
+                "call does not need the previous call's output, both belong in the same step.\n" +
+                "\n" +
+                "- Reading six files you already know the paths of is one step, not six.\n" +
+                "- Several greps over different files are one step.\n" +
+                "- A command whose input is the previous command's output must wait. Nothing else must.\n" +
+                "\n" +
+                "This reduces the number of round trips the mission needs. It does not change what you " +
+                "read or how carefully you work.\n";
         }
 
         /// <summary>

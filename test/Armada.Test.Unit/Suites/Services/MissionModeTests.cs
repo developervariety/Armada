@@ -164,6 +164,31 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("Avoiding Merge Conflicts", implBrief, "implementation brief must still carry merge-conflict guidance");
 
                         AssertTrue(auditBrief.Length < implBrief.Length, "an audit brief must be smaller than the implementation brief");
+
+                        // The implementation context-conservation module forbids reading any file over
+                        // 200 lines and tells the captain to grep for the section first. In an audit
+                        // that compares whole files against a reference, that rule made captains grep,
+                        // measure, then read the same file anyway -- three steps per file -- and it
+                        // ordered a commit a read-only mission cannot make.
+                        AssertFalse(auditBrief.Contains("NEVER read entire large files", StringComparison.Ordinal),
+                            "an audit brief must not forbid whole-file reads");
+                        AssertFalse(auditBrief.Contains("commit what you have", StringComparison.Ordinal),
+                            "an audit brief must not resolve an oversized scope with a commit");
+                        AssertContains("Read each file you need once, in full", auditBrief,
+                            "an audit brief must permit one whole-file read");
+                        AssertContains("Never read the same path twice", auditBrief,
+                            "an audit brief must forbid repeat reads of the same path");
+
+                        // The implementation brief keeps the line-budget rule: an edit needs one region
+                        // of one file, so reading the whole file there is waste.
+                        AssertContains("NEVER read entire large files", implBrief,
+                            "an implementation brief must keep the whole-file-read rule");
+
+                        // Batching applies to both modes. Captains issued one tool call per turn
+                        // because no module told them independent calls can share a turn.
+                        AssertContains("Tool Batching", auditBrief, "an audit brief must carry the batching directive");
+                        AssertContains("Tool Batching", implBrief, "an implementation brief must carry the batching directive");
+                        AssertContains("one step, not six", auditBrief, "the batching directive must give a concrete example");
                     }
                     finally
                     {
