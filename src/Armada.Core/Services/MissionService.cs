@@ -142,7 +142,7 @@ namespace Armada.Core.Services
         /// test run that terminated before the standalone verdict line) is retried rather than
         /// burning the auto-rescue budget on the first miss.
         /// </summary>
-        private const int _MaxMissingJudgeVerdictRetries = 4;
+        private const int _MaxMissingJudgeVerdictRetries = 2;
 
         // Character budget for the code-retrieval goal quoted in mission instructions. Long enough to
         // carry the title and opening intent, short enough that the brief is not repeated wholesale.
