@@ -5,7 +5,7 @@
   "heartbeatIntervalSeconds": 30,
   "stallThresholdMinutes": 10,
   "maxLandingRetries": 3,
-  "branchCleanupPolicy": "LocalOnly",
+  "branchCleanupPolicy": "LocalAndRemote",
   "autoPush": true,
   "autoCreatePullRequests": false,
   "autoMergePullRequests": false,
