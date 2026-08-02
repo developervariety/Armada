@@ -67,7 +67,10 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         private static async Task<(Voyage voyage, Mission mission, Captain captain)> SeedAsync(
-            SqliteDatabaseDriver db, int processId, int recoveryAttempts)
+            SqliteDatabaseDriver db,
+            int processId,
+            int recoveryAttempts,
+            AgentRuntimeEnum runtime = AgentRuntimeEnum.ClaudeCode)
         {
             Vessel vessel = await db.Vessels.CreateAsync(new Vessel("quota-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
@@ -86,7 +89,7 @@ namespace Armada.Test.Unit.Suites.Services
             mission.StartedUtc = DateTime.UtcNow.AddMinutes(-1);
             mission = await db.Missions.CreateAsync(mission).ConfigureAwait(false);
 
-            Captain captain = new Captain("opencode-glm52-x");
+            Captain captain = new Captain("opencode-glm52-x", runtime);
             captain.State = CaptainStateEnum.Working;
             captain.CurrentMissionId = mission.Id;
             captain.ProcessId = processId;
@@ -122,6 +125,42 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(CaptainStateEnum.Quarantined, c!.State, "the out-of-balance captain is benched so re-dispatch routes to a peer with quota");
                     AssertTrue(v!.Status != VoyageStatusEnum.Failed && v.Status != VoyageStatusEnum.Cancelled,
                         "the voyage is NOT cascade-cancelled by a captain running out of balance");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OpenCodeBalanceFailure_UsesMultiDayQuarantineAndRequeuesMission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
+                    AdmiralService admiral = CreateAdmiralService(db, settings, quarantine);
+
+                    (Voyage voyage, Mission mission, Captain captain) = await SeedAsync(
+                        db,
+                        9303,
+                        recoveryAttempts: 0,
+                        runtime: AgentRuntimeEnum.OpenCode).ConfigureAwait(false);
+                    DateTime beforeFailureUtc = DateTime.UtcNow;
+                    await WriteMissionLogAsync(settings, mission.Id, BalanceLine).ConfigureAwait(false);
+
+                    await admiral.HandleProcessExitAsync(9303, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? m = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? c = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    Voyage? v = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Pending, m!.Status,
+                        "an OpenCode balance failure must requeue the mission");
+                    AssertEqual(CaptainStateEnum.Quarantined, c!.State,
+                        "the OpenCode captain must be benched after a balance failure");
+                    AssertNotNull(c.QuarantineUntilUtc,
+                        "an OpenCode balance failure must set a retry deadline");
+                    AssertTrue(c.QuarantineUntilUtc!.Value >= beforeFailureUtc.AddDays(2.9),
+                        "an OpenCode balance failure must use the multi-day fallback window");
+                    AssertEqual(VoyageStatusEnum.InProgress, v!.Status,
+                        "an OpenCode balance failure must not cancel the voyage");
                 }
             }).ConfigureAwait(false);
 
