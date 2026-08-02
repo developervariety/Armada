@@ -97,6 +97,13 @@ namespace Armada.Core.Services
         private System.Collections.Concurrent.ConcurrentDictionary<string, Task> _InFlightCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, Task>();
 
         /// <summary>
+        /// Test-only accessor for the in-flight completion gate. Exposed so a unit test
+        /// can simulate a sweep tick landing inside the DoD gate window without having
+        /// to drive a real completion handler.
+        /// </summary>
+        internal System.Collections.Concurrent.ConcurrentDictionary<string, Task> InFlightCompletionsForTests => _InFlightCompletions;
+
+        /// <summary>
         /// Parsed mission definition extracted from an architect's output.
         /// </summary>
         private class ParsedArchitectMission
@@ -349,6 +356,23 @@ namespace Armada.Core.Services
                     // this single dependent now (stamp the upstream branch + inject the prior-stage
                     // preamble/context) and continue assignment in the same pass. Idempotent: once the
                     // branch is stamped, IsPipelineHandoffPrepared returns true on later passes.
+                    //
+                    // Defer when the upstream's completion is currently inside the in-flight completion
+                    // gate -- the batch handoff that runs AFTER the DoD gate will materialise the
+                    // dependent rows from the same context, so self-healing here races the batch and
+                    // either appends a redundant prepare or, worse, drops a mailbox block the batch
+                    // has not yet consumed. Try again on the next sweep tick once the completion
+                    // handler clears its entry.
+                    if (_InFlightCompletions.ContainsKey(dependency.Id))
+                    {
+                        _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
+                            " (" + dependency.Status + ") whose completion is still in flight -- deferring self-heal to next sweep tick");
+                        mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                        return false;
+                    }
+
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                         " (" + dependency.Status + ") but handoff context was not propagated -- self-healing handoff before assignment");
                     await SelfHealDependentHandoffAsync(dependency, mission, token).ConfigureAwait(false);

@@ -228,6 +228,56 @@ namespace Armada.Test.Unit.Suites.Services
                         "No persona preamble should be injected while deferring on the Architect handoff.");
                 }
             });
+
+            await RunTest("TryAssign_SweepInsideCompletionGate_DefersUntilGateClears", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/worker-race").ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(
+                        testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                    await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "claude-opus-4-7", "[\"TestEngineer\"]").ConfigureAwait(false);
+
+                    // Simulate the DoD gate still running: the upstream's completion is in the
+                    // in-flight gate. Without the defer, the sweep tick would self-heal here and
+                    // race the batch handoff that runs after the gate -- producing the double
+                    // "pipeline handoff: prepared mission" the objective measured.
+                    missions.InFlightCompletionsForTests.TryAdd(worker.Id, Task.CompletedTask);
+
+                    bool firstAssigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                    Mission afterFirst = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+
+                    AssertFalse(firstAssigned, "A sweep tick inside the completion gate must defer, not self-heal.");
+                    AssertEqual(MissionStatusEnum.Pending, afterFirst.Status, "Deferred dependent stays Pending.");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, afterFirst.AssignmentState,
+                        "The dependent parks on WaitingForDependency while the completion gate is open.");
+                    AssertNull(afterFirst.BranchName,
+                        "The branch must NOT be stamped during the gate window -- the batch handoff owns that.");
+                    AssertFalse((afterFirst.Description ?? "").Contains("## Your Role: TestEngineer", StringComparison.Ordinal),
+                        "No persona preamble should be injected while deferring on the in-flight gate.");
+                    AssertFalse((afterFirst.Description ?? "").Contains("## Prior Stage Output", StringComparison.Ordinal),
+                        "No prior-stage context should be injected while deferring on the in-flight gate.");
+
+                    // Now the gate clears (simulating the DoD gate finishing and the batch handoff
+                    // running). The next sweep tick should self-heal cleanly.
+                    missions.InFlightCompletionsForTests.TryRemove(worker.Id, out _);
+
+                    bool secondAssigned = await missions.TryAssignAsync(afterFirst, vessel).ConfigureAwait(false);
+                    Mission afterSecond = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+
+                    AssertTrue(secondAssigned, "Once the gate clears, the next sweep tick must self-heal and assign.");
+                    AssertEqual(MissionStatusEnum.InProgress, afterSecond.Status, "Self-healed dependent launches normally.");
+                    AssertEqual("armada/worker-race", afterSecond.BranchName, "The upstream branch is stamped after the gate clears.");
+                    AssertContains("## Your Role: TestEngineer", afterSecond.Description ?? "",
+                        "The TestEngineer persona preamble is injected exactly once on the post-gate pass.");
+                    AssertEqual(1, CountOccurrences(afterSecond.Description ?? "", "## Prior Stage Output"),
+                        "Prior-stage context is injected exactly once -- no double-prepare from the race.");
+                }
+            });
         }
     }
 }
