@@ -1,5 +1,8 @@
 namespace Armada.Server.Mcp
 {
+    using System.Collections.Generic;
+    using Armada.Core.Models;
+
     /// <summary>
     /// MCP tool arguments for updating a captain.
     /// </summary>
@@ -93,6 +96,11 @@ namespace Armada.Server.Mcp
         /// value unchanged.
         /// </summary>
         public string? ReasoningEffort { get; set; }
+
+        /// <summary>
+        /// Default playbooks. Null leaves the current value unchanged; an empty list clears it.
+        /// </summary>
+        public List<SelectedPlaybook>? DefaultPlaybooks { get; set; }
 
     }
 }

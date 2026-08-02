@@ -7,7 +7,9 @@ lists every MCP tool that the server registers.
 Use [MCP_API.md](MCP_API.md) for transport and schema discovery. Use
 [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for release and deployment
 detail. Use [MERGING.md](MERGING.md), [PIPELINES.md](PIPELINES.md), and
-[SCHEDULING.md](SCHEDULING.md) for subsystem detail.
+[SCHEDULING.md](SCHEDULING.md) for subsystem detail. Use
+[OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md) for playbooks, runbooks,
+workflow profiles, environments, personas, pipelines, and their links.
 
 ## 1. Source Of Truth
 
@@ -74,6 +76,11 @@ MCP `tools/list` is paginated. Follow `nextCursor` until it is absent. The
 normal built-in catalog fits on one 500-tool page. Pagination remains active
 for larger extension catalogs. A client that ignores `nextCursor` can hide
 valid tools.
+
+The Armada MCP catalog is an operator surface. Do not deliver it to captains.
+It contains dispatch, administration, deployment, restore, purge, and server
+control actions. Captains work inside their dock with the runtime tools that
+their mission needs. An operator uses MCP to create and control that work.
 
 `armada_enumerate` supports these entity types:
 
@@ -254,10 +261,11 @@ See [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for the detailed procedure.
 
 ## 7. Configuration And Administration
 
-Treat fleet, vessel, captain, persona, pipeline, playbook, template, backup,
-and server-stop tools as administrator surfaces. Read the existing record
-first. Validate provider models with a live provider call before putting them
-in a tier.
+Treat fleet, vessel, captain, persona, pipeline, playbook, runbook, workflow
+profile, environment, template, backup, and server-stop tools as administrator
+surfaces. Read the existing record first. Use
+`armada_audit_operational_assets` before and after asset changes. Validate
+provider models with a live provider call before putting them in a tier.
 
 Vessel instruction files and generated briefing files are protected paths.
 Captains must propose instruction changes. The orchestrator reviews and applies
@@ -269,7 +277,7 @@ an explicit operator decision.
 
 ## 8. Complete MCP Tool Catalog
 
-The built-in catalog contains 155 names. Some names are compatibility aliases.
+The built-in catalog contains 175 names. Some names are compatibility aliases.
 Some tool families register only when their service is enabled.
 
 Risk labels:
@@ -388,10 +396,20 @@ Risk labels:
 
 | Risk | Tools |
 | --- | --- |
-| Read | `get_runbook`, `get_runbook_execution` |
+| Read | `list_runbooks`, `get_runbook`, `list_runbook_executions`, `get_runbook_execution` |
+| Write | `create_runbook`, `update_runbook`, `update_runbook_execution` |
 | Execute | `start_runbook_execution` |
+| Destructive | `delete_runbook`, `delete_runbook_execution` |
 
-### 8.14 Personas, Pipelines, Playbooks, And Templates
+### 8.14 Workflow Profiles And Environments
+
+| Risk | Tools |
+| --- | --- |
+| Read | `list_workflow_profiles`, `get_workflow_profile`, `validate_workflow_profile`, `preview_workflow_profile`, `list_environments`, `get_environment`, `armada_audit_operational_assets` |
+| Write | `create_workflow_profile`, `update_workflow_profile`, `create_environment`, `update_environment` |
+| Destructive | `delete_workflow_profile`, `delete_environment` |
+
+### 8.15 Personas, Pipelines, Playbooks, And Templates
 
 | Risk | Tools |
 | --- | --- |
@@ -399,14 +417,14 @@ Risk labels:
 | Write | `create_persona`, `update_persona`, `create_pipeline`, `update_pipeline`, `create_playbook`, `update_playbook`, `create_prompt_template`, `update_prompt_template`, `reset_prompt_template` |
 | Destructive | `delete_persona`, `delete_pipeline`, `delete_playbook` |
 
-### 8.15 Code Index, Context Packs, And Graphs
+### 8.16 Code Index, Context Packs, And Graphs
 
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_index_status`, `armada_code_search`, `armada_context_pack`, `armada_fleet_code_search`, `armada_fleet_context_pack`, `armada_graph_search_symbols`, `armada_graph_get_callers`, `armada_graph_get_callees`, `armada_graph_get_impact`, `armada_graph_suggest_affected_tests`, `armada_graph_get_node`, `armada_graph_get_files`, `armada_graph_explore` |
 | Execute | `armada_index_update` |
 
-### 8.16 Reflection Memory
+### 8.17 Reflection Memory
 
 | Risk | Tools |
 | --- | --- |
@@ -414,7 +432,7 @@ Risk labels:
 | Execute | `armada_consolidate_memory` |
 | Write | `armada_accept_memory_proposal`, `armada_reject_memory_proposal` |
 
-### 8.17 AgentWake
+### 8.18 AgentWake
 
 | Risk | Tools |
 | --- | --- |
@@ -424,7 +442,7 @@ Risk labels:
 AgentWake is a resume transport. It is not the work queue or the source of
 truth.
 
-### 8.18 Backup, Restore, And Server Control
+### 8.19 Backup, Restore, And Server Control
 
 | Risk | Tools |
 | --- | --- |

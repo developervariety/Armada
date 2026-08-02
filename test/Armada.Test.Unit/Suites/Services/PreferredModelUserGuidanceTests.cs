@@ -113,10 +113,33 @@ namespace Armada.Test.Unit.Suites.Services
                         toolNames.Add(match.Groups[1].Value);
                 }
 
-                AssertTrue(toolNames.Count >= 155, "The source scan should find the current MCP catalog");
+                AssertTrue(toolNames.Count >= 175, "The source scan should find the current MCP catalog");
                 foreach (string toolName in toolNames)
                     AssertContains("`" + toolName + "`", guide, "Operator guide should name " + toolName);
 
+                return Task.CompletedTask;
+            });
+
+            await RunTest("OperationalAssetGuide_NamesBuiltInPersonasAndPipelines", () =>
+            {
+                string guide = File.ReadAllText("docs/OPERATIONAL_ASSETS.md");
+                string[] requiredNames =
+                {
+                    "Worker", "Architect", "Product Manager", "Usability Engineer", "Judge",
+                    "TestEngineer", "DiagnosticProtocolReviewer", "TenantSecurityReviewer",
+                    "MigrationDataReviewer", "PerformanceMemoryReviewer", "PortingReferenceAnalyst",
+                    "FrontendWorkflowReviewer", "MemoryConsolidator", "WorkerOnly", "Reviewed",
+                    "Tested", "FullPipeline", "ProductDevelopment", "DiagnosticProtocolTested",
+                    "TenantSecurityTested", "MigrationDataTested", "PerformanceMemoryTested",
+                    "ReferencePortingTested", "FrontendWorkflowTested", "Reflections",
+                    "ReflectionsDualJudge"
+                };
+
+                foreach (string requiredName in requiredNames)
+                    AssertContains("`" + requiredName + "`", guide, "Operational asset guide should name " + requiredName);
+
+                AssertContains("Do not expose its catalog to captains", guide,
+                    "Operational asset guide should state the captain MCP boundary");
                 return Task.CompletedTask;
             });
         }

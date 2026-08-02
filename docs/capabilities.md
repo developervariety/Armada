@@ -157,7 +157,12 @@ A missing or unrecognized `mode` returns the new error `invalid_mode`.
 
 ### Optional Dual-Judge
 
-Pass `dualJudge: true` to dispatch on the `ReflectionsDualJudge` pipeline (Worker -> two parallel Judge siblings) instead of `Reflections`. At accept time the orchestrator's `armada_accept_memory_proposal` requires both Judge sibling missions to have produced PASS verdicts; otherwise it returns `dual_judge_not_passed` with the verdict details. `editsMarkdown` overrides this gate just as it overrides the parser.
+Pass `dualJudge: true` to dispatch on the `ReflectionsDualJudge` pipeline
+(MemoryConsolidator -> two parallel Judge siblings) instead of `Reflections`.
+At accept time the orchestrator's `armada_accept_memory_proposal` requires
+both Judge sibling missions to have produced PASS verdicts; otherwise it
+returns `dual_judge_not_passed` with the verdict details. `editsMarkdown`
+overrides this gate just as it overrides the parser.
 
 `dualJudge: false` (default) keeps the v1 single-stage `Reflections` pipeline.
 

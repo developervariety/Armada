@@ -77,7 +77,7 @@ Continuation request:
 }
 ```
 
-The built-in catalog currently has 155 tools and fits in the first 500-tool
+The built-in catalog currently has 175 tools and fits in the first 500-tool
 page. Pagination remains active so extension catalogs can grow without an
 unbounded response.
 
@@ -156,6 +156,10 @@ It operates with the configured default administrative tenant context. Bind
 the service to a trusted interface and use a protected transport. Do not expose
 the MCP port to an untrusted network.
 
+Armada MCP is an operator surface. Do not include the catalog or its
+credentials in captain prompts. Captains use mission-scoped dock tools. The
+operator uses MCP to manage Armada records and control workflows.
+
 ## Catalog Availability
 
 Some families register only when their backing service is available. Examples
@@ -177,7 +181,7 @@ request still uses the advertised tool name.
 Use [armada-ops.md](armada-ops.md) for:
 
 - the standard objective-to-closeout workflow;
-- the complete 155-tool catalog;
+- the complete 175-tool catalog;
 - risk labels for read, write, execute, interrupt, and destructive tools;
 - dispatch, monitoring, Check, landing, delivery, recovery, and incident
   procedures.

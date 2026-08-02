@@ -2,6 +2,7 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading.Tasks;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
@@ -17,7 +18,8 @@ namespace Armada.Server.Mcp.Tools
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
         };
 
         /// <summary>
@@ -42,7 +44,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         name = new { type = "string", description = "Persona name (e.g. 'Worker', 'Architect', 'Judge')" },
                         description = new { type = "string", description = "Human-readable description of what this persona does" },
-                        promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" }
+                        promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" },
+                        defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "name", "promptTemplateName" }
                 },
@@ -56,6 +59,8 @@ namespace Armada.Server.Mcp.Tools
                     persona.TenantId = ArmadaConstants.DefaultTenantId;
                     if (request.Description != null)
                         persona.Description = request.Description;
+                    if (request.DefaultPlaybooks != null)
+                        persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     persona = await database.Personas.CreateAsync(persona).ConfigureAwait(false);
 
                     // v2-F2: lazy-bootstrap the persona-learned playbook for the new persona.
@@ -107,7 +112,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         name = new { type = "string", description = "Persona name (used to look up the persona)" },
                         description = new { type = "string", description = "New description" },
-                        promptTemplateName = new { type = "string", description = "New prompt template name" }
+                        promptTemplateName = new { type = "string", description = "New prompt template name" },
+                        defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "name" }
                 },
@@ -124,6 +130,8 @@ namespace Armada.Server.Mcp.Tools
                         persona.Description = request.Description;
                     if (request.PromptTemplateName != null)
                         persona.PromptTemplateName = request.PromptTemplateName;
+                    if (request.DefaultPlaybooks != null)
+                        persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     persona.LastUpdateUtc = DateTime.UtcNow;
                     persona = await database.Personas.UpdateAsync(persona).ConfigureAwait(false);
                     return (object)persona;
@@ -154,6 +162,30 @@ namespace Armada.Server.Mcp.Tools
                     await database.Personas.DeleteAsync(persona.Id).ConfigureAwait(false);
                     return (object)new { Status = "deleted", Name = name };
                 });
+        }
+
+        private static object DefaultPlaybooksSchema()
+        {
+            return new
+            {
+                type = "array",
+                description = "Default playbooks merged for this persona. Pass an empty array to clear them.",
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        playbookId = new { type = "string" },
+                        deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                    },
+                    required = new[] { "playbookId", "deliveryMode" }
+                }
+            };
+        }
+
+        private static string? SerializeDefaultPlaybooks(System.Collections.Generic.List<SelectedPlaybook> playbooks)
+        {
+            return playbooks.Count == 0 ? null : JsonSerializer.Serialize(playbooks, _JsonOptions);
         }
     }
 }

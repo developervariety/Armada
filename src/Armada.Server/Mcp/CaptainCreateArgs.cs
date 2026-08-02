@@ -1,5 +1,8 @@
 namespace Armada.Server.Mcp
 {
+    using System.Collections.Generic;
+    using Armada.Core.Models;
+
     /// <summary>
     /// MCP tool arguments for creating a captain.
     /// </summary>
@@ -81,6 +84,11 @@ namespace Armada.Server.Mcp
         /// Null means use the runtime's CLI default.
         /// </summary>
         public string? ReasoningEffort { get; set; }
+
+        /// <summary>
+        /// Default playbooks merged into missions assigned to this captain.
+        /// </summary>
+        public List<SelectedPlaybook>? DefaultPlaybooks { get; set; }
 
     }
 }

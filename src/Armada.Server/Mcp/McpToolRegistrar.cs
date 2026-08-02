@@ -123,6 +123,15 @@ namespace Armada.Server.Mcp
             if (releaseService != null) McpReleaseTools.Register(register, releaseService);
             if (deploymentService != null) McpDeploymentTools.Register(register, deploymentService);
             if (runbookService != null) McpRunbookTools.Register(register, runbookService);
+            if (logging != null)
+            {
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(database, logging);
+                DeploymentEnvironmentService environments = new DeploymentEnvironmentService(database, workflowProfiles, logging);
+                McpWorkflowProfileTools.Register(register, database, workflowProfiles);
+                McpEnvironmentTools.Register(register, environments);
+                if (runbookService != null)
+                    McpOperationalAssetTools.Register(register, database, workflowProfiles, environments, runbookService);
+            }
             if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
             if (objectiveScheduler != null && objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);

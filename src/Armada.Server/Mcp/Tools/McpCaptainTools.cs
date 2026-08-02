@@ -5,6 +5,7 @@ namespace Armada.Server.Mcp.Tools
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading.Tasks;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
@@ -25,7 +26,8 @@ namespace Armada.Server.Mcp.Tools
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
         };
 
         /// <summary>
@@ -84,7 +86,8 @@ namespace Armada.Server.Mcp.Tools
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path" },
                         muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override" },
-                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Null means runtime CLI default." }
+                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Null means runtime CLI default." },
+                        defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "name" }
                 },
@@ -100,6 +103,8 @@ namespace Armada.Server.Mcp.Tools
                     captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
                     captain.AllowedPersonas = request.AllowedPersonas;
                     captain.PreferredPersona = request.PreferredPersona;
+                    if (request.DefaultPlaybooks != null)
+                        captain.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     string? reasoningValidationError = CaptainRuntimeOptions.ValidateReasoningEffort(captain.Runtime, request.ReasoningEffort);
                     if (reasoningValidationError != null) return CreateToolErrorResponse(reasoningValidationError);
                     ApplyCaptainOptions(captain, request);
@@ -137,7 +142,8 @@ namespace Armada.Server.Mcp.Tools
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path; empty string clears it" },
                         muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override; empty string clears it" },
-                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Empty string clears it; null leaves it unchanged." }
+                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Empty string clears it; null leaves it unchanged." },
+                        defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "captainId" }
                 },
@@ -160,6 +166,8 @@ namespace Armada.Server.Mcp.Tools
                         captain.AllowedPersonas = request.AllowedPersonas;
                     if (request.PreferredPersona != null)
                         captain.PreferredPersona = request.PreferredPersona;
+                    if (request.DefaultPlaybooks != null)
+                        captain.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     if (request.ReasoningEffort != null)
                     {
                         string? validationError = CaptainRuntimeOptions.ValidateReasoningEffort(captain.Runtime, request.ReasoningEffort);
@@ -490,6 +498,30 @@ namespace Armada.Server.Mcp.Tools
                 },
                 isError = true
             };
+        }
+
+        private static object DefaultPlaybooksSchema()
+        {
+            return new
+            {
+                type = "array",
+                description = "Default playbooks merged for this captain. Pass an empty array to clear them.",
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        playbookId = new { type = "string" },
+                        deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                    },
+                    required = new[] { "playbookId", "deliveryMode" }
+                }
+            };
+        }
+
+        private static string? SerializeDefaultPlaybooks(List<SelectedPlaybook> playbooks)
+        {
+            return playbooks.Count == 0 ? null : JsonSerializer.Serialize(playbooks, _JsonOptions);
         }
 
         /// <summary>

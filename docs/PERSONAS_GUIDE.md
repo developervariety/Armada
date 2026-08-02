@@ -1,510 +1,81 @@
-# Personas, Pipelines, and Prompt Templates -- User Guide
+# Persona Operator Guide
 
-This guide covers how to use Armada's persona system to specialize agent behavior,
-chain work through multi-stage pipelines, and customize every prompt the system generates.
+Use personas to give each mission one clear role. Use pipelines when work needs
+several roles. The canonical asset rules are in
+[OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md).
 
----
+## Select A Persona
 
-## Table of Contents
+Use `Worker` for a small, well-defined implementation. Use `Architect` when
+the work needs decomposition. Use `TestEngineer` or `Judge` for an independent
+test or review mission.
 
-1. [Introduction](#1-introduction)
-2. [Built-in Personas](#2-built-in-personas)
-3. [Pipelines](#3-pipelines)
-4. [Configuring Pipelines](#4-configuring-pipelines)
-5. [Captain Persona Capabilities](#5-captain-persona-capabilities)
-6. [Prompt Templates](#6-prompt-templates)
-7. [Creating Custom Personas](#7-creating-custom-personas)
-8. [API Reference (Quick Reference)](#8-api-reference-quick-reference)
+Use a specialist only when the change has that risk:
 
----
+| Risk | Persona | Normal pipeline |
+| --- | --- | --- |
+| Protocol or hardware access | `DiagnosticProtocolReviewer` | `DiagnosticProtocolTested` |
+| Tenant isolation or secrets | `TenantSecurityReviewer` | `TenantSecurityTested` |
+| Schema or stored data | `MigrationDataReviewer` | `MigrationDataTested` |
+| Memory or throughput | `PerformanceMemoryReviewer` | `PerformanceMemoryTested` |
+| Porting from an approved reference | `PortingReferenceAnalyst` | `ReferencePortingTested` |
+| Frontend workflow or accessibility | `FrontendWorkflowReviewer` | `FrontendWorkflowTested` |
 
-## 1. Introduction
+Use `ProductDevelopment` for a broad product change that needs requirements,
+architecture, implementation, usability, tests, and review.
 
-### What Are Personas?
+Do not dispatch `MemoryConsolidator` as ordinary delivery work. The reflection
+workflow owns it. Learned facts and reflection can also be disabled by policy.
 
-A **persona** is a named agent role that determines what a captain does during a mission.
-Without personas, every captain behaves the same way -- reads a description, makes code
-changes, commits, and exits. Personas let you assign specialized roles so that different
-captains perform different tasks: planning, implementing, testing, or reviewing.
+## Inspect Before Dispatch
 
-Each persona points to a **prompt template** containing the instructions given to the
-agent. Changing the persona changes the instructions, which changes the behavior.
+1. Call `armada_enumerate` for personas and pipelines.
+2. Read the selected persona with `get_persona`.
+3. Read its prompt template.
+4. Read fleet, vessel, persona, and captain default playbooks.
+5. Remove inactive or irrelevant defaults.
+6. Confirm the vessel workflow profile and expected Checks.
 
-### How Personas Fit into the Architecture
+Use a stable persona or pipeline name in operator procedures. Resolve the live
+ID from Armada. Do not copy private database IDs into public documentation.
 
-```
-Fleet
-  └── Vessel (repository)
-        └── Voyage (batch of work)
-              └── Mission (single task)
-                    └── Persona (agent role for this mission)
-                          └── Prompt Template (instructions text)
-```
+## Dispatch
 
-A persona is a property of the **mission**, not the captain. Any captain can fill any
-persona role (unless restricted via `AllowedPersonas`). The Admiral assigns captains to
-missions based on availability and persona preferences.
+For one role, use `armada_dispatch` and select the persona. For several roles,
+select a pipeline. The pipeline determines stage order and parallel siblings.
 
----
+Give the mission:
 
-## 2. Built-in Personas
+- one concrete objective;
+- the exact repository and scope;
+- required tests and evidence;
+- stop conditions;
+- the required result-marker format.
 
-Armada ships with four built-in personas, seeded on first startup. They cannot be deleted
-but their prompt templates can be customized.
+Do not give the captain Armada MCP tools. The captain works in the assigned
+dock. The operator performs Armada status, Check, landing, release, deployment,
+incident, and recovery operations.
 
-### Worker
+## Review Results
 
-The default persona. If no persona is specified on a mission, it uses Worker.
+Read mission state with `armada_mission_status`. Read voyage state with
+`armada_voyage_status`. Confirm command evidence and result markers. A role
+name does not prove that its work was correct.
 
-- **Purpose:** Execute code changes, write implementations, fix bugs.
-- **Prompt template:** `persona.worker`
-- **When to use:** Any mission that produces code changes.
+The operator must verify:
 
-### Architect
+- the mission used the expected persona and prompt version;
+- selected playbooks were active and relevant;
+- required Checks contain real evidence;
+- review findings have a clear disposition;
+- landing and closeout match repository policy.
 
-Plans work and decomposes goals into right-sized missions.
+## Manage Personas
 
-- **Purpose:** Analyze a codebase, understand scope and dependencies, break a high-level
-  goal into concrete missions. Outputs structured mission definitions using
-  `[ARMADA:MISSION]` markers.
-- **Prompt template:** `persona.architect`
-- **When to use:** Large feature requests where you want AI-driven task decomposition.
-  Typically the first stage in a multi-stage pipeline.
+Use `create_persona` only when no built-in role fits. Give a custom persona one
+narrow purpose and one active prompt template. Use `update_persona` to change
+description, template, active state, or defaults. Built-in personas cannot be
+deleted.
 
-### Judge
-
-Reviews completed work for correctness and completeness.
-
-- **Purpose:** Examine the Worker's diff against the mission description. Check
-  completeness, correctness, scope, and style. Produce a verdict: PASS, FAIL, or
-  NEEDS_REVISION.
-- **Prompt template:** `persona.judge`
-- **When to use:** Quality gate after Worker and/or Test Engineer stages.
-
-### Test Engineer
-
-Writes tests for the changes produced by a Worker.
-
-- **Purpose:** Analyze the Worker's diff, identify missing test coverage, and write
-  unit/integration tests following the repository's existing patterns.
-- **Prompt template:** `persona.test_engineer`
-- **When to use:** After a Worker stage when you want automated test generation.
-
----
-
-## 3. Pipelines
-
-### What Is a Pipeline?
-
-A **pipeline** is an ordered sequence of persona stages that a dispatch goes through.
-For a single-stage pipeline (like WorkerOnly), Armada behaves as it always has. For
-multi-stage pipelines, the Admiral creates one mission per stage, each depending on the
-previous one.
-
-Test ownership follows the stages that were actually created, not the pipeline's name.
-When no Test Engineer stage exists, the Worker is told it owns the tests for its change,
-and the Judge is told not to withhold a PASS for the absence of a stage the pipeline never
-had. When a Test Engineer does follow, the Worker still tests its own change and the Test
-Engineer adds gap coverage rather than first coverage.
-
-### Built-in Pipelines
-
-| Pipeline | Stages | Description |
-|---|---|---|
-| **WorkerOnly** | Worker | The default. Single-stage, backward-compatible behavior. |
-| **Reviewed** | Worker -> Judge | Work is implemented, then reviewed. |
-| **Tested** | Worker -> Test Engineer -> Judge | Work is implemented, tests are written, then everything is reviewed. |
-| **FullPipeline** | Architect -> Worker -> Test Engineer -> Judge | Full lifecycle: plan, implement, test, review. |
-
-### Pipeline Resolution Order (Precedence)
-
-When a voyage is dispatched, the Admiral determines which pipeline to use. **Highest priority wins:**
-
-| Priority | Source | Set Via |
-|----------|--------|---------|
-| 1 (highest) | **Explicit dispatch parameter** | `pipelineId` or `pipeline` on dispatch |
-| 2 | **Vessel default** | `DefaultPipelineId` on the target vessel (dashboard, MCP, REST) |
-| 3 | **Fleet default** | `DefaultPipelineId` on the vessel's parent fleet (dashboard, MCP, REST) |
-| 4 (lowest) | **System fallback** | WorkerOnly (no configuration needed) |
-
-This means a fleet-level default applies to all vessels in that fleet unless overridden at the vessel level, and any explicit pipeline on a dispatch overrides both. If a referenced pipeline has been deleted, the stale reference is automatically cleared.
-
-### How Missions Chain
-
-When a pipeline has multiple stages:
-
-1. The Admiral creates one mission per stage, all within the same voyage.
-2. Each mission after the first has `DependsOnMissionId` pointing to the previous stage.
-3. The first mission is assigned immediately; subsequent ones stay `Pending`.
-4. On completion, **stage handoff** injects context (persona, title, branch, diff) into
-   the next mission, sets the same branch, and attempts assignment.
-5. All stages work on the **same branch**, building on prior work.
-
-### The Architect Special Case
-
-The Architect outputs structured mission definitions using `[ARMADA:MISSION]` markers.
-Currently this output is injected as context for the next stage; full automatic parsing
-into new Worker missions is a planned enhancement.
-
----
-
-## 4. Configuring Pipelines
-
-### Setting a Default Pipeline on a Vessel
-
-**Via MCP:**
-
-```json
-// update_vessel
-{
-  "vesselId": "vsl_abc123",
-  "defaultPipelineId": "ppl_xyz789"
-}
-```
-
-**Via REST:**
-
-```bash
-curl -X PUT http://localhost:7890/api/v1/vessels/vsl_abc123 \
-  -H "Content-Type: application/json" -H "Authorization: Bearer TOKEN" \
-  -d '{"DefaultPipelineId": "ppl_xyz789"}'
-```
-
-**Via Dashboard:** Open the vessel detail page, click Edit, and select a default pipeline.
-
-### Setting a Default Pipeline on a Fleet
-
-```json
-// armada_update_fleet
-{
-  "fleetId": "flt_abc123",
-  "defaultPipelineId": "ppl_xyz789"
-}
-```
-
-### Overriding Per-Dispatch
-
-Pass `pipelineId` to `armada_dispatch` to override for a single voyage:
-
-```json
-// armada_dispatch
-{
-  "title": "Add authentication",
-  "vesselId": "vsl_abc123",
-  "pipelineId": "ppl_xyz789",
-  "missions": [
-    {
-      "title": "Add JWT middleware",
-      "description": "Create middleware that validates JWT tokens"
-    }
-  ]
-}
-```
-
-### Creating a Custom Pipeline
-
-**Via MCP:**
-
-```json
-// create_pipeline
-{
-  "name": "SecurityReview",
-  "description": "Implement then run security audit",
-  "stages": [
-    { "personaName": "Worker", "description": "Implement the feature" },
-    { "personaName": "SecurityAuditor", "description": "Audit for vulnerabilities" },
-    { "personaName": "Judge", "description": "Final review" }
-  ]
-}
-```
-
-**Via Dashboard:** Navigate to Pipelines in the sidebar, click Create, and use the
-dynamic stage editor to add stages in order.
-
-Note: `SecurityAuditor` in this example is a custom persona you would create first
-(see [Section 7](#7-creating-custom-personas)).
-
----
-
-## 5. Captain Persona Capabilities
-
-### AllowedPersonas
-
-By default, any captain can fill any persona role (`AllowedPersonas` is null). You can
-restrict a captain to specific personas:
-
-```json
-// update_captain
-{
-  "captainId": "cpt_abc123",
-  "allowedPersonas": ["Worker", "Test Engineer"]
-}
-```
-
-When set, the Admiral will only assign this captain to missions requiring one of the
-listed personas. Missions with other personas will be assigned to other captains.
-
-### PreferredPersona
-
-A soft routing preference. The Admiral prefers captains whose `PreferredPersona` matches
-the mission's persona, but will fall back to any available captain if no preferred match
-exists.
-
-```json
-// update_captain
-{
-  "captainId": "cpt_abc123",
-  "preferredPersona": "Architect"
-}
-```
-
-### Example: Dedicated Captain Roles
-
-Dedicate a powerful model for Architect work and faster models for Worker tasks:
-
-```json
-// Create an Opus captain for architecture and review
-// create_captain
-{
-  "name": "opus-architect",
-  "runtime": "ClaudeCode",
-  "allowedPersonas": ["Architect", "Judge"],
-  "preferredPersona": "Architect"
-}
-
-// Create Sonnet captains for implementation
-// create_captain
-{
-  "name": "sonnet-worker-1",
-  "runtime": "ClaudeCode",
-  "allowedPersonas": ["Worker", "Test Engineer"],
-  "preferredPersona": "Worker"
-}
-```
-
----
-
-## 6. Prompt Templates
-
-### What They Are
-
-Every instruction Armada gives to an agent is driven by a **prompt template** -- text
-with `{Placeholder}` parameters substituted at runtime. Armada ships with built-in
-defaults for all templates. You can customize any template and reset at any time.
-
-### Template Categories
-
-| Category | Purpose | Examples |
-|---|---|---|
-| **persona** | Core persona instructions | `persona.worker`, `persona.architect`, `persona.judge`, `persona.test_engineer` |
-| **mission** | Mission-level rules and constraints | `mission.rules`, `mission.context_conservation`, `mission.merge_conflict_avoidance`, `mission.progress_signals`, `mission.model_context_updates` |
-| **structure** | Layout wrappers for CLAUDE.md sections | `mission.metadata`, `mission.captain_instructions_wrapper`, `mission.project_context_wrapper`, `mission.code_style_wrapper`, `mission.model_context_wrapper`, `mission.existing_instructions_wrapper` |
-| **commit** | Commit message and trailer instructions | `commit.instructions_preamble` |
-| **landing** | PR creation templates | `landing.pr_body` |
-| **agent** | Agent launch prompts | `agent.launch_prompt` |
-
-### How Resolution Works
-
-1. Check the database for a template with the given name.
-2. If found, use the database version (which may be user-customized).
-3. If not found, fall back to the embedded default shipped with Armada.
-
-### Available Placeholders
-
-Placeholders are grouped by context. Not all placeholders are available in all templates --
-they depend on what data is available at render time.
-
-**Mission Context:**
-`{MissionId}`, `{MissionTitle}`, `{MissionDescription}`, `{MissionPersona}`,
-`{VoyageId}`, `{VoyageTitle}`, `{BranchName}`
-
-**Vessel Context:**
-`{VesselId}`, `{VesselName}`, `{DefaultBranch}`, `{ProjectContext}`, `{StyleGuide}`,
-`{ModelContext}`, `{FleetId}`
-
-**Captain Context:**
-`{CaptainId}`, `{CaptainName}`, `{CaptainInstructions}`
-
-**Pipeline Context:**
-`{PipelineName}`, `{StageNumber}`, `{TotalStages}`, `{PreviousStageDiff}`,
-`{PreviousStageOutput}`
-
-**System:**
-`{Timestamp}`, `{ExistingClaudeMd}`
-
-### Editing via Dashboard
-
-Navigate to **Prompt Templates** in the sidebar. The detail page has a two-column editor:
-the left panel is a monospace text editor with save/reset buttons, and the right panel
-shows available placeholders grouped by context with click-to-insert. Built-in templates
-display a badge and offer "Reset to Default" in the action menu.
-
-### Editing via MCP Tools
-
-**Get a template:**
-
-```json
-// get_prompt_template
-{ "name": "mission.rules" }
-```
-
-**Update a template:**
-
-```json
-// update_prompt_template
-{
-  "name": "mission.rules",
-  "content": "## Rules\n- Work only within this worktree\n- {MyCustomRule}\n- Commit all changes\n"
-}
-```
-
-**Reset to default:**
-
-```json
-// reset_prompt_template
-{ "name": "mission.rules" }
-```
-
-### Editing via REST API
-
-```bash
-# Get
-curl http://localhost:7890/api/v1/prompt-templates/mission.rules -H "Authorization: Bearer TOKEN"
-
-# Update
-curl -X PUT http://localhost:7890/api/v1/prompt-templates/mission.rules \
-  -H "Content-Type: application/json" -H "Authorization: Bearer TOKEN" \
-  -d '{"Content": "## Rules\n- Custom rules here\n"}'
-
-# Reset to default
-curl -X POST http://localhost:7890/api/v1/prompt-templates/mission.rules/reset \
-  -H "Authorization: Bearer TOKEN"
-```
-
-### Example: Adding a Project-Specific Rule
-
-```json
-// update_prompt_template
-{
-  "name": "mission.rules",
-  "content": "## Rules\n- Work only within this worktree directory\n- All database queries must use parameterized statements\n- Commit all changes to the current branch\n- Exit with code 0 on success\n"
-}
-```
-
-Now every mission (regardless of persona) will include your custom rule.
-
----
-
-## 7. Creating Custom Personas
-
-Follow these steps to create and use a custom persona.
-
-### Step 1: Create a Prompt Template
-
-```json
-// update_prompt_template
-{
-  "name": "persona.security_auditor",
-  "content": "You are a security auditor. Review the diff and identify vulnerabilities.\n\n## Instructions\n- Check for SQL injection, XSS, CSRF, authentication bypasses\n- Check for hardcoded secrets or credentials\n- Produce a report with severity ratings\n- Output FAIL with details if critical issues found, PASS with recommendations otherwise\n",
-  "description": "Security auditor persona - reviews diffs for vulnerabilities"
-}
-```
-
-### Step 2: Create a Persona
-
-```json
-// create_persona
-{
-  "name": "SecurityAuditor",
-  "description": "Reviews code changes for security vulnerabilities",
-  "promptTemplateName": "persona.security_auditor"
-}
-```
-
-### Step 3: Add the Persona to a Pipeline
-
-```json
-// create_pipeline
-{
-  "name": "SecureWorkflow",
-  "description": "Implement, audit for security, then review",
-  "stages": [
-    { "personaName": "Worker", "description": "Implement the feature" },
-    { "personaName": "SecurityAuditor", "description": "Security audit" },
-    { "personaName": "Judge", "description": "Final review" }
-  ]
-}
-```
-
-### Step 4: Test by Dispatching
-
-```json
-// dispatch
-{
-  "title": "Add payment processing",
-  "vesselId": "vsl_abc123",
-  "pipelineId": "ppl_the_id_returned_from_step_3",
-  "missions": [
-    {
-      "title": "Implement Stripe integration",
-      "description": "Add payment processing via Stripe API"
-    }
-  ]
-}
-```
-
-The Admiral will create three missions in sequence: Worker -> SecurityAuditor -> Judge.
-Each stage sees the diff from the previous stage.
-
----
-
-## 8. API Reference (Quick Reference)
-
-### MCP Tools
-
-| Tool | Description |
-|---|---|
-| **Personas** | |
-| `create_persona` | Create a custom persona (name, promptTemplateName required) |
-| `get_persona` | Get a persona by name |
-| `update_persona` | Update persona description or prompt template |
-| `delete_persona` | Delete a custom persona (built-in personas cannot be deleted) |
-| **Pipelines** | |
-| `create_pipeline` | Create a pipeline with ordered stages |
-| `get_pipeline` | Get a pipeline by name (includes stages) |
-| `update_pipeline` | Update pipeline description or replace stages |
-| `delete_pipeline` | Delete a custom pipeline (built-in pipelines cannot be deleted) |
-| **Prompt Templates** | |
-| `get_prompt_template` | Get a template by name |
-| `update_prompt_template` | Update template content and/or description |
-| `reset_prompt_template` | Reset a template to its built-in default |
-| **Enumeration** | |
-| `armada_enumerate` | Use `entityType: "persona"`, `"pipeline"`, or `"prompt_template"` to list/filter/paginate |
-| **Related** | |
-| `armada_dispatch` | Pass `pipelineId` to override the default pipeline |
-| `armada_update_vessel` | Set `defaultPipelineId` on a vessel |
-| `armada_update_fleet` | Set `defaultPipelineId` on a fleet |
-| `armada_create_captain` | Set `allowedPersonas` and `preferredPersona` |
-| `armada_update_captain` | Update `allowedPersonas` and `preferredPersona` |
-
-### REST Endpoints
-
-All three entity types follow the same pattern. Replace `{entity}` with `personas`,
-`pipelines`, or `prompt-templates`:
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/v1/{entity}` | List all |
-| POST | `/api/v1/{entity}/enumerate` | Paginated enumeration with filters |
-| GET | `/api/v1/{entity}/{name}` | Get by name |
-| POST | `/api/v1/{entity}` | Create (personas and pipelines only) |
-| PUT | `/api/v1/{entity}/{name}` | Update |
-| DELETE | `/api/v1/{entity}/{name}` | Delete (personas and pipelines only, built-in protected) |
-| POST | `/api/v1/prompt-templates/{name}/reset` | Reset template to built-in default |
-
-### WebSocket Commands
-
-The WebSocket API provides equivalent commands via the `command` route. Actions follow
-the pattern `get_persona`, `create_persona`, `update_persona`, `delete_persona` (same
-for `pipeline` and `prompt_template`). Use the `enumerate` action with `entityType` set
-to `persona`, `pipeline`, or `prompt_template` for listing.
+Persona and captain default playbooks are operator configuration. Read the
+current list before replacement. An empty list clears that layer.

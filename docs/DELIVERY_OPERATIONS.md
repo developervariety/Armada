@@ -36,6 +36,14 @@ test, deployment verification, rollback, and rollback verification.
 Pending Checks are requirements, not proof. They become proof only after a
 real command result or valid external evidence resolves them.
 
+Use `list_workflow_profiles`, `get_workflow_profile`,
+`validate_workflow_profile`, and `preview_workflow_profile` to inspect the
+resolved command set. Use `create_workflow_profile` or
+`update_workflow_profile` only with a complete profile object.
+
+Use `list_environments` and `get_environment` to inspect the target. The words
+Staging or Production do not prove that real deployment commands exist.
+
 ## 3. Create A Release
 
 Use `create_release` when the work becomes a candidate for delivery.
@@ -129,9 +137,15 @@ period. A newer matching failure can reopen an incident.
 
 ## 8. Runbooks
 
-Use `get_runbook` to inspect the approved procedure. Use
-`start_runbook_execution` when the procedure runs. Read the execution with
-`get_runbook_execution`.
+Use `list_runbooks` and `get_runbook` to inspect the approved procedure. Use
+`start_runbook_execution` when the procedure runs. Record completed step IDs,
+notes, and status with `update_runbook_execution`. Read the final evidence with
+`get_runbook_execution`. Use `list_runbook_executions` before you start a
+duplicate execution.
+
+Use `create_runbook` and `update_runbook` to manage procedures. Use
+`delete_runbook` and `delete_runbook_execution` only with explicit destructive
+authority.
 
 Good runbook subjects include:
 
@@ -144,6 +158,9 @@ Good runbook subjects include:
 - Admiral deployment and recovery.
 
 The execution record must show what ran and what result it produced.
+
+The server-owned mission-recovery runbook is part of autonomous recovery. Do
+not replace it with a general human checklist.
 
 ## 9. Checks And Automatic Resolution
 
