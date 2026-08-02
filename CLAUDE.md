@@ -5,7 +5,7 @@ IMPORTANT -- Context Conservation: When using Armada MCP tools, use armada_enume
 
 AI-Memory is the sole durable memory source for Codex, Claude, Cursor, Gemini,
 OpenCode, Armada captains, and future AI runtimes. Read the shared
-`AI-Memory/shared/INDEX.md`, then read `shared/unified-project-memory.md`.
+`/srv/armada/AI-Memory/shared/INDEX.md`, then read `/srv/armada/AI-Memory/shared/unified-project-memory.md`.
 Treat tool-specific Codex/Claude memories
 as historical imports only unless the shared index explicitly routes there.
 
