@@ -339,6 +339,7 @@ namespace Armada.Core.Services
             string normalized = Normalize(text);
             return normalized.Contains("hit your limit", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("hit your usage limit", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("session limit", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("usage limit", StringComparison.OrdinalIgnoreCase);
         }
 

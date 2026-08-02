@@ -2218,6 +2218,20 @@ namespace Armada.Core.Services
                 try
                 {
                     string[] lines = await File.ReadAllLinesAsync(logPath, token).ConfigureAwait(false);
+
+                    // Provider quota text can be followed by a generic runtime result-error
+                    // activity record. Inspect quota signals first so that the generic record
+                    // cannot hide a rate-limit event and release the captain to Idle.
+                    for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 40; i--)
+                    {
+                        string line = lines[i].Trim();
+                        if (String.IsNullOrEmpty(line)) continue;
+                        if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(line))
+                        {
+                            return NormalizeProcessExitFailureReason(line);
+                        }
+                    }
+
                     for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 40; i--)
                     {
                         string line = lines[i].Trim();

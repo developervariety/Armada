@@ -22,6 +22,14 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsQuotaLimitSignal_ClaudeSessionLimitPhrase_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("You've hit your session limit · resets 5:40am (UTC)"),
+                    "Claude session-limit phrase should be detected");
+                return Task.CompletedTask;
+            });
+
             await RunTest("IsProviderAccountSpendLimitSignal_DailySpendCap_ReturnsTrue", () =>
             {
                 // The exact Zyloo account-wide daily cap message that previously went undetected and

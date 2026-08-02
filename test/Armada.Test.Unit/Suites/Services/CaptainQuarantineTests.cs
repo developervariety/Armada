@@ -201,6 +201,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleProcessExitAsync_ClaudeRateLimitActivity_QuarantinesAndRequeues", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+                    AdmiralService service = CreateAdmiralService(db, settings, quarantine);
+
+                    Voyage voyage = new Voyage("Claude Rate Limit Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Claude Rate Limit Worker");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    mission.ProcessId = 2929;
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain captain = new Captain("claude-rate-limit-captain");
+                    captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 2929;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, mission.Id + ".log"),
+                        "[ARMADA:ACTIVITY] claude rate limit event\n" +
+                        "You've hit your session limit · resets 5:40am (UTC)\n" +
+                        "[ARMADA:ACTIVITY] claude result error (1 turns)\n" +
+                        "Agent exited with code 1").ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(2929, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Voyage? voyageAfter = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    Mission? missionAfter = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? captainAfter = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+
+                    AssertEqual(VoyageStatusEnum.InProgress, voyageAfter!.Status,
+                        "a rate-limit failure must not halt the voyage");
+                    AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status,
+                        "a rate-limit failure must requeue the mission");
+                    AssertEqual(CaptainStateEnum.Quarantined, captainAfter!.State,
+                        "the rate-limited Claude captain must be quarantined");
+                    AssertTrue(captainAfter.QuarantineReason!.Contains("session limit", StringComparison.OrdinalIgnoreCase),
+                        "the quarantine reason must preserve the provider rate-limit evidence");
+                    AssertNotNull(captainAfter.QuarantineUntilUtc,
+                        "the Claude rate-limit quarantine must have a retry deadline");
+                }
+            });
+
             await RunTest("HandleProcessExitAsync_CodexUsageLimitStderr_QuarantinesAndHonorsResetDeadline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
