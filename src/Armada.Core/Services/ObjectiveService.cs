@@ -955,10 +955,19 @@ namespace Armada.Core.Services
 
         private async Task<bool> ReadFleetAsync(AuthContext auth, string id, CancellationToken token)
         {
-            Fleet? fleet = auth.IsAdmin
-                ? await _Database.Fleets.ReadAsync(id, token).ConfigureAwait(false)
-                : await _Database.Fleets.ReadAsync(auth.TenantId!, id, token).ConfigureAwait(false);
-            return fleet != null;
+            if (auth.IsAdmin)
+                return await _Database.Fleets.ReadAsync(id, token).ConfigureAwait(false) != null;
+
+            Fleet? tenantFleet = await _Database.Fleets.ReadAsync(auth.TenantId!, id, token).ConfigureAwait(false);
+            if (tenantFleet != null)
+                return true;
+
+            // A fleet with a NULL/empty tenant is a shared global fleet visible to every tenant.
+            // Legacy and migration-created fleets carry no tenant, and the tenant-scoped read above
+            // cannot match them; without this fallback, linking such a fleet to an objective failed
+            // with "Fleet not found or not accessible" even though armada_get_fleet resolved it.
+            Fleet? sharedFleet = await _Database.Fleets.ReadAsync(id, token).ConfigureAwait(false);
+            return sharedFleet != null && String.IsNullOrWhiteSpace(sharedFleet.TenantId);
         }
 
         private async Task<bool> ReadVesselAsync(AuthContext auth, string id, CancellationToken token)

@@ -928,6 +928,62 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("vsl_new_inaccessible", vesselError,
                     "Explicitly supplying an inaccessible vessel must remain a strict validation error");
             }).ConfigureAwait(false);
+
+            await RunTest("UpdateAsync accepts a shared fleet with NULL tenant and rejects a genuinely missing fleet", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                string tenantId = "ten_objective_shared_fleet";
+                string userId = "usr_objective_shared_fleet";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                // A shared/global fleet carries no tenant id; the tenant-scoped read cannot match it,
+                // but linking it to an objective must still succeed (the read path resolves it by id).
+                Fleet shared = new Fleet("Shared Fleet")
+                {
+                    Id = "flt_shared_null_tenant",
+                    TenantId = null
+                };
+                await testDb.Driver.Fleets.CreateAsync(shared).ConfigureAwait(false);
+
+                Objective objective = new Objective
+                {
+                    Id = "obj_shared_fleet_link",
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Objective with a shared fleet link",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    Kind = ObjectiveKindEnum.Feature,
+                    Priority = ObjectivePriorityEnum.P2,
+                    BacklogState = ObjectiveBacklogStateEnum.Triaged
+                };
+                await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                Objective updated = await objectives.UpdateAsync(auth, objective.Id, new ObjectiveUpsertRequest
+                {
+                    FleetIds = new List<string> { "flt_shared_null_tenant" }
+                }).ConfigureAwait(false);
+
+                AssertTrue(updated.FleetIds.Contains("flt_shared_null_tenant"),
+                    "A shared fleet with NULL tenant must be linkable to an objective");
+
+                string missingError = "";
+                try
+                {
+                    await objectives.UpdateAsync(auth, objective.Id, new ObjectiveUpsertRequest
+                    {
+                        FleetIds = new List<string> { "flt_does_not_exist" }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    missingError = ex.Message;
+                }
+                AssertContains("flt_does_not_exist", missingError,
+                    "A genuinely missing fleet must remain a strict validation error");
+            }).ConfigureAwait(false);
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)
