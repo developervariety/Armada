@@ -2,3 +2,6 @@
 *
 !.gitignore
 !.gitkeep
+
+# macOS AppleDouble resource-fork files
+._*
