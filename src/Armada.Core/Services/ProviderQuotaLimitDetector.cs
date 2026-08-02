@@ -104,7 +104,15 @@ namespace Armada.Core.Services
                 (normalized.Contains("safety system", StringComparison.OrdinalIgnoreCase) &&
                     (normalized.Contains("blocked", StringComparison.OrdinalIgnoreCase) ||
                         normalized.Contains("flagged", StringComparison.OrdinalIgnoreCase) ||
-                        normalized.Contains("refused", StringComparison.OrdinalIgnoreCase)));
+                        normalized.Contains("refused", StringComparison.OrdinalIgnoreCase))) ||
+                // Newer Claude / Claude Code safeguard phrasing. The ClaudeCode CLI emits a
+                // "rate_limit_event" stream event for several distinct failure modes (true usage
+                // caps, session resets, and provider safeguards refusals all share the same
+                // event type), and the API error text below is what distinguishes a safeguard
+                // refusal from a quota exhaustion. Match the block phrasing, never a model name.
+                normalized.Contains("safeguards flagged this message", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("can't respond to this message with", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("claude code can't respond to this message", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

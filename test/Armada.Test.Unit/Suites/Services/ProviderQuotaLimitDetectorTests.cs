@@ -68,6 +68,25 @@ namespace Armada.Test.Unit.Suites.Services
                     ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(
                         "The request was refused: the safety system blocked this response"),
                     "a generic safety-system block must be detected");
+                // Newer Claude / Claude Code safeguard phrasing. The ClaudeCode CLI reuses a
+                // "rate_limit_event" stream event for several distinct failure modes; the API
+                // error text below is what distinguishes a safeguard refusal from a quota
+                // exhaustion and must be recognised by the provider-neutral classifier.
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(
+                        "API Error: Opus 5's safeguards flagged this message (https://www.anthropic.com/legal/aup). "
+                        + "Our intentionally broad safeguards allow us to deliver more capabilities faster, "
+                        + "but can sometimes flag legitimate coding, cybersecurity, and biology tasks. "
+                        + "Claude Code can't respond to this message with Opus 5."),
+                    "the new Opus 5 safeguards refusal must be detected (provider-neutral)");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(
+                        "Request denied: safeguards flagged this message for review"),
+                    "the standalone 'safeguards flagged this message' phrase must be detected");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(
+                        "Claude Code can't respond to this message with the requested model."),
+                    "the standalone 'Claude Code can't respond to this message' phrase must be detected");
                 return Task.CompletedTask;
             });
 
@@ -82,6 +101,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(
                     ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(null),
                     "null text must not be a safeguard block");
+                // Locks the safeguard-vs-quota split: a rate-limit message that does NOT contain
+                // any safeguard phrase must still match IsQuotaLimitSignal but NOT the safeguard
+                // classifier. This is the contract the failure-reason builder relies on.
+                string rateLimitOnly = "You've hit your session limit · resets 5:40am (UTC)";
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal(rateLimitOnly),
+                    "a session-limit message must still register as a quota signal");
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(rateLimitOnly),
+                    "a session-limit message must NOT register as a safeguard block");
                 return Task.CompletedTask;
             });
 

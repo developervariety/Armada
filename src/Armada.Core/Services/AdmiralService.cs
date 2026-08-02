@@ -2219,6 +2219,27 @@ namespace Armada.Core.Services
                 {
                     string[] lines = await File.ReadAllLinesAsync(logPath, token).ConfigureAwait(false);
 
+                    // Provider SAFEGUARD signal first. The ClaudeCode CLI emits a single
+                    // "rate_limit_event" stream event for several distinct failure modes (true
+                    // usage caps, session resets, and provider safeguards refusals all share the
+                    // same event type), and the runtime renders it as
+                    // "[ARMADA:ACTIVITY] claude rate limit event". That activity tag matches
+                    // IsQuotaLimitSignal via the literal substring "rate limit", so without this
+                    // pass the safeguard matcher never gets a chance to see the real API error
+                    // text further down the log -- the captain is benched as a quota failure and
+                    // the mission is re-routed to a peer that will hit the same safeguard.
+                    // The safeguard bucket is the more specific classification; the quota bucket
+                    // catches everything else. Inspect it before the quota pass below.
+                    for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 40; i--)
+                    {
+                        string line = lines[i].Trim();
+                        if (String.IsNullOrEmpty(line)) continue;
+                        if (ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(line))
+                        {
+                            return NormalizeProcessExitFailureReason(line);
+                        }
+                    }
+
                     // Provider quota text can be followed by a generic runtime result-error
                     // activity record. Inspect quota signals first so that the generic record
                     // cannot hide a rate-limit event and release the captain to Idle.
