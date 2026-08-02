@@ -93,10 +93,19 @@ namespace Armada.Test.Automated.Suites
             return JsonHelper.Deserialize<Mission>(body);
         }
 
-        private async Task TransitionAsync(string missionId, string status)
+        /// <summary>
+        /// Request a mission status change and return the response.
+        /// </summary>
+        /// <remarks>
+        /// The response is returned rather than discarded so a caller that depends on the change
+        /// having happened can assert on it. Callers that only need a best-effort nudge may ignore
+        /// it. Discarding it unconditionally is what let a rejected transition look like a
+        /// successful one for a long time.
+        /// </remarks>
+        private async Task<HttpResponseMessage> TransitionAsync(string missionId, string status)
         {
             StringContent content = JsonHelper.ToJsonContent(new { Status = status });
-            await _AuthClient.PutAsync("/api/v1/missions/" + missionId + "/status", content).ConfigureAwait(false);
+            return await _AuthClient.PutAsync("/api/v1/missions/" + missionId + "/status", content).ConfigureAwait(false);
         }
 
         private async Task AssignCaptainToMissionAsync(string missionId, string captainId)
@@ -592,7 +601,16 @@ namespace Armada.Test.Automated.Suites
 
                 Mission mission = await CreateMissionAsync("CombinedVessel", vesselId: vesselId).ConfigureAwait(false);
                 string missionId = mission.Id;
-                await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
+
+                // Transitioning to Assigned assumed the mission was still Pending. That only holds
+                // when no captain is free to take it at creation -- true on a workstation with no
+                // agent CLIs installed, false on the server, where the mission is already Assigned
+                // and the request is rejected as "Invalid transition from Assigned to Assigned".
+                // TransitionAsync discards the response, so no event was emitted and this test
+                // failed on Linux with nothing explaining why. Cancelled is reachable from every
+                // non-terminal status, so the event exists either way.
+                HttpResponseMessage transition = await TransitionAsync(missionId, "Cancelled").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, transition.StatusCode, "The status change under test must actually happen");
 
                 HttpResponseMessage response = await _AuthClient.GetAsync(
                     "/api/v1/events?type=mission.status_changed&vesselId=" + vesselId).ConfigureAwait(false);
