@@ -1500,5 +1500,105 @@ namespace Armada.Test.Unit.Suites.Services
             public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
                 => Task.CompletedTask;
         }
+
+        /// <summary>
+        /// Tests for the rescue-brief sanitizer. The old code embedded the prior
+        /// mission's full description in the rescue prompt, which on DoD-gate
+        /// failures is the entire build log. Azure OpenAI's content_filter rejects
+        /// prompts that carry many repeated warning lines (BL0005, CS0618) packed
+        /// into one block. The sanitizer must keep scope but trim diagnostics.
+        /// </summary>
+        public async Task SanitizeOriginalDescriptionForRescue_ShortDescription_ReturnsVerbatim()
+        {
+            string descriptionText = "scope: implement feature X." + "\n" + "files: src/Foo.cs";
+            string sanitized = AutonomousRecoveryOrchestrator.SanitizeOriginalDescriptionForRescue(descriptionText);
+            AssertEqual(descriptionText, sanitized,
+                "Descriptions under the cap must be returned verbatim so a small brief is unchanged.");
+            await Task.CompletedTask;
+        }
+
+        public async Task SanitizeOriginalDescriptionForRescue_NullOrEmpty_ReturnsNoDescriptionMarker()
+        {
+            string sanitizedNull = AutonomousRecoveryOrchestrator.SanitizeOriginalDescriptionForRescue(null);
+            AssertEqual("(no description recorded)", sanitizedNull,
+                "A null description must collapse to the explicit no-description marker.");
+            string sanitizedEmpty = AutonomousRecoveryOrchestrator.SanitizeOriginalDescriptionForRescue(String.Empty);
+            AssertEqual("(no description recorded)", sanitizedEmpty,
+                "An empty description must collapse to the explicit no-description marker.");
+            await Task.CompletedTask;
+        }
+
+        public async Task SanitizeOriginalDescriptionForRescue_LongDescriptionWithDiagnostics_TruncatesAndSplits()
+        {
+            // Simulate a failed TestEngineer mission whose description carries the full
+            // DoD-gate build log. The scope block is short, the diagnostics block is long.
+            string scope = "scope: add a 4-test coverage for the schema-v2 fixture." + "\n" + "files: TestAssets/dxp.json" + "\n";
+            string diagnostics = "--- ACTIONABLE DIAGNOSTICS ---" + "\n" + new string('X', 30000) + "\n" + "--- OUTPUT TAIL ---" + "\n";
+            string original = scope + diagnostics;
+
+            string sanitized = AutonomousRecoveryOrchestrator.SanitizeOriginalDescriptionForRescue(original);
+
+            AssertTrue(sanitized.Length <= AutonomousRecoveryOrchestrator._MaxRescueDescriptionChars + 2000,
+                "Sanitized brief must not blow past the cap plus the diagnostics window. Actual length: " + sanitized.Length);
+            AssertTrue(sanitized.Contains("ACTIONABLE DIAGNOSTICS truncated"),
+                "Sanitized brief must mark the diagnostics truncation so the captain does not assume the log is complete.");
+            AssertTrue(sanitized.Contains("scope: add a 4-test coverage"),
+                "Sanitized brief must keep the head of the scope block where the recovery value lives.");
+            AssertFalse(sanitized.Contains(new string('X', 30000)),
+                "Sanitized brief must NOT contain the full diagnostics blob.");
+            await Task.CompletedTask;
+        }
+
+        public async Task SanitizeOriginalDescriptionForRescue_LongDescriptionWithoutDiagnostics_TruncatesScope()
+        {
+            string scope = "scope line" + "\n" + new string('Y', 20000) + "\n" + "more scope";
+            string sanitized = AutonomousRecoveryOrchestrator.SanitizeOriginalDescriptionForRescue(scope);
+
+            AssertTrue(sanitized.Length < scope.Length,
+                "A description without diagnostics must still be truncated to the cap.");
+            AssertTrue(sanitized.Contains("truncated to"),
+                "A scope-only truncation must mark itself so the captain reads the marker.");
+            AssertFalse(sanitized.Contains(new string('Y', 20000)),
+                "A scope-only truncation must not carry the full body.");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_LargeEmbeddedFailureLog_StaysUnderCap()
+        {
+            // Construct a Mission whose Description is the multi-page failure log the
+            // M2 [Worker] brief carried. BuildRescueDescription must produce a result
+            // that is comfortably below the rescue-brief cap.
+            string scope = "title: add schema-v2 fixture" + "\n" + "files: TestAssets/dxp.json";
+            string failureLog = "--- ACTIONABLE DIAGNOSTICS ---" + "\n" + new string('W', 18000) + "\n" + "--- OUTPUT TAIL ---" + "\n" + new string('Z', 10000);
+            Mission failed = new Mission
+            {
+                Id = "msn_test_x_x",
+                Title = "test mission",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "DoD gate failed: classification=Compile; build command exited 1",
+                Description = scope + "\n" + failureLog,
+                BranchName = "armada/test/msn_test",
+            };
+            Incident incident = new Incident
+            {
+                Id = "inc_test_x",
+                Title = "test incident",
+                Summary = "test summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.High,
+            };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+            AssertTrue(brief.Length < AutonomousRecoveryOrchestrator._MaxRescueDescriptionChars + 2500,
+                "Rescue brief must stay below the cap plus reasonable headroom for header text. Actual length: " + brief.Length);
+            AssertTrue(brief.Contains("ACTIONABLE DIAGNOSTICS truncated"),
+                "Rescue brief must mark the diagnostics truncation.");
+            AssertFalse(brief.Contains(new string('W', 18000)),
+                "Rescue brief must not carry the full diagnostics blob verbatim.");
+            await Task.CompletedTask;
+        }
+
+
     }
 }

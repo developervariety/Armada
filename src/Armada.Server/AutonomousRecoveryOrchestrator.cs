@@ -1445,7 +1445,17 @@ namespace Armada.Server
                 "Policy: " + (decision.DispatchRescue ? "dispatch rescue" : "block") + " (" + decision.Reason + ").";
         }
 
-        private static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber)
+        // Hard size cap on the prior mission's description embedded in the rescue brief.
+        // Azure OpenAI's content_filter rejects prompts that carry many repeated warning lines
+        // (BL0005, CS0618, etc.) packed into one block, which is exactly the shape a
+        // failed DoD-gate build log has. A bounded brief keeps the prompt under the filter
+        // threshold while still giving the rescue captain the scope block and the
+        // reviewer feedback that are actually useful.
+        internal const int _MaxRescueDescriptionChars = 6000;
+        internal const int _MaxRescueDiagnosticsChars = 1500;
+        internal const int _MaxRescueReviewerFeedbackChars = 2000;
+
+        internal static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine(_RescueMarker);
@@ -1461,15 +1471,101 @@ namespace Armada.Server
             {
                 sb.AppendLine();
                 sb.AppendLine("Reviewer feedback to address:");
-                sb.AppendLine(failedMission.ReviewComment.Trim());
+                sb.AppendLine(TruncateForBrief(failedMission.ReviewComment.Trim(), _MaxRescueReviewerFeedbackChars));
             }
             sb.AppendLine();
             sb.AppendLine("Objective:");
             sb.AppendLine("Recover the original mission without repeating the failure. Inspect the original failure, make the smallest corrective change, run the vessel's workflow profile checks when available, and leave explicit evidence in Armada records.");
             sb.AppendLine();
             sb.AppendLine("Original mission description:");
-            sb.AppendLine(failedMission.Description ?? "(no description recorded)");
+            string originalDescription = failedMission.Description ?? "(no description recorded)";
+            string sanitized = SanitizeOriginalDescriptionForRescue(originalDescription);
+            sb.AppendLine(sanitized);
             return sb.ToString();
+        }
+
+        // Reduce a prior mission's description to a bounded, low-filter-risk digest.
+        // The original rescue brief embedded the full description verbatim, which on
+        // DoD-gate failures is the entire build output (thousands of repeated
+        // warning lines). Azure OpenAI's content policy rejects that shape. This
+        // method keeps the parts a rescue captain actually needs (the architect scope
+        // block, the first line of actionable diagnostics, the failure reason digest)
+        // and discards the rest.
+        internal static string SanitizeOriginalDescriptionForRescue(string originalDescription)
+        {
+            if (String.IsNullOrEmpty(originalDescription))
+                return "(no description recorded)";
+
+            // Hard cap first. If the description is already small enough, return as-is.
+            if (originalDescription.Length <= _MaxRescueDescriptionChars)
+                return originalDescription;
+
+            // Split the description into a scope block (the architect handoff / mission
+            // tasks) and a diagnostics block (ACTIONABLE DIAGNOSTICS / OUTPUT TAIL).
+            // The scope block is the part that carries recovery value; the diagnostics
+            // block is the part that triggers Azure's content filter.
+            int diagnosticsStart = IndexOfAny(originalDescription,
+                "--- ACTIONABLE DIAGNOSTICS ---",
+                "ACTIONABLE DIAGNOSTICS",
+                "--- OUTPUT TAIL ---",
+                "OUTPUT TAIL");
+            string scope;
+            string diagnostics;
+            if (diagnosticsStart > 0)
+            {
+                scope = originalDescription.Substring(0, diagnosticsStart).TrimEnd();
+                diagnostics = originalDescription.Substring(diagnosticsStart).TrimStart();
+            }
+            else
+            {
+                scope = originalDescription;
+                diagnostics = String.Empty;
+            }
+
+            // Truncate the scope to the head of the description. Architect briefs and
+            // mission tasks live at the top; long failure logs and outputs follow.
+            string scopeTruncated = TruncateForBrief(scope, _MaxRescueDescriptionChars - 200);
+
+            if (diagnostics.Length == 0)
+                return scopeTruncated;
+
+            // Keep only the first slice of the diagnostics so a rescue captain can see
+            // the leading error code and the first actionable line. Past the first 1.5KB
+            // the value is noise and the filter risk is real.
+            string diagnosticsTruncated = TruncateForBrief(diagnostics, _MaxRescueDiagnosticsChars);
+            return scopeTruncated
+                + Environment.NewLine
+                + "--- (ACTIONABLE DIAGNOSTICS truncated; full failure log in admiral log) ---"
+                + Environment.NewLine
+                + diagnosticsTruncated;
+        }
+
+        // Truncate a block to a target size on a line boundary and append a marker.
+        // The marker tells the rescue captain where the truncation happened so they
+        // do not treat the truncated tail as complete.
+        internal static string TruncateForBrief(string source, int maxChars)
+        {
+            if (String.IsNullOrEmpty(source) || source.Length <= maxChars)
+                return source ?? String.Empty;
+
+            int cut = source.LastIndexOf(Environment.NewLine, maxChars, StringComparison.Ordinal);
+            if (cut <= 0)
+                cut = maxChars;
+            return source.Substring(0, cut)
+                + Environment.NewLine
+                + "--- (truncated to " + cut + " of " + source.Length + " chars; remainder in admiral log) ---";
+        }
+
+        private static int IndexOfAny(string source, params string[] needles)
+        {
+            int best = -1;
+            foreach (string needle in needles)
+            {
+                int idx = source.IndexOf(needle, StringComparison.Ordinal);
+                if (idx >= 0 && (best < 0 || idx < best))
+                    best = idx;
+            }
+            return best;
         }
 
         private static readonly string[] _ReviewerPersonas =
