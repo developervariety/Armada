@@ -44,6 +44,7 @@ namespace Armada.Server
         private readonly IAutoLandEvaluator? _AutoLandEvaluator;
         private readonly IConventionChecker? _ConventionChecker;
         private readonly ICriticalTriggerEvaluator? _CriticalTriggerEvaluator;
+        private readonly ProviderProgressTracker? _ProviderProgress;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _MissionLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
 
@@ -57,7 +58,7 @@ namespace Armada.Server
             RunbookService runbooks,
             ArmadaSettings settings,
             LoggingModule logging)
-            : this(database, admiral, incidents, runbooks, settings, logging, null, null, null, null, null)
+            : this(database, admiral, incidents, runbooks, settings, logging, null, null, null, null, null, null)
         {
         }
 
@@ -76,6 +77,35 @@ namespace Armada.Server
             IAutoLandEvaluator? autoLandEvaluator,
             IConventionChecker? conventionChecker,
             ICriticalTriggerEvaluator? criticalTriggerEvaluator)
+            : this(database, admiral, incidents, runbooks, settings, logging, mergeQueue, git, autoLandEvaluator, conventionChecker, criticalTriggerEvaluator, null)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate with optional landing-drain dependencies and a provider-progress tracker.
+        /// </summary>
+        /// <remarks>
+        /// The tracker is consulted by <see cref="NudgeStalledLiveCaptainsAsync"/> so a captain
+        /// whose OS process is alive (heartbeat fresh) but whose provider-progress signal has
+        /// gone silent is classified as a <see cref="ProviderStallKind.ProviderSilentStall"/>
+        /// rather than the existing heartbeat-stall path. The Mail nudge payload carries the
+        /// classified kind so operator / runbook readers can distinguish provider silence from
+        /// a captain-wide stall. When the tracker is null the nudge path falls back to the
+        /// historical heartbeat-only behavior.
+        /// </remarks>
+        public AutonomousRecoveryOrchestrator(
+            DatabaseDriver database,
+            IAdmiralService admiral,
+            IncidentService incidents,
+            RunbookService runbooks,
+            ArmadaSettings settings,
+            LoggingModule logging,
+            IMergeQueueService? mergeQueue,
+            IGitService? git,
+            IAutoLandEvaluator? autoLandEvaluator,
+            IConventionChecker? conventionChecker,
+            ICriticalTriggerEvaluator? criticalTriggerEvaluator,
+            ProviderProgressTracker? providerProgress)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -88,6 +118,7 @@ namespace Armada.Server
             _AutoLandEvaluator = autoLandEvaluator;
             _ConventionChecker = conventionChecker;
             _CriticalTriggerEvaluator = criticalTriggerEvaluator;
+            _ProviderProgress = providerProgress;
         }
 
         /// <summary>
@@ -1360,9 +1391,31 @@ namespace Armada.Server
                 if (!captain.LastHeartbeatUtc.HasValue || String.IsNullOrWhiteSpace(captain.CurrentMissionId))
                     continue;
 
-                TimeSpan quietFor = DateTime.UtcNow - captain.LastHeartbeatUtc.Value;
-                if (quietFor.TotalMinutes < thresholdMinutes)
-                    continue;
+                DateTime nowUtc = DateTime.UtcNow;
+
+                // When the provider-progress tracker is wired, classify the stall by source so a
+                // provider-silent captain (heartbeat fresh but provider-progress stale) is
+                // distinguished from a heartbeat-only stall. Without the tracker, fall back to
+                // the original heartbeat-only threshold check.
+                ProviderStallKind stallKind;
+                DateTime? lastProviderProgressUtc = null;
+                if (_ProviderProgress != null)
+                {
+                    _ProviderProgress.TryGet(captain.Id, out lastProviderProgressUtc);
+                    stallKind = ProviderStallClassifier.Classify(
+                        captain.LastHeartbeatUtc,
+                        lastProviderProgressUtc,
+                        thresholdMinutes,
+                        nowUtc);
+                    if (stallKind == ProviderStallKind.None) continue;
+                }
+                else
+                {
+                    TimeSpan heartbeatQuietFor = nowUtc - captain.LastHeartbeatUtc.Value;
+                    if (heartbeatQuietFor.TotalMinutes < thresholdMinutes)
+                        continue;
+                    stallKind = ProviderStallKind.HeartbeatStall;
+                }
 
                 Mission? mission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
                 if (mission == null || !IsLiveMissionStatus(mission.Status))
@@ -1371,17 +1424,51 @@ namespace Armada.Server
                 if (await HasRecentAutoNudgeAsync(captain, token).ConfigureAwait(false))
                     continue;
 
+                string reason = StallReasonFor(stallKind, captain, lastProviderProgressUtc, nowUtc);
                 Signal signal = new Signal(SignalTypeEnum.Mail,
-                    _NudgeMarker + " Armada has not seen progress for " + quietFor.TotalMinutes.ToString("F1") +
-                    " minutes on mission " + mission.Id + ". Please report status, continue the mission, or fail with a specific blocker.");
+                    _NudgeMarker + " " + reason +
+                    " on mission " + mission.Id + ". Please report status, continue the mission, or fail with a specific blocker.");
                 signal.TenantId = captain.TenantId ?? mission.TenantId;
                 signal.UserId = captain.UserId ?? mission.UserId;
                 signal.ToCaptainId = captain.Id;
                 await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
                 await EmitEventAsync("autonomous_recovery.mail_nudge_sent",
-                    "Autonomous Mail nudge sent to captain " + captain.Id + " for mission " + mission.Id,
+                    "Autonomous Mail nudge sent to captain " + captain.Id + " for mission " + mission.Id +
+                    " (stall kind: " + stallKind + ")",
                     mission, null, token).ConfigureAwait(false);
+            }
+        }
+
+        // Build the human-readable stall reason. The kind tag in parentheses is what runbooks
+        // and the operator grep on; the prose is what the captain sees in the Mail payload.
+        // <paramref name="lastProviderProgressUtc"/> is the actual provider-progress timestamp
+        // from the tracker (when wired) so the ProviderSilentStall prose reports the true silent
+        // duration rather than the still-fresh heartbeat time.
+        private static string StallReasonFor(
+            ProviderStallKind kind,
+            Captain captain,
+            DateTime? lastProviderProgressUtc,
+            DateTime nowUtc)
+        {
+            switch (kind)
+            {
+                case ProviderStallKind.ProviderSilentStall:
+                    return "Armada has not seen provider progress for " +
+                        (lastProviderProgressUtc.HasValue
+                            ? (nowUtc - lastProviderProgressUtc.Value).TotalMinutes.ToString("F1")
+                            : "an unknown number of") +
+                        " minutes on captain " + captain.Id +
+                        " (provider_silent_stall: process is emitting output but the underlying provider has gone silent)";
+                case ProviderStallKind.HeartbeatAndProviderStall:
+                    return "Armada has not seen captain output or provider progress for " +
+                        (nowUtc - captain.LastHeartbeatUtc!.Value).TotalMinutes.ToString("F1") +
+                        " minutes on captain " + captain.Id +
+                        " (provider_and_heartbeat_stall: process is alive but both heartbeat and provider progress are stale)";
+                default:
+                    return "Armada has not seen progress for " +
+                        (nowUtc - captain.LastHeartbeatUtc!.Value).TotalMinutes.ToString("F1") +
+                        " minutes on mission (heartbeat_stall)";
             }
         }
 

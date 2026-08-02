@@ -41,6 +41,18 @@ namespace Armada.Runtimes
         public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
 
         /// <summary>
+        /// Event raised alongside <see cref="OnTokenUsageReceived"/> when the runtime receives a
+        /// provider-progress signal -- authoritative evidence the underlying provider has made
+        /// forward motion on a request. Captains whose providers have silently hung inside a
+        /// long-running request keep their OS process alive (so the captain heartbeat stays
+        /// fresh) but stop publishing this signal. The autonomous recovery orchestrator
+        /// subscribes to this event to distinguish a provider-silent stall from a captain-wide
+        /// heartbeat stall and to bound the silent-provider case within the configured stall
+        /// window.
+        /// </summary>
+        public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived;
+
+        /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
         /// </summary>
         public event Action<int>? OnProcessStarted;
@@ -629,6 +641,8 @@ namespace Armada.Runtimes
         protected void PublishTokenUsage(int processId, RuntimeTokenUsage usage)
         {
             try { OnTokenUsageReceived?.Invoke(processId, usage); }
+            catch { }
+            try { OnProviderProgressReceived?.Invoke(processId, usage); }
             catch { }
         }
 

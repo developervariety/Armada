@@ -35,6 +35,17 @@ namespace Armada.Runtimes.Interfaces
         event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
 
         /// <summary>
+        /// Event raised when the runtime receives authoritative provider-progress evidence
+        /// (token usage, step completion, model response). Captains whose providers have
+        /// silently hung inside a long-running request keep their OS process alive (so the
+        /// captain heartbeat stays fresh) but stop publishing this signal. The autonomous
+        /// recovery orchestrator subscribes to this event to bound the silent-provider case
+        /// within the configured stall window and to distinguish it from a captain-wide
+        /// heartbeat stall.
+        /// </summary>
+        event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived;
+
+        /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
         /// </summary>
         event Action<int>? OnProcessStarted;

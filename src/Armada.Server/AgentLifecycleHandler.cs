@@ -34,6 +34,7 @@ namespace Armada.Server
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly TimeSpan _ModelValidationTimeout;
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
+        private ProviderProgressTracker? _ProviderProgress;
 
         /// <summary>
         /// Maximum characters retained per mission for streamed agent output.
@@ -137,6 +138,18 @@ namespace Armada.Server
         #endregion
 
         #region Public-Methods
+
+        /// <summary>
+        /// Set the provider-progress tracker. The handler records authoritative provider-progress
+        /// signals (runtime token usage) keyed by captain id into this tracker so the autonomous
+        /// recovery orchestrator can classify a provider-silent stall separately from a captain-wide
+        /// heartbeat stall. Set after construction, mirroring <c>SetWebSocketHub</c>.
+        /// </summary>
+        /// <param name="tracker">Provider-progress tracker.</param>
+        public void SetProviderProgress(ProviderProgressTracker tracker)
+        {
+            _ProviderProgress = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        }
 
         /// <summary>
         /// Set or update the WebSocket hub reference (created after this handler).
@@ -386,6 +399,7 @@ namespace Armada.Server
             runtime.OnOutputReceived += HandleAgentOutput;
             runtime.OnOutputReceived += HandleAgentHeartbeat;
             runtime.OnTokenUsageReceived += HandleTokenUsage;
+            runtime.OnProviderProgressReceived += HandleProviderProgress;
             runtime.OnProcessExited += HandleAgentProcessExited;
 
             Vessel? vessel = null;
@@ -823,6 +837,35 @@ namespace Armada.Server
                     _Logging.Warn(_Header + "error persisting token usage: " + ex.Message);
                 }
             });
+        }
+
+        /// <summary>
+        /// Record authoritative provider-progress into the recovery tracker. This is the signal the
+        /// autonomous recovery orchestrator uses to distinguish a provider-silent stall (process
+        /// alive, heartbeat fresh, but the underlying provider has stopped making forward motion)
+        /// from a captain-wide heartbeat stall. Cheap and synchronous: the tracker is in-memory and
+        /// keyed by captain id, so this path must not do DB I/O.
+        /// </summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="usage">Usage reported directly by the runtime/provider.</param>
+        public void HandleProviderProgress(int processId, RuntimeTokenUsage usage)
+        {
+            if (_ProviderProgress == null) return;
+            if (usage == null) return;
+
+            string? captainId = null;
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToCaptain.TryGetValue(processId, out captainId);
+            }
+
+            if (String.IsNullOrEmpty(captainId))
+            {
+                _Logging.Warn(_Header + "discarding provider progress for unmapped process " + processId);
+                return;
+            }
+
+            _ProviderProgress.Record(captainId, DateTime.UtcNow);
         }
 
         /// <summary>

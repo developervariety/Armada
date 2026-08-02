@@ -95,6 +95,7 @@ namespace Armada.Server
         private RunbookService _RunbookService = null!;
         private AutomaticCheckRunOrchestrator _AutomaticCheckRuns = null!;
         private AutonomousRecoveryOrchestrator _AutonomousRecovery = null!;
+        private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private AutonomousObjectiveScheduler _ObjectiveScheduler = null!;
         private IncidentLifecycleOrchestrator _IncidentLifecycle = null!;
         private GitHubIntegrationService _GitHubIntegrationService = null!;
@@ -260,7 +261,7 @@ namespace Armada.Server
             _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(_Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging);
             _AutonomousRecovery = new AutonomousRecoveryOrchestrator(
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
-                _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator);
+                _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress);
             _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex);
             _IncidentLifecycle = new IncidentLifecycleOrchestrator(_Database, _IncidentService, _Settings, _Logging);
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
@@ -334,6 +335,7 @@ namespace Armada.Server
 
             _AgentLifecycle = new AgentLifecycleHandler(
                 _Logging, _Database, _Settings, _RuntimeFactory, _Admiral, _TemplateService, _PromptTemplateService, null, EmitEventAsync);
+            _AgentLifecycle.SetProviderProgress(_ProviderProgress);
 
             // Wire up agent lifecycle events
             _Admiral.OnLaunchAgent = _AgentLifecycle.HandleLaunchAgentAsync;
