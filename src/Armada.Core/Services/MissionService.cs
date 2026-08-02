@@ -1730,8 +1730,8 @@ namespace Armada.Core.Services
                 "## Context Conservation (CRITICAL)\n" +
                 "\n" +
                 "You have a limited context window. Exceeding it will crash your process and fail the " +
-                "mission. This is a " + mode + " mission, so the budget is spent on files examined, not on " +
-                "lines per file:\n" +
+                "mission. The mission mode is " + mode + ", so the budget is spent on files examined, not " +
+                "on lines per file:\n" +
                 "\n" +
                 "1. **Read each file you need once, in full, and keep it.** When your mission compares a " +
                 "file against a reference, the whole file is what you need. Do not grep it, measure it, " +
