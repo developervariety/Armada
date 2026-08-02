@@ -909,7 +909,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.InProgress, apiWorker!.Status, "Primary worker should auto-dispatch after architect completion");
 
                     Captain? workerCaptain = await testDb.Driver.Captains.ReadAsync(apiWorker.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "worker complete";
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:RESULT] COMPLETE\nImplemented the API endpoint with request validation and added unit tests covering the success and error paths. The endpoint returns 200 with the expected payload and 400 on invalid input. All tests pass locally and the change is committed to the mission branch.";
                     await missionService.HandleCompletionAsync(workerCaptain!, apiWorker.Id).ConfigureAwait(false);
 
                     apiWorker = await testDb.Driver.Missions.ReadAsync(apiWorker.Id).ConfigureAwait(false);
@@ -919,7 +920,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.InProgress, apiTest!.Status, "Test stage should start after worker completion");
 
                     Captain? testCaptain = await testDb.Driver.Captains.ReadAsync(apiTest.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "test complete";
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:RESULT] COMPLETE\nAdded integration tests for the new endpoint covering success, validation failure, and authentication rejection paths. Verified the suite passes against the committed change and documented the negative-path coverage in the test file.";
                     await missionService.HandleCompletionAsync(testCaptain!, apiTest.Id).ConfigureAwait(false);
 
                     apiTest = await testDb.Driver.Missions.ReadAsync(apiTest.Id).ConfigureAwait(false);
@@ -1071,7 +1073,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.Pending, backendWorker.Status, "Dependent worker should remain pending until the upstream chain completes");
 
                     Captain? activeWorkerCaptain = await testDb.Driver.Captains.ReadAsync(coreWorker.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "core worker complete";
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:RESULT] COMPLETE\nAdded the core model properties to Captain and Mission including the new status fields, serialization round-trip coverage, and the migration script that applies the columns. The unit suite passes against the committed branch.";
                     await missionService.HandleCompletionAsync(activeWorkerCaptain!, coreWorker.Id).ConfigureAwait(false);
 
                     coreTest = await testDb.Driver.Missions.ReadAsync(coreTest!.Id).ConfigureAwait(false);
@@ -1080,7 +1083,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.Pending, backendWorker!.Status, "Dependent worker should still wait while upstream review is running");
 
                     Captain? activeTestCaptain = await testDb.Driver.Captains.ReadAsync(coreTest.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "core tests complete";
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:RESULT] COMPLETE\nExtended the automated test coverage for the core model changes including the new properties, defaults, and serialization edge cases. The full suite passes and the added tests are committed to the mission branch.";
                     await missionService.HandleCompletionAsync(activeTestCaptain!, coreTest.Id).ConfigureAwait(false);
 
                     coreJudge = await testDb.Driver.Missions.ReadAsync(coreJudge.Id).ConfigureAwait(false);
@@ -2229,7 +2233,8 @@ namespace Armada.Test.Unit.Suites.Services
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
 
-                    missionService.OnGetMissionOutput = _ => "worker complete";
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:RESULT] COMPLETE\nImplemented the branch-sensitive change with the required configuration guard and added coverage for the default and override branches. The change is committed and the suite passes locally.";
 
                     await missionService.HandleCompletionAsync(workerCaptain, worker.Id).ConfigureAwait(false);
 

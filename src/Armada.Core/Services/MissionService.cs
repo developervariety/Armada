@@ -907,50 +907,74 @@ namespace Armada.Core.Services
 
 
         /// <summary>
-        /// Detect a captain "false complete" event: the captain emitted
-        /// [ARMADA:RESULT] COMPLETE after running briefly with no commits and
-        /// no real tool activity beyond reading the brief. This pattern shows up
-        /// most often on the GLM 5.2 / Zyloo provider where the captain reads
-        /// AGENTS.md, emits COMPLETE, and exits cleanly without doing the work.
-        /// Without detection the mission transitions to WorkProduced and the
-        /// pipeline downstream accepts an empty diff as real progress.
+        /// Detect a captain "false complete" event: the captain ended its run within
+        /// seconds having done no real work, and the mission would otherwise be
+        /// accepted as WorkProduced with an empty diff. Two provider-side flavors are
+        /// caught:
+        /// <list type="bullet">
+        /// <item>The GLM 5.2 / Zyloo flavor reads AGENTS.md, emits
+        /// [ARMADA:RESULT] COMPLETE, and exits cleanly.</item>
+        /// <item>The DeepSeek V4 Pro / Zyloo flavor reads AGENTS.md and exits 0
+        /// after a brief acknowledgment, without any result marker.</item>
+        /// </list>
+        /// Both reach WorkProduced with an empty diff and a tiny AgentOutput, which the
+        /// pipeline downstream would otherwise accept as real progress.
         /// </summary>
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
             if (mission == null) return false;
-            // Read-only missions (Audit/Research) and Architect decomposition missions are
-            // exempt: they can legitimately produce no code diff while still producing a
-            // valid report or downstream mission plan.
-            if (!(mission.Mode == MissionModeEnum.Implementation)) return false;
+
+            // Architect decomposition missions legitimately produce no code diff while
+            // still producing a downstream mission plan; they are always exempt.
             if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) return false;
+
             // A real captain writes a result line and an AgentOutput body. A unit-test
             // stub does not set AgentOutput at all. The presence of an AgentOutput is
             // the signal that a real captain ran (even briefly). Without that signal we
             // cannot distinguish a stub from a false-complete.
             if (!hasAgentOutput) return false;
-            // Only apply this guard to the explicit false-complete signal. Short output
-            // without the result marker can be a legitimate test stub or runtime failure.
-            if (!mission.AgentOutput!.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal)) return false;
-            // Captured diff must be empty.
-            if (diffLineCount > 0) return false;
-            // Captain ran in less than the threshold (typical false-complete 8-30s).
-            // A real Implementation mission always takes longer than that.
+
+            // A false-complete completes within seconds (typical 8-30s). Real work --
+            // reading the repository, writing a diff, or composing a report -- takes
+            // longer.
             const int noOpMaxSeconds = 60;
             if (runtime.TotalSeconds >= noOpMaxSeconds) return false;
-            // AgentOutput should hold at least the [ARMADA:RESULT] COMPLETE line plus a
-            // small summary. False-complete outputs are ~113 chars; legitimate summaries
-            // are 200+ chars and describe the change.
-            if (agentOutputLength >= 200) return false;
-            return true;
+
+            // Captured diff must be empty. A captain that wrote anything is not a no-op.
+            if (diffLineCount > 0) return false;
+
+            if (mission.IsReadOnlyMode)
+            {
+                // Read-only (Audit/Research) missions deliver a report, never a diff, so the
+                // empty-diff check cannot discriminate for them -- the report IS the
+                // AgentOutput. A false-complete reads the brief and exits with a tiny
+                // acknowledgment; a real report is thousands of characters and takes
+                // minutes. Require a report-sized AgentOutput before accepting the mission.
+                const int readOnlyMinReportChars = 500;
+                return agentOutputLength < readOnlyMinReportChars;
+            }
+
+            // Implementation missions must produce a commit. A no-op carries an empty diff
+            // and a near-empty AgentOutput whether or not the explicit COMPLETE marker was
+            // emitted: GLM 5.2 emits the marker and DeepSeek V4 Pro exits after a brief
+            // acknowledgment without it. Gating on the marker alone missed the no-marker
+            // flavor, so the length and runtime checks are the signal, not the marker.
+            const int implementationMaxNoOpChars = 200;
+            return agentOutputLength < implementationMaxNoOpChars;
         }
 
-        internal static string BuildNoOpCompletionFailureReason(TimeSpan runtime, int agentOutputLength)
+        internal static string BuildNoOpCompletionFailureReason(Mission mission, TimeSpan runtime, int agentOutputLength)
         {
-            return "no_op_completion_detected: captain exited with [ARMADA:RESULT] COMPLETE after "
+            string modeLabel = mission == null ? "mission" : mission.Mode.ToString() + " mission";
+            bool hasMarker = mission?.AgentOutput?.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal) == true;
+            string signal = hasMarker
+                ? "exited with [ARMADA:RESULT] COMPLETE"
+                : "exited 0 with no [ARMADA:RESULT] COMPLETE marker";
+            return "no_op_completion_detected: captain " + signal + " after "
                 + Math.Round(runtime.TotalSeconds, 1)
                 + "s with an empty diff and "
                 + agentOutputLength
-                + " chars of AgentOutput. This is the false-complete pattern (typical for GLM 5.2 / Zyloo when the captain reads the brief and exits without working). The mission is re-queued rather than marked WorkProduced so the rescue path can retry with a different captain.";
+                + " chars of AgentOutput on a " + modeLabel + ". This is the false-complete pattern (typical for GLM 5.2 / DeepSeek V4 Pro / Zyloo when the captain reads the brief and exits without working). The mission is re-queued rather than marked WorkProduced so the rescue path can retry with a different captain.";
         }
 
         /// <summary>
@@ -1055,11 +1079,12 @@ namespace Armada.Core.Services
                 }
             }
 
-            // Detect "false complete": a captain that emits [ARMADA:RESULT] COMPLETE after
-            // running briefly with an empty diff and a tiny AgentOutput. The captain-side
-            // fix is not always available (provider-side behavior), so the platform has
-            // to catch it. A no-op completion that reaches WorkProduced corrupts the
-            // downstream pipeline with empty progress and breaks rescue judgment.
+            // Detect "false complete": a captain that ends its run within seconds with an
+            // empty diff and a tiny AgentOutput, with or without the [ARMADA:RESULT] COMPLETE
+            // marker, and did no real work. The captain-side fix is not always available
+            // (provider-side behavior), so the platform has to catch it. A no-op completion
+            // that reaches WorkProduced corrupts the downstream pipeline with empty progress
+            // and breaks rescue judgment.
             bool failedForNoOpCompletion = false;
             if (!failedForScopeViolation && mission.StartedUtc.HasValue)
             {
@@ -1075,7 +1100,7 @@ namespace Armada.Core.Services
                     mission.Status = MissionStatusEnum.Failed;
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
-                    mission.FailureReason = BuildNoOpCompletionFailureReason(runtime, agentOutputLength);
+                    mission.FailureReason = BuildNoOpCompletionFailureReason(mission, runtime, agentOutputLength);
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " failed no-op-completion check runtime="

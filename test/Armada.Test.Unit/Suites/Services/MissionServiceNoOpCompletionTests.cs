@@ -8,9 +8,10 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Unit coverage for the captain "false complete" detection. The platform catches
-    /// GLM 5.2 / Zyloo captains that emit [ARMADA:RESULT] COMPLETE after running
-    /// briefly with no diff and a tiny AgentOutput, so the rescue path can retry
-    /// with a different captain rather than let the mission reach WorkProduced.
+    /// GLM 5.2 / Zyloo captains that emit [ARMADA:RESULT] COMPLETE (or DeepSeek V4 Pro
+    /// captains that exit 0 with a bare acknowledgment) after running briefly with no
+    /// diff and a tiny AgentOutput, so the rescue path can retry with a different
+    /// captain rather than let the mission reach WorkProduced.
     /// </summary>
     public class MissionServiceNoOpCompletionTests : TestSuite
     {
@@ -33,7 +34,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "An Implementation mission with 8s runtime, 0 diff lines, and 113 chars of AgentOutput is the false-complete pattern.");
             }).ConfigureAwait(false);
 
-            await RunTest("DetectNoOpCompletion_AuditMode_Exempt", () =>
+            await RunTest("DetectNoOpCompletion_AuditShortRuntimeTinyOutput_Detects", () =>
             {
                 Mission mission = new Mission
                 {
@@ -42,11 +43,11 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 TimeSpan runtime = TimeSpan.FromSeconds(8);
                 bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 113, true);
-                AssertFalse(detected,
-                    "Audit-mode missions can legitimately have no diff; they are exempt from the false-complete check.");
+                AssertTrue(detected,
+                    "An Audit mission that completes in 8s with 113 chars of AgentOutput is a false-complete: it read the brief and exited without composing the report that IS its deliverable.");
             }).ConfigureAwait(false);
 
-            await RunTest("DetectNoOpCompletion_ResearchMode_Exempt", () =>
+            await RunTest("DetectNoOpCompletion_ResearchShortRuntimeTinyOutput_Detects", () =>
             {
                 Mission mission = new Mission
                 {
@@ -55,8 +56,34 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 TimeSpan runtime = TimeSpan.FromSeconds(8);
                 bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 113, true);
+                AssertTrue(detected,
+                    "A Research mission that completes in 8s with 113 chars of AgentOutput is a false-complete: no report was produced.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_AuditReportSizedOutput_NotDetected", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_report",
+                    Mode = MissionModeEnum.Audit,
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(45);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 800, true);
                 AssertFalse(detected,
-                    "Research-mode missions can legitimately have no diff; they are exempt from the false-complete check.");
+                    "An Audit mission with report-sized AgentOutput (800 chars) is real work and must pass even when the runtime is under 60s.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_AuditLongRuntimeTinyOutput_NotDetected", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_report2",
+                    Mode = MissionModeEnum.Audit,
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(240);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 100, true);
+                AssertFalse(detected,
+                    "An Audit mission that ran 4 minutes, even with a short summary, is not the false-complete pattern.");
             }).ConfigureAwait(false);
 
             await RunTest("DetectNoOpCompletion_LongRuntime_ReturnsFalse", () =>
@@ -105,7 +132,6 @@ namespace Armada.Test.Unit.Suites.Services
                     "Null mission must not throw; it is exempt.");
             }).ConfigureAwait(false);
 
-            
             await RunTest("DetectNoOpCompletion_NoAgentOutput_ReturnsFalse", () =>
             {
                 Mission mission = new Mission
@@ -134,10 +160,29 @@ namespace Armada.Test.Unit.Suites.Services
                     "A real captain with AgentOutput set + 8s runtime + 0 diff lines + 113-char output is the false-complete pattern.");
             }).ConfigureAwait(false);
 
+            await RunTest("DetectNoOpCompletion_NoMarkerShortOutput_Detects", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_deepseek",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "AGENTS.md read and instructions received. Proceeding with extraction, parity report, and glossary fold exactly as described.",
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(7);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 137, true);
+                AssertTrue(detected,
+                    "A captain that exits 0 with a brief acknowledgment and NO [ARMADA:RESULT] COMPLETE marker is the DeepSeek V4 Pro false-complete flavor; it must be detected too.");
+            }).ConfigureAwait(false);
 
             await RunTest("BuildNoOpCompletionFailureReason_ContainsRuntimeAndOutputLength", () =>
             {
-                string reason = MissionService.BuildNoOpCompletionFailureReason(TimeSpan.FromSeconds(7.5), 113);
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_reason",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\nbrief",
+                };
+                string reason = MissionService.BuildNoOpCompletionFailureReason(mission, TimeSpan.FromSeconds(7.5), 113);
                 AssertTrue(reason.Contains("7.5"),
                     "Failure reason must name the runtime so a future operator can see how short the captain ran.");
                 AssertTrue(reason.Contains("113"),

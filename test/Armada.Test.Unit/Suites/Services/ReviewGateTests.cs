@@ -218,7 +218,8 @@ namespace Armada.Test.Unit.Suites.Services
                 nextPid++;
                 return Task.FromResult(nextPid);
             };
-            missionService.OnGetMissionOutput = _ => "reviewable stage output";
+            missionService.OnGetMissionOutput = _ =>
+                "[ARMADA:RESULT] COMPLETE\nImplemented the requested behavior with unit test coverage for the primary and negative paths. The change is committed to the mission branch and the suite passes locally with no regressions in the affected modules.";
 
             Vessel vessel = new Vessel("review-vessel", "https://github.com/test/repo.git");
             vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_review_bare_" + Guid.NewGuid().ToString("N"));
