@@ -1034,6 +1034,22 @@ namespace Armada.Core.Services
                 failedForScopeViolation = await TryFailMissionForScopeViolationAsync(mission, dock, token).ConfigureAwait(false);
             }
 
+            // Capture accumulated agent stdout output before pipeline handoff.
+            // MUST run before no-op completion detection, because that check
+            // reads mission.AgentOutput which is populated from the runtime
+            // output buffer. Without this ordering, AgentOutput is null and
+            // DetectNoOpCompletion cannot distinguish a false-complete from a
+            // legitimate short mission.
+            if (OnGetMissionOutput != null)
+            {
+                string? agentOutput = OnGetMissionOutput(mission.Id);
+                if (!String.IsNullOrEmpty(agentOutput))
+                {
+                    mission.AgentOutput = agentOutput;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
+            }
+
             // Detect "false complete": a captain that emits [ARMADA:RESULT] COMPLETE after
             // running briefly with an empty diff and a tiny AgentOutput. The captain-side
             // fix is not always available (provider-side behavior), so the platform has
@@ -1059,19 +1075,6 @@ namespace Armada.Core.Services
                     await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " failed no-op-completion check runtime="
                         + Math.Round(runtime.TotalSeconds, 1) + "s diffLines=" + diffLineCount + " agentOutputLen=" + agentOutputLength);
-                }
-            }
-
-
-
-            // Capture accumulated agent stdout output before pipeline handoff
-            if (OnGetMissionOutput != null)
-            {
-                string? agentOutput = OnGetMissionOutput(mission.Id);
-                if (!String.IsNullOrEmpty(agentOutput))
-                {
-                    mission.AgentOutput = agentOutput;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 }
             }
 

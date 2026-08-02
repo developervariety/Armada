@@ -145,6 +145,42 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(reason.Contains("no_op_completion_detected"),
                     "Failure reason must carry a stable token so the rescue path and operator grep can find it.");
             }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_AgentOutputSetOnMission_Detects", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_captured",
+                    Mode = MissionModeEnum.Implementation,
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(12);
+                int diffLineCount = 0;
+                int agentOutputLength = mission.AgentOutput?.Length ?? 0;
+                bool hasAgentOutput = !String.IsNullOrEmpty(mission.AgentOutput);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput);
+                AssertFalse(detected,
+                    "When AgentOutput is not yet captured (null on the mission object), detection must NOT fire. " +
+                    "This validates the ordering requirement: AgentOutput capture must happen before the no-op check. " +
+                    "If this test fails, the HandleCompletionCoreAsync reordering is correct; if it passes, the reordering was needed.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_AgentOutputCaptured_Detects", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_captured2",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\nRead AGENTS.md. Mission loaded. Executing.",
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(12);
+                int diffLineCount = 0;
+                int agentOutputLength = mission.AgentOutput?.Length ?? 85;
+                bool hasAgentOutput = !String.IsNullOrEmpty(mission.AgentOutput);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput);
+                AssertTrue(detected,
+                    "When AgentOutput IS populated on the mission object (as it is after the reordered capture block), " +
+                    "a short runtime + empty diff + short AgentOutput must be detected as false-complete.");
+            }).ConfigureAwait(false);
         }
     }
 }
