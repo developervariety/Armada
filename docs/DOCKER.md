@@ -2,6 +2,12 @@
 
 This guide covers running the Armada server and dashboard using Docker containers.
 
+> **Active deployment note:** The Armada server in the fleet project uses
+> PostgreSQL. The SQLite paths and `armada.db` values below describe the local
+> standalone Docker example only. They do not identify the active server
+> database. Do not inspect or delete `armada.db` as Armada state without first
+> checking the loaded database configuration.
+
 ---
 
 ## Prerequisites
@@ -54,12 +60,12 @@ curl -H "Authorization: Bearer default" http://localhost:7890/api/v1/status
 └──────────────────┘       └──────────────────┘
                                 │
                          ┌──────┴──────┐
-                         │  SQLite DB  │
-                         │  /app/data/ │
+                         │ Local SQLite│
+                         │  example    │
                          └─────────────┘
 ```
 
-The dashboard container serves the React SPA and proxies nothing — the browser makes API calls directly to the server on port 7890. The server container runs the .NET application with an embedded SQLite database.
+The dashboard container serves the React SPA and proxies nothing — the browser makes API calls directly to the server on port 7890. The default standalone example runs the .NET application with an embedded SQLite database. The active fleet deployment uses PostgreSQL instead.
 
 That dashboard includes the planning workflow as well as direct dispatch: you can chat with a captain inside the UI, keep the transcript, and hand the selected reply directly into dispatch without leaving the browser.
 

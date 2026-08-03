@@ -2157,6 +2157,23 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Returns true when a mission with this persona is REQUIRED to produce a code diff, so that an
+        /// empty diff is a hard failure rather than a legitimate no-op. Only the Worker persona (the
+        /// primary code producer, and the null/default per <see cref="Mission.Persona"/>) must produce
+        /// changes. Architect emits stdout mission markers, and reviewer personas (Judge, TestEngineer,
+        /// *Analyst, *Reviewer, etc.) approve or reject without committing, so an empty diff from them
+        /// is a legitimate successful no-op. Kept in step with the landing gate in MissionLandingHandler
+        /// so the completion-time check and the landing check cannot disagree.
+        /// </summary>
+        /// <param name="persona">Mission persona name.</param>
+        internal static bool PersonaMustProduceChanges(string? persona)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return true;
+            string normalized = persona.Trim().ToLowerInvariant().Replace(" ", "");
+            return normalized == "worker";
+        }
+
+        /// <summary>
         /// Returns true when a persona must hold the mission branch attached, because it commits its
         /// work there. Git allows only one worktree per branch, so an attached stage that provisions
         /// while an earlier stage still holds the branch fails with exit 128 -- the collision behind

@@ -247,6 +247,11 @@ Armada exposes the same operating model through multiple surfaces:
 
 Armada persists state through database drivers for SQLite, PostgreSQL, MySQL, and SQL Server. Missions, voyages, captains, docks, events, playbooks, pipelines, objectives, checks, releases, deployments, incidents, runbooks, request history, and merge-queue records are stored outside agent sessions so the system can recover, audit, and resume.
 
+**Deployment note:** The active Armada server uses PostgreSQL. A file named
+`armada.db` is a SQLite example or test artifact; it is not the database used
+by the active server. Confirm the configured database type before inspecting or
+deleting any database-looking file.
+
 ---
 
 ## Quick Start

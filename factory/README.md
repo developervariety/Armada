@@ -5,6 +5,11 @@ fresh installation. Use these when you want to wipe all runtime state
 (missions, voyages, captains, vessels, docks, logs, database) and boot
 Armada as if for the first time.
 
+> **Scope:** This factory profile is a local SQLite reset profile. It is not
+> the active fleet server configuration. The active Armada server uses
+> PostgreSQL, so `armada.db` and its WAL/SHM sidecars do not represent the
+> server database.
+
 ## Contents
 
 - `settings.json` — gold copy of the default `ArmadaSettings` shape.
