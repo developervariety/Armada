@@ -947,10 +947,10 @@ namespace Armada.Core.Services
             {
                 // Read-only (Audit/Research) missions deliver a report, never a diff, so the
                 // empty-diff check cannot discriminate for them -- the report IS the
-                // AgentOutput. A false-complete reads the brief and exits with a tiny
-                // acknowledgment; a real report is thousands of characters and takes
-                // minutes. Require a report-sized AgentOutput before accepting the mission.
-                const int readOnlyMinReportChars = 500;
+                // AgentOutput. A false-complete can restate a long brief and exceed a
+                // small acknowledgment threshold, so require a substantive report before
+                // accepting the mission. Real multi-item audit reports should be larger.
+                const int readOnlyMinReportChars = 1000;
                 return agentOutputLength < readOnlyMinReportChars;
             }
 
@@ -3064,6 +3064,7 @@ namespace Armada.Core.Services
 
             nextMission.Description = handoffDescription;
             nextMission.BranchName = completedMission.BranchName;
+            nextMission.PrestagedFiles = MergePrestagedFiles(completedMission.PrestagedFiles, nextMission.PrestagedFiles);
             nextMission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
 
@@ -3088,6 +3089,55 @@ namespace Armada.Core.Services
         private const string _HandoffMarkerPrefix = "<!-- ARMADA:HANDOFF:";
 
         private const string _HandoffMarkerSuffix = " -->";
+
+        private static List<PrestagedFile>? MergePrestagedFiles(
+            List<PrestagedFile>? inherited,
+            List<PrestagedFile>? existing)
+        {
+            if ((inherited == null || inherited.Count == 0) && (existing == null || existing.Count == 0))
+                return null;
+
+            List<PrestagedFile> merged = new List<PrestagedFile>();
+            HashSet<string> destinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (existing != null)
+            {
+                foreach (PrestagedFile entry in existing)
+                {
+                    if (entry == null) continue;
+                    merged.Add(ClonePrestagedFile(entry));
+                    destinations.Add(NormalizePrestagedDestination(entry.DestPath));
+                }
+            }
+
+            if (inherited != null)
+            {
+                foreach (PrestagedFile entry in inherited)
+                {
+                    if (entry == null) continue;
+                    string destination = NormalizePrestagedDestination(entry.DestPath);
+                    if (destinations.Contains(destination)) continue;
+                    merged.Add(ClonePrestagedFile(entry));
+                    destinations.Add(destination);
+                }
+            }
+
+            return merged;
+        }
+
+        private static PrestagedFile ClonePrestagedFile(PrestagedFile entry)
+        {
+            return new PrestagedFile(entry.SourcePath ?? "", entry.DestPath ?? "")
+            {
+                Content = entry.Content,
+                ReadOnly = entry.ReadOnly
+            };
+        }
+
+        private static string NormalizePrestagedDestination(string destination)
+        {
+            return (destination ?? "").Replace('\\', '/').TrimStart('/');
+        }
 
         /// <summary>
         /// Builds the idempotency marker that opens a prior-stage handoff block for one upstream mission.

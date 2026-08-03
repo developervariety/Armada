@@ -68,9 +68,22 @@ namespace Armada.Test.Unit.Suites.Services
                     Mode = MissionModeEnum.Audit,
                 };
                 TimeSpan runtime = TimeSpan.FromSeconds(45);
-                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 800, true);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 1200, true);
                 AssertFalse(detected,
-                    "An Audit mission with report-sized AgentOutput (800 chars) is real work and must pass even when the runtime is under 60s.");
+                    "An Audit mission with report-sized AgentOutput (1200 chars) is real work and must pass even when the runtime is under 60s.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_ResearchBriefRestatement_Detects", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_brief_restatement",
+                    Mode = MissionModeEnum.Research,
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(10);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 522, true);
+                AssertTrue(detected,
+                    "A short Research mission with a 522-character brief restatement and no diff is a false-complete.");
             }).ConfigureAwait(false);
 
             await RunTest("DetectNoOpCompletion_AuditLongRuntimeTinyOutput_NotDetected", () =>

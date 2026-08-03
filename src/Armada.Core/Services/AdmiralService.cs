@@ -354,13 +354,11 @@ namespace Armada.Core.Services
                             stage.PersonaName,
                             _Settings.ModelTier.SpecialistPersonas);
 
-                        // The very first mission of the chain (first stage of the first order group)
-                        // gets the prestaged files. Subsequent missions re-use the same worktree.
+                        // Every pipeline stage gets its own dock worktree. Copy the requested
+                        // prestaged entries to each stage so untracked briefing files are present
+                        // when a downstream stage is provisioned from the shared branch.
+                        mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                         bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
-                        if (isFirstChainMission)
-                        {
-                            mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
-                        }
 
                         mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                         mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
@@ -510,9 +508,11 @@ namespace Armada.Core.Services
                                 _Settings.ModelTier.SpecialistPersonas);
                             mission.Mode = MissionModes.Parse(md.Mode);
 
+                            // Every pipeline stage gets a fresh dock worktree. Preserve the
+                            // dispatch inputs on each stage instead of relying on untracked files
+                            // from the upstream dock to appear in a new worktree.
+                            mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                             bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
-                            if (isFirstChainMission)
-                                mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
 
                             mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                             List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
@@ -722,7 +722,11 @@ namespace Armada.Core.Services
             foreach (PrestagedFile entry in entries)
             {
                 if (entry == null) continue;
-                copy.Add(new PrestagedFile(entry.SourcePath ?? "", entry.DestPath ?? ""));
+                copy.Add(new PrestagedFile(entry.SourcePath ?? "", entry.DestPath ?? "")
+                {
+                    Content = entry.Content,
+                    ReadOnly = entry.ReadOnly
+                });
             }
             return copy.Count > 0 ? copy : null;
         }

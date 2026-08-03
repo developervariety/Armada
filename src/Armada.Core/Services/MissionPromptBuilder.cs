@@ -194,17 +194,22 @@ namespace Armada.Core.Services
             sections.Add("Mission: " + mission.Title);
             sections.Add("Branch: " + (dock.BranchName ?? mission.BranchName ?? vessel.DefaultBranch ?? "main"));
 
+            string instructionDirective = BuildInstructionDirective(
+                dock.WorktreePath,
+                instructionsFileName,
+                generatedInstructionsPath);
+
             if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
                 sections.Add(
-                    "Read " + generatedInstructionsPath + " if it exists; otherwise read " + instructionsFileName + " in the working directory. " +
+                    instructionDirective + " " +
                     "It contains the objective, repository context, and mission-format requirements. " +
                     "Do not ask for more input. Read the file immediately and respond only with real [ARMADA:MISSION] blocks derived from that file.");
             }
             else
             {
                 sections.Add(
-                    "Read " + generatedInstructionsPath + " if it exists; otherwise read " + instructionsFileName + " in the working directory. " +
+                    instructionDirective + " " +
                     "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly.");
             }
 
@@ -212,9 +217,33 @@ namespace Armada.Core.Services
             if (prompt.Length <= MaxLaunchPromptChars)
                 return prompt;
 
-            string overflowMessage = "\n\n" + generatedInstructionsPath + " or " + instructionsFileName + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
+            string overflowMessage = "\n\n" + instructionDirective + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
             int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
             return prompt.Substring(0, allowed).TrimEnd() + overflowMessage;
+        }
+
+        private static string BuildInstructionDirective(
+            string? worktreePath,
+            string instructionsFileName,
+            string generatedInstructionsPath)
+        {
+            if (!String.IsNullOrWhiteSpace(worktreePath))
+            {
+                string rootPath = Path.Combine(worktreePath, instructionsFileName);
+                string generatedPath = Path.Combine(worktreePath, generatedInstructionsPath);
+
+                if (File.Exists(generatedPath))
+                    return "Read `" + generatedInstructionsPath + "` immediately.";
+
+                if (File.Exists(rootPath))
+                    return "Read `" + instructionsFileName + "` in the working directory immediately.";
+
+                return "The mission instruction file is missing. Do not claim completion; report the missing file before doing other work.";
+            }
+
+            // Unit callers may construct a Dock without a worktree path. The real launch path always
+            // supplies one, so retain a deterministic path for those callers without inventing a fallback.
+            return "Read `" + generatedInstructionsPath + "` immediately.";
         }
 
         private static string BuildBootstrapRoleSummary(string? persona)

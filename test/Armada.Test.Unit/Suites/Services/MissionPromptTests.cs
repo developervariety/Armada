@@ -1440,6 +1440,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Dock dock = new Dock(vessel.Id);
                     dock.BranchName = mission.BranchName;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_prompt_launch_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dock.WorktreePath);
+                    await File.WriteAllTextAsync(Path.Combine(dock.WorktreePath, "CODEX.md"), "# mission instructions\n");
 
                     string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
                         mission, vessel, captain, dock, templateService).ConfigureAwait(false);
@@ -1449,11 +1452,13 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("[ARMADA:RESULT] COMPLETE", prompt);
                     AssertContains("Write tests", prompt);
                     AssertContains("CODEX.md", prompt);
+                    AssertFalse(prompt.Contains("if it exists", StringComparison.OrdinalIgnoreCase), "Launch prompt must not tell the captain to probe a missing fallback path");
                     AssertFalse(prompt.Contains("CLAUDE.md"), "Non-Claude runtimes should not be pointed at CLAUDE.md");
                     AssertFalse(prompt.Contains("Be concise and careful."), "Launch prompt should defer captain instructions to the runtime instruction file");
                     AssertFalse(prompt.Contains("Service-oriented C# backend."), "Launch prompt should defer project context to the runtime instruction file");
                     AssertFalse(prompt.Contains("Prefer explicit types."), "Launch prompt should defer style guide to the runtime instruction file");
                     AssertFalse(prompt.Contains("Background jobs are scheduled from ArmadaServer."), "Launch prompt should defer model context to the runtime instruction file");
+                    try { Directory.Delete(dock.WorktreePath, true); } catch { }
                 }
             });
 

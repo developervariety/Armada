@@ -427,7 +427,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_CacheMiss_DeferredNoBuildAttempted", async () =>
+            await RunTest("Dispatch_CodeContextAuto_CacheMiss_BuildsBeforeDispatch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -435,9 +435,12 @@ namespace Armada.Test.Unit.Suites.Services
                         new Vessel("code-context-auto-defer-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    string packSource = Path.Combine(Path.GetTempPath(), "auto-sync-pack-" + Guid.NewGuid().ToString("N") + ".md");
+                    File.WriteAllText(packSource, "# context pack");
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(packSource, "_briefing/context-pack.md"));
 
-                    // Legacy best-effort deferral only applies when the pack is not required.
+                    // Optional packs still need deterministic staging when requested.
                     ArmadaSettings legacySettings = new ArmadaSettings();
                     legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
 
@@ -457,7 +460,7 @@ namespace Armada.Test.Unit.Suites.Services
                         vesselId = vessel.Id,
                         missions = new object[]
                         {
-                            new { title = "Task A", description = "Auto mode defers on cache miss" }
+                            new { title = "Task A", description = "Auto mode builds before dispatch" }
                         }
                     });
 
@@ -465,18 +468,16 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should not return error on cache miss: " + resultJson);
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto mode must NOT call build on cache miss");
-                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must NOT warm on cache miss");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after auto deferral");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode must build on cache miss before dispatch");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must warm before building on cache miss");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after synchronous pack preparation");
                     AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Dispatch should receive the mission");
-                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Auto deferred missions have no inline prestaged context file");
-                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set on mission description");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].CodeContextQuery, "Deferred query must be set so the stager knows what to generate");
-                    AssertContains("Task A", admiralDouble.LastMissionDescriptions[0].CodeContextQuery!);
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Auto missions must carry the prepared context file");
+                    AssertEqual(packSource, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_CacheMiss_ReturnsPromptlyWithoutBlocking", async () =>
+            await RunTest("Dispatch_CodeContextAuto_CacheMiss_DoesNotSkipRequiredBuild", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -484,14 +485,12 @@ namespace Armada.Test.Unit.Suites.Services
                         new Vessel("code-context-auto-nonblocking-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-                    // NeverCompleteBuild would block indefinitely if called; its presence
-                    // verifies that auto mode never reaches BuildContextPackAsync on a cache miss.
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        NeverCompleteBuild = true
-                    };
+                    string packSource = Path.Combine(Path.GetTempPath(), "auto-blocking-pack-" + Guid.NewGuid().ToString("N") + ".md");
+                    File.WriteAllText(packSource, "# context pack");
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(packSource, "_briefing/context-pack.md"));
 
-                    // Legacy best-effort deferral only applies when the pack is not required.
+                    // The optional setting must not reintroduce a staging race.
                     ArmadaSettings legacySettings = new ArmadaSettings();
                     legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
 
@@ -511,7 +510,7 @@ namespace Armada.Test.Unit.Suites.Services
                         vesselId = vessel.Id,
                         missions = new object[]
                         {
-                            new { title = "Task A", description = "Auto mode must not block on cache miss" }
+                            new { title = "Task A", description = "Auto mode must stage on cache miss" }
                         }
                     });
 
@@ -519,10 +518,10 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must not return error on cache miss: " + resultJson);
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto mode must NOT call build (would block)");
-                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must NOT warm on cache miss");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after auto deferral");
-                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode must call build on cache miss");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must warm before building on cache miss");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after pack preparation");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Auto mode must pass the prepared pack");
                 }
             });
 
@@ -1148,7 +1147,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_CacheMiss_NeverCallsWarm", async () =>
+            await RunTest("Dispatch_CodeContextAuto_CacheMiss_WarmsBeforeBuild", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -1157,14 +1156,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
-                    // WarmBaselineCacheException would surface if WarmBaselineCacheAsync were
-                    // called; its presence proves auto mode never reaches warm on a cache miss.
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        WarmBaselineCacheException = new InvalidOperationException("warm must not be called")
-                    };
+                    string packSource = Path.Combine(Path.GetTempPath(), "auto-warm-pack-" + Guid.NewGuid().ToString("N") + ".md");
+                    File.WriteAllText(packSource, "# context pack");
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(packSource, "_briefing/context-pack.md"));
 
-                    // Legacy best-effort deferral only applies when the pack is not required.
+                    // Optional packs still need deterministic preparation.
                     ArmadaSettings legacySettings = new ArmadaSettings();
                     legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
 
@@ -1184,7 +1181,7 @@ namespace Armada.Test.Unit.Suites.Services
                         vesselId = vessel.Id,
                         missions = new object[]
                         {
-                            new { title = "Task E", description = "auto must not call warm on cache miss" }
+                            new { title = "Task E", description = "auto must warm before build" }
                         }
                     });
 
@@ -1192,16 +1189,15 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must not error: " + resultJson);
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "Only one cache lookup runs for auto miss");
-                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must NOT call warm on cache miss");
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto mode must NOT call build on cache miss");
+                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must warm on cache miss");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode must build after warm on cache miss");
                     AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set");
-                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "No pack should be staged for deferred auto");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Prepared pack must be staged");
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_EmptyCachedPack_DeferredNoWarmOrBuild", async () =>
+            await RunTest("Dispatch_CodeContextAuto_EmptyCachedPack_WarmsAndBuilds", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -1220,10 +1216,9 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
                     {
                         CachedResponse = emptyCachedPack,
-                        WarmBaselineCacheException = new InvalidOperationException("warm must not be called for auto")
                     };
 
-                    // Legacy best-effort deferral only applies when the pack is not required.
+                    // An empty cache entry is a cache miss. Prepare the file before dispatch.
                     ArmadaSettings legacySettings = new ArmadaSettings();
                     legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
 
@@ -1244,21 +1239,18 @@ namespace Armada.Test.Unit.Suites.Services
                         codeContextMode = "auto",
                         missions = new object[]
                         {
-                            new { title = "Task H", description = "empty cache must defer without warming" }
+                            new { title = "Task H", description = "empty cache must warm and build" }
                         }
                     });
 
                     object result = await dispatchHandler!(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
 
-                    AssertFalse(resultJson.Contains("\"Error\""), "Auto must defer on empty cached pack: " + resultJson);
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "Only one cache lookup runs for auto");
-                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto must NOT warm when cached pack has no files");
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto must NOT build when deferring");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after auto deferral");
-                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].CodeContextQuery, "Deferred query must be set");
-                    AssertContains("Task H", admiralDouble.LastMissionDescriptions[0].CodeContextQuery!);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto must prepare an empty cached pack: " + resultJson);
+                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto must warm when cached pack has no files");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto must build after warming an empty cache");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after pack preparation");
                 }
             });
 

@@ -727,7 +727,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }
 
                     string logContent = File.ReadAllText(logPath);
-                    AssertTrue(logContent.Contains("yielded no pack"), "expected structured warning when auto context pack is empty; log was: " + logContent);
+                    AssertTrue(logContent.Contains("generation returned no prestaged files"), "expected warning when auto context pack is empty; log was: " + logContent);
                 }
             });
 
@@ -786,11 +786,13 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, codeIndex.BuildRequests.Count, "auto mode with cache miss must build a context pack");
                     AssertNotNull(worker.PrestagedFiles, "Worker stage should carry the context pack");
                     AssertTrue(worker.PrestagedFiles!.Any(p => p.DestPath == "_briefing/context-pack.md"), "Worker stage should have the context pack staged");
-                    AssertNull(judge.PrestagedFiles, "Judge stage should not inherit the full prestaged set");
+                    AssertNotNull(judge.PrestagedFiles, "Every pipeline stage must carry the prestaged context files");
+                    AssertTrue(judge.PrestagedFiles!.Any(p => p.DestPath == "_briefing/context-pack.md"),
+                        "Judge stage must receive the context pack in its own dock");
                 }
             });
 
-            await RunTest("AutoDispatch_SlowPackBuild_CreatesVoyageBeforePackCompletes", async () =>
+            await RunTest("AutoDispatch_SlowPackBuild_CompletesBeforeVoyageCreation", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -804,7 +806,8 @@ namespace Armada.Test.Unit.Suites.Services
                     SlowCodeIndexService codeIndex = new SlowCodeIndexService();
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
 
-                    // Deferred (non-blocking) pack build is the legacy path, gated off the required-pack flag.
+                    // Context files must be ready before any mission can claim a dock, even when
+                    // the legacy setting allows dispatch to continue without a pack.
                     ArmadaSettings legacySettings = new ArmadaSettings();
                     legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
 
@@ -813,7 +816,7 @@ namespace Armada.Test.Unit.Suites.Services
                     SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
                     {
                         Title = "slow pack voyage",
-                        Description = "auto dispatch should return before pack build finishes",
+                        Description = "auto dispatch must not race pack staging",
                         VesselId = vessel.Id,
                         CodeContextMode = "auto",
                         Missions = new List<MissionDescription>
@@ -825,17 +828,17 @@ namespace Armada.Test.Unit.Suites.Services
                     Task<VoyageDispatchResult> dispatchTask = service.DispatchAsync(request);
                     await codeIndex.BuildStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
 
-                    VoyageDispatchResult result = await dispatchTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
-                    AssertTrue(result.Succeeded, "dispatch should succeed while pack build is still running: " + JsonSerializer.Serialize(result.Value));
-
-                    Voyage? voyage = await testDb.Driver.Voyages.ReadAsync(result.Voyage!.Id).ConfigureAwait(false);
-                    AssertNotNull(voyage, "voyage should be persisted before the pack build completes");
+                    await Task.Delay(100).ConfigureAwait(false);
+                    AssertFalse(dispatchTask.IsCompleted, "dispatch must wait for the required staging input");
 
                     codeIndex.ReleaseBuild.SetResult(true);
                     await codeIndex.BuildCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
 
+                    VoyageDispatchResult result = await dispatchTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "dispatch should succeed after pack staging: " + JsonSerializer.Serialize(result.Value));
+
                     Mission mission = await WaitForMissionPrestagedAsync(testDb.Driver, admiral.CreatedMissions[0].Id).ConfigureAwait(false);
-                    AssertNotNull(mission.PrestagedFiles, "deferred pack should be attached to the pending mission");
+                    AssertNotNull(mission.PrestagedFiles, "pack should be attached before the mission is assigned");
                     AssertEqual(1, mission.PrestagedFiles!.Count);
                     AssertEqual("_briefing/context-pack.md", mission.PrestagedFiles[0].DestPath);
                 }

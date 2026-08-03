@@ -125,7 +125,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("AliasDispatch_WithPipelineCodeContext_AttachesOnlyFirstStage", async () =>
+            await RunTest("AliasDispatch_WithPipelineCodeContext_AttachesEveryStage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -160,7 +160,7 @@ namespace Armada.Test.Unit.Suites.Services
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
                         title = "pipeline context voyage",
-                        description = "context pack should follow first pipeline stage only",
+                        description = "context pack must be available in every pipeline dock",
                         vesselId = vessel.Id,
                         pipeline = "ContextReviewed",
                         codeContextMode = "force",
@@ -188,7 +188,9 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(workerMission.PrestagedFiles, "First stage should receive generated context prestage");
                     AssertEqual(1, workerMission.PrestagedFiles!.Count, "First stage should receive exactly the generated context file");
                     AssertEqual("_briefing/context-pack.md", workerMission.PrestagedFiles[0].DestPath);
-                    AssertNull(judgeMission.PrestagedFiles, "Downstream stages should not receive generated context prestage");
+                    AssertNotNull(judgeMission.PrestagedFiles, "Every pipeline stage should receive generated context prestage");
+                    AssertEqual(1, judgeMission.PrestagedFiles!.Count, "Every stage should receive exactly the generated context file");
+                    AssertEqual("_briefing/context-pack.md", judgeMission.PrestagedFiles[0].DestPath);
                 }
             });
 
@@ -584,7 +586,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("AliasDispatch_WorkerJudgePipeline_OnlyWorkerReceivesContextPack", async () =>
+            await RunTest("AliasDispatch_WorkerJudgePipeline_BothStagesReceiveContextPack", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -673,7 +675,7 @@ namespace Armada.Test.Unit.Suites.Services
                             }
                         }
                     }
-                    AssertFalse(judgeHasPack, "Judge (review-only persona) must NOT receive context-pack prestaged file");
+                    AssertTrue(judgeHasPack, "Judge must receive _briefing/context-pack.md in its own dock");
                 }
             });
 
