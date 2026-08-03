@@ -219,6 +219,59 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProcessEntryByIdAsync_WorktreeGoneAtCleanup_PrunesStaleRegistration", async () =>
+            {
+                // Models the merge-queue dock already deleted from disk when cleanup runs:
+                // RemoveWorktreeAsync observes a missing directory and is a no-op, so the
+                // stale worktree registration would otherwise remain pointing at the vanished
+                // path. Cleanup must reclaim it via 'git worktree prune' on the owning repo.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gone_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService realGit = new GitService(logging);
+                        RecordingGitService git = new RecordingGitService(realGit, deleteWorktreeDirBeforeRemove: true);
+
+                        Vessel vessel = new Vessel("gone-dock-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land cleanly when the worktree vanishes at cleanup");
+
+                        // The worktree directory was deleted out-of-band before RemoveWorktreeAsync
+                        // ran, so a stale registration was pruned rather than left behind.
+                        AssertTrue(git.PruneWorktreeCalls.Contains(repos.BareDir),
+                            "Cleanup with a missing worktree directory must prune the stale registration on the owning repo");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("LandEntryAsync_LocalAndRemotePolicy_DeletesCaptainBranchFromBareAndRemote", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_cleanup_" + Guid.NewGuid().ToString("N"));
@@ -2541,6 +2594,97 @@ namespace Armada.Test.Unit.Suites.Services
             public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.SetRepositoryHeadAsync(repoPath, branchName, token);
 
             public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => _Inner.PruneWorktreesAsync(repoPath, token);
+
+            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => _Inner.EnableAutoMergeAsync(worktreePath, prUrl, token);
+
+            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => _Inner.MergeBranchLocalAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, commitMessage, token);
+
+            public Task PullAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullAsync(workingDirectory, token);
+
+            public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullFastForwardOnlyAsync(workingDirectory, token);
+
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => _Inner.DiffAsync(worktreePath, baseBranch, token);
+
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => _Inner.GetHeadCommitHashAsync(worktreePath, token);
+
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => _Inner.GetChangedFilesSinceAsync(worktreePath, startCommit, token);
+
+            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => _Inner.IsPrMergedAsync(workingDirectory, prUrl, token);
+
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.BranchExistsAsync(repoPath, branchName, token);
+
+            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.EnsureLocalBranchAsync(repoPath, branchName, token);
+
+            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => _Inner.IsWorktreeRegisteredAsync(repoPath, worktreePath, token);
+
+            public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => _Inner.SetHeadSymbolicRefAsync(repoPath, targetRef, token);
+        }
+
+        /// <summary>
+        /// Decorates a real <see cref="IGitService"/> and records the repo paths passed to
+        /// <c>PruneWorktreesAsync</c>. Optionally deletes the worktree directory before delegating
+        /// <c>RemoveWorktreeAsync</c>, which simulates the merge-queue dock having vanished from
+        /// disk out-of-band so the missing-directory cleanup path (which must prune the stale
+        /// registration from the owning repo) is exercised by a normal landing.
+        /// </summary>
+        private sealed class RecordingGitService : IGitService
+        {
+            private readonly IGitService _Inner;
+            private readonly bool _DeleteWorktreeDirBeforeRemove;
+
+            public List<string> PruneWorktreeCalls { get; } = new List<string>();
+
+            public RecordingGitService(IGitService inner, bool deleteWorktreeDirBeforeRemove)
+            {
+                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                _DeleteWorktreeDirBeforeRemove = deleteWorktreeDirBeforeRemove;
+            }
+
+            public async Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default)
+            {
+                if (_DeleteWorktreeDirBeforeRemove && Directory.Exists(worktreePath))
+                {
+                    try { Directory.Delete(worktreePath, true); }
+                    catch { }
+                }
+                await _Inner.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+            }
+
+            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default)
+            {
+                PruneWorktreeCalls.Add(repoPath);
+                return _Inner.PruneWorktreesAsync(repoPath, token);
+            }
+
+            public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => _Inner.GetCurrentBranchAsync(workingDirectory, token);
+
+            public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
+
+            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => _Inner.CloneBareAsync(repoUrl, localPath, token);
+
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default) => _Inner.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token: token);
+
+            public Task FetchAsync(string repoPath, CancellationToken token = default) => _Inner.FetchAsync(repoPath, token);
+
+            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => _Inner.PushBranchAsync(worktreePath, remoteName, token);
+
+            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => _Inner.CreatePullRequestAsync(worktreePath, title, body, token);
+
+            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => _Inner.RepairWorktreeAsync(worktreePath, token);
+
+            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => _Inner.IsRepositoryAsync(path, token);
+
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.DeleteLocalBranchAsync(repoPath, branchName, token);
+
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.DeleteRemoteBranchAsync(repoPath, branchName, token);
+
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
+
+            public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, baseCommit, tipCommit, token);
+
+            public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => _Inner.GetRepositoryHeadRefAsync(repoPath, token);
+
+            public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) => _Inner.SetRepositoryHeadAsync(repoPath, branchName, token);
 
             public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => _Inner.EnableAutoMergeAsync(worktreePath, prUrl, token);
 

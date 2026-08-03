@@ -845,7 +845,7 @@ namespace Armada.Core.Services
                 }
 
                 await LandEntryAsync(entry, repoPath, GetIntegrationBranch(entry), token).ConfigureAwait(false);
-                await CleanupWorktreeAsync(GetIntegrationPath(entry), token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(entry, GetIntegrationPath(entry), token).ConfigureAwait(false);
 
                 if (entry.Status == MergeStatusEnum.Landed)
                 {
@@ -860,7 +860,7 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrEmpty(entry.PrUrl))
                 {
                     await MarkExistingPullRequestOpenAsync(entry, token).ConfigureAwait(false);
-                    await CleanupWorktreeAsync(GetIntegrationPath(entry), token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, GetIntegrationPath(entry), token).ConfigureAwait(false);
                     return true;
                 }
 
@@ -871,7 +871,7 @@ namespace Armada.Core.Services
                 }
                 else if (routedToPr)
                 {
-                    await CleanupWorktreeAsync(GetIntegrationPath(entry), token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, GetIntegrationPath(entry), token).ConfigureAwait(false);
                 }
 
                 return true;
@@ -890,7 +890,7 @@ namespace Armada.Core.Services
                 Directory.CreateDirectory(parent);
             }
 
-            try { await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false); }
+            try { await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false); }
             catch { }
 
             try { await _Git.DeleteLocalBranchAsync(repoPath, integrationBranch, token).ConfigureAwait(false); }
@@ -993,7 +993,7 @@ namespace Armada.Core.Services
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
-                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                 FireRecoveryHandlerForEntry(entry.Id);
                 return;
             }
@@ -1052,7 +1052,7 @@ namespace Armada.Core.Services
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
-                    await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                     FireRecoveryHandlerForEntry(entry.Id);
                     return;
                 }
@@ -1068,7 +1068,7 @@ namespace Armada.Core.Services
                     " (HEAD remains " + integrationHeadAfterMerge + ")";
                 _Logging.Warn(_Header + failureReason + " for " + entryTag);
                 await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
-                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
             }
         }
 
@@ -1085,7 +1085,7 @@ namespace Armada.Core.Services
                     violationVessel?.Name ?? entry.VesselId ?? "unknown");
                 _Logging.Warn(_Header + "dock-boundary violation for " + entryTag + ": " + failureReason);
                 await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
-                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                 return;
             }
 
@@ -1114,7 +1114,7 @@ namespace Armada.Core.Services
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
-                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                 FireRecoveryHandlerForEntry(entry.Id);
                 return;
             }
@@ -2490,7 +2490,7 @@ namespace Armada.Core.Services
 
         private sealed record MergeAttemptResult(bool Ok, int GitExitCode, string StandardOutput, string StandardError);
 
-        private async Task CleanupWorktreeAsync(string worktreePath, CancellationToken token)
+        private async Task CleanupWorktreeAsync(MergeEntry entry, string worktreePath, CancellationToken token)
         {
             try
             {
@@ -2499,6 +2499,26 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "cleanup error for " + worktreePath + ": " + ex.Message);
+            }
+
+            if (!Directory.Exists(worktreePath))
+            {
+                // The worktree directory is already gone (removed out-of-band or by a partial
+                // cleanup), so RemoveWorktreeAsync was a no-op and the stale registration still
+                // points at the vanished path. Drop it now from the owning repo so the merge-queue
+                // does not leave orphaned worktree registrations behind.
+                string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(repoPath))
+                {
+                    try
+                    {
+                        await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "worktree prune failed for " + repoPath + ": " + ex.Message);
+                    }
+                }
             }
         }
 
