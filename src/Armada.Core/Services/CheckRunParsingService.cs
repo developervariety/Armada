@@ -120,18 +120,48 @@ namespace Armada.Core.Services
 
         private static CheckRunTestSummary? ParseDotNetSummary(string output)
         {
-            Match match = _DotNetSummaryRegex.Match(output);
-            if (!match.Success)
+            // dotnet test emits one Passed!/Failed! line per test project, so a multi-project run
+            // produces several summary lines and no single line describes the run. Aggregate every
+            // line: reading only one of them reports that project's counts as the whole suite, which
+            // hides a failure in any other project behind a clean-looking count.
+            MatchCollection matches = _DotNetSummaryRegex.Matches(output);
+            if (matches.Count == 0)
                 return null;
+
+            int failed = 0;
+            int passed = 0;
+            int skipped = 0;
+            int total = 0;
+            long longestDurationMs = 0;
+            bool anyDuration = false;
+
+            foreach (Match match in matches)
+            {
+                failed += ParseInt(match, "failed");
+                passed += ParseInt(match, "passed");
+                skipped += ParseInt(match, "skipped");
+                total += ParseInt(match, "total");
+
+                long? duration = ParseDurationMilliseconds(match.Groups["duration"].Value);
+                if (duration.HasValue)
+                {
+                    anyDuration = true;
+                    if (duration.Value > longestDurationMs)
+                        longestDurationMs = duration.Value;
+                }
+            }
 
             return new CheckRunTestSummary
             {
                 Format = "dotnet",
-                Failed = ParseInt(match, "failed"),
-                Passed = ParseInt(match, "passed"),
-                Skipped = ParseInt(match, "skipped"),
-                Total = ParseInt(match, "total"),
-                DurationMs = ParseDurationMilliseconds(match.Groups["duration"].Value)
+                Failed = failed,
+                Passed = passed,
+                Skipped = skipped,
+                Total = total,
+
+                // Test projects run concurrently, so the longest project approximates elapsed time
+                // while a sum would overstate it. Counts aggregate; duration does not.
+                DurationMs = anyDuration ? longestDurationMs : null
             };
         }
 
