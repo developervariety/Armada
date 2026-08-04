@@ -24,6 +24,13 @@ Canonical helpers:
 
 `publish-server` publishes `src/Armada.Server` in `Release` mode for `net10.0` by default to `~/.armada/bin` and then attempts to deploy the React dashboard. On Windows, you can override that by passing a framework argument such as `scripts\windows\publish-server.bat net8.0` or `scripts\windows\publish-server.bat --framework net8.0`.
 
+> **Container deployments:** the Docker image build does not include the React
+> dashboard. The Admiral serves the dashboard from `~/.armada/dashboard` (data
+> directory), and an external dashboard there wins over the embedded legacy
+> UI. When you deploy the Admiral through Docker (`docker compose build/up`),
+> run `scripts/common/deploy-dashboard.sh` on the host afterward so the
+> dashboard matches the new server commit.
+
 `healthcheck-server` probes `http://localhost:7890/api/v1/status/health` by default. If your Admiral port is not `7890`, set `ARMADA_BASE_URL` before invoking the platform wrapper:
 
 ```bash

@@ -118,6 +118,8 @@ export function buildCaptainDuplicatePayload(captain: Captain): Partial<Captain>
     runtime: captain.runtime,
     systemInstructions: captain.systemInstructions ?? null,
     model: captain.model ?? null,
+    apiKey: captain.apiKey ?? null,
+    apiBaseUrl: captain.apiBaseUrl ?? null,
     allowedPersonas: captain.allowedPersonas ?? null,
     preferredPersona: captain.preferredPersona ?? null,
     runtimeOptionsJson: captain.runtimeOptionsJson ?? null,

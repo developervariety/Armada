@@ -34,6 +34,13 @@ This starts two containers:
 
 Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhost:7890/dashboard** (built-in).
 
+> **Rebuilding either image does not rebuild the other.** `armada-server` embeds
+> the legacy dashboard only; the React dashboard is built separately
+> (`src/Armada.Dashboard`). For the standalone compose topology, rebuild the
+> `armada-dashboard` image as well. For deployments where the Admiral serves
+> the React dashboard from the data directory (`~/.armada/dashboard`), run
+> `scripts/common/deploy-dashboard.sh` after the server image rebuild.
+
 ### Default Credentials
 
 | Field | Value |

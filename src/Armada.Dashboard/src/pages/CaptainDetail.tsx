@@ -24,9 +24,11 @@ import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
+import { EMPTY_CAPTAIN_CREDENTIAL_FORM, credentialFormFromCaptain, normalizeCredential, type CaptainCredentialFormFields } from '../lib/captainCredential';
+import ProviderCredentialFields from '../components/captains/ProviderCredentialFields';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'OpenCode', 'Mux', 'Custom'];
 type CaptainDetailFormState = {
   name: string;
   runtime: string;
@@ -34,7 +36,7 @@ type CaptainDetailFormState = {
   model: string;
   allowedPersonas: string;
   preferredPersona: string;
-} & MuxCaptainFormFields;
+} & MuxCaptainFormFields & CaptainCredentialFormFields;
 
 export default function CaptainDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
@@ -49,7 +51,7 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
@@ -110,6 +112,7 @@ export default function CaptainDetail() {
       allowedPersonas: captain.allowedPersonas ?? '',
       preferredPersona: captain.preferredPersona ?? '',
       ...muxFormFromCaptain(captain),
+      ...credentialFormFromCaptain(captain),
     });
     setShowForm(true);
   }
@@ -121,6 +124,8 @@ export default function CaptainDetail() {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.apiKey = normalizeCredential(form.apiKey);
+      payload.apiBaseUrl = normalizeCredential(form.apiBaseUrl);
       if (!payload.allowedPersonas) delete payload.allowedPersonas;
       if (!payload.preferredPersona) delete payload.preferredPersona;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
@@ -308,6 +313,11 @@ export default function CaptainDetail() {
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
             </label>
+            <ProviderCredentialFields
+              form={form}
+              onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+              t={t}
+            />
             <MuxRuntimeFields
               runtime={form.runtime}
               form={form}

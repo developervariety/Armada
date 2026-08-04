@@ -139,6 +139,8 @@ export interface Captain {
   planningSessionSupportReason: string | null;
   systemInstructions: string | null;
   model: string | null;
+  apiKey?: string | null;
+  apiBaseUrl?: string | null;
   allowedPersonas: string | null;
   preferredPersona: string | null;
   runtimeOptionsJson?: string | null;

@@ -15,6 +15,8 @@ import {
 } from '../api/client';
 import MuxRuntimeFields from './captains/MuxRuntimeFields';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, type MuxCaptainFormFields } from '../lib/mux';
+import { EMPTY_CAPTAIN_CREDENTIAL_FORM, normalizeCredential, type CaptainCredentialFormFields } from '../lib/captainCredential';
+import ProviderCredentialFields from './captains/ProviderCredentialFields';
 import type { Captain, DeploymentEnvironment, Fleet, Mission, Vessel, VesselReadinessResult, WorkflowProfile } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 
@@ -71,7 +73,7 @@ interface VesselForm {
   allowConcurrentMissions: boolean;
 }
 
-interface CaptainForm extends MuxCaptainFormFields {
+interface CaptainForm extends MuxCaptainFormFields, CaptainCredentialFormFields {
   name: string;
   runtime: string;
   model: string;
@@ -207,6 +209,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     model: '',
     systemInstructions: t('For setup missions, prefer read-only repository inspection unless the mission explicitly asks for code changes.'),
     ...EMPTY_MUX_CAPTAIN_FORM,
+    ...EMPTY_CAPTAIN_CREDENTIAL_FORM,
   }));
   const [dispatchForm, setDispatchForm] = useState<DispatchForm>(() => ({
     title: t('Repository onboarding survey'),
@@ -509,6 +512,8 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         runtime: captainForm.runtime,
         model: captainForm.model.trim() || null,
         systemInstructions: captainForm.systemInstructions.trim() || null,
+        apiKey: normalizeCredential(captainForm.apiKey),
+        apiBaseUrl: normalizeCredential(captainForm.apiBaseUrl),
         runtimeOptionsJson: buildMuxRuntimeOptionsJson(captainForm.runtime, captainForm),
       });
       setCaptains((items) => upsertById(items, captain));
@@ -898,6 +903,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
                 <option value="Codex">Codex</option>
                 <option value="Gemini">Gemini</option>
                 <option value="Cursor">Cursor</option>
+                <option value="OpenCode">OpenCode</option>
                 <option value="Mux">Mux</option>
               </select>
             </div>
@@ -911,6 +917,12 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
               placeholder={t('Optional runtime-specific model override')}
             />
           </div>
+          <ProviderCredentialFields
+            form={captainForm}
+            onChange={(patch) => setCaptainForm((current) => ({ ...current, ...patch }))}
+            t={t}
+            compact
+          />
           <div className="form-group">
             <label title={t(tooltips.systemInstructions)}>{t('System Instructions')}</label>
             <textarea
