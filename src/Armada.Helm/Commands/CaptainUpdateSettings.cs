@@ -25,7 +25,7 @@ namespace Armada.Helm.Commands
         /// <summary>
         /// Optional runtime override.
         /// </summary>
-        [Description("Updated runtime (claude, codex, gemini, cursor, mux, custom)")]
+        [Description("Updated runtime (claude, codex, gemini, cursor, opencode, mux, custom)")]
         [CommandOption("--runtime|-r")]
         public string? Runtime { get; set; }
 

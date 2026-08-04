@@ -92,6 +92,7 @@ namespace Armada.Helm.Commands
                 "codex" => "Codex",
                 "gemini" => "Gemini",
                 "cursor" => "Cursor",
+                "opencode" => "OpenCode",
                 "mux" => "Mux",
                 "custom" => "Custom",
                 _ => currentRuntime
