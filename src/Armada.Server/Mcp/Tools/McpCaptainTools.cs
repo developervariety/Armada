@@ -116,7 +116,15 @@ namespace Armada.Server.Mcp.Tools
                     if (agentLifecycle != null)
                     {
                         string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-                        if (validationError != null) return CreateToolErrorResponse(validationError);
+                        if (validationError != null)
+                        {
+                            bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(validationError) ||
+                                ProviderQuotaLimitDetector.IsQuotaLimitSignal(validationError);
+                            if (!isSoftFailure)
+                                return CreateToolErrorResponse(validationError);
+
+                            logging?.Warn("[McpCaptainTools] model validation cannot be verified for new captain; creation persisted. Error: " + validationError);
+                        }
                     }
 
                     captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);

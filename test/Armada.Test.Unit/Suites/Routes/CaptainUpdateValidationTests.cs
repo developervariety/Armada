@@ -93,6 +93,115 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
+            await RunTest("Create_InvalidModel_InvokesValidationAndRejects", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorValidationShimScope shim = CursorValidationShimScope.Create())
+                {
+                    AgentLifecycleHandler lifecycle = CreateAgentLifecycleHandler(testDb.Driver);
+                    Func<JsonElement?, Task<object>> createHandler = RegisterCreateCaptainHandler(testDb.Driver, lifecycle);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        name = "create-bad-model",
+                        runtime = "Cursor",
+                        model = "bad-model"
+                    });
+                    object result = await createHandler(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"content\"", resultJson, "Invalid model should return MCP tool error envelope on create");
+                    AssertContains("bad-model", resultJson, "Create error should mention requested model");
+
+                    Captain? created = await testDb.Driver.Captains.ReadByNameAsync("create-bad-model").ConfigureAwait(false);
+                    AssertNull(created, "Rejected create must not persist the captain");
+                }
+            });
+
+            await RunTest("Create_CreditAuthFailure_PersistsCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorValidationShimScope shim = CursorValidationShimScope.Create())
+                {
+                    AgentLifecycleHandler lifecycle = CreateAgentLifecycleHandler(testDb.Driver);
+                    Func<JsonElement?, Task<object>> createHandler = RegisterCreateCaptainHandler(testDb.Driver, lifecycle);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        name = "create-credit-dead",
+                        runtime = "Cursor",
+                        model = "credit-dead-model"
+                    });
+                    object result = await createHandler(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"content\"", StringComparison.Ordinal),
+                        "Credit/auth failure must not hard-fail captain creation");
+                    AssertContains("create-credit-dead", resultJson, "Created captain should be returned on credit/auth soft failure");
+
+                    Captain? created = await testDb.Driver.Captains.ReadByNameAsync("create-credit-dead").ConfigureAwait(false);
+                    AssertNotNull(created, "Captain must persist when validation fails with a credit/auth signal");
+                    AssertEqual("credit-dead-model", created!.Model, "Persisted captain should carry the requested model");
+                    AssertTrue(
+                        ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("insufficient credits for this account"),
+                        "Sanity check credit classifier used by create layer");
+                }
+            });
+
+            await RunTest("Create_QuotaLimitFailure_PersistsCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorValidationShimScope shim = CursorValidationShimScope.Create())
+                {
+                    AgentLifecycleHandler lifecycle = CreateAgentLifecycleHandler(testDb.Driver);
+                    Func<JsonElement?, Task<object>> createHandler = RegisterCreateCaptainHandler(testDb.Driver, lifecycle);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        name = "create-quota-dead",
+                        runtime = "Cursor",
+                        model = "quota-dead-model"
+                    });
+                    object result = await createHandler(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"content\"", StringComparison.Ordinal),
+                        "Quota failure must not hard-fail captain creation");
+
+                    Captain? created = await testDb.Driver.Captains.ReadByNameAsync("create-quota-dead").ConfigureAwait(false);
+                    AssertNotNull(created, "Captain must persist when lifecycle bypasses quota errors on create");
+                    AssertEqual("quota-dead-model", created!.Model, "Persisted captain should carry the requested model");
+                }
+            });
+
+            await RunTest("PostHandler_SoftFailure_UsesQuotaAndCreditDetectors", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
+                AssertContains("ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(createValidationError)", routes,
+                    "POST soft-failure branch must classify credit/auth bench signals");
+                AssertContains("ProviderQuotaLimitDetector.IsQuotaLimitSignal(createValidationError)", routes,
+                    "POST soft-failure branch must classify quota limit signals");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("PostHandler_HardFailure_Returns400", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
+                AssertContains("if (!isSoftFailure)", routes, "POST handler must branch hard vs soft validation failures");
+                AssertContains("req.Http.Response.StatusCode = 400", routes, "Hard validation failures must return HTTP 400");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("PostHandler_SoftFailure_LogsWarningAndPersists", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
+                AssertContains("_Logging?.Warn(_Header + \"model validation cannot be verified for new captain", routes,
+                    "POST soft-failure path must emit structured warning logging");
+                AssertContains("captain = await _database.Captains.CreateAsync(captain)", routes,
+                    "POST handler must persist captain after soft validation failure");
+                return Task.CompletedTask;
+            });
+
             await RunTest("PutHandler_UsesCaseInsensitiveModelComparison", () =>
             {
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
@@ -369,6 +478,35 @@ namespace Armada.Test.Unit.Suites.Routes
             }
 
             return updateHandler;
+        }
+
+        private static Func<JsonElement?, Task<object>> RegisterCreateCaptainHandler(
+            DatabaseDriver database,
+            AgentLifecycleHandler agentLifecycle)
+        {
+            Func<JsonElement?, Task<object>>? createHandler = null;
+            IAdmiralService admiral = new StubAdmiralService(database);
+            ArmadaSettings settings = new ArmadaSettings();
+            McpCaptainTools.Register(
+                (name, _, _, handler) =>
+                {
+                    if (name == "armada_create_captain")
+                    {
+                        createHandler = handler;
+                    }
+                },
+                database,
+                admiral,
+                settings,
+                null,
+                agentLifecycle);
+
+            if (createHandler == null)
+            {
+                throw new InvalidOperationException("armada_create_captain handler was not registered");
+            }
+
+            return createHandler;
         }
 
         private static AgentLifecycleHandler CreateAgentLifecycleHandler(DatabaseDriver database)

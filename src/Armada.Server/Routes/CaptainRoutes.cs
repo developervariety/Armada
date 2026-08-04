@@ -175,8 +175,15 @@ namespace Armada.Server.Routes
                 string? createValidationError = await _agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
                 if (createValidationError != null)
                 {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createValidationError };
+                    bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(createValidationError) ||
+                        ProviderQuotaLimitDetector.IsQuotaLimitSignal(createValidationError);
+                    if (!isSoftFailure)
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createValidationError };
+                    }
+
+                    _Logging?.Warn(_Header + "model validation cannot be verified for new captain; creation persisted. Error: " + createValidationError);
                 }
                 captain = await _database.Captains.CreateAsync(captain).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
