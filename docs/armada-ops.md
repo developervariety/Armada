@@ -267,6 +267,20 @@ surfaces. Read the existing record first. Use
 `armada_audit_operational_assets` before and after asset changes. Validate
 provider models with a live provider call before putting them in a tier.
 
+### Per-captain provider credentials
+
+A captain whose model is served by Zyloo (a `zyloo/` model id) normally uses
+the host-level `ZYLOO_KEY` environment variable. A captain may instead carry
+its own `apiKey` (and optional `apiBaseUrl`) on its record, which wins over
+the environment variable. This lets captains on separate Zyloo subscriptions
+run side by side on one Admiral; burn down each subscription, then delete its
+captains. The MCP captain surface returns the key masked (last four
+characters preserved); the dashboard keeps the raw value so the edit form can
+prefill it, and entering the key in the dashboard never passes it through an
+orchestrator. Creating a captain whose model is not entitled on the
+environment key persists with a warning instead of failing, so a credential
+that arrives after creation can be attached from the dashboard.
+
 Vessel instruction files and generated briefing files are protected paths.
 Captains must propose instruction changes. The orchestrator reviews and applies
 them outside the mission dock.
