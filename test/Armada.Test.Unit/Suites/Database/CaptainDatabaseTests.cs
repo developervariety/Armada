@@ -101,6 +101,30 @@ namespace Armada.Test.Unit.Suites.Database
                 }
             });
 
+            await RunTest("Provider credential columns round-trip through create and update", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    Captain captain = new Captain("credential-test");
+                    captain.ApiKey = "captain-key-not-a-real-credential";
+                    captain.ApiBaseUrl = "https://proxy.example.test";
+                    await db.Captains.CreateAsync(captain);
+
+                    Captain? read = await db.Captains.ReadAsync(captain.Id);
+                    AssertEqual("captain-key-not-a-real-credential", read!.ApiKey);
+                    AssertEqual("https://proxy.example.test", read.ApiBaseUrl);
+
+                    read.ApiKey = "rotated-key-not-a-real-credential";
+                    read.ApiBaseUrl = null;
+                    await db.Captains.UpdateAsync(read);
+
+                    Captain? updated = await db.Captains.ReadAsync(captain.Id);
+                    AssertEqual("rotated-key-not-a-real-credential", updated!.ApiKey);
+                    AssertNull(updated.ApiBaseUrl);
+                }
+            });
+
             await RunTest("DeleteAsync removes captain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

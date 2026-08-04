@@ -540,6 +540,8 @@ namespace Armada.Core.Database.Sqlite
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             try { captain.Model = NullableString(reader["model"]); } catch { }
+            try { captain.ApiKey = NullableString(reader["api_key"]); } catch { }
+            try { captain.ApiBaseUrl = NullableString(reader["api_base_url"]); } catch { }
             captain.SystemInstructions = NullableString(reader["system_instructions"]);
             captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);

@@ -111,6 +111,7 @@
                         <option value="Codex">Codex</option>
                         <option value="Gemini">Gemini</option>
                         <option value="Cursor">Cursor</option>
+                        <option value="OpenCode">OpenCode</option>
                         <option value="Mux">Mux</option>
                         <option value="Custom">Custom</option>
                     </select>
@@ -119,6 +120,11 @@
                     <label>Model</label>
                     <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
                 </div>
+                <details>
+                    <summary>Provider Credential (Zyloo)</summary>
+                    <div class="form-group"><label>Provider API Key</label><input type="password" x-model="modalData.apiKey" placeholder="Optional; overrides the host-level ZYLOO_KEY" title="Per-captain Zyloo credential used when the model is a zyloo/ model. Leave blank to use the host-level ZYLOO_KEY environment variable."></div>
+                    <div class="form-group"><label>Provider Base URL</label><input type="text" x-model="modalData.apiBaseUrl" placeholder="Optional, e.g. https://api.zyloo.io" title="Optional provider base URL override for Zyloo-served models"></div>
+                </details>
                 <template x-if="modalData.runtime === 'Mux'">
                     <div>
                         <div class="form-group">
@@ -177,6 +183,7 @@
                         <option value="Codex">Codex</option>
                         <option value="Gemini">Gemini</option>
                         <option value="Cursor">Cursor</option>
+                        <option value="OpenCode">OpenCode</option>
                         <option value="Mux">Mux</option>
                         <option value="Custom">Custom</option>
                     </select>
@@ -185,6 +192,11 @@
                     <label>Model</label>
                     <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
                 </div>
+                <details>
+                    <summary>Provider Credential (Zyloo)</summary>
+                    <div class="form-group"><label>Provider API Key</label><input type="password" x-model="modalData.apiKey" placeholder="Optional; overrides the host-level ZYLOO_KEY" title="Per-captain Zyloo credential used when the model is a zyloo/ model. Leave blank to use the host-level ZYLOO_KEY environment variable."></div>
+                    <div class="form-group"><label>Provider Base URL</label><input type="text" x-model="modalData.apiBaseUrl" placeholder="Optional, e.g. https://api.zyloo.io" title="Optional provider base URL override for Zyloo-served models"></div>
+                </details>
                 <template x-if="modalData.runtime === 'Mux'">
                     <div>
                         <div class="form-group">

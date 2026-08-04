@@ -606,6 +606,11 @@ namespace Armada.Core.Database.Mysql
                     58,
                     "Add mission_mode column to missions",
                     TableQueries.MigrationV58Statements
+                ),
+                new SchemaMigration(
+                    59,
+                    "Add per-captain provider credential columns to captains",
+                    TableQueries.MigrationV59Statements
                 )
             };
         }
@@ -743,6 +748,8 @@ namespace Armada.Core.Database.Mysql
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             try { captain.Model = NullableString(reader["model"]); } catch { }
+            try { captain.ApiKey = NullableString(reader["api_key"]); } catch { }
+            try { captain.ApiBaseUrl = NullableString(reader["api_base_url"]); } catch { }
             captain.SystemInstructions = NullableString(reader["system_instructions"]);
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
             captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);

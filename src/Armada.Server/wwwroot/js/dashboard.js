@@ -1338,6 +1338,8 @@ function dashboard() {
                     name: this.modalData.name,
                     runtime: this.modalData.runtime || 'ClaudeCode',
                     model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null,
+                    apiKey: this.normalizeOptionalString(this.modalData.apiKey),
+                    apiBaseUrl: this.normalizeOptionalString(this.modalData.apiBaseUrl),
                     runtimeOptionsJson: this.buildMuxCaptainRuntimeOptions(this.modalData)
                 });
                 this.toast('Captain added: ' + captain.name);
@@ -1354,6 +1356,8 @@ function dashboard() {
                     name: this.modalData.name,
                     runtime: this.modalData.runtime,
                     model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null,
+                    apiKey: this.normalizeOptionalString(this.modalData.apiKey),
+                    apiBaseUrl: this.normalizeOptionalString(this.modalData.apiBaseUrl),
                     runtimeOptionsJson: this.buildMuxCaptainRuntimeOptions(this.modalData)
                 });
                 this.toast('Captain updated');
@@ -1744,6 +1748,8 @@ function dashboard() {
                 name: '',
                 runtime: 'ClaudeCode',
                 model: '',
+                apiKey: '',
+                apiBaseUrl: '',
                 muxConfigDirectory: '',
                 muxEndpoint: '',
                 muxBaseUrl: '',
@@ -1764,6 +1770,8 @@ function dashboard() {
                 name: c.name,
                 runtime: c.runtime || 'ClaudeCode',
                 model: c.model || '',
+                apiKey: c.apiKey || '',
+                apiBaseUrl: c.apiBaseUrl || '',
                 ...this.parseMuxCaptainRuntimeOptions(c.runtimeOptionsJson)
             };
             this.muxEndpointOptions = [];

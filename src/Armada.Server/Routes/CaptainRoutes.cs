@@ -275,7 +275,9 @@ namespace Armada.Server.Routes
                 NormalizeCaptainRuntimeOptions(updated, existing);
                 bool modelOrRuntimeChanged =
                     !String.Equals(updated.Model, existing.Model, StringComparison.OrdinalIgnoreCase) ||
-                    updated.Runtime != existing.Runtime;
+                    updated.Runtime != existing.Runtime ||
+                    !String.Equals(updated.ApiKey, existing.ApiKey, StringComparison.Ordinal) ||
+                    !String.Equals(updated.ApiBaseUrl, existing.ApiBaseUrl, StringComparison.Ordinal);
                 if (modelOrRuntimeChanged)
                 {
                     string? updateValidationError = await _agentLifecycle.ValidateCaptainModelAsync(updated).ConfigureAwait(false);

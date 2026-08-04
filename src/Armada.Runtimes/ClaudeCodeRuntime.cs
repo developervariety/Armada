@@ -498,7 +498,7 @@ namespace Armada.Runtimes
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
 
-            ApplyZylooModelRouting(startInfo, captain?.Model ?? model);
+            ApplyZylooModelRouting(startInfo, captain, captain?.Model ?? model);
 
             // Remove nesting detection variables so captains can launch
             // even when the Admiral or CLI was started from within a Claude Code session
@@ -536,6 +536,11 @@ namespace Armada.Runtimes
         /// daily spend cap. The Claude Code CLI speaks Anthropic natively and sends the markers, so
         /// pointing it at Zyloo's own Anthropic endpoint restores caching.
         ///
+        /// The credential is resolved per captain: <see cref="Captain.ApiKey"/> wins when set, and
+        /// the host-level <c>ZYLOO_KEY</c> environment variable is the fallback, so captains on
+        /// separate Zyloo subscriptions run side by side. The same precedence applies to
+        /// <see cref="Captain.ApiBaseUrl"/> against the default Zyloo endpoint.
+        ///
         /// Isolation is per process, not global: <see cref="ProcessStartInfo.Environment"/> is a
         /// private copy for the child being launched. A native Claude captain launched in the same
         /// second keeps its own credentials and endpoint. Nothing else in Armada sets ANTHROPIC_*,
@@ -549,7 +554,7 @@ namespace Armada.Runtimes
         /// <param name="captain">Captain being launched; may be null.</param>
         private static void ApplyZylooRouting(ProcessStartInfo startInfo, Captain? captain)
         {
-            ApplyZylooModelRouting(startInfo, captain?.Model);
+            ApplyZylooModelRouting(startInfo, captain, captain?.Model);
         }
 
         /// <summary>
@@ -560,24 +565,53 @@ namespace Armada.Runtimes
         /// on the native endpoint and fails every Zyloo id with model_not_found.
         /// </summary>
         /// <param name="startInfo">Start info for the captain process being launched.</param>
-        /// <param name="model">Zyloo model id to validate, or null when not a Zyloo model.</param>
-        private static void ApplyZylooModelRouting(ProcessStartInfo startInfo, string? model)
+        /// <param name="captain">Captain being launched; may be null.</param>
+        /// <param name="model">Zyloo model id to validate, or null when the captain's model is used.</param>
+        private static void ApplyZylooModelRouting(ProcessStartInfo startInfo, Captain? captain, string? model)
         {
-            if (!Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.IsZylooModel(model)) return;
+            string? effectiveModel = captain?.Model ?? model;
+            if (!Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.IsZylooModel(effectiveModel)) return;
 
-            string? key = Environment.GetEnvironmentVariable("ZYLOO_KEY");
+            string? key = ResolveZylooKey(captain);
             if (String.IsNullOrWhiteSpace(key)) return;
 
             // Exactly the form Zyloo documents for Claude Code: base URL, ANTHROPIC_API_KEY, and the
             // model id kept at its canonical "zyloo/<id>". The provider routes on that prefix, so it
             // is passed through to --model unchanged rather than rewritten here.
-            startInfo.Environment["ANTHROPIC_BASE_URL"] =
-                Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.AnthropicBaseUrl;
+            startInfo.Environment["ANTHROPIC_BASE_URL"] = ResolveZylooBaseUrl(captain);
             startInfo.Environment["ANTHROPIC_API_KEY"] = key;
 
             // An inherited auth token outranks the API key inside the CLI, so clear it for this child
             // only; the native captain beside it keeps its own.
             startInfo.Environment.Remove("ANTHROPIC_AUTH_TOKEN");
+        }
+
+        /// <summary>
+        /// Resolve the Zyloo credential for a captain: the per-captain key wins, the host-level
+        /// <c>ZYLOO_KEY</c> environment variable is the fallback.
+        /// </summary>
+        /// <param name="captain">Captain being launched; may be null.</param>
+        /// <returns>Credential string, or null when none is configured.</returns>
+        private static string? ResolveZylooKey(Captain? captain)
+        {
+            if (captain != null && !String.IsNullOrWhiteSpace(captain.ApiKey))
+                return captain.ApiKey;
+
+            return Environment.GetEnvironmentVariable("ZYLOO_KEY");
+        }
+
+        /// <summary>
+        /// Resolve the Zyloo endpoint for a captain: the per-captain base URL wins, the default
+        /// Anthropic-native endpoint is the fallback.
+        /// </summary>
+        /// <param name="captain">Captain being launched; may be null.</param>
+        /// <returns>Base URL string.</returns>
+        private static string ResolveZylooBaseUrl(Captain? captain)
+        {
+            if (captain != null && !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
+                return captain.ApiBaseUrl;
+
+            return Armada.Core.Services.OpenCodeZylooProviderConfigBuilder.AnthropicBaseUrl;
         }
 
         /// <summary>

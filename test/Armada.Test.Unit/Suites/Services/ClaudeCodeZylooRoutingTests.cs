@@ -33,6 +33,14 @@ namespace Armada.Test.Unit.Suites.Services
             return captain;
         }
 
+        private static Captain CaptainWithCredential(string name, string? model, string? apiKey, string? apiBaseUrl = null)
+        {
+            Captain captain = CaptainWithModel(name, model);
+            captain.ApiKey = apiKey;
+            captain.ApiBaseUrl = apiBaseUrl;
+            return captain;
+        }
+
         /// <summary>Runs the suite.</summary>
         protected override async Task RunTestsAsync()
         {
@@ -98,6 +106,58 @@ namespace Armada.Test.Unit.Suites.Services
                     InvokeRouting(native, CaptainWithModel("native-3", "claude-opus-4-7"));
                     AssertEqual("inherited-native-token", native.Environment["ANTHROPIC_AUTH_TOKEN"],
                         "A native captain's own credential must be left untouched");
+                    return Task.CompletedTask;
+                });
+
+                await RunTest("CaptainApiKey_WinsOverTheHostEnvironmentKey", () =>
+                {
+                    // Two subscriptions run side by side: a captain's own key must beat the
+                    // host-level ZYLOO_KEY that serves the other subscription.
+                    ProcessStartInfo startInfo = new ProcessStartInfo();
+                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-keyed", "zyloo/claude-opus-4-7", "captain-key-not-a-real-credential"));
+
+                    AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
+                        "The per-captain key must win over the environment fallback");
+                    AssertEqual("https://api.zyloo.io", startInfo.Environment["ANTHROPIC_BASE_URL"],
+                        "The per-captain key must still use the default Zyloo Anthropic endpoint");
+                    return Task.CompletedTask;
+                });
+
+                await RunTest("CaptainApiKey_FallsBackToTheHostEnvironmentKey", () =>
+                {
+                    // A captain without its own key keeps the existing single-key behavior.
+                    ProcessStartInfo startInfo = new ProcessStartInfo();
+                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-env", "zyloo/claude-fable-5", null));
+
+                    AssertEqual("test-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
+                        "The host-level ZYLOO_KEY must remain the fallback for captains without a key");
+                    return Task.CompletedTask;
+                });
+
+                await RunTest("CaptainApiBaseUrl_OverridesTheDefaultEndpoint", () =>
+                {
+                    ProcessStartInfo startInfo = new ProcessStartInfo();
+                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-base", "zyloo/claude-opus-4-7", "captain-key-not-a-real-credential", "https://proxy.example.test"));
+
+                    AssertEqual("https://proxy.example.test", startInfo.Environment["ANTHROPIC_BASE_URL"],
+                        "A captain's base URL must override the default Zyloo endpoint");
+                    AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
+                        "The per-captain key must still be supplied alongside the base URL");
+                    return Task.CompletedTask;
+                });
+
+                await RunTest("CaptainApiKey_PresentWithoutEnvironmentKey_StillRoutes", () =>
+                {
+                    // The per-captain key must work even when the host carries no ZYLOO_KEY at all.
+                    Environment.SetEnvironmentVariable("ZYLOO_KEY", null);
+                    ProcessStartInfo startInfo = new ProcessStartInfo();
+                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-standalone", "zyloo/claude-opus-4-7", "captain-key-not-a-real-credential"));
+
+                    AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
+                        "A per-captain key must route without any host-level key present");
+                    AssertTrue(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
+                        "The endpoint must be set when the per-captain key routes the captain");
+                    Environment.SetEnvironmentVariable("ZYLOO_KEY", "test-key-not-a-real-credential");
                     return Task.CompletedTask;
                 });
 

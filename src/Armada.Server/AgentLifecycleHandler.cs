@@ -238,7 +238,7 @@ namespace Armada.Server
                 return ValidateMuxCaptainBypassingQuotaAsync(captain, token);
             }
 
-            return ValidateModelBypassingQuotaAsync(captain.Runtime, captain.Model, token);
+            return ValidateModelBypassingQuotaAsync(captain.Runtime, captain.Model, captain, token);
         }
 
         private async Task<string?> ValidateMuxCaptainBypassingQuotaAsync(Captain captain, CancellationToken token)
@@ -252,9 +252,9 @@ namespace Armada.Server
             return error;
         }
 
-        private async Task<string?> ValidateModelBypassingQuotaAsync(AgentRuntimeEnum runtimeType, string? model, CancellationToken token)
+        private async Task<string?> ValidateModelBypassingQuotaAsync(AgentRuntimeEnum runtimeType, string? model, Captain? captain, CancellationToken token)
         {
-            string? error = await ValidateModelAsync(runtimeType, model, token).ConfigureAwait(false);
+            string? error = await ValidateModelAsync(runtimeType, model, captain, token).ConfigureAwait(false);
             if (error != null && ProviderQuotaLimitDetector.IsQuotaLimitSignal(error))
             {
                 return null;
@@ -269,9 +269,11 @@ namespace Armada.Server
         /// </summary>
         /// <param name="runtimeType">Runtime to validate.</param>
         /// <param name="model">Model to validate.</param>
+        /// <param name="captain">Captain being validated; its per-captain provider credential is
+        /// used for the probe when set.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Null if valid, otherwise an error message.</returns>
-        public async Task<string?> ValidateModelAsync(AgentRuntimeEnum runtimeType, string? model, CancellationToken token = default)
+        public async Task<string?> ValidateModelAsync(AgentRuntimeEnum runtimeType, string? model, Captain? captain = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(model))
                 return null;
@@ -315,7 +317,7 @@ namespace Armada.Server
                     validationDirectory,
                     "Respond with the single word OK.",
                     model: model,
-                    captain: null,
+                    captain: captain,
                     token: token).ConfigureAwait(false);
 
                 Task completedTask = await Task.WhenAny(

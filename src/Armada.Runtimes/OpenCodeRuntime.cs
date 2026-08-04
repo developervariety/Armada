@@ -66,7 +66,10 @@ namespace Armada.Runtimes
                 (launchEnvironment == null || !launchEnvironment.ContainsKey("OPENCODE_CONFIG_CONTENT")))
             {
                 launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
-                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = OpenCodeZylooProviderConfigBuilder.Build(model!);
+                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = OpenCodeZylooProviderConfigBuilder.Build(
+                    model!,
+                    captain?.ApiKey,
+                    captain?.ApiBaseUrl);
             }
 
             return await base.StartAsync(

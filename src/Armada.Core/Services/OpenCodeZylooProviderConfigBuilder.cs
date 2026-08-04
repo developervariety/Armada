@@ -56,17 +56,34 @@ namespace Armada.Core.Services
         public static string AnthropicBaseUrl => "https://api.zyloo.io";
 
         /// <summary>
-        /// Builds an inline OpenCode configuration overlay for one Zyloo model.
+        /// Builds an inline OpenCode configuration overlay for one Zyloo model using the host-level
+        /// <c>ZYLOO_KEY</c> environment-variable credential reference.
         /// </summary>
         /// <param name="model">Canonical Zyloo model identifier.</param>
         /// <returns>Valid, deterministic JSON suitable for <c>OPENCODE_CONFIG_CONTENT</c>.</returns>
         public static string Build(string model)
         {
+            return Build(model, null, null);
+        }
+
+        /// <summary>
+        /// Builds an inline OpenCode configuration overlay for one Zyloo model.
+        /// A per-captain credential wins over the environment-variable reference, so captains on
+        /// separate Zyloo subscriptions run side by side without a shared host variable.
+        /// </summary>
+        /// <param name="model">Canonical Zyloo model identifier.</param>
+        /// <param name="apiKey">Optional per-captain credential; when null the overlay references
+        /// <c>{env:ZYLOO_KEY}</c> instead of embedding a credential.</param>
+        /// <param name="baseUrl">Optional per-captain base URL; when null the default Zyloo
+        /// OpenAI-compatible endpoint is used.</param>
+        /// <returns>Valid, deterministic JSON suitable for <c>OPENCODE_CONFIG_CONTENT</c>.</returns>
+        public static string Build(string model, string? apiKey, string? baseUrl)
+        {
             if (!IsZylooModel(model))
                 throw new ArgumentException("A Zyloo model identifier must begin with 'zyloo/'.", nameof(model));
 
             string normalizedModel = model.Trim();
-            OpenCodeConfigDocument document = new OpenCodeConfigDocument(normalizedModel);
+            OpenCodeConfigDocument document = new OpenCodeConfigDocument(normalizedModel, apiKey, baseUrl);
             JsonSerializerOptions options = new JsonSerializerOptions
             {
                 WriteIndented = true
@@ -84,11 +101,13 @@ namespace Armada.Core.Services
         {
             /// <summary>Creates the document for a single model.</summary>
             /// <param name="model">Canonical Zyloo model identifier.</param>
-            public OpenCodeConfigDocument(string model)
+            /// <param name="apiKey">Optional per-captain credential to embed inline.</param>
+            /// <param name="baseUrl">Optional per-captain base URL override.</param>
+            public OpenCodeConfigDocument(string model, string? apiKey, string? baseUrl)
             {
                 Provider = new Dictionary<string, OpenCodeProviderDefinition>(StringComparer.Ordinal)
                 {
-                    ["zyloo"] = new OpenCodeProviderDefinition(model)
+                    ["zyloo"] = new OpenCodeProviderDefinition(model, apiKey, baseUrl)
                 };
             }
 
@@ -106,13 +125,21 @@ namespace Armada.Core.Services
         {
             /// <summary>Creates the custom provider for one model.</summary>
             /// <param name="model">Canonical Zyloo model identifier.</param>
-            public OpenCodeProviderDefinition(string model)
+            /// <param name="apiKey">Optional per-captain credential to embed inline.</param>
+            /// <param name="baseUrl">Optional per-captain base URL override.</param>
+            public OpenCodeProviderDefinition(string model, string? apiKey, string? baseUrl)
             {
                 string providerModelId = model.Substring(_ModelPrefix.Length);
                 Models = new Dictionary<string, OpenCodeModelDefinition>(StringComparer.Ordinal)
                 {
                     [providerModelId] = new OpenCodeModelDefinition(model)
                 };
+
+                if (!String.IsNullOrWhiteSpace(apiKey))
+                    Options.ApiKey = apiKey;
+
+                if (!String.IsNullOrWhiteSpace(baseUrl))
+                    Options.BaseUrl = baseUrl;
             }
 
             /// <summary>AI SDK adapter package.</summary>

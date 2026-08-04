@@ -699,6 +699,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(59, "Add mission_mode column to missions",
                     @"ALTER TABLE missions ADD COLUMN mission_mode TEXT;"
+                ),
+                new SchemaMigration(60, "Add per-captain provider credential columns to captains",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS api_key TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS api_base_url TEXT;"
                 )
             };
         }

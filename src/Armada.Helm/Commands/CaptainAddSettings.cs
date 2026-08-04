@@ -37,6 +37,20 @@ namespace Armada.Helm.Commands
         public string? Model { get; set; }
 
         /// <summary>
+        /// Per-captain provider credential override for Zyloo-served models.
+        /// </summary>
+        [Description("Per-captain provider credential override for Zyloo-served models")]
+        [CommandOption("--api-key")]
+        public string? ApiKey { get; set; }
+
+        /// <summary>
+        /// Per-captain provider base URL override for Zyloo-served models.
+        /// </summary>
+        [Description("Per-captain provider base URL override for Zyloo-served models")]
+        [CommandOption("--api-base-url")]
+        public string? ApiBaseUrl { get; set; }
+
+        /// <summary>
         /// Optional Mux config directory override.
         /// </summary>
         [Description("Mux config directory override")]

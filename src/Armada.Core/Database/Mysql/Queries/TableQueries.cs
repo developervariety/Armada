@@ -948,6 +948,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v59 statements adding per-captain provider credential columns.
+        /// </summary>
+        public static readonly string[] MigrationV59Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN api_key LONGTEXT;",
+            @"ALTER TABLE captains ADD COLUMN api_base_url LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

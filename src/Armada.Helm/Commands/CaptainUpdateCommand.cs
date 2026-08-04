@@ -65,6 +65,8 @@ namespace Armada.Helm.Commands
                 Name = String.IsNullOrWhiteSpace(settings.Name) ? current.Name : settings.Name.Trim(),
                 Runtime = runtimeValue,
                 Model = settings.Model != null ? (String.IsNullOrWhiteSpace(settings.Model) ? null : settings.Model.Trim()) : current.Model,
+                ApiKey = settings.ApiKey != null ? (String.IsNullOrWhiteSpace(settings.ApiKey) ? null : settings.ApiKey.Trim()) : current.ApiKey,
+                ApiBaseUrl = settings.ApiBaseUrl != null ? (String.IsNullOrWhiteSpace(settings.ApiBaseUrl) ? null : settings.ApiBaseUrl.Trim()) : current.ApiBaseUrl,
                 SystemInstructions = current.SystemInstructions,
                 AllowedPersonas = current.AllowedPersonas,
                 PreferredPersona = current.PreferredPersona,

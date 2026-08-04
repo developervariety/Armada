@@ -76,6 +76,8 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, OpenCode, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
                         model = new { type = "string", description = "AI model identifier; null means runtime default" },
+                        apiKey = new { type = "string", description = "Per-captain provider credential override for Zyloo-served models; wins over the host-level ZYLOO_KEY environment variable" },
+                        apiBaseUrl = new { type = "string", description = "Per-captain provider base URL override for Zyloo-served models" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
                         muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override" },
@@ -101,6 +103,8 @@ namespace Armada.Server.Mcp.Tools
                         captain.Runtime = rt;
                     captain.SystemInstructions = request.SystemInstructions;
                     captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
+                    captain.ApiKey = String.IsNullOrWhiteSpace(request.ApiKey) ? null : request.ApiKey;
+                    captain.ApiBaseUrl = String.IsNullOrWhiteSpace(request.ApiBaseUrl) ? null : request.ApiBaseUrl;
                     captain.AllowedPersonas = request.AllowedPersonas;
                     captain.PreferredPersona = request.PreferredPersona;
                     if (request.DefaultPlaybooks != null)
@@ -132,6 +136,8 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, OpenCode, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "New system instructions for this captain" },
                         model = new { type = "string", description = "New AI model identifier; null means runtime default" },
+                        apiKey = new { type = "string", description = "New per-captain provider credential override for Zyloo-served models; empty string clears it" },
+                        apiBaseUrl = new { type = "string", description = "New per-captain provider base URL override for Zyloo-served models; empty string clears it" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
                         muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override; empty string clears it" },
@@ -162,6 +168,10 @@ namespace Armada.Server.Mcp.Tools
                         captain.SystemInstructions = request.SystemInstructions;
                     if (request.Model != null)
                         captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
+                    if (request.ApiKey != null)
+                        captain.ApiKey = String.IsNullOrWhiteSpace(request.ApiKey) ? null : request.ApiKey;
+                    if (request.ApiBaseUrl != null)
+                        captain.ApiBaseUrl = String.IsNullOrWhiteSpace(request.ApiBaseUrl) ? null : request.ApiBaseUrl;
                     if (request.AllowedPersonas != null)
                         captain.AllowedPersonas = request.AllowedPersonas;
                     if (request.PreferredPersona != null)
@@ -186,7 +196,9 @@ namespace Armada.Server.Mcp.Tools
                     {
                         bool modelOrRuntimeChanged =
                             !String.Equals(captain.Model, existingCaptain.Model, StringComparison.OrdinalIgnoreCase) ||
-                            captain.Runtime != existingCaptain.Runtime;
+                            captain.Runtime != existingCaptain.Runtime ||
+                            !String.Equals(captain.ApiKey, existingCaptain.ApiKey, StringComparison.Ordinal) ||
+                            !String.Equals(captain.ApiBaseUrl, existingCaptain.ApiBaseUrl, StringComparison.Ordinal);
                         if (modelOrRuntimeChanged)
                         {
                             string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
@@ -633,7 +645,9 @@ namespace Armada.Server.Mcp.Tools
                 Id = captain.Id,
                 Runtime = captain.Runtime,
                 RuntimeOptionsJson = captain.RuntimeOptionsJson,
-                Model = captain.Model
+                Model = captain.Model,
+                ApiKey = captain.ApiKey,
+                ApiBaseUrl = captain.ApiBaseUrl
             };
         }
     }

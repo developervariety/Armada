@@ -55,6 +55,8 @@ namespace Armada.Helm.Commands
                 Name = settings.Name,
                 Runtime = runtimeValue,
                 Model = String.IsNullOrWhiteSpace(settings.Model) ? null : settings.Model.Trim(),
+                ApiKey = String.IsNullOrWhiteSpace(settings.ApiKey) ? null : settings.ApiKey.Trim(),
+                ApiBaseUrl = String.IsNullOrWhiteSpace(settings.ApiBaseUrl) ? null : settings.ApiBaseUrl.Trim(),
                 RuntimeOptionsJson = runtimeOptionsJson
             };
 

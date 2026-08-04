@@ -69,6 +69,39 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Build_WithPerCaptainKey_EmbedsKeyInline", () =>
+            {
+                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/glm-5.2", "captain-key-not-a-real-credential", null);
+
+                AssertContains("\"apiKey\": \"captain-key-not-a-real-credential\"", json,
+                    "A per-captain key must be embedded inline in place of the environment reference");
+                AssertFalse(json.Contains("{env:ZYLOO_KEY}", StringComparison.Ordinal),
+                    "The environment reference must not appear when a per-captain key is set");
+                AssertContains("\"baseURL\": \"https://api.zyloo.io/v1\"", json,
+                    "The default OpenAI-compatible endpoint must be preserved");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Build_WithPerCaptainBaseUrl_OverridesDefaultEndpoint", () =>
+            {
+                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/glm-5.2", "captain-key-not-a-real-credential", "https://proxy.example.test/v1");
+
+                AssertContains("\"baseURL\": \"https://proxy.example.test/v1\"", json,
+                    "A per-captain base URL must override the default OpenAI-compatible endpoint");
+                AssertContains("\"apiKey\": \"captain-key-not-a-real-credential\"", json,
+                    "The per-captain key must be embedded alongside the base URL");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Build_WithoutPerCaptainKey_KeepsEnvironmentReference", () =>
+            {
+                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/glm-5.2", null, null);
+
+                AssertContains("\"apiKey\": \"{env:ZYLOO_KEY}\"", json,
+                    "Without a per-captain key the overlay must keep the environment reference");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Build_RejectsNonZylooModel", () =>
             {
                 bool threw = false;

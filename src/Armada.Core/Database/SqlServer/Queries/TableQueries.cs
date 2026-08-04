@@ -651,6 +651,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(59, "Add mission_mode column to missions",
                     @"ALTER TABLE missions ADD COLUMN mission_mode TEXT;"
+                ),
+                new SchemaMigration(
+                    60,
+                    "Add per-captain provider credential columns to captains",
+                    @"IF COL_LENGTH('captains', 'api_key') IS NULL ALTER TABLE captains ADD api_key NVARCHAR(MAX);",
+                    @"IF COL_LENGTH('captains', 'api_base_url') IS NULL ALTER TABLE captains ADD api_base_url NVARCHAR(MAX);"
                 )
             };
         }
