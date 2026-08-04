@@ -56,9 +56,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("IsTierSelector_LiteralModelName_ReturnsFalse", () =>
             {
-                AssertFalse(PreferredModelTierSelector.IsTierSelector("claude-sonnet-4-6"), "literal model name should not be a tier selector");
                 AssertFalse(PreferredModelTierSelector.IsTierSelector("claude-opus-4-7"), "literal model name should not be a tier selector");
-                AssertFalse(PreferredModelTierSelector.IsTierSelector("gpt-5.5"), "literal model name should not be a tier selector");
+                AssertFalse(PreferredModelTierSelector.IsTierSelector("zyloo/gpt-5.6-luna"), "literal model name should not be a tier selector");
+                AssertFalse(PreferredModelTierSelector.IsTierSelector("composer-2.5"), "literal model name should not be a tier selector");
                 return Task.CompletedTask;
             });
 
@@ -86,13 +86,13 @@ namespace Armada.Test.Unit.Suites.Services
                 bool hasHigh = false;
                 foreach (string m in models)
                 {
-                    if (m == "kimi-k2.5") hasLow = true;
-                    if (m == "gpt-5.3-codex") hasMid = true;
-                    if (m == "claude-opus-4-7") hasHigh = true;
+                    if (m == "opencode-go/deepseek-v4-flash") hasLow = true;
+                    if (m == "zyloo/claude-opus-4-7") hasMid = true;
+                    if (m == "zyloo/claude-fable-5") hasHigh = true;
                 }
-                AssertTrue(hasLow, "Low tier model kimi-k2.5 should be included");
-                AssertTrue(hasMid, "Mid tier model gpt-5.3-codex should be included");
-                AssertTrue(hasHigh, "High tier model claude-opus-4-7 should be included");
+                AssertTrue(hasLow, "Low tier model opencode-go/deepseek-v4-flash should be included");
+                AssertTrue(hasMid, "Mid tier model zyloo/claude-opus-4-7 should be included");
+                AssertTrue(hasHigh, "High tier model zyloo/claude-fable-5 should be included");
                 return Task.CompletedTask;
             });
 
@@ -119,64 +119,67 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SelectModel_MidTier_PreferenceOrderSelectsFirstListed", () =>
             {
-                // The default mid-tier ranking leads with the Zyloo GLM captain, then the OpenCode
-                // GLM entry. With several models idle, the first listed one wins.
+                // The default mid-tier ranking leads with the Zyloo Opus captain, then the native
+                // Opus entry. With several models idle, the first listed one wins.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5"),
-                    MakeCaptain("zyloo/glm-5.2")
+                    MakeCaptain("zyloo/claude-opus-4-7")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
                 AssertNotNull(selected, "Should select a model when mid-tier captains are available");
-                AssertEqual("zyloo/glm-5.2", selected, "Should prefer the first listed mid-tier model");
+                AssertEqual("zyloo/claude-opus-4-7", selected, "Should prefer the first listed mid-tier model");
                 return Task.CompletedTask;
             });
 
             await RunTest("ZylooQualifiedModels_ClassifyIntoConfiguredTiers", () =>
             {
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("zyloo/deepseek-v4-flash"), "Zyloo DeepSeek Flash must participate in low-tier routing");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/glm-5.2"), "Zyloo GLM must participate in mid-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-4-7-thinking"), "Zyloo Opus must participate in high-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.5"), "Zyloo GPT must participate in high-tier routing");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash"), "opencode-go DeepSeek Flash must participate in low-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-4-7"), "Zyloo Opus 4.7 must participate in mid-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-4-8"), "Zyloo Opus 4.8 must participate in mid-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna"), "Zyloo GPT 5.6 Luna must participate in mid-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-sol"), "Zyloo GPT 5.6 Sol must participate in high-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-5"), "Zyloo Opus 5 must participate in high-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/claude-fable-5"), "Zyloo Fable must participate in high-tier routing");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_PrefersZylooGlmBeforeOpenCodeGlm", () =>
+            await RunTest("SelectModel_MidTier_PrefersZylooOpusPrimary", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("opencode/glm-5.2"),
-                    MakeCaptain("zyloo/glm-5.2")
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("zyloo/claude-opus-4-7")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
 
-                AssertEqual("zyloo/glm-5.2", selected, "The Zyloo GLM entry must precede the OpenCode GLM equivalent");
+                AssertEqual("zyloo/claude-opus-4-7", selected, "The Zyloo Opus primary must be preferred over the other idle mid captain");
                 return Task.CompletedTask;
             });
 
             await RunTest("SelectModel_MidTier_DuplicatedCaptains_PreferenceOrderWins", () =>
             {
-                // Many composer captains and one kimi-k3 captain. The default mid ranking lists
-                // grok ranks ahead of composer, so grok wins even though it has fewer idle
-                // instances -- preference is not a popularity contest.
+                // Many composer captains and one Zyloo Opus primary. The default mid ranking lists
+                // zyloo/claude-opus-4-7 ahead of composer, so the primary wins even though it has
+                // fewer idle instances -- preference is not a popularity contest.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5"),
-                    MakeCaptain("gemini-3.5-pro")
+                    MakeCaptain("zyloo/claude-opus-4-7")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
 
-                AssertEqual("grok-4.5", selected, "Preference order should select grok ahead of the duplicated composer models");
+                AssertEqual("zyloo/claude-opus-4-7", selected, "Preference order should select the Zyloo Opus primary ahead of the duplicated composer models");
                 return Task.CompletedTask;
             });
 
@@ -185,13 +188,13 @@ namespace Armada.Test.Unit.Suites.Services
                 // Two high-tier captains, only one allows the Judge specialist persona.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-opus-4-7", "[\"Worker\"]"),
-                    MakeCaptain("gpt-5.5", "[\"Worker\",\"Judge\"]")
+                    MakeCaptain("zyloo/claude-opus-5", "[\"Worker\"]"),
+                    MakeCaptain("zyloo/gpt-5.6-sol", "[\"Worker\",\"Judge\"]")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0);
                 AssertNotNull(selected, "Should find a model eligible for Judge persona");
-                AssertEqual("gpt-5.5", selected, "Only gpt-5.5 captain allows Judge persona");
+                AssertEqual("zyloo/gpt-5.6-sol", selected, "Only the zyloo/gpt-5.6-sol captain allows Judge persona");
                 return Task.CompletedTask;
             });
 
@@ -200,7 +203,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // No low-tier captains, but mid-tier captains are available
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("grok-4.5"),
                     MakeCaptain("composer-2.5")
                 };
 
@@ -219,8 +222,8 @@ namespace Armada.Test.Unit.Suites.Services
                 // No mid-tier captains, but high-tier captains are available
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-opus-4-7"),
-                    MakeCaptain("gpt-5.5")
+                    MakeCaptain("zyloo/claude-fable-5"),
+                    MakeCaptain("zyloo/claude-opus-5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
@@ -238,8 +241,8 @@ namespace Armada.Test.Unit.Suites.Services
                 // Only low and mid captains available; high-tier request should return null
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("kimi-k2.5"),
-                    MakeCaptain("claude-sonnet-4-6")
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
+                    MakeCaptain("composer-2.5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
@@ -247,80 +250,80 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_High_SelectsCaptainWithClaude46OpusHigh", () =>
+            await RunTest("SelectModel_High_SelectsCaptainWithZylooOpus5", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-4.6-opus-high")
+                    MakeCaptain("zyloo/claude-opus-5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
-                AssertNotNull(selected, "High tier should match Claude 4.6 opus high alias");
-                AssertEqual("claude-4.6-opus-high", selected, "Exact model string should round-trip");
+                AssertNotNull(selected, "High tier should match the Zyloo Opus 5 captain");
+                AssertEqual("zyloo/claude-opus-5", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_Mid_SelectsClaude46SonnetMedium", () =>
+            await RunTest("SelectModel_Mid_SelectsZylooGpt56Luna", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-4.6-sonnet-medium")
+                    MakeCaptain("zyloo/gpt-5.6-luna")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
-                AssertNotNull(selected, "Mid tier should match Cursor sonnet medium alias");
-                AssertEqual("claude-4.6-sonnet-medium", selected, "Exact model string should round-trip");
+                AssertNotNull(selected, "Mid tier should match the Zyloo GPT 5.6 Luna captain");
+                AssertEqual("zyloo/gpt-5.6-luna", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_Mid_SelectsGemini31Pro", () =>
+            await RunTest("SelectModel_Mid_SelectsZylooOpus48", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("gemini-3.1-pro")
+                    MakeCaptain("zyloo/claude-opus-4-8")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
-                AssertNotNull(selected, "Mid tier should match Gemini 3.1 pro alias");
-                AssertEqual("gemini-3.1-pro", selected, "Exact model string should round-trip");
+                AssertNotNull(selected, "Mid tier should match the Zyloo Opus 4.8 captain");
+                AssertEqual("zyloo/claude-opus-4-8", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_Mid_SelectsGpt53Codex", () =>
+            await RunTest("SelectModel_Mid_SelectsComposer25", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("gpt-5.3-codex")
+                    MakeCaptain("composer-2.5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
-                AssertNotNull(selected, "Mid tier should match gpt-5.3-codex");
-                AssertEqual("gpt-5.3-codex", selected, "Exact model string should round-trip");
+                AssertNotNull(selected, "Mid tier should match the composer-2.5 captain");
+                AssertEqual("composer-2.5", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_High_DoesNotFuzzyMatchCursorOpusAliases", () =>
+            await RunTest("SelectModel_High_DoesNotFuzzyMatchUnlistedVariants", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-4.6-opus-high-thinking-preview")
+                    MakeCaptain("zyloo/gpt-5.6-sol-max")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
-                AssertNull(selected, "High tier should not select Cursor opus alias-like names that are not exact matches");
+                AssertNull(selected, "High tier should not select an unlisted variant of a high model");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_Mid_DoesNotFuzzyMatchCursorSonnetGeminiAliases", () =>
+            await RunTest("SelectModel_Mid_DoesNotFuzzyMatchUnlistedVariants", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-4.6-sonnet-medium-preview"),
-                    MakeCaptain("gemini-3.1-pro-preview")
+                    MakeCaptain("zyloo/gpt-5.6-luna-max"),
+                    MakeCaptain("zyloo/claude-opus-4-8-max")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
-                AssertNull(selected, "Mid tier should not select Cursor sonnet or Gemini alias-like names that are not exact matches");
+                AssertNull(selected, "Mid tier should not select unlisted variants of mid models");
                 return Task.CompletedTask;
             });
 
@@ -350,7 +353,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // Captain with AllowedPersonas restriction should still be picked when persona is null
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-sonnet-4-6", "[\"Worker\"]")
+                    MakeCaptain("zyloo/gpt-5.6-luna", "[\"Worker\"]")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
@@ -374,39 +377,40 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("ClassifyModel_CuratedAndCanonicalFamilies_MapToExpectedTier", () =>
             {
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "curated opus is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "curated gpt-5.5 is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "curated gpt-5.6-sol is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high"), "curated cursor opus alias is high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6"), "curated sonnet is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.3-codex"), "curated gpt codex is mid");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "curated kimi is low");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "canonical opus is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5"), "canonical opus bump is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5"), "canonical fable is high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-4-7"), "curated Zyloo opus 4-7 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna"), "curated Zyloo luna is mid");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash"), "curated opencode-go deepseek is low");
                 return Task.CompletedTask;
             });
 
             await RunTest("ClassifyModel_OpencodeRegisteredModels_MapToCuratedTier", () =>
             {
                 // The opencode-* model names are slash-prefixed (opencode/, opencode-go/) so
-                // none of them match the bare "kimi-" StartsWith fallback. They only classify
-                // because they were added to the curated tier arrays -- this test fails if a
-                // future edit drops them from _LowModels / _MidModels.
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode/kimi-k2.6"), "opencode/kimi-k2.6 is curated low");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.6"), "opencode-go/kimi-k2.6 is curated low");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash"), "opencode/deepseek-v4-flash is curated low");
+                // none of them match a bare family fallback. The low-tier curated array holds
+                // exactly one opencode model, and only that exact entry counts -- a sibling
+                // opencode/deepseek-v4-flash with the other prefix is NOT registered and must
+                // stay unclassified. This test fails if a future edit drops the entry from
+                // _LowModels or adds an unlisted sibling to the curated arrays.
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash"), "opencode-go/deepseek-v4-flash is curated low");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash"), "opencode/deepseek-v4-flash is not registered -- only the opencode-go/ curated entry counts");
 
-                // Critical ordering guard: opencode-go/kimi-k2.7-code contains "kimi" but does
-                // NOT start with "kimi-", so the low-tier StartsWith fallback must not catch it.
-                // The curated _MidModels entry must win and classify it mid, not low.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.7-code"), "opencode-go/kimi-k2.7-code is curated mid, not low");
+                // Critical ordering guard: opencode-go/deepseek-v4-flash contains "deepseek" but
+                // does NOT start with a bare family token, so no fallback catches it. Only the
+                // curated _LowModels entry can classify it; an unlisted sibling variant is
+                // unregistered and must NOT be absorbed.
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash-lite"), "an unlisted sibling variant is not registered");
                 return Task.CompletedTask;
             });
 
             await RunTest("ClassifyModel_OpencodeUnregisteredVariant_IsNotRecognized", () =>
             {
                 // A sibling opencode model that was NOT registered must stay null: the slash
-                // prefix keeps it out of the kimi-/composer-/family fallbacks. Proves the
-                // curated registration -- not a pattern -- is what makes the four models count.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/kimi-k2.9"), "unregistered opencode kimi variant is not classified");
+                // prefix keeps it out of the bare family fallbacks. Proves the curated
+                // registration -- not a pattern -- is what makes opencode-go/deepseek-v4-flash count.
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash"), "unregistered opencode deepseek prefix is not classified");
                 AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v5"), "unregistered opencode deepseek variant is not classified");
                 return Task.CompletedTask;
             });
@@ -415,41 +419,38 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 IReadOnlyList<string> lowModels = PreferredModelTierSelector.GetTierModels("low");
                 IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid");
-                AssertTrue(lowModels.Contains("opencode/kimi-k2.6"), "low tier must list opencode/kimi-k2.6");
-                AssertTrue(lowModels.Contains("opencode-go/kimi-k2.6"), "low tier must list opencode-go/kimi-k2.6");
-                AssertTrue(lowModels.Contains("opencode/deepseek-v4-flash"), "low tier must list opencode/deepseek-v4-flash");
-                AssertTrue(midModels.Contains("opencode-go/kimi-k2.7-code"), "mid tier must list opencode-go/kimi-k2.7-code");
-                AssertFalse(midModels.Contains("opencode/kimi-k2.6"), "opencode/kimi-k2.6 must not leak into mid tier");
+                AssertTrue(lowModels.Contains("opencode-go/deepseek-v4-flash"), "low tier must list opencode-go/deepseek-v4-flash");
+                AssertFalse(midModels.Contains("opencode-go/deepseek-v4-flash"), "the low opencode model must not leak into mid tier");
                 return Task.CompletedTask;
             });
 
-            await RunTest("ModelMatchesTierOrAbove_OpencodeMidModel_SatisfiesLowPin", () =>
+            await RunTest("ModelMatchesTierOrAbove_UpwardFallback_SatisfiesLowPin", () =>
             {
-                // A mid opencode model must satisfy a low-tier pin (upward fallback) but a low
+                // A mid model must satisfy a low-tier pin (upward fallback) but a low
                 // opencode model must NOT satisfy a mid-tier pin.
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/kimi-k2.7-code", "low"), "mid opencode model satisfies low pin via upward fallback");
-                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode/kimi-k2.6", "mid"), "low opencode model must not satisfy a mid pin");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("zyloo/claude-opus-4-7", "low"), "mid model satisfies low pin via upward fallback");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "mid"), "low opencode model must not satisfy a mid pin");
                 return Task.CompletedTask;
             });
 
             await RunTest("ClassifyModel_FutureVersionBumps_AutoRegisterByFamily", () =>
             {
-                // The bug this guards: an Opus version bump (4-7 -> 4-8) must classify high
-                // WITHOUT being added to the curated array.
+                // The bug this guards: an Opus version bump (4-7 -> 4-8 -> 5) must classify high
+                // WITHOUT being added to the curated array, and a Fable bump registers the same way.
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-8"), "opus 4-8 auto-registers high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5"), "opus 5 auto-registers high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-7"), "sonnet 4-7 auto-registers mid");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-6"), "fable bump auto-registers high");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gemini-4.0-pro"), "gemini pro bump auto-registers mid");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("composer-3"), "composer bump auto-registers mid");
                 return Task.CompletedTask;
             });
 
-            await RunTest("ClassifyModel_AliasPreviewVariants_AreNotRecognized", () =>
+            await RunTest("ClassifyModel_VariantSuffixes_AreNotRecognized", () =>
             {
-                // Anchored family patterns must not absorb preview/experimental suffixes.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high-thinking-preview"), "opus preview alias is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-4.6-sonnet-medium-preview"), "sonnet preview alias is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gemini-3.1-pro-preview"), "gemini pro preview is not classified");
+                // Anchored family patterns must not absorb unlisted suffix variants.
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-sol-preview"), "unlisted sol preview is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna-preview"), "unlisted luna preview is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-5-preview"), "unlisted opus preview is not classified");
                 AssertNull(PreferredModelTierSelector.ClassifyModel("some-custom-model"), "unknown model is not classified");
                 AssertNull(PreferredModelTierSelector.ClassifyModel(null), "null is not classified");
                 return Task.CompletedTask;
@@ -473,7 +474,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "high"), "opus 4-8 satisfies high");
                 AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "mid"), "high model satisfies a mid pin (upward chain)");
-                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-sonnet-4-6", "high"), "mid model does not satisfy a high pin");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("zyloo/claude-opus-4-7", "high"), "mid model does not satisfy a high pin");
                 AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("some-custom-model", "low"), "unclassified model satisfies no tier pin");
                 return Task.CompletedTask;
             });
@@ -513,12 +514,12 @@ namespace Armada.Test.Unit.Suites.Services
                 // [mid, low, high], so low must win over high.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("kimi-k2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("claude-opus-4-7")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
-                AssertEqual("kimi-k2.5", selected, "A non-specialist mid request must try low before high");
+                AssertEqual("opencode-go/deepseek-v4-flash", selected, "A non-specialist mid request must try low before high");
                 return Task.CompletedTask;
             });
 
@@ -538,46 +539,45 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SelectModel_MidTier_PrimaryFirst_WhenIdle", () =>
             {
-                // The default mid ranking leads with the Zyloo GLM captain. When it is idle it
+                // The default mid ranking leads with the Zyloo Opus captain. When it is idle it
                 // must win over the lower-ranked mid-tier captains.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5"),
-                    MakeCaptain("zyloo/glm-5.2")
+                    MakeCaptain("zyloo/claude-opus-4-7")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("zyloo/glm-5.2", selected, "Idle primary captain should be selected first for Worker mid work");
+                AssertEqual("zyloo/claude-opus-4-7", selected, "Idle primary captain should be selected first for Worker mid work");
                 return Task.CompletedTask;
             });
 
             await RunTest("SelectModel_MidTier_FallsBackToNextRanked_WhenPrimaryBusy", () =>
             {
-                // The primary (Zyloo GLM) captains are busy and absent from the idle list, so the
+                // The primary (Zyloo Opus 4.7) captains are busy and absent from the idle list, so the
                 // selector must fall to the next ranked mid model that has an idle captain.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5"),
-                    MakeCaptain("gemini-3.5-pro")
+                    MakeCaptain("zyloo/claude-opus-4-8")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("grok-4.5", selected, "Should fall back to grok when the primary GLM captains are busy");
+                AssertEqual("zyloo/claude-opus-4-8", selected, "Should fall back to the next ranked Opus captain when the primary Zyloo Opus captain is busy");
                 return Task.CompletedTask;
             });
 
             await RunTest("SelectModel_MidTier_FallsBackToComposer_WhenHigherRankedBusy", () =>
             {
-                // Only composer and gemini are idle. Preference order lists composer before
-                // unlisted models, so composer wins even though gemini appears first in the
-                // idle captain list.
+                // Only composer and grok are idle. Preference order lists composer ahead of grok,
+                // so composer wins even though grok appears first in the idle captain list.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("gemini-3.5-pro"),
+                    MakeCaptain("grok-4.5"),
                     MakeCaptain("composer-2.5")
                 };
 
@@ -592,18 +592,18 @@ namespace Armada.Test.Unit.Suites.Services
                 // Operator-configurable preference order flips the default so composer is first.
                 Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "composer-2.5", "claude-sonnet-4-6", "opencode-go/kimi-k2.7-code" } }
+                    { "mid", new List<string> { "composer-2.5", "zyloo/claude-opus-4-7", "zyloo/gpt-5.6-luna" } }
                 };
 
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/kimi-k2.7-code"),
-                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("zyloo/gpt-5.6-luna"),
+                    MakeCaptain("zyloo/claude-opus-4-7"),
                     MakeCaptain("composer-2.5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder);
-                AssertEqual("composer-2.5", selected, "Custom preference order should place composer ahead of K2.7 and sonnet");
+                AssertEqual("composer-2.5", selected, "Custom preference order should place composer ahead of the Zyloo mid models");
                 return Task.CompletedTask;
             });
 
@@ -613,7 +613,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // skipped and the first idle preferred model is selected.
                 Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "opencode-go/kimi-k2.7-code", "claude-sonnet-4-6", "composer-2.5" } }
+                    { "mid", new List<string> { "zyloo/claude-opus-4-8", "zyloo/gpt-5.6-luna", "composer-2.5" } }
                 };
 
                 List<Captain> captains = new List<Captain>
@@ -622,7 +622,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder);
-                AssertEqual("composer-2.5", selected, "Should skip missing K2.7 and sonnet captains and land on composer");
+                AssertEqual("composer-2.5", selected, "Should skip missing Opus and Luna captains and land on composer");
                 return Task.CompletedTask;
             });
 
@@ -631,22 +631,17 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default preference order contains mid tier");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual(10, midOrder.Count, "default mid preference order lists the operator ranking plus the prior-generation fallbacks");
-                AssertEqual("zyloo/glm-5.2", midOrder[0], "starts with the Zyloo GLM captain, the designated primary");
-                AssertEqual("opencode-go/glm-5.2", midOrder[1], "OpenCode GLM follows the Zyloo primary");
-                AssertEqual("zyloo/claude-sonnet-5", midOrder[2], "Zyloo sonnet is third");
-                AssertEqual("grok-4.5", midOrder[3], "grok is fourth");
-                AssertEqual("composer-2.5", midOrder[4], "composer-2.5 closes the operator-ranked block");
-                AssertEqual("opencode/glm-5.2", midOrder[5], "prior-generation OpenCode GLM leads the fallbacks");
-                AssertEqual("opencode-go/kimi-k2.7-code", midOrder[6], "prior-generation Kimi follows");
-                AssertEqual("claude-sonnet-5", midOrder[7], "prior-generation Sonnet follows");
-                AssertEqual("claude-sonnet-4-6", midOrder[8], "older Sonnet follows");
-                AssertEqual("composer-2-fast", midOrder[9], "prior-generation composer closes the list");
+                AssertEqual(5, midOrder.Count, "default mid preference order lists the five current mid-tier models");
+                AssertEqual("zyloo/claude-opus-4-7", midOrder[0], "starts with the Zyloo Opus 4.7 captain, the designated primary");
+                AssertEqual("zyloo/claude-opus-4-8", midOrder[1], "Zyloo Opus 4.8 follows the primary");
+                AssertEqual("zyloo/gpt-5.6-luna", midOrder[2], "Zyloo GPT 5.6 Luna is third");
+                AssertEqual("composer-2.5", midOrder[3], "composer-2.5 is fourth");
+                AssertEqual("grok-4.5", midOrder[4], "grok-4.5 closes the list");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "low", new List<string> { "kimi-k2.5" } }
+                    { "low", new List<string> { "opencode-go/deepseek-v4-flash" } }
                 };
                 AssertFalse(custom.WithinTierPreferenceOrder.ContainsKey("mid"), "custom preference order replaces the default mid entry");
                 AssertTrue(custom.WithinTierPreferenceOrder.ContainsKey("low"), "custom preference order contains the operator-supplied low entry");
@@ -703,7 +698,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // An operator-pinned literal model name is honored verbatim even for a specialist;
                 // the runtime tier-fallback handles the case where no matching captain is idle.
-                AssertEqual("claude-sonnet-4-6", PreferredModelTierSelector.EnforceHighTierForPersona("claude-sonnet-4-6", "Judge"), "specialist literal pin is not rewritten to a tier selector");
+                AssertEqual("zyloo/claude-opus-4-7", PreferredModelTierSelector.EnforceHighTierForPersona("zyloo/claude-opus-4-7", "Judge"), "specialist literal pin is not rewritten to a tier selector");
                 return Task.CompletedTask;
             });
 
@@ -757,39 +752,38 @@ namespace Armada.Test.Unit.Suites.Services
                 // tier assignments, so moving a model between tiers is a settings change.
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.LowTierModels = new List<string> { "custom-low", "claude-opus-4-7" };
-                custom.MidTierModels = new List<string> { "custom-mid", "kimi-k2.5" };
+                custom.MidTierModels = new List<string> { "custom-mid", "opencode-go/deepseek-v4-flash" };
                 custom.HighTierModels = new List<string> { "custom-high" };
 
                 AssertEqual("low", PreferredModelTierSelector.ClassifyModel("custom-low", custom), "custom low-tier model classifies low");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("custom-mid", custom), "custom mid-tier model classifies mid");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("custom-high", custom), "custom high-tier model classifies high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.5", custom), "a default low model moved to mid config classifies mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", custom), "a default low model moved to mid config classifies mid");
                 AssertEqual("low", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "configured low-tier membership overrides the canonical opus high pattern");
                 AssertNull(PreferredModelTierSelector.ClassifyModel("not-in-any-list-and-no-pattern-match", custom), "model not in custom lists and not matching a family pattern is not classified");
                 return Task.CompletedTask;
             });
 
-            await RunTest("ClassifyModel_Gpt55_ExplicitEntryOnlyClassifiesHigh", () =>
+            await RunTest("ClassifyModel_Gpt56Sol_ExplicitEntryOnlyClassifiesHigh", () =>
             {
-                // gpt-5.5 must classify high through its explicit curated entry, not a fragile
-                // regex or prefix fallback. Nearby gpt variants that are not explicitly listed
-                // must remain unclassified.
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "gpt-5.5 is explicitly high");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.5-turbo"), "no gpt prefix fallback absorbs variants");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6"), "no gpt prefix fallback absorbs version bumps");
+                // zyloo/gpt-5.6-sol must classify high through its explicit curated entry, not a fragile
+                // regex or prefix fallback. Nearby variants that are not explicitly listed must remain
+                // unclassified.
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-sol"), "zyloo/gpt-5.6-sol is explicitly high");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-sol-max"), "no gpt prefix fallback absorbs variants");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-sol-lite"), "no gpt prefix fallback absorbs sibling names");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "bare gpt-5.6-sol is not curated and matches no family pattern");
                 return Task.CompletedTask;
             });
 
-            await RunTest("ClassifyModel_KimiK27_HardensToMid", () =>
+            await RunTest("ClassifyModel_Gpt56Luna_HardensToMid", () =>
             {
-                // Kimi K2.7 must reliably resolve to the mid tier, both bare and under opencode
-                // prefixes, while earlier Kimi releases stay low.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7"), "bare k2.7 is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7-code"), "k2.7-code variant is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.7-code"), "opencode-go k2.7 is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode/kimi-k2.7"), "opencode k2.7 is mid");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "k2.5 stays low");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.6"), "k2.6 stays low");
+                // Zyloo GPT 5.6 Luna must reliably resolve to the mid tier through its explicit
+                // curated entry, while the bare form (which matches no family pattern) and unlisted
+                // variants stay unclassified.
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna"), "zyloo gpt-5.6-luna is mid");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "bare gpt-5.6-luna matches no family pattern and is not curated");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna-max"), "an unlisted luna variant stays unclassified");
                 return Task.CompletedTask;
             });
 
@@ -808,27 +802,27 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_ZylooGlmFirstPreserved", () =>
+            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_ZylooOpusFirstPreserved", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default contains mid preference order");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual("zyloo/glm-5.2", midOrder[0], "default mid order starts with Zyloo GLM");
-                AssertEqual("opencode-go/glm-5.2", midOrder[1], "OpenCode GLM follows the Zyloo primary");
-                AssertEqual("zyloo/claude-sonnet-5", midOrder[2], "Zyloo sonnet follows the GLM block");
-                AssertEqual("grok-4.5", midOrder[3], "grok follows Zyloo sonnet");
-                AssertEqual("composer-2.5", midOrder[4], "composer-2.5 closes the operator-ranked block");
+                AssertEqual("zyloo/claude-opus-4-7", midOrder[0], "default mid order starts with Zyloo Opus");
+                AssertEqual("zyloo/claude-opus-4-8", midOrder[1], "Zyloo Opus 4.8 follows the primary");
+                AssertEqual("zyloo/gpt-5.6-luna", midOrder[2], "Zyloo GPT 5.6 Luna follows the Opus block");
+                AssertEqual("composer-2.5", midOrder[3], "composer-2.5 is fourth");
+                AssertEqual("grok-4.5", midOrder[4], "grok-4.5 closes the list");
 
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("opencode-go/glm-5.2"),
                     MakeCaptain("grok-4.5"),
-                    MakeCaptain("zyloo/glm-5.2")
+                    MakeCaptain("zyloo/claude-opus-4-8"),
+                    MakeCaptain("zyloo/claude-opus-4-7")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults);
-                AssertEqual("zyloo/glm-5.2", selected, "Zyloo-GLM-first preference is preserved when all mid captains are idle");
+                AssertEqual("zyloo/claude-opus-4-7", selected, "Zyloo-Opus-first preference is preserved when all mid captains are idle");
                 return Task.CompletedTask;
             });
 
@@ -837,23 +831,23 @@ namespace Armada.Test.Unit.Suites.Services
                 // The deployed settings.json is the sole source of truth: a modelTier block in the
                 // file must replace the built-in tier lists and ranking, not merge with them.
                 string json = "{\"modelTier\":{"
-                    + "\"midTierModels\":[\"composer-2.5\",\"zyloo/glm-5.2\"],"
-                    + "\"withinTierPreferenceOrder\":{\"mid\":[\"composer-2.5\",\"zyloo/glm-5.2\"]}}}";
+                    + "\"midTierModels\":[\"composer-2.5\",\"zyloo/claude-opus-4-7\"],"
+                    + "\"withinTierPreferenceOrder\":{\"mid\":[\"composer-2.5\",\"zyloo/claude-opus-4-7\"]}}}";
                 JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json, options);
+
                 AssertNotNull(loaded, "settings JSON must deserialize");
 
                 ModelTierSettings fileTier = loaded!.ModelTier;
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("zyloo/glm-5.2"),
+                    MakeCaptain("zyloo/claude-opus-4-7"),
                     MakeCaptain("composer-2.5")
                 };
 
                 string? builtIn = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, new ModelTierSettings().WithinTierPreferenceOrder, new ModelTierSettings());
-                AssertEqual("zyloo/glm-5.2", builtIn, "the built-in ranking prefers the Zyloo GLM captain");
-
+                AssertEqual("zyloo/claude-opus-4-7", builtIn, "the built-in ranking prefers the Zyloo Opus captain");
                 string? fromFile = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, fileTier.WithinTierPreferenceOrder, fileTier);
                 AssertEqual("composer-2.5", fromFile, "the loaded settings file must win over the built-in ranking");
@@ -887,8 +881,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("delta-high", high[0], "custom high tier returns the configured model");
 
                 // The default membership must NOT leak through when custom settings are supplied.
-                AssertFalse(low.Contains("kimi-k2.5"), "default low model must not appear under custom low settings");
-                AssertFalse(high.Contains("gpt-5.5"), "default high model must not appear under custom high settings");
+                AssertFalse(low.Contains("opencode-go/deepseek-v4-flash"), "default low model must not appear under custom low settings");
+                AssertFalse(high.Contains("zyloo/claude-fable-5"), "default high model must not appear under custom high settings");
                 return Task.CompletedTask;
             });
 
@@ -939,7 +933,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.HighTierModels = new List<string>();
 
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.5", custom), "explicit-only gpt-5.5 is unclassified once the high list is emptied");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/claude-fable-5", custom), "explicit-only zyloo/claude-fable-5 is unclassified once the high list is emptied");
                 AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "an empty configured high list must override the built-in Opus family inference");
                 return Task.CompletedTask;
             });
@@ -949,22 +943,20 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.MidTierModels = new List<string>();
 
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", custom), "an empty configured mid list must override the built-in Sonnet family inference");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-4-7", custom), "an empty configured mid list must override the built-in mid membership");
                 AssertNull(PreferredModelTierSelector.ClassifyModel("composer-2.5", custom), "an empty configured mid list must override the built-in Composer family inference");
                 return Task.CompletedTask;
             });
 
-            await RunTest("ClassifyModel_KimiK27Pattern_AnchoringBoundaries", () =>
+            await RunTest("ClassifyModel_LunaCuratedEntry_AnchoringBoundaries", () =>
             {
-                // The K2.7 mid pattern is anchored: only k2.7 exactly, or k2.7 followed by a '-'
-                // or '.' separator, is mid. Adjacent digits (k2.70, k2.75) and later minor
-                // versions (k2.8) must NOT be absorbed -- they fall to the bare kimi- low fallback.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7"), "bare k2.7 is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7-thinking"), "k2.7 with a dash separator is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7.1"), "k2.7 with a dot separator is mid");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.70"), "k2.70 is NOT k2.7 -- the trailing digit blocks the anchored pattern, so it falls to low");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.75"), "k2.75 is NOT k2.7 -- it falls to low");
-                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.8"), "a later kimi minor version stays low until promoted");
+                // The Zyloo GPT 5.6 Luna entry is exact-match only: only the curated string
+                // classifies mid. Adjacent or suffixed variants (bare luna, luna-max, luna-2)
+                // must NOT be absorbed -- they match no family pattern and are not curated.
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna"), "the exact curated luna entry is mid");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "bare luna is NOT the curated entry -- it stays unclassified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna-max"), "a suffixed luna variant is NOT absorbed");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna-2"), "a versioned luna variant is NOT absorbed");
                 return Task.CompletedTask;
             });
 
@@ -975,10 +967,10 @@ namespace Armada.Test.Unit.Suites.Services
                 // moved down to low no longer satisfies a mid pin.
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.LowTierModels = new List<string> { "claude-opus-4-7" };
-                custom.HighTierModels = new List<string> { "kimi-k2.5" };
+                custom.HighTierModels = new List<string> { "opencode-go/deepseek-v4-flash" };
 
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("kimi-k2.5", "low", custom), "a model promoted to high via config satisfies a low pin");
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("kimi-k2.5", "high", custom), "a model promoted to high via config satisfies a high pin");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "low", custom), "a model promoted to high via config satisfies a low pin");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "high", custom), "a model promoted to high via config satisfies a high pin");
                 AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-7", "mid", custom), "a model demoted to low via config no longer satisfies a mid pin");
                 return Task.CompletedTask;
             });
@@ -1017,12 +1009,12 @@ namespace Armada.Test.Unit.Suites.Services
                 // The MissionService hard-pin/stage-pin gate must honor config-driven tier
                 // membership: a captain whose model the defaults treat as mid is rejected for a
                 // high pin, but accepted once config promotes that model to high.
-                Captain captain = MakeCaptain("claude-sonnet-4-6", "[\"Worker\"]");
+                Captain captain = MakeCaptain("zyloo/claude-opus-4-7", "[\"Worker\"]");
 
                 AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "high"), "a default mid-tier captain does not satisfy a high tier pin");
 
                 ModelTierSettings custom = new ModelTierSettings();
-                custom.HighTierModels = new List<string> { "claude-sonnet-4-6" };
+                custom.HighTierModels = new List<string> { "zyloo/claude-opus-4-7" };
                 AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "high", custom), "config promoting the model to high lets the captain satisfy a high tier pin");
                 return Task.CompletedTask;
             });
@@ -1034,7 +1026,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Captain captain = MakeCaptain("claude-opus-4-7", "[\"Worker\",\"Judge\"]");
 
                 AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "claude-opus-4-7"), "exact literal model pin is satisfied");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "gpt-5.5"), "a non-matching literal model pin is rejected");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "zyloo/gpt-5.6-sol"), "a non-matching literal model pin is rejected");
                 AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, "Judge", null), "an allowed persona with no model pin is satisfied");
                 AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Architect", null), "a persona absent from the allow-list is rejected");
                 return Task.CompletedTask;

@@ -20,9 +20,9 @@ namespace Armada.Test.Unit.Suites.Services
         {
             await RunTest("IsZylooModel_RecognizesCanonicalPrefix", () =>
             {
-                AssertTrue(OpenCodeZylooProviderConfigBuilder.IsZylooModel("zyloo/gpt-5.5"), "Canonical lower-case Zyloo IDs must be recognized");
+                AssertTrue(OpenCodeZylooProviderConfigBuilder.IsZylooModel("zyloo/gpt-5.6-sol"), "Canonical lower-case Zyloo IDs must be recognized");
                 AssertTrue(OpenCodeZylooProviderConfigBuilder.IsZylooModel("  ZYLOO/claude-opus-4-7  "), "Prefix matching must ignore case and surrounding whitespace");
-                AssertFalse(OpenCodeZylooProviderConfigBuilder.IsZylooModel("openai/gpt-5.5"), "Other providers must not receive the Zyloo overlay");
+                AssertFalse(OpenCodeZylooProviderConfigBuilder.IsZylooModel("openai/gpt-5.6-sol"), "Other providers must not receive the Zyloo overlay");
                 AssertFalse(OpenCodeZylooProviderConfigBuilder.IsZylooModel(null), "Missing models must not receive the Zyloo overlay");
                 return Task.CompletedTask;
             });
@@ -54,7 +54,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Build_ProducesValidJsonWithRequestedModel", () =>
             {
-                string json = OpenCodeZylooProviderConfigBuilder.Build("  zyloo/gpt-5.5  ");
+                string json = OpenCodeZylooProviderConfigBuilder.Build("  zyloo/gpt-5.6-sol  ");
                 using JsonDocument document = JsonDocument.Parse(json);
                 JsonProperty model = document.RootElement
                     .GetProperty("provider")
@@ -63,15 +63,15 @@ namespace Armada.Test.Unit.Suites.Services
                     .EnumerateObject()
                     .First();
 
-                AssertEqual("gpt-5.5", model.Name, "The registered model must be provider-local and trimmed");
-                AssertEqual("zyloo/gpt-5.5", model.Value.GetProperty("id").GetString(),
+                AssertEqual("gpt-5.6-sol", model.Name, "The registered model must be provider-local and trimmed");
+                AssertEqual("zyloo/gpt-5.6-sol", model.Value.GetProperty("id").GetString(),
                     "The provider-local alias must preserve the canonical upstream model ID");
                 return Task.CompletedTask;
             });
 
             await RunTest("Build_WithPerCaptainKey_EmbedsKeyInline", () =>
             {
-                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/glm-5.2", "captain-key-not-a-real-credential", null);
+                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/claude-opus-5", "captain-key-not-a-real-credential", null);
 
                 AssertContains("\"apiKey\": \"captain-key-not-a-real-credential\"", json,
                     "A per-captain key must be embedded inline in place of the environment reference");
@@ -84,7 +84,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Build_WithPerCaptainBaseUrl_OverridesDefaultEndpoint", () =>
             {
-                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/glm-5.2", "captain-key-not-a-real-credential", "https://proxy.example.test/v1");
+                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/claude-opus-5", "captain-key-not-a-real-credential", "https://proxy.example.test/v1");
 
                 AssertContains("\"baseURL\": \"https://proxy.example.test/v1\"", json,
                     "A per-captain base URL must override the default OpenAI-compatible endpoint");
@@ -95,7 +95,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Build_WithoutPerCaptainKey_KeepsEnvironmentReference", () =>
             {
-                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/glm-5.2", null, null);
+                string json = OpenCodeZylooProviderConfigBuilder.Build("zyloo/claude-opus-5", null, null);
 
                 AssertContains("\"apiKey\": \"{env:ZYLOO_KEY}\"", json,
                     "Without a per-captain key the overlay must keep the environment reference");
@@ -107,7 +107,7 @@ namespace Armada.Test.Unit.Suites.Services
                 bool threw = false;
                 try
                 {
-                    OpenCodeZylooProviderConfigBuilder.Build("opencode/deepseek-v4-flash-free");
+                    OpenCodeZylooProviderConfigBuilder.Build("opencode-go/deepseek-v4-flash");
                 }
                 catch (ArgumentException)
                 {

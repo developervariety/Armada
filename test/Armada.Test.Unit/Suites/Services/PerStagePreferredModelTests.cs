@@ -73,7 +73,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Pipeline pipeline = new Pipeline("ReviewedTest_RoundTrip");
                     pipeline.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "Worker") { PreferredModel = "claude-sonnet-4-6" },
+                        new PipelineStage(1, "Worker") { PreferredModel = "zyloo/claude-opus-4-7" },
                         new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7" }
                     };
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
@@ -86,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Services
                     PipelineStage? judge = readBack.Stages.FirstOrDefault(s => s.PersonaName == "Judge");
                     AssertNotNull(worker, "Worker stage should round-trip");
                     AssertNotNull(judge, "Judge stage should round-trip");
-                    AssertEqual("claude-sonnet-4-6", worker!.PreferredModel, "Worker stage PreferredModel should round-trip");
+                    AssertEqual("zyloo/claude-opus-4-7", worker!.PreferredModel, "Worker stage PreferredModel should round-trip");
                     AssertEqual("claude-opus-4-7", judge!.PreferredModel, "Judge stage PreferredModel should round-trip");
                 }
             });
@@ -124,7 +124,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // Modify and update.
                     pipeline.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "Worker") { PreferredModel = "kimi-k2.5", PipelineId = pipeline.Id },
+                        new PipelineStage(1, "Worker") { PreferredModel = "opencode-go/deepseek-v4-flash", PipelineId = pipeline.Id },
                         new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7", PipelineId = pipeline.Id }
                     };
                     await testDb.Driver.Pipelines.UpdateAsync(pipeline).ConfigureAwait(false);
@@ -135,7 +135,7 @@ namespace Armada.Test.Unit.Suites.Services
                     PipelineStage? judge = readBack.Stages.FirstOrDefault(s => s.PersonaName == "Judge");
                     AssertNotNull(worker, "Worker stage should exist after update");
                     AssertNotNull(judge, "Judge stage should exist after update");
-                    AssertEqual("kimi-k2.5", worker!.PreferredModel, "Worker PreferredModel should update");
+                    AssertEqual("opencode-go/deepseek-v4-flash", worker!.PreferredModel, "Worker PreferredModel should update");
                     AssertEqual("claude-opus-4-7", judge!.PreferredModel, "Judge PreferredModel should update");
                 }
             });
@@ -162,7 +162,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         new MissionDescription("Feature work", "Implement feature with reviewed pipeline")
                         {
-                            PreferredModel = "claude-sonnet-4-6"
+                            PreferredModel = "zyloo/claude-opus-4-7"
                         }
                     };
 
@@ -182,10 +182,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(worker, "Worker mission should exist");
                     AssertNotNull(judge, "Judge mission should exist");
 
-                    // Worker stage has no PreferredModel override -> inherits the per-mission Sonnet pin.
-                    AssertEqual("claude-sonnet-4-6", worker!.PreferredModel,
+                    // Worker stage has no PreferredModel override -> inherits the per-mission Zyloo Opus pin.
+                    AssertEqual("zyloo/claude-opus-4-7", worker!.PreferredModel,
                         "Worker mission should inherit per-mission PreferredModel when stage override is null");
-                    // Judge stage has PreferredModel="claude-opus-4-7" -> overrides per-mission Sonnet.
+                    // Judge stage has PreferredModel="claude-opus-4-7" -> overrides per-mission Zyloo Opus.
                     AssertEqual("claude-opus-4-7", judge!.PreferredModel,
                         "Judge mission should pick up stage-level PreferredModel override");
                 }

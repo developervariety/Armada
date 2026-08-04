@@ -68,8 +68,8 @@ namespace Armada.Test.Unit.Suites.Services
                         pipeline = "Reviewed",
                         missions = new object[]
                         {
-                            new { title = "first feature", description = "d1", alias = "M1", preferredModel = "claude-sonnet-4-6" },
-                            new { title = "second feature", description = "d2", alias = "M2", dependsOnMissionAlias = "M1", preferredModel = "claude-sonnet-4-6" }
+                            new { title = "first feature", description = "d1", alias = "M1", preferredModel = "composer-2.5" },
+                            new { title = "second feature", description = "d2", alias = "M2", dependsOnMissionAlias = "M1", preferredModel = "composer-2.5" }
                         }
                     });
 
@@ -105,13 +105,13 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(m1Judge.Id, m2Worker.DependsOnMissionId,
                         "M2.Worker should depend on M1's LAST stage (Judge), not Worker");
 
-                    // PreferredModel: Worker stages inherit the per-mission Sonnet pin;
+                    // PreferredModel: Worker stages inherit the per-mission Composer pin;
                     // Judge stages take the stage-level Opus override.
-                    AssertEqual("claude-sonnet-4-6", m1Worker.PreferredModel,
+                    AssertEqual("composer-2.5", m1Worker.PreferredModel,
                         "M1.Worker should inherit per-mission PreferredModel");
                     AssertEqual("claude-opus-4-7", m1Judge.PreferredModel,
                         "M1.Judge should pick up stage-level Opus override");
-                    AssertEqual("claude-sonnet-4-6", m2Worker.PreferredModel,
+                    AssertEqual("composer-2.5", m2Worker.PreferredModel,
                         "M2.Worker should inherit per-mission PreferredModel");
                     AssertEqual("claude-opus-4-7", m2Judge.PreferredModel,
                         "M2.Judge should pick up stage-level Opus override");

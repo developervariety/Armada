@@ -117,9 +117,9 @@ namespace Armada.Test.Unit.Suites.Services
                     Captain sameModel = new Captain("capped-2");
                     sameModel.Model = "zyloo/claude-opus-4-8";
                     Captain sameProviderOtherModel = new Captain("cheap-1");
-                    sameProviderOtherModel.Model = "zyloo/glm-5.2";
+                    sameProviderOtherModel.Model = "zyloo/gpt-5.6-sol";
                     Captain otherProvider = new Captain("native-1");
-                    otherProvider.Model = "opencode-go/glm-5.2";
+                    otherProvider.Model = "claude-opus-4-7";
 
                     await db.Captains.CreateAsync(capped);
                     await db.Captains.CreateAsync(sameModel);

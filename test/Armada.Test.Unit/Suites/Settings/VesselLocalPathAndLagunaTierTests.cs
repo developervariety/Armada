@@ -68,8 +68,8 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("KnownTierMembership_Unchanged_ByLagunaAddition", () =>
             {
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6"), "sonnet-4-6 stays mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k2.7-code"), "kimi-k2.7-code stays mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/claude-opus-4-7"), "zyloo opus 4-7 stays mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-luna"), "zyloo gpt-5.6-luna stays mid");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "opus-4-7 stays high");
                 return Task.CompletedTask;
             });
@@ -78,9 +78,10 @@ namespace Armada.Test.Unit.Suites.Settings
             {
                 // grok-4.5 is BARE because it runs under the Cursor harness, which uses unqualified
                 // model ids. A provider-qualified form would not match ContainsModel's exact compare.
+                // The Zyloo Opus captains and GPT-5.6 Luna are the retained Zyloo mid-tier roster.
                 string[] challengers =
                 {
-                    "grok-4.5", "zyloo/glm-5.2", "opencode/glm-5.2", "opencode-go/glm-5.2"
+                    "grok-4.5", "zyloo/claude-opus-4-7", "zyloo/claude-opus-4-8", "zyloo/gpt-5.6-luna", "composer-2.5"
                 };
                 foreach (string m in challengers)
                 {
@@ -94,20 +95,17 @@ namespace Armada.Test.Unit.Suites.Settings
             {
                 ModelTierSettings s = new ModelTierSettings();
                 AssertTrue(s.WithinTierPreferenceOrder.TryGetValue("mid", out var order), "mid order must exist");
-                foreach (string m in order!)
+                AssertEqual(5, order!.Count, "the mid preference order lists exactly the five current mid-tier models");
+                foreach (string m in order)
                 {
                     AssertEqual("mid", PreferredModelTierSelector.ClassifyModel(m),
                         "preference entry '" + m + "' must actually classify mid");
                 }
-                AssertEqual("zyloo/glm-5.2", order[0], "configured mid-tier order starts with Zyloo GLM");
-                AssertEqual("opencode-go/glm-5.2", order[1], "the OpenCode GLM entry follows the Zyloo primary");
-                AssertEqual("zyloo/claude-sonnet-5", order[2], "Zyloo sonnet follows the GLM block");
-                AssertTrue(order.IndexOf("zyloo/glm-5.2") < order.IndexOf("opencode/glm-5.2"),
-                    "the current-generation GLM must precede the prior generation");
-                AssertTrue(order.IndexOf("zyloo/claude-sonnet-5") < order.IndexOf("claude-sonnet-4-6"),
-                    "the ranked sonnet must precede the prior generation");
-                AssertTrue(order.IndexOf("composer-2.5") < order.IndexOf("composer-2-fast"),
-                    "the ranked composer must precede the unranked one");
+                AssertEqual("zyloo/claude-opus-4-7", order[0], "configured mid-tier order starts with Zyloo Opus 4.7");
+                AssertEqual("zyloo/claude-opus-4-8", order[1], "Zyloo Opus 4.8 follows the primary");
+                AssertEqual("zyloo/gpt-5.6-luna", order[2], "Zyloo GPT 5.6 Luna follows the Opus block");
+                AssertEqual("composer-2.5", order[3], "composer-2.5 is fourth");
+                AssertEqual("grok-4.5", order[4], "grok-4.5 closes the list");
                 return Task.CompletedTask;
             });
 
@@ -118,7 +116,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 {
                     foreach (string m in new[]
                     {
-                        "gemini-3.5-pro", "gpt-5.3-codex"
+                        "gemini-4.0-pro", "composer-3"
                     })
                     {
                         AssertFalse(order.Contains(m),
@@ -133,7 +131,9 @@ namespace Armada.Test.Unit.Suites.Settings
                 ModelTierSettings s = new ModelTierSettings();
                 foreach (string m in new[]
                 {
-                    "grok-4.5", "zyloo/glm-5.2", "opencode/glm-5.2", "opencode-go/glm-5.2"
+                    "opencode-go/deepseek-v4-flash",
+                    "zyloo/claude-opus-4-7", "zyloo/claude-opus-4-8", "zyloo/gpt-5.6-luna", "composer-2.5", "grok-4.5",
+                    "zyloo/claude-fable-5", "zyloo/claude-opus-5", "zyloo/gpt-5.6-sol"
                 })
                 {
                     AssertTrue(s.ModelCapabilityProfiles.ContainsKey(m), m + " needs a capability profile");
@@ -145,11 +145,11 @@ namespace Armada.Test.Unit.Suites.Settings
             {
                 var expected = new (string Model, string Tier)[]
                 {
-                    ("claude-opus-4-8", "high"), ("claude-fable-5", "high"), ("gpt-5.6-sol", "high"),
-                    ("zyloo/claude-opus-4-8-thinking", "high"), ("zyloo/gpt-5.6-sol-pro", "high"),
-                    ("claude-sonnet-5", "mid"), ("composer-2-fast", "mid"),
-                    ("zyloo/claude-sonnet-5", "mid"), ("composer-2.5", "mid"),
-                    ("opencode/glm-5.2", "mid"), ("zyloo/glm-5.2", "mid"), ("grok-4.5", "mid")
+                    ("opencode-go/deepseek-v4-flash", "low"),
+                    ("zyloo/claude-opus-4-7", "mid"), ("zyloo/claude-opus-4-8", "mid"), ("zyloo/gpt-5.6-luna", "mid"),
+                    ("composer-2.5", "mid"), ("grok-4.5", "mid"),
+                    ("zyloo/claude-fable-5", "high"), ("zyloo/claude-opus-5", "high"), ("zyloo/gpt-5.6-sol", "high"),
+                    ("claude-opus-4-7", "high"), ("claude-opus-4-8", "high"), ("claude-opus-5", "high"), ("claude-fable-5", "high")
                 };
                 foreach (var e in expected)
                 {
@@ -161,7 +161,7 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("DeepEngineeringModels_RemainHighTier", () =>
             {
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "gpt-5.6-sol stays high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("zyloo/gpt-5.6-sol"), "zyloo/gpt-5.6-sol stays high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5"), "fable-5 must resolve high (canonical fable pattern)");
                 return Task.CompletedTask;
             });

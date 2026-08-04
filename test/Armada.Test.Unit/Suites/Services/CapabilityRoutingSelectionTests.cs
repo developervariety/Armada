@@ -33,15 +33,17 @@ namespace Armada.Test.Unit.Suites.Services
         public override string Name => "Capability Routing Selection";
 
         // Concrete mid-tier models carrying the built-in default ModelCapabilityProfiles:
-        //   sonnet     AuditReasoningFit=80 MechanicalThroughput=60
-        //   gemini     AuditReasoningFit=60 MechanicalThroughput=60
-        //   composer   AuditReasoningFit=30 MechanicalThroughput=80
-        //   kimi       AuditReasoningFit=25 MechanicalThroughput=85
-        // Default mid within-tier preference order is kimi, sonnet, composer.
-        private const string _Sonnet = "claude-sonnet-4-6";
-        private const string _Gemini = "gemini-3.5-pro";
-        private const string _Composer = "composer-2.5";
-        private const string _Kimi = "opencode-go/kimi-k2.7-code";
+        //   zyloo/claude-opus-4-7   AuditReasoningFit=92 MechanicalThroughput=58
+        //   zyloo/claude-opus-4-8   AuditReasoningFit=95 MechanicalThroughput=55
+        //   zyloo/gpt-5.6-luna      AuditReasoningFit=78 MechanicalThroughput=70
+        //   composer-2.5            AuditReasoningFit=58 MechanicalThroughput=70
+        //   grok-4.5                AuditReasoningFit=65 MechanicalThroughput=68
+        // Default mid within-tier preference order: zyloo/claude-opus-4-7 first.
+        private const string _PreferencePrimary = "zyloo/claude-opus-4-7";
+        private const string _HighAudit = "zyloo/claude-opus-4-8";
+        private const string _MidAudit = "zyloo/gpt-5.6-luna";
+        private const string _Throughput = "composer-2.5";
+        private const string _LowAudit = "grok-4.5";
         private const string _Opus = "claude-opus-4-7";
 
         private static LoggingModule CreateLogging()
@@ -112,12 +114,13 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
-                    // No-hint mid routing would pick kimi (first in the within-tier preference order).
-                    // The audit hint maps to AuditReasoningFit, where sonnet (80) tops every idle peer,
-                    // so a correct seam must override the preference-order default with sonnet.
-                    Captain kimi = await SeedCaptainAsync(db, "cpt-kimi", _Kimi, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Composer, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain sonnet = await SeedCaptainAsync(db, "cpt-sonnet", _Sonnet, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    // No-hint mid routing would pick zyloo/claude-opus-4-7 (first in the within-tier
+                    // preference order). The audit hint maps to AuditReasoningFit, where
+                    // zyloo/claude-opus-4-8 (95) tops it (92) and every idle peer, so a correct seam
+                    // must override the preference-order default with zyloo/claude-opus-4-8.
+                    Captain preferencePrimary = await SeedCaptainAsync(db, "cpt-primary", _PreferencePrimary, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain highAudit = await SeedCaptainAsync(db, "cpt-high-audit", _HighAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
 
@@ -126,8 +129,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(assigned, "a hinted mission with eligible idle captains should assign");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(sonnet.Id, updated!.CaptainId, "audit hint must select the highest-AuditReasoningFit idle captain (sonnet)");
-                    AssertNotEqual(kimi.Id, updated.CaptainId, "the preference-order default (kimi) must be overridden by the hint");
+                    AssertEqual(highAudit.Id, updated!.CaptainId, "audit hint must select the highest-AuditReasoningFit idle captain (zyloo/claude-opus-4-8)");
+                    AssertNotEqual(preferencePrimary.Id, updated.CaptainId, "the preference-order default (zyloo/claude-opus-4-7) must be overridden by the hint");
                     AssertNotEqual(composer.Id, updated.CaptainId, "a lower-audit idle captain must not win the audit hint");
                 }
             });
@@ -141,13 +144,14 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
-                    // Idle set is sonnet, composer, gemini (no kimi). The mid preference order lists
-                    // sonnet before composer, so a no-hint call would pick sonnet. The mechanical hint
-                    // maps to MechanicalThroughput, where composer (80) beats sonnet (60) and gemini
-                    // (60), proving a different dimension drives a different production assignment.
-                    Captain sonnet = await SeedCaptainAsync(db, "cpt-sonnet", _Sonnet, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Composer, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain gemini = await SeedCaptainAsync(db, "cpt-gemini", _Gemini, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    // Idle set is zyloo/claude-opus-4-8, composer, grok (no zyloo/claude-opus-4-7).
+                    // The mid preference order lists zyloo/claude-opus-4-8 before composer, so a
+                    // no-hint call would pick it. The mechanical hint maps to MechanicalThroughput,
+                    // where composer (70) beats grok (68) and zyloo/claude-opus-4-8 (55), proving a
+                    // different dimension drives a different production assignment.
+                    Captain highAudit = await SeedCaptainAsync(db, "cpt-high-audit", _HighAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain lowAudit = await SeedCaptainAsync(db, "cpt-low-audit", _LowAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "mechanical").ConfigureAwait(false);
 
@@ -157,8 +161,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(assigned, "a mechanical-hinted mission should assign");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(composer.Id, updated!.CaptainId, "mechanical hint must select the highest-MechanicalThroughput idle captain (composer)");
-                    AssertNotEqual(sonnet.Id, updated.CaptainId, "the preference-order default (sonnet) must be overridden by the mechanical hint");
-                    AssertNotEqual(gemini.Id, updated.CaptainId, "a lower-throughput idle captain must not win the mechanical hint");
+                    AssertNotEqual(highAudit.Id, updated.CaptainId, "the preference-order default (zyloo/claude-opus-4-8) must be overridden by the mechanical hint");
+                    AssertNotEqual(lowAudit.Id, updated.CaptainId, "a lower-throughput idle captain must not win the mechanical hint");
                 }
             });
 
@@ -171,12 +175,13 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
-                    // sonnet is the top audit model but is Working (absent from the idle enumeration),
-                    // so the next-best PROFILED idle model within the tier must win: gemini (60) over
-                    // composer (30). This exercises the busy-best-fit fallback through the real seam.
-                    Captain sonnetBusy = await SeedCaptainAsync(db, "cpt-sonnet", _Sonnet, CaptainStateEnum.Working).ConfigureAwait(false);
-                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Composer, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain gemini = await SeedCaptainAsync(db, "cpt-gemini", _Gemini, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    // zyloo/claude-opus-4-8 is the top audit model but is Working (absent from the
+                    // idle enumeration), so the next-best PROFILED idle model within the tier must
+                    // win: zyloo/gpt-5.6-luna (78) over composer (58). This exercises the
+                    // busy-best-fit fallback through the real seam.
+                    Captain highAuditBusy = await SeedCaptainAsync(db, "cpt-high-audit", _HighAudit, CaptainStateEnum.Working).ConfigureAwait(false);
+                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain midAudit = await SeedCaptainAsync(db, "cpt-mid-audit", _MidAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
 
@@ -185,8 +190,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(assigned, "the mission should assign to the next-best idle captain");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(gemini.Id, updated!.CaptainId, "with the top audit model busy, the next-best profiled idle captain (gemini) wins");
-                    AssertNotEqual(sonnetBusy.Id, updated.CaptainId, "a non-idle captain must never be assigned");
+                    AssertEqual(midAudit.Id, updated!.CaptainId, "with the top audit model busy, the next-best profiled idle captain (zyloo/gpt-5.6-luna) wins");
+                    AssertNotEqual(highAuditBusy.Id, updated.CaptainId, "a non-idle captain must never be assigned");
                     AssertNotEqual(composer.Id, updated.CaptainId, "a lower-audit idle captain must not jump ahead of the next-best");
                 }
             });
@@ -200,18 +205,19 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
-                    // sonnet is the top audit model and is Idle, but quarantined (future retry deadline).
-                    // The quarantine filter must remove it BEFORE the hint scores the survivors, so the
-                    // audit hint falls to gemini (60) over composer (30): hint + quarantine composed.
-                    Captain sonnetBenched = new Captain("cpt-sonnet");
-                    sonnetBenched.Model = _Sonnet;
-                    sonnetBenched.State = CaptainStateEnum.Idle;
-                    sonnetBenched.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
-                    sonnetBenched.QuarantineReason = "You've hit your usage limit";
-                    await db.Captains.CreateAsync(sonnetBenched).ConfigureAwait(false);
+                    // zyloo/claude-opus-4-8 is the top audit model and is Idle, but quarantined
+                    // (future retry deadline). The quarantine filter must remove it BEFORE the hint
+                    // scores the survivors, so the audit hint falls to zyloo/gpt-5.6-luna (78) over
+                    // composer (58): hint + quarantine composed.
+                    Captain highAuditBenched = new Captain("cpt-high-audit");
+                    highAuditBenched.Model = _HighAudit;
+                    highAuditBenched.State = CaptainStateEnum.Idle;
+                    highAuditBenched.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    highAuditBenched.QuarantineReason = "You've hit your usage limit";
+                    await db.Captains.CreateAsync(highAuditBenched).ConfigureAwait(false);
 
-                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Composer, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain gemini = await SeedCaptainAsync(db, "cpt-gemini", _Gemini, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain midAudit = await SeedCaptainAsync(db, "cpt-mid-audit", _MidAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
 
@@ -220,8 +226,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(assigned, "the mission should skip the benched best-fit and assign elsewhere");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(gemini.Id, updated!.CaptainId, "a quarantined best-fit captain is skipped; the next-best profiled idle captain (gemini) wins");
-                    AssertNotEqual(sonnetBenched.Id, updated.CaptainId, "a quarantined captain on the best-fit model must never be selected");
+                    AssertEqual(midAudit.Id, updated!.CaptainId, "a quarantined best-fit captain is skipped; the next-best profiled idle captain (zyloo/gpt-5.6-luna) wins");
+                    AssertNotEqual(highAuditBenched.Id, updated.CaptainId, "a quarantined captain on the best-fit model must never be selected");
                 }
             });
 
@@ -234,11 +240,11 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
-                    // opus (high tier) has a higher AuditReasoningFit (95) than the idle mid captain
-                    // gemini (60). If the hint leaked across tier boundaries it would reach into the
-                    // reserved high tier and pick opus. A mid mission with a mid captain idle must stay
-                    // in mid: the hint is a within-tier preference only, never a tier-jump.
-                    Captain gemini = await SeedCaptainAsync(db, "cpt-gemini", _Gemini, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    // opus (high tier) has a higher AuditReasoningFit (92) than the idle mid captain
+                    // zyloo/gpt-5.6-luna (78). If the hint leaked across tier boundaries it would reach
+                    // into the reserved high tier and pick opus. A mid mission with a mid captain idle
+                    // must stay in mid: the hint is a within-tier preference only, never a tier-jump.
+                    Captain midAudit = await SeedCaptainAsync(db, "cpt-mid-audit", _MidAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
                     Captain opus = await SeedCaptainAsync(db, "cpt-opus", _Opus, CaptainStateEnum.Idle).ConfigureAwait(false);
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
@@ -248,7 +254,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(assigned, "a mid mission with an idle mid captain should assign within mid");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(gemini.Id, updated!.CaptainId, "a hinted mid mission stays within the mid tier (gemini)");
+                    AssertEqual(midAudit.Id, updated!.CaptainId, "a hinted mid mission stays within the mid tier (zyloo/gpt-5.6-luna)");
                     AssertNotEqual(opus.Id, updated.CaptainId, "the hint must not reach into the reserved high tier even when high scores higher");
                 }
             });
@@ -263,11 +269,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
                     // An unrecognized hint must degrade to the no-hint within-tier preference result
-                    // through the real seam, never throwing mid-assignment. Of these three models
-                    // the default ranking places composer-2.5 first.
-                    Captain kimi = await SeedCaptainAsync(db, "cpt-kimi", _Kimi, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain sonnet = await SeedCaptainAsync(db, "cpt-sonnet", _Sonnet, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Composer, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    // through the real seam, never throwing mid-assignment. Of these two models
+                    // the default ranking places composer-2.5 (rank 4) ahead of grok-4.5 (rank 5).
+                    Captain lowAudit = await SeedCaptainAsync(db, "cpt-low-audit", _LowAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "totally-unknown-hint").ConfigureAwait(false);
 
@@ -277,8 +282,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(assigned, "an unknown hint must not break assignment");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(composer.Id, updated!.CaptainId, "an unknown hint degrades to the within-tier preference-order winner");
-                    AssertNotEqual(sonnet.Id, updated.CaptainId, "an unknown hint must not score by any dimension");
-                    AssertNotEqual(kimi.Id, updated.CaptainId, "an unknown hint must not score by any dimension");
+                    AssertNotEqual(lowAudit.Id, updated.CaptainId, "an unknown hint must not score by any dimension");
                 }
             });
 
@@ -292,9 +296,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
                     // A null hint is the backward-compatible path: selection follows the within-tier
-                    // preference order exactly as it did before the hint was wired in (kimi first).
-                    Captain kimi = await SeedCaptainAsync(db, "cpt-kimi", _Kimi, CaptainStateEnum.Idle).ConfigureAwait(false);
-                    Captain sonnet = await SeedCaptainAsync(db, "cpt-sonnet", _Sonnet, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    // preference order exactly as it did before the hint was wired in
+                    // (zyloo/claude-opus-4-8 before zyloo/gpt-5.6-luna).
+                    Captain highAudit = await SeedCaptainAsync(db, "cpt-high-audit", _HighAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
+                    Captain midAudit = await SeedCaptainAsync(db, "cpt-mid-audit", _MidAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, null).ConfigureAwait(false);
 
@@ -303,8 +308,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(assigned, "a null-hint mission should assign by the preference order");
                     Mission? updated = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(kimi.Id, updated!.CaptainId, "a null hint follows the within-tier preference order (kimi first)");
-                    AssertNotEqual(sonnet.Id, updated.CaptainId, "a null hint must not reorder by any capability dimension");
+                    AssertEqual(highAudit.Id, updated!.CaptainId, "a null hint follows the within-tier preference order (zyloo/claude-opus-4-8 first)");
+                    AssertNotEqual(midAudit.Id, updated.CaptainId, "a null hint must not reorder by any capability dimension");
                 }
             });
 

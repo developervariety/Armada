@@ -218,44 +218,27 @@ namespace Armada.Core.Settings
                     "low",
                     new List<string>
                     {
-                        "zyloo/deepseek-v4-pro",
-                        "zyloo/deepseek-v4-flash",
-                        "opencode/deepseek-v4-flash",
-                        "opencode-go/kimi-k2.6",
-                        "opencode/kimi-k2.6",
-                        "kimi-k2.5"
+                        "opencode-go/deepseek-v4-flash"
                     }
                 },
                 {
                     "mid",
                     new List<string>
                     {
-                        "zyloo/glm-5.2",
-                        "opencode-go/glm-5.2",
-                        "zyloo/claude-sonnet-5",
-                        "grok-4.5",
+                        "zyloo/claude-opus-4-7",
+                        "zyloo/claude-opus-4-8",
+                        "zyloo/gpt-5.6-luna",
                         "composer-2.5",
-                        "opencode/glm-5.2",
-                        "opencode-go/kimi-k2.7-code",
-                        "claude-sonnet-5",
-                        "claude-sonnet-4-6",
-                        "composer-2-fast"
+                        "grok-4.5"
                     }
                 },
                 {
                     "high",
                     new List<string>
                     {
-                        "claude-fable-5",
-                        "gpt-5.6-sol",
-                        "zyloo/gpt-5.6-sol-pro",
-                        "zyloo/claude-opus-4-8-thinking",
-                        "zyloo/gpt-5.5",
-                        "claude-opus-4-8",
-                        "claude-opus-4-7",
-                        "gpt-5.5",
-                        "claude-4.6-opus-high",
-                        "zyloo/claude-opus-4-7-thinking"
+                        "zyloo/claude-fable-5",
+                        "zyloo/claude-opus-5",
+                        "zyloo/gpt-5.6-sol"
                     }
                 }
             };
@@ -265,12 +248,7 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
-                "zyloo/deepseek-v4-pro",
-                "zyloo/deepseek-v4-flash",
-                "opencode/deepseek-v4-flash",
-                "opencode-go/kimi-k2.6",
-                "opencode/kimi-k2.6",
-                "kimi-k2.5"
+                "opencode-go/deepseek-v4-flash"
             };
         }
 
@@ -278,21 +256,11 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
-                "zyloo/glm-5.2",
-                "opencode-go/glm-5.2",
-                "zyloo/claude-sonnet-5",
-                "grok-4.5",
+                "zyloo/claude-opus-4-7",
+                "zyloo/claude-opus-4-8",
+                "zyloo/gpt-5.6-luna",
                 "composer-2.5",
-                "opencode/glm-5.2",
-                "opencode-go/kimi-k2.7-code",
-                "claude-sonnet-5",
-                "claude-sonnet-4-8",
-                "claude-sonnet-4-6",
-                "claude-4.6-sonnet-medium",
-                "composer-2-fast",
-                "gemini-3.5-pro",
-                "gemini-3.1-pro",
-                "gpt-5.3-codex"
+                "grok-4.5"
             };
         }
 
@@ -300,16 +268,9 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
-                "claude-fable-5",
-                "gpt-5.6-sol",
-                "zyloo/gpt-5.6-sol-pro",
-                "zyloo/claude-opus-4-8-thinking",
-                "zyloo/gpt-5.5",
-                "claude-opus-4-8",
-                "claude-opus-4-7",
-                "gpt-5.5",
-                "claude-4.6-opus-high",
-                "zyloo/claude-opus-4-7-thinking"
+                "zyloo/claude-fable-5",
+                "zyloo/claude-opus-5",
+                "zyloo/gpt-5.6-sol"
             };
         }
 
@@ -317,38 +278,20 @@ namespace Armada.Core.Settings
         {
             return new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
             {
-                { "zyloo/gpt-5.6-sol-pro", new ModelCapabilityProfile { TelemetryRichness = 88, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
-                { "zyloo/claude-sonnet-5", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
                 { "claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
-                { "zyloo/claude-opus-4-8-thinking", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
+                { "zyloo/claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
+                { "claude-opus-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
+                { "zyloo/claude-opus-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
-                { "claude-sonnet-5", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
-                { "claude-sonnet-4-8", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
-                { "composer-2-fast", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 80, Cost = 25 } },
-
-                { "kimi-k2.5", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
-                { "opencode/kimi-k2.6", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
-                { "opencode-go/kimi-k2.6", new ModelCapabilityProfile { TelemetryRichness = 20, AuditReasoningFit = 20, MechanicalThroughput = 80, Cost = 10 } },
-                { "opencode/deepseek-v4-flash", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 75, Cost = 15 } },
-                { "zyloo/deepseek-v4-pro", new ModelCapabilityProfile { TelemetryRichness = 35, AuditReasoningFit = 35, MechanicalThroughput = 70, Cost = 25 } },
-                { "zyloo/deepseek-v4-flash", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 75, Cost = 15 } },
-                { "opencode-go/kimi-k2.7-code", new ModelCapabilityProfile { TelemetryRichness = 25, AuditReasoningFit = 25, MechanicalThroughput = 85, Cost = 20 } },
-                { "claude-sonnet-4-6", new ModelCapabilityProfile { TelemetryRichness = 80, AuditReasoningFit = 80, MechanicalThroughput = 60, Cost = 65 } },
-                { "composer-2.5", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 80, Cost = 25 } },
-                { "gemini-3.5-pro", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 60, MechanicalThroughput = 60, Cost = 50 } },
-                { "gpt-5.3-codex", new ModelCapabilityProfile { TelemetryRichness = 50, AuditReasoningFit = 55, MechanicalThroughput = 70, Cost = 55 } },
-                { "claude-4.6-sonnet-medium", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 75, MechanicalThroughput = 55, Cost = 60 } },
-                { "gemini-3.1-pro", new ModelCapabilityProfile { TelemetryRichness = 55, AuditReasoningFit = 55, MechanicalThroughput = 60, Cost = 45 } },
-                { "grok-4.5", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 60, Cost = 55 } },
-                { "opencode/glm-5.2", new ModelCapabilityProfile { TelemetryRichness = 45, AuditReasoningFit = 45, MechanicalThroughput = 70, Cost = 30 } },
-                { "opencode-go/glm-5.2", new ModelCapabilityProfile { TelemetryRichness = 45, AuditReasoningFit = 45, MechanicalThroughput = 70, Cost = 30 } },
-                { "zyloo/glm-5.2", new ModelCapabilityProfile { TelemetryRichness = 45, AuditReasoningFit = 45, MechanicalThroughput = 70, Cost = 30 } },
-                { "claude-opus-4-7", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
-                { "gpt-5.5", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 85, MechanicalThroughput = 60, Cost = 90 } },
-                { "gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
-                { "claude-4.6-opus-high", new ModelCapabilityProfile { TelemetryRichness = 90, AuditReasoningFit = 90, MechanicalThroughput = 55, Cost = 90 } },
-                { "zyloo/claude-opus-4-7-thinking", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
-                { "zyloo/gpt-5.5", new ModelCapabilityProfile { TelemetryRichness = 85, AuditReasoningFit = 85, MechanicalThroughput = 60, Cost = 90 } }
+                { "zyloo/claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
+                { "zyloo/claude-opus-4-7", new ModelCapabilityProfile { TelemetryRichness = 92, AuditReasoningFit = 92, MechanicalThroughput = 58, Cost = 90 } },
+                { "gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 88, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
+                { "zyloo/gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 88, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
+                { "gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 78, MechanicalThroughput = 70, Cost = 55 } },
+                { "zyloo/gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 78, MechanicalThroughput = 70, Cost = 55 } },
+                { "composer-2.5", new ModelCapabilityProfile { TelemetryRichness = 55, AuditReasoningFit = 58, MechanicalThroughput = 70, Cost = 25 } },
+                { "grok-4.5", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 68, Cost = 55 } },
+                { "opencode-go/deepseek-v4-flash", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 75, Cost = 15 } }
             };
         }
 

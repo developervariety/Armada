@@ -99,7 +99,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Parse_BadIdShape_ReturnsStructuralFailure", () =>
             {
                 ArchitectOutputParser sut = CreateSut();
-                string block = "[ARMADA:MISSION]\nid: Mission1\ntitle: Bad ID\npreferredModel: claude-sonnet-4-6\ndescription: something\n[ARMADA:MISSION-END]";
+                string block = "[ARMADA:MISSION]\nid: Mission1\ntitle: Bad ID\npreferredModel: zyloo/claude-opus-4-8\ndescription: something\n[ARMADA:MISSION-END]";
                 string input = MakePlanPrefix() + block;
                 ArchitectParseResult result = sut.Parse(input);
 
@@ -121,7 +121,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 ArchitectOutputParser sut = CreateSut();
                 // Concrete model names are no longer valid in Architect output; only low/mid/high are accepted.
-                string block = "[ARMADA:MISSION]\nid: M1\ntitle: Test\npreferredModel: claude-sonnet-4-6\ndescription: something\n[ARMADA:MISSION-END]";
+                string block = "[ARMADA:MISSION]\nid: M1\ntitle: Test\npreferredModel: zyloo/claude-opus-4-8\ndescription: something\n[ARMADA:MISSION-END]";
                 string input = MakePlanPrefix() + block;
                 ArchitectParseResult result = sut.Parse(input);
 

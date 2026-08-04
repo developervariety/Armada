@@ -70,7 +70,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Harness h = BuildHarness(testDb);
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "coldstart-vessel");
-                    await CreateIdleCaptainAsync(testDb, "coldstart-opus", "claude-opus-4-8");
+                    await CreateIdleCaptainAsync(testDb, "coldstart-opus", "zyloo/claude-opus-5");
 
                     // Only a Worker mission is pending; nothing is in flight anywhere.
                     Mission worker = await CreatePendingMissionAsync(testDb, vessel, persona: null, title: "Cold-start worker");
@@ -97,8 +97,8 @@ namespace Armada.Test.Unit.Suites.Services
                     // Default reserve = 1.
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "reserve-vessel");
-                    await CreateIdleCaptainAsync(testDb, "reserve-opus-a", "claude-opus-4-8");
-                    await CreateIdleCaptainAsync(testDb, "reserve-opus-b", "claude-opus-4-8");
+                    await CreateIdleCaptainAsync(testDb, "reserve-opus-a", "zyloo/claude-opus-5");
+                    await CreateIdleCaptainAsync(testDb, "reserve-opus-b", "zyloo/claude-opus-5");
 
                     Mission judge = await CreatePendingMissionAsync(testDb, vessel, persona: "Judge", title: "Judge review");
                     Mission worker = await CreatePendingMissionAsync(testDb, vessel, persona: null, title: "Worker");
@@ -131,8 +131,8 @@ namespace Armada.Test.Unit.Suites.Services
                     h.Settings.ModelTier.ReservedHighTierSlots = 0;
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "zero-reserve-vessel");
-                    await CreateIdleCaptainAsync(testDb, "zero-opus-a", "claude-opus-4-8");
-                    await CreateIdleCaptainAsync(testDb, "zero-opus-b", "claude-opus-4-8");
+                    await CreateIdleCaptainAsync(testDb, "zero-opus-a", "zyloo/claude-opus-5");
+                    await CreateIdleCaptainAsync(testDb, "zero-opus-b", "zyloo/claude-opus-5");
 
                     Mission judge = await CreatePendingMissionAsync(testDb, vessel, persona: "Judge", title: "Judge review");
                     Mission worker = await CreatePendingMissionAsync(testDb, vessel, persona: null, title: "Worker");
@@ -160,8 +160,8 @@ namespace Armada.Test.Unit.Suites.Services
                     // Default reserve = 1.
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "mixed-fleet-vessel");
-                    await CreateIdleCaptainAsync(testDb, "mixed-opus", "claude-opus-4-8");
-                    await CreateIdleCaptainAsync(testDb, "mixed-sonnet", "claude-sonnet-4-6");
+                    await CreateIdleCaptainAsync(testDb, "mixed-opus", "zyloo/claude-opus-5");
+                    await CreateIdleCaptainAsync(testDb, "mixed-mid", "composer-2.5");
 
                     Mission worker = await CreatePendingMissionAsync(testDb, vessel, persona: null, title: "Worker");
 
