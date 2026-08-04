@@ -210,6 +210,27 @@ Landing behavior comes from the effective landing mode:
 Do not infer successful landing from a `Complete` label alone. Verify the
 target branch or remote commit that should contain the work.
 
+Merge-queue landings need extra verification, because the entry status can
+mislead:
+
+1. `armada_enqueue_merge` moves the source branch into a
+   `refs/heads/armada/merge-queue/<id>` ref. If `armada_process_merge_entry`
+   later reports the branch was not found, it may mean the landing succeeded
+   (only the original name is gone) or that it failed. Verify with
+   `git merge-base --is-ancestor <sha> <target>` in the vessel bare repo
+   before re-enqueueing, and restore the branch from the mission commit
+   hash when it is genuinely gone.
+2. Land entries for the same vessel+target one at a time. Concurrent
+   processing of the same target collides on the push and both fail with a
+   non-fast-forward rejection.
+3. After a batch of landings, confirm the pre-batch target tip is still an
+   ancestor; a landing rebuilt from an older base can silently drop sibling
+   commits that sat at the previous tip. Cherry-pick any dropped commit
+   back.
+4. After a direct push from the working checkout, sync the vessel bare repo
+   (`git fetch origin` then `git update-ref refs/heads/<target>
+   refs/remotes/origin/<target>`) so later Checks build the new code.
+
 ### 4.8 Close The Record Chain
 
 Before the objective becomes complete:

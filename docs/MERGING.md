@@ -69,6 +69,34 @@ Because each entry is landed immediately, the next entry in the same group alway
 | **Vessel not found** | All entries in the group are marked `Failed` with a message indicating the vessel could not be resolved. |
 | **Unexpected exception** | Entry marked `Failed` with error message. Best-effort worktree cleanup. Processing continues to the next entry. Group-level exceptions are caught by `ProcessGroupSafeAsync` and logged as warnings. |
 
+### Known Operator Notes
+
+These are observed behaviors that the entry status alone does not make obvious.
+
+- **`enqueue_merge` consumes the source branch into a
+  `refs/heads/armada/merge-queue/<id>` ref.** A later
+  `process_merge_entry` that reports
+  `Branch ... was not found ... as a local branch or as origin/...` may mean
+  the landing actually succeeded (only the original name resolution failed)
+  OR that it genuinely failed and the branch is gone. Verify the target
+  branch contains the commit (`git merge-base --is-ancestor <sha> <target>`
+  in the vessel bare repo) before re-enqueueing; restore the branch from the
+  mission commit hash if it is gone.
+- **Processing the same vessel+target concurrently fails.** Two parallel
+  `process_merge_entry` calls against one target collide on the push and
+  both can report a non-fast-forward rejection even though either alone
+  would succeed. Operators landing multiple branches must process them one
+  at a time and wait for a terminal state before the next.
+- **A landing can drop sibling commits from the target.** When enqueued
+  branches are based on an older base, landing can rebuild the target from
+  that base lineage and lose commits that sat at the previous target tip.
+  After a batch of landings, diff the pre-batch target tip against the
+  post-batch history and cherry-pick back any dropped commit.
+- **`retry_check_run` / `run_check` build the bare repo's target ref, not
+  the working checkout.** After a direct push to `origin`, sync the bare
+  repo (`git fetch origin` then `git update-ref refs/heads/<target>
+  refs/remotes/origin/<target>`) or Checks keep testing stale code.
+
 ---
 
 ## Best Practices
