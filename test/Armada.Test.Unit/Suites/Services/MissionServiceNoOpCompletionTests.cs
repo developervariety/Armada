@@ -125,6 +125,25 @@ namespace Armada.Test.Unit.Suites.Services
                     "Any non-zero diff count means the captain actually wrote something; let it pass.");
             }).ConfigureAwait(false);
 
+            await RunTest("DetectNoOpCompletion_StaleBranchDiffWithNoNewChanges_ReturnsTrue", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_stale_branch",
+                    Mode = MissionModeEnum.Implementation,
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(8);
+                bool detected = MissionService.DetectNoOpCompletion(
+                    mission,
+                    runtime,
+                    235,
+                    113,
+                    true,
+                    false);
+                AssertTrue(detected,
+                    "An old branch diff must not hide a short captain run that made no changes since dock start.");
+            }).ConfigureAwait(false);
+
             await RunTest("DetectNoOpCompletion_LongAgentOutput_ReturnsFalse", () =>
             {
                 Mission mission = new Mission

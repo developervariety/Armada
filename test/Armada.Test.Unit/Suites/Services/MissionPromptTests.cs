@@ -1452,6 +1452,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("[ARMADA:RESULT] COMPLETE", prompt);
                     AssertContains("Write tests", prompt);
                     AssertContains("CODEX.md", prompt);
+                    AssertContains("After reading it, perform the mission now", prompt);
+                    AssertContains("do not stop after acknowledging or summarizing the instructions", prompt);
                     AssertFalse(prompt.Contains("if it exists", StringComparison.OrdinalIgnoreCase), "Launch prompt must not tell the captain to probe a missing fallback path");
                     AssertFalse(prompt.Contains("CLAUDE.md"), "Non-Claude runtimes should not be pointed at CLAUDE.md");
                     AssertFalse(prompt.Contains("Be concise and careful."), "Launch prompt should defer captain instructions to the runtime instruction file");

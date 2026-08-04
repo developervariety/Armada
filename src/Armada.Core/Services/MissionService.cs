@@ -922,6 +922,22 @@ namespace Armada.Core.Services
         /// </summary>
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
+            return DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, diffLineCount > 0);
+        }
+
+        /// <summary>
+        /// Detect a false completion using changes made during this dock assignment.
+        /// The full branch diff can contain work from an earlier rescue or pipeline stage,
+        /// so it must not be used as proof that the current captain produced work.
+        /// </summary>
+        internal static bool DetectNoOpCompletion(
+            Mission mission,
+            TimeSpan runtime,
+            int diffLineCount,
+            int agentOutputLength,
+            bool hasAgentOutput,
+            bool hasChangesSinceDockStart)
+        {
             if (mission == null) return false;
 
             // Architect decomposition missions legitimately produce no code diff while
@@ -940,8 +956,11 @@ namespace Armada.Core.Services
             const int noOpMaxSeconds = 60;
             if (runtime.TotalSeconds >= noOpMaxSeconds) return false;
 
-            // Captured diff must be empty. A captain that wrote anything is not a no-op.
-            if (diffLineCount > 0) return false;
+            // The branch may contain changes from an earlier rescue or pipeline stage.
+            // Only changes made since this dock was provisioned prove that this captain
+            // did work. Keep diffLineCount in the signature for diagnostics and callers
+            // that do not have dock metadata, but do not treat a stale branch diff as proof.
+            if (hasChangesSinceDockStart) return false;
 
             if (mission.IsReadOnlyMode)
             {
@@ -1094,7 +1113,8 @@ namespace Armada.Core.Services
                     : mission.DiffSnapshot.Split('\n').Length;
                 int agentOutputLength = mission.AgentOutput?.Length ?? 0;
                 bool hasAgentOutput = !String.IsNullOrEmpty(mission.AgentOutput);
-                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput))
+                bool hasChangesSinceDockStart = await HasChangesSinceDockStartAsync(dock, diffLineCount, token).ConfigureAwait(false);
+                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart))
                 {
                     failedForNoOpCompletion = true;
                     mission.Status = MissionStatusEnum.Failed;
@@ -4266,6 +4286,37 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not read dock start commit metadata for " + dockId + ": " + ex.Message);
                 return null;
+            }
+        }
+
+        private async Task<bool> HasChangesSinceDockStartAsync(Dock? dock, int fallbackDiffLineCount, CancellationToken token)
+        {
+            if (dock == null || String.IsNullOrWhiteSpace(dock.WorktreePath))
+            {
+                return fallbackDiffLineCount > 0;
+            }
+
+            string? startCommit = TryReadDockStartCommit(dock.Id);
+            if (String.IsNullOrWhiteSpace(startCommit))
+            {
+                _Logging.Warn(_Header + "no dock start commit metadata for " + dock.Id +
+                    "; falling back to the captured branch diff for no-op validation");
+                return fallbackDiffLineCount > 0;
+            }
+
+            try
+            {
+                IReadOnlyList<string> changedFiles = await _Git.GetChangedFilesSinceAsync(
+                    dock.WorktreePath,
+                    startCommit,
+                    token).ConfigureAwait(false);
+                return changedFiles.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not compare mission changes with dock start commit for " +
+                    dock.Id + ": " + ex.Message + "; falling back to the captured branch diff");
+                return fallbackDiffLineCount > 0;
             }
         }
 

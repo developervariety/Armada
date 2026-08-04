@@ -210,7 +210,7 @@ namespace Armada.Core.Services
             {
                 sections.Add(
                     instructionDirective + " " +
-                    "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly.");
+                    "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly. After reading it, perform the mission now; do not stop after acknowledging or summarizing the instructions. For an Implementation mission, a standalone COMPLETE line is valid only after the requested work is complete and the required changes are saved.");
             }
 
             string prompt = String.Join(" ", sections.Select(s => s.Replace("\r", " ").Replace("\n", " ").Trim())).Trim();
