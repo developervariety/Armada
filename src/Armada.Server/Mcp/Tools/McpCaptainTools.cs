@@ -61,7 +61,7 @@ namespace Armada.Server.Mcp.Tools
                     string captainId = request.CaptainId;
                     Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
                     if (captain == null) return (object)new { Error = "Captain not found" };
-                    return (object)captain;
+                    return (object)MaskCaptain(captain);
                 });
 
             register(
@@ -128,7 +128,7 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
-                    return (object)captain;
+                    return (object)MaskCaptain(captain);
                 });
 
             register(
@@ -221,7 +221,7 @@ namespace Armada.Server.Mcp.Tools
                                     captain = await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
                                     return (object)new
                                     {
-                                        Captain = captain,
+                                        Captain = MaskCaptain(captain),
                                         CannotVerifyNow = true,
                                         ValidationWarning = "Model validation cannot be verified: provider credit or authentication failure. Edit persisted; captain may be benched at dispatch."
                                     };
@@ -234,7 +234,7 @@ namespace Armada.Server.Mcp.Tools
 
                     captain.LastUpdateUtc = DateTime.UtcNow;
                     captain = await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                    return (object)captain;
+                    return (object)MaskCaptain(captain);
                 });
 
             register(
@@ -518,6 +518,62 @@ namespace Armada.Server.Mcp.Tools
                 },
                 isError = true
             };
+        }
+
+        /// <summary>
+        /// Returns a copy of the captain with the per-captain provider credential masked, so the
+        /// raw key never crosses the MCP operator surface. The last four characters are preserved so
+        /// an operator can still tell which key a captain carries. The REST surface keeps the raw
+        /// value because the dashboard edit form must prefill it.
+        /// </summary>
+        /// <param name="captain">Captain to mask.</param>
+        /// <returns>Captain copy with a masked <see cref="Captain.ApiKey"/>.</returns>
+        private static Captain MaskCaptain(Captain captain)
+        {
+            return new Captain
+            {
+                Id = captain.Id,
+                TenantId = captain.TenantId,
+                UserId = captain.UserId,
+                Name = captain.Name,
+                Runtime = captain.Runtime,
+                Model = captain.Model,
+                ApiKey = MaskSecret(captain.ApiKey),
+                ApiBaseUrl = captain.ApiBaseUrl,
+                SystemInstructions = captain.SystemInstructions,
+                AllowedPersonas = captain.AllowedPersonas,
+                PreferredPersona = captain.PreferredPersona,
+                RuntimeOptionsJson = captain.RuntimeOptionsJson,
+                State = captain.State,
+                CurrentMissionId = captain.CurrentMissionId,
+                CurrentDockId = captain.CurrentDockId,
+                ProcessId = captain.ProcessId,
+                RecoveryAttempts = captain.RecoveryAttempts,
+                LastHeartbeatUtc = captain.LastHeartbeatUtc,
+                QuarantineUntilUtc = captain.QuarantineUntilUtc,
+                QuarantineReason = captain.QuarantineReason,
+                DefaultPlaybooks = captain.DefaultPlaybooks,
+                CurateThreshold = captain.CurateThreshold,
+                LearnedPlaybookId = captain.LearnedPlaybookId,
+                CreatedUtc = captain.CreatedUtc,
+                LastUpdateUtc = captain.LastUpdateUtc
+            };
+        }
+
+        /// <summary>
+        /// Masks a credential string, keeping only a suffix for identification.
+        /// </summary>
+        /// <param name="secret">Credential string, or null.</param>
+        /// <returns>Masked string, or null when the input is null or blank.</returns>
+        private static string? MaskSecret(string? secret)
+        {
+            if (String.IsNullOrWhiteSpace(secret))
+                return null;
+
+            if (secret.Length <= 8)
+                return "****";
+
+            return "****" + secret.Substring(secret.Length - 4);
         }
 
         private static object DefaultPlaybooksSchema()

@@ -27,6 +27,8 @@ type CaptainFormState = {
   runtime: string;
   systemInstructions: string;
   model: string;
+  allowedPersonas: string;
+  preferredPersona: string;
 } & MuxCaptainFormFields & CaptainCredentialFormFields;
 
 export default function Captains() {
@@ -40,7 +42,7 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
+  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -140,7 +142,7 @@ export default function Captains() {
 
   // CRUD
   function openCreate() {
-    setForm({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
+    setForm({ name: '', runtime: '', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
     setEditing(null);
     setShowForm(true);
   }
@@ -151,6 +153,8 @@ export default function Captains() {
       runtime: c.runtime,
       systemInstructions: c.systemInstructions ?? '',
       model: c.model ?? '',
+      allowedPersonas: c.allowedPersonas ?? '',
+      preferredPersona: c.preferredPersona ?? '',
       ...muxFormFromCaptain(c),
       ...credentialFormFromCaptain(c),
     });
@@ -164,6 +168,8 @@ export default function Captains() {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.allowedPersonas = form.allowedPersonas.trim() ? form.allowedPersonas.trim() : null;
+      payload.preferredPersona = form.preferredPersona.trim() ? form.preferredPersona.trim() : null;
       payload.apiKey = normalizeCredential(form.apiKey);
       payload.apiBaseUrl = normalizeCredential(form.apiBaseUrl);
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
@@ -395,6 +401,14 @@ export default function Captains() {
             <label title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
               {t('System Instructions')}
               <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
+            </label>
+            <label title={t('JSON array of persona names this captain may fill. Null means any persona.')}>
+              {t('Allowed Personas (JSON array)')}
+              <textarea value={form.allowedPersonas} onChange={e => setForm({ ...form, allowedPersonas: e.target.value })} rows={2} placeholder={t('["Worker", "Judge"]')} />
+            </label>
+            <label title={t('Persona preferred for dispatch routing priority.')}>
+              {t('Preferred Persona')}
+              <input value={form.preferredPersona} onChange={e => setForm({ ...form, preferredPersona: e.target.value })} placeholder={t('e.g., Worker')} />
             </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Save')}</button>

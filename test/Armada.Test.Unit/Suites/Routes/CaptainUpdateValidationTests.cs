@@ -202,6 +202,85 @@ namespace Armada.Test.Unit.Suites.Routes
                 return Task.CompletedTask;
             });
 
+            await RunTest("GetCaptain_ApiKey_IsMasked", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Captain captain = new Captain("masked-get", AgentRuntimeEnum.Cursor)
+                    {
+                        Model = "ok-model",
+                        ApiKey = "sk-zy-abcdefghijklmnop",
+                        ApiBaseUrl = "https://proxy.example.test"
+                    };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    AgentLifecycleHandler lifecycle = CreateAgentLifecycleHandler(testDb.Driver);
+                    Func<JsonElement?, Task<object>> getHandler = RegisterGetCaptainHandler(testDb.Driver, lifecycle);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { captainId = captain.Id });
+                    object result = await getHandler(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("****mnop", resultJson, "MCP get must return a masked key preserving the last four characters");
+                    AssertFalse(resultJson.Contains("sk-zy-abcdefghijklmnop", StringComparison.Ordinal),
+                        "MCP get must never return the raw per-captain key");
+                    AssertContains("https://proxy.example.test", resultJson,
+                        "MCP get must keep the non-secret base URL visible");
+                }
+            });
+
+            await RunTest("CreateCaptain_ApiKey_IsMasked", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorValidationShimScope shim = CursorValidationShimScope.Create())
+                {
+                    AgentLifecycleHandler lifecycle = CreateAgentLifecycleHandler(testDb.Driver);
+                    Func<JsonElement?, Task<object>> createHandler = RegisterCreateCaptainHandler(testDb.Driver, lifecycle);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        name = "masked-create",
+                        runtime = "Cursor",
+                        model = "ok-model",
+                        apiKey = "sk-zy-abcdefghijklmnop"
+                    });
+                    object result = await createHandler(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("****mnop", resultJson, "MCP create must return a masked key preserving the last four characters");
+                    AssertFalse(resultJson.Contains("sk-zy-abcdefghijklmnop", StringComparison.Ordinal),
+                        "MCP create must never return the raw per-captain key");
+                }
+            });
+
+            await RunTest("UpdateCaptain_ApiKey_IsMasked", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Captain captain = new Captain("masked-update", AgentRuntimeEnum.Cursor)
+                    {
+                        Model = "ok-model",
+                        ApiKey = "sk-zy-abcdefghijklmnop"
+                    };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    AgentLifecycleHandler lifecycle = CreateAgentLifecycleHandler(testDb.Driver);
+                    Func<JsonElement?, Task<object>> updateHandler = RegisterUpdateCaptainHandler(testDb.Driver, lifecycle);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        captainId = captain.Id,
+                        name = "masked-update-renamed"
+                    });
+                    object result = await updateHandler(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("****mnop", resultJson, "MCP update must return a masked key preserving the last four characters");
+                    AssertFalse(resultJson.Contains("sk-zy-abcdefghijklmnop", StringComparison.Ordinal),
+                        "MCP update must never return the raw per-captain key");
+                }
+            });
+
             await RunTest("PutHandler_UsesCaseInsensitiveModelComparison", () =>
             {
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
@@ -478,6 +557,35 @@ namespace Armada.Test.Unit.Suites.Routes
             }
 
             return updateHandler;
+        }
+
+        private static Func<JsonElement?, Task<object>> RegisterGetCaptainHandler(
+            DatabaseDriver database,
+            AgentLifecycleHandler agentLifecycle)
+        {
+            Func<JsonElement?, Task<object>>? getHandler = null;
+            IAdmiralService admiral = new StubAdmiralService(database);
+            ArmadaSettings settings = new ArmadaSettings();
+            McpCaptainTools.Register(
+                (name, _, _, handler) =>
+                {
+                    if (name == "armada_get_captain")
+                    {
+                        getHandler = handler;
+                    }
+                },
+                database,
+                admiral,
+                settings,
+                null,
+                agentLifecycle);
+
+            if (getHandler == null)
+            {
+                throw new InvalidOperationException("armada_get_captain handler was not registered");
+            }
+
+            return getHandler;
         }
 
         private static Func<JsonElement?, Task<object>> RegisterCreateCaptainHandler(
