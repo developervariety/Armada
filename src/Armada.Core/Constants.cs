@@ -23,11 +23,19 @@ namespace Armada.Core
         public static readonly string ProductVersion = "0.8.0";
 
         /// <summary>
-        /// Default data directory.
+        /// Environment variable that overrides <see cref="DefaultDataDirectory"/>. Unset in normal
+        /// operation, so the deployed Admiral resolves to the user profile as before. It exists so a
+        /// test process can redirect the whole default tree to a temp path in one place: settings
+        /// objects constructed without an explicit DataDirectory otherwise resolve their repos,
+        /// docks, logs, and database under the live Armada home and write into it for real.
         /// </summary>
-        public static readonly string DefaultDataDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".armada");
+        public const string DataDirectoryOverrideVariable = "ARMADA_DATA_DIRECTORY";
+
+        /// <summary>
+        /// Default data directory. Resolved once at type initialization, so a process that means to
+        /// override it must set <see cref="DataDirectoryOverrideVariable"/> before touching this type.
+        /// </summary>
+        public static readonly string DefaultDataDirectory = ResolveDefaultDataDirectory();
 
         /// <summary>
         /// Default database filename.
@@ -364,6 +372,20 @@ namespace Armada.Core
         /// System user email.
         /// </summary>
         public static readonly string SystemUserEmail = "system@armada";
+
+        #endregion
+
+        #region Private-Methods
+
+        private static string ResolveDefaultDataDirectory()
+        {
+            string? overridePath = Environment.GetEnvironmentVariable(DataDirectoryOverrideVariable);
+            if (!String.IsNullOrWhiteSpace(overridePath)) return overridePath;
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".armada");
+        }
 
         #endregion
     }

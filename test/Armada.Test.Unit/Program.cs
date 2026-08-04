@@ -12,6 +12,11 @@ namespace Armada.Test.Unit
     {
         public static async Task<int> Main(string[] args)
         {
+            // Must run before anything touches Armada.Core.Constants: settings built without an
+            // explicit DataDirectory otherwise resolve under the live Armada home and write there.
+            TestDataDirectory.Redirect();
+            TestDataDirectory.Verify();
+
             bool noCleanup = args.Contains("--no-cleanup");
             List<string> suiteFilters = new List<string>();
             for (int i = 0; i < args.Length; i++)
@@ -235,6 +240,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
+            runner.AddSuite(new TestDataDirectoryIsolationTests());
             runner.AddSuite(new MergeFailureClassifierGitOutputTests());
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());
             runner.AddSuite(new McpStdioServerTests());

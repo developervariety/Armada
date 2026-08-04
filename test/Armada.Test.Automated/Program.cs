@@ -13,6 +13,11 @@ namespace Armada.Test.Automated
     {
         public static async Task<int> Main(string[] args)
         {
+            // Must run before anything touches Armada.Core.Constants: settings built without an
+            // explicit DataDirectory otherwise resolve under the live Armada home and write there.
+            TestDataDirectory.Redirect();
+            TestDataDirectory.Verify();
+
             CommandLineOptions options;
 
             try
