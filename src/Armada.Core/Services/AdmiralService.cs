@@ -90,6 +90,7 @@ namespace Armada.Core.Services
         private IBuildDriftService? _BuildDrift;
         private ICaptainQuarantineService _CaptainQuarantine;
         private IResourcePressureAdmission _ResourcePressureAdmission;
+        private IGitService _Git;
         private bool _RetryDispatchNeeded = false;
         private DateTime? _LastAuditNotifyUtc = null;
         private readonly object _AuditNotifyLock = new object();
@@ -135,7 +136,8 @@ namespace Armada.Core.Services
             IEscalationService? escalation = null,
             IBuildDriftService? buildDrift = null,
             ICaptainQuarantineService? captainQuarantine = null,
-            IResourcePressureAdmission? resourcePressureAdmission = null)
+            IResourcePressureAdmission? resourcePressureAdmission = null,
+            IGitService? git = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -150,6 +152,7 @@ namespace Armada.Core.Services
             _CaptainQuarantine = captainQuarantine ?? new CaptainQuarantineService(_Database, _Settings, _Logging);
             _ResourcePressureAdmission = resourcePressureAdmission
                 ?? new ResourcePressureAdmission(_Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
+            _Git = git ?? new GitService(_Logging);
         }
 
         #endregion
@@ -2339,27 +2342,56 @@ namespace Armada.Core.Services
 
             if (mission != null)
             {
+                // FD#3 (recoverable-work guard): when the failed mission produced committed work on its
+                // branch, the branch is recoverable evidence. The branch must not be reaped and the voyage
+                // must not be cascade-cancelled; only the missions that directly depend on the failed
+                // mission are cancelled, so independent and parallel work keeps running and the operator
+                // or autonomous recovery can rescue the committed work instead of losing it to the halt.
+                bool hasRecoverableWork = await MissionHasRecoverableWorkAsync(mission, token).ConfigureAwait(false);
+
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
+                if (hasRecoverableWork)
+                {
+                    mission.FailureReason = failureReason
+                        + " [recoverable work preserved on mission branch " + mission.BranchName + "]";
+                }
                 mission.ProcessId = null;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                _Logging.Warn(_Header + "mission " + missionId + " marked failed after process exit");
+                _Logging.Warn(_Header + "mission " + missionId + " marked failed after process exit"
+                    + (hasRecoverableWork ? " (recoverable work preserved)" : ""));
 
-                // A non-zero process exit is a terminal transition that never flows through
-                // MissionService.HandleCompletionCoreAsync, so route through the single reap
-                // implementation to clean up the captain branch (honoring policy + rescue guard).
-                await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
-
-                await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (" + failureReason + ")",
-                    entityType: "mission", entityId: mission.Id,
-                    captainId: captain.Id, missionId: mission.Id,
-                    vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
-
-                if (!String.IsNullOrEmpty(mission.VoyageId))
+                if (hasRecoverableWork)
                 {
-                    await HaltVoyageAsync(mission.VoyageId, mission.Id, failureReason, token).ConfigureAwait(false);
+                    // Preserve the branch (no reap) and keep the voyage alive. Direct dependents
+                    // cannot run without the failed upstream, so they are cancelled explicitly.
+                    await CancelDirectDependentsAsync(mission, failureReason, token).ConfigureAwait(false);
+
+                    await EmitEventAsync("mission.failed_recoverable_work",
+                        "Mission failed but its committed work was preserved on branch " + mission.BranchName
+                        + ": " + mission.Title + " (" + failureReason + ")",
+                        entityType: "mission", entityId: mission.Id,
+                        captainId: captain.Id, missionId: mission.Id,
+                        vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+                }
+                else
+                {
+                    // A non-zero process exit is a terminal transition that never flows through
+                    // MissionService.HandleCompletionCoreAsync, so route through the single reap
+                    // implementation to clean up the captain branch (honoring policy + rescue guard).
+                    await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
+
+                    await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (" + failureReason + ")",
+                        entityType: "mission", entityId: mission.Id,
+                        captainId: captain.Id, missionId: mission.Id,
+                        vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+
+                    if (!String.IsNullOrEmpty(mission.VoyageId))
+                    {
+                        await HaltVoyageAsync(mission.VoyageId, mission.Id, failureReason, token).ConfigureAwait(false);
+                    }
                 }
             }
 
@@ -2395,6 +2427,78 @@ namespace Armada.Core.Services
             Signal signal = new Signal(SignalTypeEnum.Error, signalMessage);
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Whether a failed mission left committed work behind on its captain branch. A branch that
+        /// still exists in the vessel's bare repository is recoverable evidence and must be preserved
+        /// rather than reaped, and the voyage must not be cascade-cancelled around it.
+        /// </summary>
+        private async Task<bool> MissionHasRecoverableWorkAsync(Mission mission, CancellationToken token)
+        {
+            if (mission == null || String.IsNullOrWhiteSpace(mission.BranchName))
+            {
+                return false;
+            }
+
+            try
+            {
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel == null || String.IsNullOrWhiteSpace(vessel.LocalPath))
+                {
+                    return false;
+                }
+                return await _Git.BranchExistsAsync(vessel.LocalPath, mission.BranchName, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not determine whether mission " + mission.Id + " has recoverable work: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Cancel the missions that directly depend on a failed mission, without cancelling the rest
+        /// of the voyage. Used when the failed mission's work is recoverable and the voyage must stay
+        /// alive; the dependent stages cannot run without the failed upstream, so they are cancelled
+        /// explicitly instead of waiting forever.
+        /// </summary>
+        private async Task CancelDirectDependentsAsync(Mission failedMission, string failureReason, CancellationToken token)
+        {
+            if (failedMission == null || String.IsNullOrEmpty(failedMission.VoyageId))
+            {
+                return;
+            }
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(failedMission.VoyageId, token).ConfigureAwait(false);
+            foreach (Mission dependent in voyageMissions)
+            {
+                if (dependent == null) continue;
+                if (!String.Equals(dependent.DependsOnMissionId, failedMission.Id, StringComparison.Ordinal)) continue;
+
+                bool isTerminal =
+                    dependent.Status == MissionStatusEnum.Complete ||
+                    dependent.Status == MissionStatusEnum.Failed ||
+                    dependent.Status == MissionStatusEnum.Cancelled ||
+                    dependent.Status == MissionStatusEnum.LandingFailed ||
+                    dependent.Status == MissionStatusEnum.PullRequestOpen ||
+                    dependent.Status == MissionStatusEnum.WorkProduced;
+                if (isTerminal) continue;
+
+                dependent.Status = MissionStatusEnum.Cancelled;
+                dependent.FailureReason = "Blocked by failed dependency " + failedMission.Id + ": " + failureReason;
+                dependent.ProcessId = null;
+                dependent.CompletedUtc = DateTime.UtcNow;
+                dependent.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "cancelled dependent mission " + dependent.Id
+                    + " because upstream mission " + failedMission.Id + " failed with recoverable work");
+
+                await EmitEventAsync("mission.cancelled_dependency",
+                    "Mission cancelled: blocked by failed dependency " + failedMission.Id,
+                    entityType: "mission", entityId: dependent.Id,
+                    missionId: dependent.Id, voyageId: dependent.VoyageId, token: token).ConfigureAwait(false);
+            }
         }
 
         /// <summary>

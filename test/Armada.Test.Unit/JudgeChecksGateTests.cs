@@ -137,6 +137,112 @@ namespace Armada.Test.Unit
                     AssertEqual(VoyageStatusEnum.Complete, after!.Status, "no Checks -> voyage Complete (backward compatible)");
                 }
             }).ConfigureAwait(false);
+
+            // Judge-level gate (obj_mrzqhz12): the pure classifier behind a Judge PASS.
+            await RunTest("JudgeGate_Classify_PureCases", () =>
+            {
+                CheckRun passed = new CheckRun { Status = CheckRunStatusEnum.Passed };
+                CheckRun failed = new CheckRun { Status = CheckRunStatusEnum.Failed };
+                CheckRun pending = new CheckRun { Status = CheckRunStatusEnum.Pending };
+                CheckRun running = new CheckRun { Status = CheckRunStatusEnum.Running };
+                CheckRun canceled = new CheckRun { Status = CheckRunStatusEnum.Canceled };
+
+                AssertEqual(
+                    MissionService.JudgeCheckGate.GreenChecks,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passed, canceled }, "review ok"),
+                    "Green Checks classify GreenChecks; Canceled Checks are ignored.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passed, failed }, "review ok"),
+                    "A failed Check overrides the PASS.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasPending,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passed, pending }, "review ok"),
+                    "A pending Check holds the PASS.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasPending,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passed, running }, "review ok"),
+                    "A running Check holds the PASS.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.NoChecksNoExclusion,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun>(), "review ok"),
+                    "No Checks without a documented exclusion rejects the PASS.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.NoChecksWithExclusion,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun>(), "review ok\n[JUDGE-CHECK-EXCLUSION] environmental exclusion: no container runtime on this host"),
+                    "No Checks WITH the documented exclusion marker is accepted.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.NoChecksWithExclusion,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { canceled }, "[JUDGE-CHECK-EXCLUSION]"),
+                    "Only-Canceled Checks count as no Checks for the exclusion path.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // Judge-level gate against the database: voyage-scoped Checks reach the classifier.
+            await RunTest("JudgeGate_CollectsVoyageAndMissionChecks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+
+                    Vessel vessel = new Vessel("gate-vessel-2", "https://github.com/test/repo.git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("gate-voyage-2");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission judge = new Mission("[Judge] Review 2", "judge description");
+                    judge.VesselId = vessel.Id;
+                    judge.VoyageId = voyage.Id;
+                    judge.Persona = "Judge";
+                    judge.AgentOutput = "review body\n[ARMADA:VERDICT] PASS";
+                    judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+                    // Voyage-scoped Check, green -> gate passes.
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Passed).ConfigureAwait(false);
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "A green voyage-scoped Check satisfies the Judge gate.");
+
+                    // Flip the voyage Check to Failed -> gate rejects.
+                    CheckRun? run = (await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { VoyageId = voyage.Id }, CancellationToken.None).ConfigureAwait(false)).Objects.FirstOrDefault();
+                    AssertNotNull(run, "Check run should exist");
+                    run!.Status = CheckRunStatusEnum.Failed;
+                    run.ExitCode = 1;
+                    await testDb.Driver.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasFailed,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "A failed voyage-scoped Check rejects the Judge PASS.");
+
+                    // Mission-scoped Pending Check holds even when the voyage Check is green again.
+                    run.Status = CheckRunStatusEnum.Passed;
+                    run.ExitCode = 0;
+                    await testDb.Driver.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
+                    CheckRun missionCheck = new CheckRun
+                    {
+                        MissionId = judge.Id,
+                        Label = "UnitTest",
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Pending,
+                        Command = "dotnet test",
+                        WorkingDirectory = "C:/temp",
+                        Summary = "check"
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(missionCheck).ConfigureAwait(false);
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasPending,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "A pending mission-scoped Check holds the Judge PASS.");
+                }
+            }).ConfigureAwait(false);
         }
     }
 }

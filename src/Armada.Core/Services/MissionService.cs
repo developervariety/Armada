@@ -144,6 +144,19 @@ namespace Armada.Core.Services
         /// </summary>
         private const int _MaxMissingJudgeVerdictRetries = 2;
 
+        /// <summary>
+        /// Maximum in-place re-runs of a Judge mission whose PASS is held because its independent
+        /// Checks are still Pending or Running. After this budget, the PASS is rejected as
+        /// unresolved rather than waiting forever.
+        /// </summary>
+        private const int _MaxJudgeCheckWaitRetries = 3;
+
+        /// <summary>
+        /// Marker a Judge review must contain to document an environmental exclusion when no
+        /// independent Checks exist (rule 31). Without it, a PASS with no Checks is rejected.
+        /// </summary>
+        private const string _JudgeCheckExclusionMarker = "[JUDGE-CHECK-EXCLUSION]";
+
         // Character budget for the code-retrieval goal quoted in mission instructions. Long enough to
         // carry the title and opening intent, short enough that the brief is not repeated wholesale.
         private const int _MaxCodeRetrievalGoalLength = 300;
@@ -1197,9 +1210,73 @@ namespace Armada.Core.Services
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
-                if (verdict == JudgeVerdict.Pass && !TryValidateJudgePassOutput(mission.AgentOutput, out verdictFailureReason))
+                if (verdict == JudgeVerdict.Pass)
                 {
-                    verdict = JudgeVerdict.NeedsRevision;
+                    if (!TryValidateJudgePassOutput(mission.AgentOutput, out verdictFailureReason))
+                    {
+                        verdict = JudgeVerdict.NeedsRevision;
+                    }
+                    else
+                    {
+                        // Real-signal gate: a Judge PASS must be backed by green independent Checks
+                        // (Build/UnitTest from real command output the Judge did not produce), not by
+                        // the agent's self-report or self-run tests. A failed Check overrides the PASS;
+                        // unresolved Checks hold the PASS until they land (bounded in-place re-run);
+                        // a PASS with no Checks at all is rejected unless the Judge documents an
+                        // environmental exclusion with the explicit marker.
+                        JudgeCheckGate checkGate = await EvaluateJudgeCheckGateAsync(mission, token).ConfigureAwait(false);
+                        switch (checkGate)
+                        {
+                            case JudgeCheckGate.HasFailed:
+                                mission.Status = MissionStatusEnum.Failed;
+                                mission.CompletedUtc = DateTime.UtcNow;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                mission.FailureReason = "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)";
+                                mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
+                                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                verdict = JudgeVerdict.Fail;
+                                _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected by a failed independent Check (real-signal gate)");
+                                break;
+
+                            case JudgeCheckGate.HasPending:
+                                if (mission.RecoveryAttempts < _MaxJudgeCheckWaitRetries)
+                                {
+                                    await ResetMissionForReRunAsync(mission, token).ConfigureAwait(false);
+                                    retryingMissingVerdict = true;
+                                    _Logging.Info(_Header + "judge mission " + mission.Id +
+                                        " PASS held: independent Checks not green yet; re-running in place (attempt " +
+                                        mission.RecoveryAttempts + " of " + _MaxJudgeCheckWaitRetries + ")");
+                                }
+                                else
+                                {
+                                    mission.Status = MissionStatusEnum.Failed;
+                                    mission.CompletedUtc = DateTime.UtcNow;
+                                    mission.LastUpdateUtc = DateTime.UtcNow;
+                                    mission.FailureReason = "Judge PASS rejected: independent Checks never resolved after " + _MaxJudgeCheckWaitRetries + " wait attempts (real-signal gate)";
+                                    mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
+                                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                    verdict = JudgeVerdict.Fail;
+                                    _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected: Checks unresolved after the wait budget");
+                                }
+                                break;
+
+                            case JudgeCheckGate.NoChecksNoExclusion:
+                                mission.Status = MissionStatusEnum.Failed;
+                                mission.CompletedUtc = DateTime.UtcNow;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                mission.FailureReason = "Judge PASS rejected: no green independent Checks attached. Attach Build+UnitTest checks (armada_run_check with voyageId) or document an environmental exclusion with the " + _JudgeCheckExclusionMarker + " marker in the review.";
+                                mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
+                                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                verdict = JudgeVerdict.Fail;
+                                _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected: no independent Checks (real-signal gate)");
+                                break;
+
+                            case JudgeCheckGate.GreenChecks:
+                            case JudgeCheckGate.NoChecksWithExclusion:
+                            default:
+                                break;
+                        }
+                    }
                 }
 
                 // A Judge that exits without any parseable verdict is an OPERATIONAL miss, not a
@@ -1212,19 +1289,7 @@ namespace Armada.Core.Services
                 // mission; explicit FAIL / NEEDS_REVISION verdicts skip this path and stay terminal.
                 if (ShouldRetryMissingJudgeVerdict(verdict != JudgeVerdict.None, mission.RecoveryAttempts))
                 {
-                    mission.RecoveryAttempts++;
-                    mission.Status = MissionStatusEnum.Pending;
-                    mission.CaptainId = null;
-                    mission.DockId = null;
-                    mission.ProcessId = null;
-                    mission.AgentOutput = null;
-                    mission.DiffSnapshot = null;
-                    mission.FailureReason = null;
-                    mission.StartedUtc = null;
-                    mission.CompletedUtc = null;
-                    mission.TotalRuntimeMs = null;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    await ResetMissionForReRunAsync(mission, token).ConfigureAwait(false);
                     retryingMissingVerdict = true;
                     _Logging.Warn(_Header + "judge mission " + mission.Id +
                         " produced no verdict line; re-running in place (recovery attempt " +
@@ -3560,6 +3625,21 @@ namespace Armada.Core.Services
             HasPending
         }
 
+        /// <summary>Outcome of evaluating the independent Checks behind a Judge PASS.</summary>
+        internal enum JudgeCheckGate
+        {
+            /// <summary>All attached Checks are green.</summary>
+            GreenChecks,
+            /// <summary>At least one attached Check Failed -- PASS is overridden.</summary>
+            HasFailed,
+            /// <summary>At least one attached Check is Pending/Running -- PASS is held.</summary>
+            HasPending,
+            /// <summary>No Checks attached, but the Judge documented an environmental exclusion.</summary>
+            NoChecksWithExclusion,
+            /// <summary>No Checks attached and no documented exclusion -- PASS is rejected.</summary>
+            NoChecksNoExclusion
+        }
+
         /// <summary>
         /// Evaluates the Checks attached to a voyage and its missions to decide whether the real
         /// signal permits the voyage to complete. Canceled Checks are ignored. This is the
@@ -3585,6 +3665,74 @@ namespace Armada.Core.Services
             if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return VoyageCheckGate.HasFailed;
             if (active.Any(c => c.Status == CheckRunStatusEnum.Pending || c.Status == CheckRunStatusEnum.Running)) return VoyageCheckGate.HasPending;
             return VoyageCheckGate.AllGreen;
+        }
+
+        /// <summary>
+        /// Evaluates the independent Checks behind a Judge PASS: the voyage's attached Checks plus
+        /// any Checks attached to the Judge mission itself, resolved from real command output the
+        /// Judge did not produce. A PASS with no Checks at all is only acceptable when the review
+        /// documents an environmental exclusion (rule 31) with the
+        /// <see cref="_JudgeCheckExclusionMarker"/> marker.
+        /// </summary>
+        internal async Task<JudgeCheckGate> EvaluateJudgeCheckGateAsync(Mission judgeMission, CancellationToken token)
+        {
+            Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>();
+            if (!String.IsNullOrEmpty(judgeMission.VoyageId))
+            {
+                EnumerationResult<CheckRun> byVoyage = await _Database.CheckRuns
+                    .EnumerateAsync(new CheckRunQuery { VoyageId = judgeMission.VoyageId }, token).ConfigureAwait(false);
+                foreach (CheckRun c in byVoyage.Objects) checks[c.Id] = c;
+            }
+
+            EnumerationResult<CheckRun> byMission = await _Database.CheckRuns
+                .EnumerateAsync(new CheckRunQuery { MissionId = judgeMission.Id }, token).ConfigureAwait(false);
+            foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
+
+            return ClassifyJudgeCheckGate(checks.Values.ToList(), judgeMission.AgentOutput);
+        }
+
+        /// <summary>
+        /// Pure classification of the Judge check gate from the collected Checks and the Judge's
+        /// review output. Canceled Checks are ignored; a single Failed Check overrides the PASS; a
+        /// Pending or Running Check holds it; no Checks at all requires the documented-exclusion
+        /// marker in the review.
+        /// </summary>
+        internal static JudgeCheckGate ClassifyJudgeCheckGate(List<CheckRun> checks, string? agentOutput)
+        {
+            List<CheckRun> active = (checks ?? new List<CheckRun>())
+                .Where(c => c != null && c.Status != CheckRunStatusEnum.Canceled).ToList();
+            if (active.Count == 0)
+            {
+                string output = agentOutput ?? String.Empty;
+                return output.Contains(_JudgeCheckExclusionMarker, StringComparison.Ordinal)
+                    ? JudgeCheckGate.NoChecksWithExclusion
+                    : JudgeCheckGate.NoChecksNoExclusion;
+            }
+            if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return JudgeCheckGate.HasFailed;
+            if (active.Any(c => c.Status == CheckRunStatusEnum.Pending || c.Status == CheckRunStatusEnum.Running)) return JudgeCheckGate.HasPending;
+            return JudgeCheckGate.GreenChecks;
+        }
+
+        /// <summary>
+        /// Reset a mission for an in-place re-run (used for Judge re-runs: missing verdict, or a
+        /// PASS held while independent Checks resolve). Clears the agent-produced state so the
+        /// re-dispatch starts fresh on a new dock and captain.
+        /// </summary>
+        private async Task ResetMissionForReRunAsync(Mission mission, CancellationToken token)
+        {
+            mission.RecoveryAttempts++;
+            mission.Status = MissionStatusEnum.Pending;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.AgentOutput = null;
+            mission.DiffSnapshot = null;
+            mission.FailureReason = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.TotalRuntimeMs = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
         }
 
         private async Task CloneDependentChainAsync(

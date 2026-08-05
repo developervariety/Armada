@@ -70,7 +70,8 @@ namespace Armada.Test.Unit.Suites.Services
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
             IVoyageService voyageService = new VoyageService(logging, db);
-            return new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
+            return new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService,
+                git: git);
         }
 
         protected override async Task RunTestsAsync()
@@ -1199,6 +1200,79 @@ namespace Armada.Test.Unit.Suites.Services
 
                     EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
                     AssertTrue(events.Objects.Any(e => e.EventType == "mission.failed" && e.MissionId == mission.Id), "Genuine failure should emit mission.failed");
+                }
+            });
+
+            // FD#3 regression (obj_mrwvb10w): a mission that failed with a non-zero exit but whose
+            // captain branch exists in the vessel bare repo holds RECOVERABLE committed work. The
+            // branch must be preserved (no reap), the voyage must NOT be cascade-cancelled, and only
+            // the missions that directly depend on the failed mission are cancelled. Independent
+            // siblings keep running so their work is not destroyed by the failure.
+            await RunTest("HandleProcessExitAsync RecoverableWorkFailure PreservesBranchAndLeavesVoyageRunning", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Vessel vessel = new Vessel("Recoverable Vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, "recoverable.git");
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Voyage voyage = new Voyage("Recoverable Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    string branchName = "armada/claude-1/msn_recoverable";
+                    git.ExistingBranches.Add(branchName);
+
+                    Mission mission = new Mission("Recoverable Failure Mission");
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vessel.Id;
+                    mission.BranchName = branchName;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = 7300;
+                    await db.Missions.CreateAsync(mission);
+
+                    Mission dependent = new Mission("Dependent Stage");
+                    dependent.VoyageId = voyage.Id;
+                    dependent.DependsOnMissionId = mission.Id;
+                    dependent.Status = MissionStatusEnum.Pending;
+                    await db.Missions.CreateAsync(dependent);
+
+                    Mission independentSibling = new Mission("Independent Sibling");
+                    independentSibling.VoyageId = voyage.Id;
+                    independentSibling.Status = MissionStatusEnum.InProgress;
+                    await db.Missions.CreateAsync(independentSibling);
+
+                    Captain captain = new Captain("recoverable-failure-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7300;
+                    await db.Captains.CreateAsync(captain);
+
+                    await service.HandleProcessExitAsync(7300, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Mission? updatedDependent = await db.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
+                    Mission? updatedSibling = await db.Missions.ReadAsync(independentSibling.Id).ConfigureAwait(false);
+                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "The mission itself must still be marked Failed.");
+                    AssertContains("recoverable work preserved", updatedMission.FailureReason ?? String.Empty, "The failure reason must name the preserved branch.");
+                    AssertEqual(VoyageStatusEnum.InProgress, updatedVoyage!.Status, "The voyage must NOT be cascade-cancelled when the failed mission has recoverable work.");
+                    AssertEqual(MissionStatusEnum.Cancelled, updatedDependent!.Status, "A direct dependent of the failed mission must be cancelled (it cannot run without the upstream).");
+                    AssertEqual(MissionStatusEnum.InProgress, updatedSibling!.Status, "An independent sibling must keep running when the failed mission has recoverable work.");
+                    AssertFalse(
+                        git.DeleteBranchCalls.Any(call => call.EndsWith(":" + branchName, StringComparison.Ordinal)),
+                        "The recoverable captain branch must not be reaped.");
+
+                    EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
+                    AssertTrue(events.Objects.Any(e => e.EventType == "mission.failed_recoverable_work" && e.MissionId == mission.Id), "Recoverable-work failure should emit mission.failed_recoverable_work");
                 }
             });
         }
