@@ -78,6 +78,7 @@ namespace Armada.Server
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
         private DiskLifecycleService _DiskLifecycle = null!;
+        private BranchCleanupSweepService _BranchCleanupSweep = null!;
         private OpenCodeServerLauncher _OpenCodeServerLauncher = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
         private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
@@ -326,6 +327,7 @@ namespace Armada.Server
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
             _DataExpiry = new DataExpiryService(_Logging, _Settings.Database.GetConnectionString(), _Settings.DataRetentionDays);
             _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
+            _BranchCleanupSweep = new BranchCleanupSweepService(_Logging, _Database, _Settings, _Git);
 
             // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
             RemoteTriggerHttpClient rtHttp = new RemoteTriggerHttpClient(_Logging);
@@ -1396,6 +1398,21 @@ namespace Armada.Server
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "code index staleness sweep failed: " + ex.Message);
+                }
+            }
+
+            // Self-healing branch-cleanup sweep: prune armada/* branches already merged into the
+            // default branch so landings that skipped cleanup on some path do not accumulate
+            // hundreds of dead branches. Unmerged branches are never touched.
+            if (_HealthCheckCycles % _Settings.BranchCleanupSweepIntervalCycles == 0)
+            {
+                try
+                {
+                    await _BranchCleanupSweep.SweepAsync(token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "branch cleanup sweep failed: " + ex.Message);
                 }
             }
                 }

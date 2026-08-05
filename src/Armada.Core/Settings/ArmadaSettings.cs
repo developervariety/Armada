@@ -285,6 +285,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Number of health-check cycles between maintenance sweeps that prune armada/* branches
+        /// already merged into each vessel's default branch (self-healing branch accumulation).
+        /// Defaults to 200 (~100 minutes at the default heartbeat).
+        /// </summary>
+        public int BranchCleanupSweepIntervalCycles
+        {
+            get => _BranchCleanupSweepIntervalCycles;
+            set => _BranchCleanupSweepIntervalCycles = Math.Max(10, Math.Min(10080, value));
+        }
+
+        /// <summary>
         /// Whether HTTP request-history capture is enabled.
         /// </summary>
         public bool RequestHistoryEnabled { get; set; } = true;
@@ -1120,6 +1131,7 @@ namespace Armada.Core.Settings
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
+        private int _BranchCleanupSweepIntervalCycles = 200;
         private int _RequestHistoryRetentionDays = Constants.DefaultRequestHistoryRetentionDays;
         private int _RequestHistoryMaxBodyBytes = Constants.DefaultRequestHistoryMaxBodyBytes;
         private int _PlanningSessionRetentionDays = 0;
