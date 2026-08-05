@@ -4,6 +4,15 @@ A pipeline is an ordered set of persona stages. Stages with the same order run
 as parallel siblings. Use [OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md) for
 the complete operator procedure.
 
+Parallel same-order stages dispatch concurrently and the next order barriers on
+the whole group: a downstream stage (for example a Judge) starts only after
+every sibling reviewer in the previous order has reached a successful terminal
+state. Parallel stages run on one vessel, so the vessel must allow concurrent
+missions (`allowConcurrentMissions: true`); with the default false, the second
+sibling waits for the first to finish, which makes the "parallel" stages run
+sequentially. Same-order stages also require enough idle captains to serve them
+concurrently.
+
 ## Built-In Pipelines
 
 | Pipeline | Stages |

@@ -440,6 +440,14 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(String.IsNullOrEmpty(m.Persona),
                             "All pipeline-expanded stage missions must carry a Persona; got null/empty for " + m.Title);
                     }
+
+                    // The barrier key (StageOrder) must be persisted on every alias-path stage mission:
+                    // without it the downstream Judge barrier is a no-op and the next order could start
+                    // while a parallel sibling reviewer is still running.
+                    AssertTrue(consolidatorMission!.StageOrder == 1,
+                        "MemoryConsolidator must carry StageOrder 1; was " + (consolidatorMission.StageOrder?.ToString() ?? "null"));
+                    AssertTrue(judgeMissions.All(m => m.StageOrder == 2),
+                        "Both parallel Judge missions must carry StageOrder 2 so the next stage barriers on the whole group");
                 }
             });
 

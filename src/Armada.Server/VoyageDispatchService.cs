@@ -866,6 +866,12 @@ namespace Armada.Server
                         stageMission.VesselId = vesselId;
                         stageMission.Persona = stage.PersonaName;
                         stageMission.DependsOnMissionId = groupDependencyId;
+                        // Same-order stages are parallel siblings; StageOrder is the barrier key that
+                        // makes a downstream stage wait for EVERY sibling in the group, not just the
+                        // last one its dependency happens to name. Without it the alias dispatch path
+                        // would let a Judge review a diff its parallel sibling reviewers had not
+                        // finished contributing to.
+                        stageMission.StageOrder = stage.Order;
                         stageMission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
                             stage.PreferredModel ?? md.PreferredModel,
                             stage.PersonaName,

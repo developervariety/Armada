@@ -147,6 +147,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // End-to-end proof of the parallel-review design (obj_mrzqhyzl): two same-order Judges
+            // sharing one upstream dependency BOTH dispatch while the other is in flight -- the
+            // reviewer fan-out runs concurrently, and only the barrier at the next order serializes.
+            await RunTest("ParallelSiblings_BothDispatchConcurrently", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Harness h = await Harness.CreateAsync(testDb);
+
+                    // Parallel stages on one vessel require concurrent missions to be allowed.
+                    h.Vessel.AllowConcurrentMissions = true;
+                    await testDb.Driver.Vessels.UpdateAsync(h.Vessel).ConfigureAwait(false);
+
+                    Captain secondCaptain = new Captain("barrier-captain-2");
+                    secondCaptain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(secondCaptain).ConfigureAwait(false);
+
+                    Mission upstream = await h.CreateMissionAsync("Worker", "[Worker] impl", null, 1, MissionStatusEnum.Complete);
+                    Mission judgeA = await h.CreateMissionAsync("Judge", "[Judge] A", upstream.Id, 2, MissionStatusEnum.Pending);
+                    Mission judgeB = await h.CreateMissionAsync("Judge", "[Judge] B", upstream.Id, 2, MissionStatusEnum.Pending);
+
+                    bool assignedA = await h.Missions.TryAssignAsync(judgeA, h.Vessel).ConfigureAwait(false);
+                    Mission? rereadB = await testDb.Driver.Missions.ReadAsync(judgeB.Id).ConfigureAwait(false);
+                    bool assignedB = await h.Missions.TryAssignAsync(rereadB!, h.Vessel).ConfigureAwait(false);
+
+                    AssertTrue(assignedA, "the first parallel Judge must dispatch");
+                    AssertTrue(assignedB, "the second parallel Judge must dispatch while the first is in flight");
+
+                    Mission? afterA = await testDb.Driver.Missions.ReadAsync(judgeA.Id).ConfigureAwait(false);
+                    Mission? afterB = await testDb.Driver.Missions.ReadAsync(judgeB.Id).ConfigureAwait(false);
+                    AssertTrue(
+                        afterA!.AssignmentState == MissionAssignmentStateEnum.Assigned
+                            || afterA.Status == MissionStatusEnum.InProgress,
+                        "first Judge must be working; was " + afterA.Status + "/" + afterA.AssignmentState);
+                    AssertTrue(
+                        afterB!.AssignmentState == MissionAssignmentStateEnum.Assigned
+                            || afterB.Status == MissionStatusEnum.InProgress,
+                        "second Judge must be working concurrently; was " + afterB.Status + "/" + afterB.AssignmentState);
+                }
+            });
+
             await RunTest("StageOrderRoundTripsThroughTheDatabase", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
