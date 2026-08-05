@@ -1664,6 +1664,16 @@ namespace Armada.Core.Services
             content += "\n";
             content += ledger.Track("mission.progress_signals", await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false));
 
+            // Papercuts apply to every mission mode: an audit meets stale docs and dead links exactly as
+            // an implementation does. Judge and Architect are excluded -- a judge reports what it finds
+            // through its verdict, and an architect emits mission blocks only.
+            if (!PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) &&
+                !PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect))
+            {
+                content += "\n";
+                content += ledger.Track("mission.papercuts", BuildPapercutsSection());
+            }
+
             // Model context updates. A read-only mission discovers nothing durable about the repository
             // by definition, so it is never asked for learned-fact proposals.
             if (vessel.EnableModelContext && _Settings.LearnedFactsEnabled && !mission.IsReadOnlyMode)
@@ -1942,6 +1952,35 @@ namespace Armada.Core.Services
                 "\n" +
                 "This reduces the number of round trips the mission needs. It does not change what you " +
                 "read or how carefully you work.\n";
+        }
+
+        /// <summary>
+        /// Builds the papercut directive. A captain that meets broken friction -- a stale doc, a dead
+        /// link, a brief that contradicts itself, a missing sibling repository -- works around it and
+        /// says nothing, so the next captain on the same vessel pays the same cost again. This asks for
+        /// one line per problem and forbids fixing it out of scope, which keeps the report cheap and the
+        /// diff clean.
+        ///
+        /// Built in code for the same reason as the tool-batching section: a stored template row that
+        /// predates this module would silently drop it.
+        /// </summary>
+        /// <returns>The papercut section.</returns>
+        internal static string BuildPapercutsSection()
+        {
+            return
+                "## Papercuts\n" +
+                "\n" +
+                "Report friction you meet. Do not work around it silently. One line each, on its own line:\n" +
+                "\n" +
+                "`[ARMADA:PAPERCUT] {\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"one line\",\"detail\":\"optional\",\"path\":\"optional/file.cs\"}`\n" +
+                "\n" +
+                "- Categories: BriefContradiction, ToolFailure, MissingDoc, BrokenLink, RepoFriction, " +
+                "TestFlake, EnvSetup, PlatformBug, Other. Severity: Low, Medium, High.\n" +
+                "- Report it, do not fix it. A fix outside your mission scope is a merge conflict for another captain.\n" +
+                "- Never block on a papercut. Report it and continue the mission.\n" +
+                "- Your own assigned work is not a papercut. Report what made the work harder than it needed to be.\n" +
+                "- Include no credentials, tokens, or absolute host paths.\n" +
+                "- Ten per mission is the limit. Report the ones that cost you time.\n";
         }
 
         /// <summary>

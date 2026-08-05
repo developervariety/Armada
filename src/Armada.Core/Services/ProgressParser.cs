@@ -11,6 +11,7 @@ namespace Armada.Core.Services
     ///   [ARMADA:RESULT] COMPLETE
     ///   [ARMADA:VERDICT] PASS
     ///   [ARMADA:MESSAGE] Running unit tests now
+    ///   [ARMADA:PAPERCUT] {"category":"MissingDoc","severity":"Low","title":"..."}
     /// </summary>
     public static class ProgressParser
     {

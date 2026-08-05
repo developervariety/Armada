@@ -71,6 +71,8 @@ Start each operator session with:
 5. Check incidents and the merge queue before you create more work.
 6. Check `armada_unlanded_branches` when prior work can exist outside the
    normal landing path.
+7. Call `armada_list_papercuts` to see the friction that recent captains
+   reported. Section 4.9 gives the triage rules.
 
 MCP `tools/list` is paginated. Follow `nextCursor` until it is absent. The
 normal built-in catalog fits on one 500-tool page. Pagination remains active
@@ -241,6 +243,48 @@ Before the objective becomes complete:
 4. Link incidents and their final evidence.
 5. Create a new record for every deferred task.
 6. Update the objective summary with the verified outcome.
+
+### 4.9 Sweep The Papercuts
+
+Captains report friction they meet on an `[ARMADA:PAPERCUT]` line: a stale
+document, a dead link, a brief that contradicts itself, a missing sibling
+repository, a test that fails under load. Armada stores each report as a
+`papercut` event with the reporting mission, captain, vessel, and voyage.
+
+Read them on a schedule. A report that nobody reads is worse than no report:
+the captain paid to write it and the next captain still pays the same cost.
+
+1. Run `armada_list_papercuts` after a voyage closes, and again in the weekly
+   sweep with `sinceHours: 168`.
+2. Read the count and the distinct-captain count first. One captain reporting
+   a problem is an anecdote. Several captains reporting it is a defect with
+   evidence.
+3. Route the group by category:
+
+   | Category | Owner |
+   | --- | --- |
+   | `MissingDoc`, `BrokenLink`, `RepoFriction`, `TestFlake` | Backlog item on that vessel |
+   | `EnvSetup` | Dock or workflow-profile fix, then a Check to prove it |
+   | `BriefContradiction`, `PlatformBug` | Armada objective, direct-edit only |
+   | `ToolFailure` | Read the mission log before you accept it; a captain calling a tool it never received is a `BriefContradiction` |
+
+4. Quote the group in the record you create: the count, the distinct-captain
+   count, the sample title, and the sample mission IDs. Those missions are the
+   evidence.
+5. Keep the promotion manual. A high count is not authority to dispatch.
+
+Two signals need a different response than a repository fix:
+
+- **A `BriefContradiction` group is a captain-quality defect, not a vessel
+  defect.** It means the brief asks for something the captain cannot do. Fix
+  the instruction module, not the repository.
+- **A category that one runtime reports and no other runtime reports** is
+  usually about that runtime, not about the vessel. Compare the reports before
+  you change vessel code.
+
+Judge missions do not file papercuts. A judge reports what it finds through
+its verdict, and splitting review feedback across two surfaces means the
+operator reads only one of them.
 
 ## 5. Recovery And Incident Workflow
 
