@@ -71,6 +71,12 @@ namespace Armada.Core.Models
         public BuildDriftReport? BuildDrift { get; set; } = null;
 
         /// <summary>
+        /// Fleet-wide code-index staleness: vessels whose index is behind their repository HEAD.
+        /// Null when the code index is disabled or unavailable.
+        /// </summary>
+        public CodeIndexStalenessSummary? CodeIndexStaleness { get; set; } = null;
+
+        /// <summary>
         /// Remote tunnel connectivity status.
         /// </summary>
         public RemoteTunnelStatus RemoteTunnel

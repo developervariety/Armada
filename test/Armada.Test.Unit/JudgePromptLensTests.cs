@@ -1,7 +1,18 @@
 namespace Armada.Test.Unit
 {
+    using System;
+    using System.IO;
+    using System.Linq;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
 
     /// <summary>
     /// Verifies the anti-Goodhart Judge guidance: every Judge prompt carries the three distinct review
@@ -34,6 +45,81 @@ namespace Armada.Test.Unit
                 AssertTrue(!MissionPromptBuilder.GetPersonaOutputContract("TestEngineer").Contains("BOUNDED-JUDGE"),
                     "test-engineer prompt must not carry judge guidance");
                 return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // Perspective-diverse pool (obj_mrzqhz1u AC1): a Judge with an assigned primary lens
+            // leads with that lens and keeps the bounded rule; a Judge without one keeps the
+            // combined three-lens instruction.
+            await RunTest("JudgeWithPrimaryLens_LeadsWithItAndKeepsBoundedRule", () =>
+            {
+                string directive = MissionPromptBuilder.BuildJudgeLensDirective("CORRECTNESS");
+                AssertTrue(directive.Contains("PRIMARY lens for this review is CORRECTNESS"),
+                    "the directive must name the assigned primary lens");
+                AssertTrue(directive.Contains("corpus-present affected case"),
+                    "the primary-lens directive must keep the bounded-judge rule");
+
+                string combined = MissionPromptBuilder.BuildJudgeLensDirective(null);
+                AssertTrue(combined.Contains("THREE distinct lenses"),
+                    "a Judge without an assigned lens keeps the combined three-lens instruction");
+
+                string contract = MissionPromptBuilder.GetPersonaOutputContract("Judge", Armada.Core.Enums.MissionModeEnum.Implementation, "SOURCE-FIDELITY");
+                AssertTrue(contract.Contains("PRIMARY lens for this review is SOURCE-FIDELITY"),
+                    "the Judge output contract must embed the assigned primary lens");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // Perspective-diverse pool (obj_mrzqhz1u AC1 + AC3): parallel Judges on one voyage and
+            // stage get DISTINCT primary lenses, a solo Judge gets none, and the assignment is
+            // recorded as a mission.judge_lens event.
+            await RunTest("ParallelJudges_GetDistinctLenses_RecordedAsEvents", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_lens_docks_" + Guid.NewGuid().ToString("N"));
+                settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_lens_repos_" + Guid.NewGuid().ToString("N"));
+                StubGitService git = new StubGitService();
+                IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+
+                Voyage voyage = new Voyage("lens-voyage");
+                voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                Mission judgeA = new Mission("[Judge] A", "review");
+                judgeA.VoyageId = voyage.Id;
+                judgeA.Persona = "Judge";
+                judgeA.StageOrder = 2;
+                await testDb.Driver.Missions.CreateAsync(judgeA).ConfigureAwait(false);
+
+                Mission judgeB = new Mission("[Judge] B", "review");
+                judgeB.VoyageId = voyage.Id;
+                judgeB.Persona = "Judge";
+                judgeB.StageOrder = 2;
+                await testDb.Driver.Missions.CreateAsync(judgeB).ConfigureAwait(false);
+
+                Mission soloJudge = new Mission("[Judge] C", "review");
+                soloJudge.VoyageId = voyage.Id;
+                soloJudge.Persona = "Judge";
+                soloJudge.StageOrder = 4;
+                await testDb.Driver.Missions.CreateAsync(soloJudge).ConfigureAwait(false);
+
+                string? lensA = await svc.ResolveJudgeLensAsync(judgeA, CancellationToken.None).ConfigureAwait(false);
+                string? lensB = await svc.ResolveJudgeLensAsync(judgeB, CancellationToken.None).ConfigureAwait(false);
+                string? lensSolo = await svc.ResolveJudgeLensAsync(soloJudge, CancellationToken.None).ConfigureAwait(false);
+
+                AssertNotNull(lensA, "Parallel Judge A must receive a primary lens.");
+                AssertNotNull(lensB, "Parallel Judge B must receive a primary lens.");
+                AssertTrue(!String.Equals(lensA, lensB, StringComparison.Ordinal), "Parallel Judges must receive DISTINCT primary lenses.");
+                AssertTrue(MissionPromptBuilder.JudgeLensNames.Contains(lensA!), "The lens must be one of the canonical lenses.");
+                AssertTrue(MissionPromptBuilder.JudgeLensNames.Contains(lensB!), "The lens must be one of the canonical lenses.");
+                AssertNull(lensSolo, "A solo Judge keeps the combined instruction and receives no primary lens.");
+
+                EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
+                AssertTrue(events.Objects.Any(e => e.EventType == "mission.judge_lens" && e.MissionId == judgeA.Id), "Judge A's lens assignment must be recorded as an event.");
+                AssertTrue(events.Objects.Any(e => e.EventType == "mission.judge_lens" && e.MissionId == judgeB.Id), "Judge B's lens assignment must be recorded as an event.");
+                AssertTrue(!events.Objects.Any(e => e.EventType == "mission.judge_lens" && e.MissionId == soloJudge.Id), "A solo Judge must not record a lens event.");
             }).ConfigureAwait(false);
         }
     }

@@ -157,6 +157,29 @@ namespace Armada.Core.Services
         /// </summary>
         private const string _JudgeCheckExclusionMarker = "[JUDGE-CHECK-EXCLUSION]";
 
+        /// <summary>
+        /// A diff section must exceed this size before it is treated as bulk generated data that
+        /// carries no review signal (obj_ms1zc92l). Small data files stay reviewable.
+        /// </summary>
+        private const int _GeneratedDataElideThresholdChars = 12000;
+
+        /// <summary>
+        /// Path markers that identify generated output trees whose large data files carry no
+        /// review signal (snapshot/bundle regeneration).
+        /// </summary>
+        private static readonly string[] _GeneratedDataPathMarkers = new string[]
+        {
+            "/output/", "otr-export", "jpro-export", "/export/", "/bundle", "/generated", "/Output/"
+        };
+
+        /// <summary>
+        /// Extensions treated as data files for the bulk-generated-data elision policy.
+        /// </summary>
+        private static readonly string[] _GeneratedDataExtensions = new string[]
+        {
+            ".json", ".csv", ".xml", ".dat", ".txt"
+        };
+
         // Character budget for the code-retrieval goal quoted in mission instructions. Long enough to
         // carry the title and opening intent, short enough that the brief is not repeated wholesale.
         private const int _MaxCodeRetrievalGoalLength = 300;
@@ -1600,7 +1623,8 @@ namespace Armada.Core.Services
             string instructionsPath = Path.Combine(worktreePath, instructionsRelativePath);
 
             TestOwnershipEnum testOwnership = await ResolveTestOwnershipAsync(mission, vessel, token).ConfigureAwait(false);
-            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, testOwnership);
+            string? judgePrimaryLens = await ResolveJudgeLensAsync(mission, token).ConfigureAwait(false);
+            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, testOwnership, judgePrimaryLens);
             List<MissionPlaybookSnapshot> playbookSnapshots = await LoadMissionPlaybookSnapshotsAsync(mission, token).ConfigureAwait(false);
 
             string content = "";
@@ -1676,7 +1700,7 @@ namespace Armada.Core.Services
             // down the same brief. Reviewer personas are unaffected: their contract already reports
             // rather than changes.
             string personaPrompt = mission.IsReadOnlyMode
-                ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode)
+                ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens)
                 : await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
             content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
@@ -2448,6 +2472,75 @@ namespace Armada.Core.Services
         /// <summary>
         /// Resolve a persona prompt template by persona name. Falls back to default worker preamble.
         /// </summary>
+        /// <summary>
+        /// Resolve a distinct primary review lens for a Judge mission that runs alongside other
+        /// Judges on the same voyage and stage (perspective-diverse pool, anti-Goodhart). Judges are
+        /// assigned lenses round-robin over the canonical lens list; a solo Judge gets no primary
+        /// lens and keeps the combined three-lens instruction. The assignment is recorded as a
+        /// <c>mission.judge_lens</c> event for later analysis.
+        /// </summary>
+        /// <param name="mission">Mission being briefed.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The assigned primary lens, or null when the mission is not a parallel Judge.</returns>
+        internal async Task<string?> ResolveJudgeLensAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) return null;
+            if (!String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase)) return null;
+            if (String.IsNullOrEmpty(mission.VoyageId)) return null;
+
+            try
+            {
+                List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId!, token).ConfigureAwait(false);
+                List<Mission> parallelJudges = voyageMissions
+                    .Where(m => m != null
+                        && String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)
+                        && m.StageOrder == mission.StageOrder)
+                    .OrderBy(m => m.CreatedUtc)
+                    .ToList();
+
+                if (parallelJudges.Count <= 1)
+                {
+                    return null;
+                }
+
+                int index = parallelJudges.FindIndex(m => String.Equals(m.Id, mission.Id, StringComparison.Ordinal));
+                if (index < 0) index = 0;
+                string lens = MissionPromptBuilder.JudgeLensNames[index % MissionPromptBuilder.JudgeLensNames.Length];
+
+                try
+                {
+                    ArmadaEvent evt = new ArmadaEvent
+                    {
+                        EventType = "mission.judge_lens",
+                        EntityType = "mission",
+                        EntityId = mission.Id,
+                        MissionId = mission.Id,
+                        VoyageId = mission.VoyageId,
+                        Message = "Judge mission " + mission.Id + " assigned primary lens " + lens,
+                        Payload = System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            missionId = mission.Id,
+                            lens,
+                            parallelJudgeCount = parallelJudges.Count,
+                            index
+                        })
+                    };
+                    await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not record judge lens for mission " + mission.Id + ": " + ex.Message);
+                }
+
+                return lens;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve judge lens for mission " + mission.Id + ": " + ex.Message);
+                return null;
+            }
+        }
+
         /// <summary>
         /// Resolves who owns tests for this mission. The dispatch pipeline id is not persisted on the
         /// mission or the voyage, so ownership is read from the stage missions the dispatch actually
@@ -3370,6 +3463,10 @@ namespace Armada.Core.Services
         /// Over the budget, per-file sections are kept whole smallest-first (so small CODE diffs survive intact)
         /// and the largest files (typically bulk generated DATA) are elided to their header + a line-count note --
         /// so the reviewer still sees WHICH files changed and by how much, without the overflowing content.
+        /// Bulk generated data files (large JSON/CSV/XML under an output/export/bundle path) are ALWAYS elided
+        /// to a summary regardless of budget: a snapshot-regeneration voyage changes hundreds of data rows that
+        /// carry no review signal, and feeding them to a Judge overflows its context (obj_ms1zc92l). The reviewer
+        /// gets the file list, the line counts, and the manifest/code diffs instead.
         /// </summary>
         internal static string BuildReviewDiff(string diff, int maxChars)
         {
@@ -3394,16 +3491,19 @@ namespace Armada.Core.Services
             }
 
             // Greedily keep whole sections, smallest-first, until the budget is exhausted.
+            // Bulk generated data files are excluded from the keep-whole pool entirely.
             List<int> order = Enumerable.Range(0, sections.Count).OrderBy(i => sections[i].Length).ToList();
             HashSet<int> keepWhole = new HashSet<int>();
             int used = 0;
             foreach (int i in order)
             {
+                if (IsBulkGeneratedDataSection(sections[i])) continue;
                 if (used + sections[i].Length <= maxChars) { keepWhole.Add(i); used += sections[i].Length; }
             }
 
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             int elided = 0;
+            int generatedElided = 0;
             for (int i = 0; i < sections.Count; i++)
             {
                 if (keepWhole.Contains(i)) { sb.Append(sections[i]); continue; }
@@ -3411,16 +3511,82 @@ namespace Armada.Core.Services
                 int nl = section.IndexOf('\n');
                 string header = nl < 0 ? section : section.Substring(0, nl);
                 int lines = section.Count(c => c == '\n');
-                sb.Append(header).Append("\n... (").Append(lines)
-                    .Append(" lines elided to fit review context; full change is on the branch)\n");
+                if (IsBulkGeneratedDataSection(section))
+                {
+                    sb.Append(header).Append("\n... (generated data file: ").Append(lines)
+                        .Append(" lines elided; review the code and manifest, inspect the data rows on the branch)\n");
+                    generatedElided++;
+                }
+                else
+                {
+                    sb.Append(header).Append("\n... (").Append(lines)
+                        .Append(" lines elided to fit review context; full change is on the branch)\n");
+                }
                 elided++;
             }
             if (elided > 0)
             {
                 sb.Append("\n[note] ").Append(elided)
-                    .Append(" large file diff(s) were summarized above to keep the review within context; inspect them on the branch if the change is not obvious from the code diffs and file list.\n");
+                    .Append(" large file diff(s) were summarized above to keep the review within context; inspect them on the branch if the change is not obvious from the code diffs and file list.");
+                if (generatedElided > 0)
+                {
+                    sb.Append(" ").Append(generatedElided)
+                        .Append(" of them are bulk generated data files omitted by policy (snapshot/bundle regeneration); their row content is not review signal.");
+                }
+                sb.Append("\n");
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Whether a diff section is a bulk generated data file: a JSON/CSV/XML/DAT file under a
+        /// generated-output path (output, export, bundle, generated) that is large enough to carry
+        /// no review signal and to overflow a reviewing model's context when present in bulk.
+        /// </summary>
+        private static bool IsBulkGeneratedDataSection(string section)
+        {
+            if (section.Length < _GeneratedDataElideThresholdChars)
+            {
+                return false;
+            }
+
+            int nl = section.IndexOf('\n');
+            string header = nl < 0 ? section : section.Substring(0, nl);
+            int markerIdx = header.IndexOf(" b/", StringComparison.Ordinal);
+            string? path = null;
+            if (markerIdx > 0)
+            {
+                string aPart = header.Substring(0, markerIdx);
+                int aIdx = aPart.IndexOf(" a/", StringComparison.Ordinal);
+                if (aIdx >= 0) path = aPart.Substring(aIdx + 3);
+            }
+            if (String.IsNullOrEmpty(path))
+            {
+                return false;
+            }
+
+            bool dataExtension = false;
+            foreach (string ext in _GeneratedDataExtensions)
+            {
+                if (path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+                {
+                    dataExtension = true;
+                    break;
+                }
+            }
+            if (!dataExtension)
+            {
+                return false;
+            }
+
+            foreach (string marker in _GeneratedDataPathMarkers)
+            {
+                if (path.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

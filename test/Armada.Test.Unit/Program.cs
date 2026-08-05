@@ -172,6 +172,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CodeRetrievalGoalTests());
             runner.AddSuite(new ParallelStageBarrierTests());
             runner.AddSuite(new JudgeChecksGateTests());
+            runner.AddSuite(new ReviewDiffScopeTests());
+            runner.AddSuite(new Suites.Services.CodeIndexStalenessTests());
             runner.AddSuite(new JudgePromptLensTests());
             runner.AddSuite(new AutoLandSafetyNetIntegrationTests());
             runner.AddSuite(new AutoLandCalibrationTests());

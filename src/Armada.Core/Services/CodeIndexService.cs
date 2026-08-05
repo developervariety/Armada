@@ -111,6 +111,127 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<CodeIndexStalenessSummary> GetStalenessSummaryAsync(CancellationToken token = default)
+        {
+            CodeIndexStalenessSummary summary = new CodeIndexStalenessSummary();
+            if (!_Settings.CodeIndex.Enabled)
+            {
+                return summary;
+            }
+
+            List<Vessel> vessels = await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (Vessel vessel in vessels)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                CodeIndexStatus? persisted = await ReadPersistedStatusAsync(vessel).ConfigureAwait(false);
+                if (persisted == null || String.IsNullOrEmpty(persisted.IndexedCommitSha))
+                {
+                    continue;
+                }
+
+                // Never clone a missing repository from a status scan: a vessel without a usable
+                // local repository is reported as not-stale rather than diagnosed.
+                if (String.IsNullOrWhiteSpace(vessel.LocalPath) || !Directory.Exists(vessel.LocalPath))
+                {
+                    continue;
+                }
+
+                string? current = await TryResolveCurrentCommitAsync(vessel, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(current))
+                {
+                    continue;
+                }
+
+                if (!String.Equals(persisted.IndexedCommitSha, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    summary.StaleVessels.Add(new CodeIndexStaleVessel
+                    {
+                        VesselId = vessel.Id,
+                        VesselName = vessel.Name,
+                        IndexedCommitSha = persisted.IndexedCommitSha,
+                        CurrentCommitSha = current
+                    });
+                }
+            }
+
+            summary.StaleVesselCount = summary.StaleVessels.Count;
+            summary.ScannedUtc = DateTime.UtcNow;
+            return summary;
+        }
+
+        /// <inheritdoc />
+        public async Task<int> SweepStalenessAsync(CancellationToken token = default)
+        {
+            if (!_Settings.CodeIndex.Enabled)
+            {
+                return 0;
+            }
+
+            int scheduled = 0;
+            List<Vessel> vessels = await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (Vessel vessel in vessels)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                CodeIndexStatus? persisted = await ReadPersistedStatusAsync(vessel).ConfigureAwait(false);
+                if (persisted == null || String.IsNullOrEmpty(persisted.IndexedCommitSha))
+                {
+                    continue;
+                }
+
+                if (String.IsNullOrWhiteSpace(vessel.LocalPath) || !Directory.Exists(vessel.LocalPath))
+                {
+                    continue;
+                }
+
+                // Fetch first so a direct origin push is observed: the Armada bare repo does not
+                // track the remote by itself, and a staleness check against the last-fetched state
+                // would miss exactly the non-landing HEAD changes this sweep exists to catch.
+                try
+                {
+                    await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Debug(_Header + "staleness sweep fetch failed for " + vessel.Id + ": " + ex.Message);
+                }
+
+                string? current = await TryResolveCurrentCommitAsync(vessel, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(current))
+                {
+                    continue;
+                }
+
+                if (String.Equals(persisted.IndexedCommitSha, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                CodeIndexRefreshScheduler.Schedule(
+                    this,
+                    _Settings.CodeIndex,
+                    _Logging,
+                    _Header,
+                    vessel.Id,
+                    "HEAD change detected outside landing");
+                scheduled++;
+            }
+
+            if (scheduled > 0)
+            {
+                _Logging.Info(_Header + "staleness sweep scheduled reindex for " + scheduled + " vessel" + (scheduled == 1 ? "" : "s"));
+            }
+            return scheduled;
+        }
+
+        /// <inheritdoc />
         public async Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
         {
             EnsureEnabled();

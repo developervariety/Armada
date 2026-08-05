@@ -272,6 +272,7 @@ namespace Armada.Server
             _RemoteDashboardRelay = new RemoteDashboardRelayService(_Logging, _Settings, _RemoteTunnel.PublishEventAsync);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
             admiralService.OnGetSchedulerStatus = () => McpObjectiveSchedulerTools.BuildStatus(_ObjectiveScheduler);
+            admiralService.OnGetCodeIndexStaleness = () => _CodeIndex.GetStalenessSummaryAsync();
             // Seed built-in prompt templates, personas, and pipelines
             await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "prompt template seeding completed");
@@ -1379,6 +1380,23 @@ namespace Armada.Server
             if (_HealthCheckCycles % _Settings.DiskLifecycle.ReconcileIntervalCycles == 0)
             {
                 await _DiskLifecycle.ReconcileAsync(token).ConfigureAwait(false);
+            }
+
+            // Detect HEAD changes that did not go through an Armada landing (direct pushes,
+            // manual merges, reconciliations) and schedule a reindex so the dispatch guard
+            // does not silently block on a stale index.
+            if (_CodeIndex != null
+                && _Settings.CodeIndex.Enabled
+                && _HealthCheckCycles % _Settings.CodeIndex.StalenessSweepIntervalCycles == 0)
+            {
+                try
+                {
+                    await _CodeIndex.SweepStalenessAsync(token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "code index staleness sweep failed: " + ex.Message);
+                }
             }
                 }
                 catch (OperationCanceledException)

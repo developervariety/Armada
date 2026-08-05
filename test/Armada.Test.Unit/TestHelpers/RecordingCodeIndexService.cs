@@ -62,6 +62,18 @@ namespace Armada.Test.Unit.TestHelpers
         }
 
         /// <inheritdoc />
+        public Task<CodeIndexStalenessSummary> GetStalenessSummaryAsync(CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeIndexStalenessSummary());
+        }
+
+        /// <inheritdoc />
+        public Task<int> SweepStalenessAsync(CancellationToken token = default)
+        {
+            return Task.FromResult(0);
+        }
+
+        /// <inheritdoc />
         public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
         {
             lock (_Gate)

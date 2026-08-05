@@ -299,6 +299,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Number of health-check cycles between staleness sweeps that detect HEAD changes outside
+        /// Armada landings (direct pushes, manual merges, reconciliations) and schedule a reindex.
+        /// Defaults to 50 (~25 minutes at the default heartbeat).
+        /// </summary>
+        public int StalenessSweepIntervalCycles
+        {
+            get => _StalenessSweepIntervalCycles;
+            set => _StalenessSweepIntervalCycles = Math.Max(5, Math.Min(1440, value));
+        }
+
+        /// <summary>
         /// Whether file signatures are enabled.
         /// </summary>
         public bool UseFileSignatures { get; set; } = false;
@@ -581,6 +592,7 @@ namespace Armada.Core.Settings
         private int _EmbeddingBatchSize = 32;
         private int _EmbeddingProgressLogInterval = 200;
         private int _PostLandRefreshDebounceSeconds = 30;
+        private int _StalenessSweepIntervalCycles = 50;
         private string _SignatureModel = string.Empty;
         private double _FileSignatureBoostWeight = 0.2;
         private double _GraphSeedBoost = 18.0;

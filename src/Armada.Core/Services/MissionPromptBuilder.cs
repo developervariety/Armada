@@ -85,7 +85,8 @@ namespace Armada.Core.Services
             Vessel vessel,
             Captain? captain = null,
             Dock? dock = null,
-            TestOwnershipEnum ownership = TestOwnershipEnum.Unknown)
+            TestOwnershipEnum ownership = TestOwnershipEnum.Unknown,
+            string? judgePrimaryLens = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
@@ -108,7 +109,7 @@ namespace Armada.Core.Services
                 ["SelectedPlaybooksMarkdown"] = "",
                 ["CaptainId"] = captain?.Id ?? "",
                 ["CaptainName"] = captain?.Name ?? "",
-                ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona, mission.Mode),
+                ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona, mission.Mode, judgePrimaryLens),
                 // Always written, empty string included: RenderAsync substitutes only keys present in
                 // the dictionary and would otherwise leave a literal {TestOwnership} in the brief.
                 //
@@ -283,10 +284,10 @@ namespace Armada.Core.Services
             return GetPersonaPromptFallback(persona);
         }
 
-        private static string BuildCaptainInstructions(string? existingInstructions, string? persona, MissionModeEnum mode)
+        private static string BuildCaptainInstructions(string? existingInstructions, string? persona, MissionModeEnum mode, string? judgePrimaryLens = null)
         {
             string existing = existingInstructions?.Trim() ?? String.Empty;
-            string outputContract = GetPersonaOutputContract(persona, mode);
+            string outputContract = GetPersonaOutputContract(persona, mode, judgePrimaryLens);
 
             if (String.IsNullOrEmpty(outputContract))
                 return existing;
@@ -296,6 +297,18 @@ namespace Armada.Core.Services
 
             return existing + "\n\n## Required Output Contract\n" + outputContract;
         }
+
+        /// <summary>
+        /// The three distinct review lenses a Judge pool can be split across. When a voyage runs
+        /// multiple Judges in parallel, each Judge is assigned ONE primary lens (round-robin over
+        /// this list) so the pool covers different failure modes instead of sharing a blind spot.
+        /// </summary>
+        internal static readonly string[] JudgeLensNames = new string[]
+        {
+            "CORRECTNESS",
+            "SAFETY & BLAST-RADIUS",
+            "SOURCE-FIDELITY"
+        };
 
         /// <summary>
         /// Anti-Goodhart guidance appended to every Judge prompt: review through three DISTINCT lenses
@@ -313,13 +326,35 @@ namespace Armada.Core.Services
             " actually manifests. A hypothetical pattern that cannot occur in the actual code/corpus is a" +
             " tracked follow-up note in your review, NOT a blocker.";
 
+        /// <summary>
+        /// Build the Judge guidance for a mission. When the voyage runs parallel Judges, each Judge
+        /// receives a DISTINCT primary lens so the pool does not share one blind spot; the bounded-judge
+        /// rule is always included. A null lens keeps the combined three-lens instruction.
+        /// </summary>
+        /// <param name="primaryLens">The Judge's assigned primary lens, or null for the combined form.</param>
+        /// <returns>Judge guidance text.</returns>
+        internal static string BuildJudgeLensDirective(string? primaryLens)
+        {
+            if (String.IsNullOrWhiteSpace(primaryLens))
+            {
+                return JudgeLensAndBoundedRule;
+            }
+
+            return " Your PRIMARY lens for this review is " + primaryLens.Trim() +
+                " -- lead with it and weigh your verdict toward it. Run the other two lenses as secondary" +
+                " passes so nothing falls between the pool. BOUNDED-JUDGE RULE: to BLOCK (FAIL or" +
+                " NEEDS_REVISION) you must exhibit a REAL, corpus-present affected case -- concrete inputs" +
+                " or state where the defect actually manifests. A hypothetical pattern that cannot occur" +
+                " in the actual code/corpus is a tracked follow-up note in your review, NOT a blocker.";
+        }
+
         internal static string GetPersonaOutputContract(string? persona)
         {
-            return GetPersonaOutputContract(persona, MissionModeEnum.Implementation);
+            return GetPersonaOutputContract(persona, MissionModeEnum.Implementation, null);
         }
 
         /// <summary>
-        /// Resolves the persona output contract for a mission mode. In Audit and Research modes the
+        /// Resolve the persona output contract for a mission mode. In Audit and Research modes the
         /// deliverable is a report, so a producing persona must not be told to make changes: the
         /// Worker contract would otherwise instruct a read-only captain to "make the requested
         /// changes", directly contradicting its own brief.
@@ -328,6 +363,19 @@ namespace Armada.Core.Services
         /// <param name="mode">Mission mode.</param>
         /// <returns>The output contract text.</returns>
         internal static string GetPersonaOutputContract(string? persona, MissionModeEnum mode)
+        {
+            return GetPersonaOutputContract(persona, mode, null);
+        }
+
+        /// <summary>
+        /// Resolve the persona output contract for a mission mode, with an optional distinct primary
+        /// review lens for a Judge mission that runs alongside other Judges (perspective-diverse pool).
+        /// </summary>
+        /// <param name="persona">Mission persona.</param>
+        /// <param name="mode">Mission mode.</param>
+        /// <param name="judgePrimaryLens">Assigned primary Judge lens, or null for the combined form.</param>
+        /// <returns>The output contract text.</returns>
+        internal static string GetPersonaOutputContract(string? persona, MissionModeEnum mode, string? judgePrimaryLens)
         {
             if (mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research)
             {
@@ -359,7 +407,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.TestEngineer =>
                     "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Judge =>
-                    "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict`. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + JudgeLensAndBoundedRule,
+                    "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict`. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
                 _ => String.Empty
             };
         }

@@ -71,6 +71,12 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<ObjectiveSchedulerStatus>? OnGetSchedulerStatus { get; set; }
 
+        /// <summary>
+        /// Optional callback supplying the fleet-wide code-index staleness summary for the status
+        /// surface. Wired by the server to the code-index service; null when the index is disabled.
+        /// </summary>
+        public Func<Task<CodeIndexStalenessSummary?>>? OnGetCodeIndexStaleness { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -898,6 +904,18 @@ namespace Armada.Core.Services
             if (OnGetSchedulerStatus != null)
             {
                 status.Scheduler = OnGetSchedulerStatus();
+            }
+
+            if (OnGetCodeIndexStaleness != null)
+            {
+                try
+                {
+                    status.CodeIndexStaleness = await OnGetCodeIndexStaleness().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "code index staleness summary failed, status continues without it: " + ex.Message);
+                }
             }
 
             if (_BuildDrift != null)

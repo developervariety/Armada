@@ -945,6 +945,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "The work is complete and correctly scoped.\n" +
                         "tokens used\n" +
                         "48,676";
+                    await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
                     await missionService.HandleCompletionAsync(judgeCaptain!, apiJudge.Id).ConfigureAwait(false);
 
                     apiJudge = await testDb.Driver.Missions.ReadAsync(apiJudge.Id).ConfigureAwait(false);
@@ -1105,6 +1106,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "## Verdict\n" +
                         "[ARMADA:VERDICT] PASS\n" +
                         "Upstream chain is approved.\n";
+                    await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
                     await missionService.HandleCompletionAsync(activeJudgeCaptain!, coreJudge.Id).ConfigureAwait(false);
 
                     coreJudge = await testDb.Driver.Missions.ReadAsync(coreJudge.Id).ConfigureAwait(false);
@@ -1850,6 +1852,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "## Verdict\n" +
                         "[ARMADA:VERDICT] PASS\n" +
                         "Everything is complete and correctly scoped.";
+                    await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
 
                     await missionService.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
 
@@ -1927,6 +1930,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "I explicitly reviewed edge and failure paths relevant to this change and found no remaining blockers.\n\n" +
                         "### Verdict: **PASS**\n" +
                         "The mission is complete and correct.";
+                    await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
 
                     await missionService.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
 
@@ -2003,6 +2007,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "## Failure Modes\n" +
                         "I explicitly reviewed edge and failure paths relevant to this change and found no remaining blockers.\n\n" +
                         "Judge review complete. Verdict: **PASS**. All 8 release surfaces are checked, negative paths are covered, and the REST_API.md drift fix stays within scope.";
+                    await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
 
                     await missionService.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
 
@@ -2741,5 +2746,23 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         #endregion
+
+        private static async Task AddGreenVoyageCheckAsync(TestDatabase testDb, string voyageId)
+        {
+            CheckRun run = new CheckRun
+            {
+                VoyageId = voyageId,
+                Label = "Build",
+                Type = CheckRunTypeEnum.Build,
+                Source = CheckRunSourceEnum.Armada,
+                Status = CheckRunStatusEnum.Passed,
+                Command = "dotnet build",
+                WorkingDirectory = "C:/temp",
+                ExitCode = 0,
+                Output = "Build succeeded.",
+                Summary = "check"
+            };
+            await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
+        }
     }
 }
