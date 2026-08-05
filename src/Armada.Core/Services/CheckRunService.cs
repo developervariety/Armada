@@ -31,6 +31,9 @@ namespace Armada.Core.Services
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _PendingRunLocks =
             new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _CheckoutRepoLocks =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Instantiate.
         /// </summary>
@@ -115,7 +118,7 @@ namespace Armada.Core.Services
             run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
 
-            string? isolatedCheckoutPath = null;
+            IsolatedCheckout? isolatedCheckout = null;
 
             Stopwatch sw = Stopwatch.StartNew();
             CommandExecutionResult execution;
@@ -130,17 +133,17 @@ namespace Armada.Core.Services
                     string? repoSource = ResolveRepoSource(vessel);
                     if (repoSource != null)
                     {
-                        isolatedCheckoutPath = await TryCloneToTempAsync(repoSource, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
-                        if (isolatedCheckoutPath != null)
+                        isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                        if (isolatedCheckout != null)
                         {
-                            executionDirectory = isolatedCheckoutPath;
+                            executionDirectory = isolatedCheckout.Path;
                             executionCommand = StripNoRestore(run.Command);
                         }
                         else
                         {
                             return await CompleteExistingRunAsFailureAsync(
                                 run,
-                                "Isolated checkout could not be created: clone failed for the configured repo source. The check will not execute in the live working directory.",
+                                "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
                                 token).ConfigureAwait(false);
                         }
                     }
@@ -150,7 +153,7 @@ namespace Armada.Core.Services
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                SafeDeleteDirectory(isolatedCheckoutPath);
+                await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
                 run.Status = CheckRunStatusEnum.Pending;
                 run.LastUpdateUtc = DateTime.UtcNow;
                 run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
@@ -175,13 +178,13 @@ namespace Armada.Core.Services
             run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
-            string artifactDirectory = isolatedCheckoutPath ?? run.WorkingDirectory!;
+            string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
             run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
             run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
             run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
             run.Summary = BuildSummary(run, profile);
 
-            SafeDeleteDirectory(isolatedCheckoutPath);
+            await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
 
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
@@ -537,7 +540,7 @@ namespace Armada.Core.Services
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
 
-            string? isolatedCheckoutPath = null;
+            IsolatedCheckout? isolatedCheckout = null;
             string executionDirectory = run.WorkingDirectory!;
             string executionCommand = run.Command;
 
@@ -546,17 +549,17 @@ namespace Armada.Core.Services
                 string? repoSource = ResolveRepoSource(vessel);
                 if (repoSource != null)
                 {
-                    isolatedCheckoutPath = await TryCloneToTempAsync(repoSource, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
-                    if (isolatedCheckoutPath != null)
+                    isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                    if (isolatedCheckout != null)
                     {
-                        executionDirectory = isolatedCheckoutPath;
+                        executionDirectory = isolatedCheckout.Path;
                         executionCommand = StripNoRestore(run.Command);
                     }
                     else
                     {
                         return await CompleteExistingRunAsFailureAsync(
                             run,
-                            "Isolated checkout could not be created: clone failed for the configured repo source. The check will not execute in the live working directory.",
+                            "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
                             token).ConfigureAwait(false);
                     }
                 }
@@ -587,13 +590,13 @@ namespace Armada.Core.Services
             run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
-            string artifactDirectory = isolatedCheckoutPath ?? run.WorkingDirectory!;
+            string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
             run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
             run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
             run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
             run.Summary = BuildSummary(run, profile);
 
-            SafeDeleteDirectory(isolatedCheckoutPath);
+            await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
 
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
@@ -968,6 +971,211 @@ namespace Armada.Core.Services
             catch { }
         }
 
+        /// <summary>
+        /// Create the isolated checkout a Build or UnitTest check runs in. A detached worktree cut
+        /// from the vessel's local repository is preferred, because that is exactly how a mission dock
+        /// checks out: it inherits the repository's own config (core.autocrlf, core.eol, filters) and
+        /// .gitattributes, so the checked-out bytes are faithful to what a dock produces. A fresh
+        /// clone is used only as a fallback when the local repository is not usable.
+        /// </summary>
+        private async Task<IsolatedCheckout?> TryCreateIsolatedCheckoutAsync(
+            Vessel vessel,
+            string? commitHash,
+            string? branchName,
+            string defaultBranch,
+            CancellationToken token)
+        {
+            string? localPath = (!String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
+                ? vessel.LocalPath
+                : null;
+
+            if (localPath != null)
+            {
+                IsolatedCheckout? worktree = await TryCreateDetachedWorktreeAsync(localPath, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+                if (worktree != null)
+                {
+                    return worktree;
+                }
+                _Logging.Warn(_Header + "isolated checkout: detached worktree creation failed for " + localPath + ", falling back to clone");
+            }
+
+            string? repoSource = ResolveRepoSource(vessel);
+            if (repoSource == null)
+            {
+                return null;
+            }
+
+            string? clonePath = await TryCloneToTempAsync(repoSource, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+            if (clonePath == null)
+            {
+                return null;
+            }
+            return new IsolatedCheckout(clonePath, null);
+        }
+
+        /// <summary>
+        /// Cut a detached worktree from <paramref name="repoPath"/> at the best resolvable ref
+        /// (commit hash, then branch, then default branch). The worktree shares the repository's own
+        /// config, so its checkout EOL and filters match a mission dock created from the same repo.
+        /// </summary>
+        private async Task<IsolatedCheckout?> TryCreateDetachedWorktreeAsync(
+            string repoPath,
+            string? commitHash,
+            string? branchName,
+            string defaultBranch,
+            CancellationToken token)
+        {
+            string tempPath = Path.Combine(Path.GetTempPath(), "armada-chk-" + Guid.NewGuid().ToString("N"));
+            SemaphoreSlim repoLock = _CheckoutRepoLocks.GetOrAdd(repoPath, _ => new SemaphoreSlim(1, 1));
+            await repoLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                // Bring the repo up to date so a recently pushed commit or branch resolves, exactly as
+                // DockService does before creating a mission worktree. A missing remote is not fatal.
+                await RunGitAsync(repoPath, TimeSpan.FromMinutes(5), token, "fetch", "--prune", "origin").ConfigureAwait(false);
+
+                string? sha = await ResolveCheckoutShaAsync(repoPath, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(sha))
+                {
+                    _Logging.Warn(_Header + "isolated checkout: no resolvable ref in " + repoPath);
+                    return null;
+                }
+
+                int addExit = await RunGitAsync(repoPath, TimeSpan.FromMinutes(5), token,
+                    "worktree", "add", "--detach", tempPath, sha).ConfigureAwait(false);
+                if (addExit != 0)
+                {
+                    _Logging.Warn(_Header + "isolated checkout: git worktree add failed for " + repoPath);
+                    SafeDeleteDirectory(tempPath);
+                    return null;
+                }
+
+                _Logging.Debug(_Header + "isolated checkout created at " + tempPath);
+                return new IsolatedCheckout(tempPath, repoPath);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                SafeDeleteDirectory(tempPath);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "isolated checkout failed: " + ex.Message);
+                SafeDeleteDirectory(tempPath);
+                return null;
+            }
+            finally
+            {
+                repoLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Resolve the requested checkout ref to a commit in the repository. The commit hash wins,
+        /// then the branch name, then the default branch. Branch names resolve through local, origin
+        /// remote, and bare-name spellings so the checkout works for both bare and normal repos.
+        /// </summary>
+        private async Task<string?> ResolveCheckoutShaAsync(
+            string repoPath,
+            string? commitHash,
+            string? branchName,
+            string defaultBranch,
+            CancellationToken token)
+        {
+            if (!String.IsNullOrWhiteSpace(commitHash))
+            {
+                string? sha = await ResolveRefCandidateAsync(repoPath, commitHash!, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(sha))
+                {
+                    return sha;
+                }
+            }
+
+            if (!String.IsNullOrWhiteSpace(branchName))
+            {
+                string? sha = await ResolveBranchCandidateAsync(repoPath, branchName!, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(sha))
+                {
+                    return sha;
+                }
+            }
+
+            return await ResolveBranchCandidateAsync(repoPath, defaultBranch, token).ConfigureAwait(false);
+        }
+
+        private async Task<string?> ResolveBranchCandidateAsync(string repoPath, string branchName, CancellationToken token)
+        {
+            string? sha = await ResolveRefCandidateAsync(repoPath, "refs/heads/" + branchName, token).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(sha))
+            {
+                return sha;
+            }
+            sha = await ResolveRefCandidateAsync(repoPath, "refs/remotes/origin/" + branchName, token).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(sha))
+            {
+                return sha;
+            }
+            return await ResolveRefCandidateAsync(repoPath, branchName, token).ConfigureAwait(false);
+        }
+
+        private async Task<string?> ResolveRefCandidateAsync(string repoPath, string reference, CancellationToken token)
+        {
+            try
+            {
+                GitCommandResult result = await RunGitCaptureAsync(repoPath, TimeSpan.FromMinutes(1), token,
+                    "rev-parse", "--verify", reference + "^{commit}").ConfigureAwait(false);
+                if (result.ExitCode != 0)
+                {
+                    return null;
+                }
+                string sha = result.StdOut.Trim();
+                return sha.Length == 40 ? sha : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Remove an isolated checkout and, for a worktree-backed checkout, its git worktree
+        /// registration so the shared repository does not accumulate stale entries.
+        /// </summary>
+        private async Task CleanupIsolatedCheckoutAsync(IsolatedCheckout? checkout, CancellationToken token)
+        {
+            if (checkout == null)
+            {
+                return;
+            }
+
+            if (!String.IsNullOrWhiteSpace(checkout.RepoPath))
+            {
+                try
+                {
+                    await RunGitAsync(checkout.RepoPath, TimeSpan.FromMinutes(2), token,
+                        "worktree", "remove", "--force", checkout.Path).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "isolated checkout: could not remove worktree registration for " + checkout.Path + ": " + ex.Message);
+                }
+            }
+
+            SafeDeleteDirectory(checkout.Path);
+
+            if (!String.IsNullOrWhiteSpace(checkout.RepoPath))
+            {
+                try
+                {
+                    await RunGitAsync(checkout.RepoPath, TimeSpan.FromMinutes(1), token, "worktree", "prune").ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "isolated checkout: worktree prune failed for " + checkout.RepoPath + ": " + ex.Message);
+                }
+            }
+        }
+
         private async Task<string?> TryCloneToTempAsync(
             string repoSource,
             string? commitHash,
@@ -1085,10 +1293,79 @@ namespace Armada.Core.Services
             return process.ExitCode;
         }
 
+        private static async Task<GitCommandResult> RunGitCaptureAsync(
+            string workingDirectory,
+            TimeSpan timeout,
+            CancellationToken token,
+            params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            foreach (string arg in args)
+                startInfo.ArgumentList.Add(arg);
+
+            using Process process = new Process { StartInfo = startInfo };
+            if (!process.Start())
+                return new GitCommandResult { ExitCode = -1 };
+
+            Task<string> drainStdout = process.StandardOutput.ReadToEndAsync();
+            Task<string> drainStderr = process.StandardError.ReadToEndAsync();
+
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(timeout);
+
+            try
+            {
+                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                try { if (!process.HasExited) process.Kill(true); } catch { }
+                throw;
+            }
+
+            string stdout = await drainStdout.ConfigureAwait(false);
+            await drainStderr.ConfigureAwait(false);
+            return new GitCommandResult { ExitCode = process.ExitCode, StdOut = stdout };
+        }
+
         private sealed class CommandExecutionResult
         {
             public int ExitCode { get; set; } = -1;
             public string Output { get; set; } = String.Empty;
+        }
+
+        /// <summary>
+        /// A temporary checkout a check run executes in, with the repository it was cut from so the
+        /// worktree registration can be removed at cleanup. <see cref="RepoPath"/> is null when the
+        /// checkout came from a plain clone.
+        /// </summary>
+        private sealed class IsolatedCheckout
+        {
+            public IsolatedCheckout(string path, string? repoPath)
+            {
+                Path = path;
+                RepoPath = repoPath;
+            }
+
+            public string Path { get; }
+
+            public string? RepoPath { get; }
+        }
+
+        private sealed class GitCommandResult
+        {
+            public int ExitCode { get; set; } = -1;
+
+            public string StdOut { get; set; } = String.Empty;
         }
     }
 }

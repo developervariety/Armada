@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Text;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -563,6 +564,125 @@ namespace Armada.Test.Unit.Suites.Services
                     SafeDeleteDirectory(source.RepoPath);
                 }
             }).ConfigureAwait(false);
+
+            // Dock-faithfulness regression (run_check EOL): a repository whose own config carries
+            // core.autocrlf=true checks out CRLF in a worktree (how mission docks check out), but a
+            // fresh clone ignores the source repo's local config and checks out LF. The isolated
+            // checkout must match the dock worktree bytes, or byte-exact manifest tests false-red
+            // under run_check. With the old clone-based isolation the file hash differs from the
+            // worktree hash and this test fails; with worktree-based isolation it matches.
+            await RunTest("Isolated checkout matches dock-worktree bytes when the repo config sets core.autocrlf", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_eol", "usr_iso_eol").ConfigureAwait(false);
+
+                string sourceRepo = await CreateAutocrlfSourceRepoAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-eol-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                string referenceWorktree = Path.Combine(Path.GetTempPath(), "armada-iso-eol-wt-" + Guid.NewGuid().ToString("N"));
+
+                try
+                {
+                    // Dock-equivalent reference: a detached worktree cut from the same repo.
+                    await RunGitAsync(sourceRepo, "worktree", "add", "--detach", referenceWorktree, "HEAD").ConfigureAwait(false);
+
+                    string trackedFile = "eol-tracked.txt";
+                    string expectedHash = ComputeFileSha256(Path.Combine(referenceWorktree, trackedFile));
+
+                    Vessel vessel = CreateVessel("ten_iso_eol", "usr_iso_eol", workingDirectory);
+                    vessel.LocalPath = sourceRepo;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_iso_eol",
+                        UserId = "usr_iso_eol",
+                        Name = "EOL Faithful Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = HashFileCommand(trackedFile)
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_eol", "usr_iso_eol", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    AssertContains(expectedHash, run.Output ?? String.Empty);
+                }
+                finally
+                {
+                    SafeDeleteDirectory(referenceWorktree);
+                    SafeDeleteDirectory(workingDirectory);
+                    SafeDeleteDirectory(sourceRepo);
+                }
+            }).ConfigureAwait(false);
+
+            // Cleanup regression: a worktree-backed isolated checkout must be removed from the
+            // repository's worktree registration when the check completes, so repeated checks do not
+            // accumulate stale worktree entries in the shared vessel repository.
+            await RunTest("Isolated checkout removes its worktree registration after the check completes", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_wtclean", "usr_iso_wtclean").ConfigureAwait(false);
+
+                string sourceRepo = await CreateSourceRepoAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-wtclean-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_iso_wtclean", "usr_iso_wtclean", workingDirectory);
+                    vessel.LocalPath = sourceRepo;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_iso_wtclean",
+                        UserId = "usr_iso_wtclean",
+                        Name = "Worktree Cleanup Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = PrintWorkingDirectoryCommand()
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_wtclean", "usr_iso_wtclean", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+
+                    string worktreeList = await RunGitAsync(sourceRepo, "worktree", "list").ConfigureAwait(false);
+                    AssertFalse(
+                        worktreeList.Contains("armada-chk-", StringComparison.OrdinalIgnoreCase),
+                        "The isolated checkout worktree must be unregistered after the check completes.");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(workingDirectory);
+                    SafeDeleteDirectory(sourceRepo);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
@@ -787,6 +907,57 @@ namespace Armada.Test.Unit.Suites.Services
                 WorkingDirectory = workingDirectory,
                 DefaultBranch = "main"
             };
+        }
+
+        /// <summary>
+        /// Create a source repo whose own local config sets <c>core.autocrlf=true</c> and whose tracked
+        /// text file is materialized under that setting, so a worktree cut from the repo checks the
+        /// file out with CRLF while a fresh clone checks it out with LF. This is the mechanism that
+        /// made run_check an unfaithful gate for byte-exact manifest tests.
+        /// </summary>
+        private static async Task<string> CreateAutocrlfSourceRepoAsync()
+        {
+            string repoPath = Path.Combine(Path.GetTempPath(), "armada-iso-eol-src-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(repoPath);
+
+            await RunGitAsync(repoPath, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            string trackedFile = "eol-tracked.txt";
+            await File.WriteAllTextAsync(Path.Combine(repoPath, trackedFile), "line1\nline2\n").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "add", trackedFile).ConfigureAwait(false);
+            await RunGitAsync(repoPath, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+            // Repo-local autocrlf applies to worktrees cut from this repo but is NOT copied by clone.
+            await RunGitAsync(repoPath, "config", "core.autocrlf", "true").ConfigureAwait(false);
+            File.Delete(Path.Combine(repoPath, trackedFile));
+            await RunGitAsync(repoPath, "checkout", "--", trackedFile).ConfigureAwait(false);
+
+            return repoPath;
+        }
+
+        /// <summary>
+        /// Command that prints the lowercase SHA-256 of a file relative to the checkout root, for the
+        /// cross-platform hash comparison used by the dock-faithfulness regression.
+        /// </summary>
+        private static string HashFileCommand(string fileName)
+        {
+            return OperatingSystem.IsWindows()
+                ? "powershell -NoProfile -Command \"(Get-FileHash -Algorithm SHA256 -Path '" + fileName + "').Hash.ToLowerInvariant()\""
+                : "shasum -a 256 " + fileName;
+        }
+
+        private static string ComputeFileSha256(string path)
+        {
+            using System.Security.Cryptography.SHA256 sha256 = System.Security.Cryptography.SHA256.Create();
+            byte[] hashBytes = sha256.ComputeHash(File.ReadAllBytes(path));
+            StringBuilder sb = new StringBuilder();
+            foreach (byte b in hashBytes)
+            {
+                sb.Append(b.ToString("x2"));
+            }
+            return sb.ToString();
         }
 
         /// <summary>
