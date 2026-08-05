@@ -240,6 +240,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
+            runner.AddSuite(new MergeRefCandidateTests());
             runner.AddSuite(new TestDataDirectoryIsolationTests());
             runner.AddSuite(new MergeFailureClassifierGitOutputTests());
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());

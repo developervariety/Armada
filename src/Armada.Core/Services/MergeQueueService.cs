@@ -21,6 +21,8 @@ namespace Armada.Core.Services
     {
         #region Private-Members
 
+        private const string _ORIGIN_PREFIX = "origin/";
+
         private string _Header = "[MergeQueue] ";
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
@@ -2215,11 +2217,49 @@ namespace Armada.Core.Services
         /// Prefers a local branch, then the remote-tracking copy. Returns null when neither exists,
         /// so the caller can report a missing branch rather than a merge conflict.
         /// </summary>
+        /// <summary>
+        /// Build the ordered list of ref names to probe when resolving a merge entry's branch.
+        ///
+        /// A stored branch name may already carry a remote prefix. Blindly prepending "origin/"
+        /// then asks git for "origin/origin/&lt;branch&gt;", which cannot resolve, and the entry is
+        /// reported as a branch that was never found. The integration worktree is cut from a bare
+        /// repository where mission branches live under refs/heads, so the prefixed form is
+        /// frequently the one that does not exist and the bare form is the one that does.
+        ///
+        /// Both spellings are therefore probed for either input, and no candidate is ever produced
+        /// by stacking a second remote prefix on top of an existing one.
+        /// </summary>
+        /// <param name="branchName">Branch name as recorded on the merge entry.</param>
+        /// <returns>Ordered, de-duplicated candidate ref names.</returns>
+        public static IReadOnlyList<string> BuildMergeRefCandidates(string branchName)
+        {
+            List<string> candidates = new List<string>();
+            if (String.IsNullOrWhiteSpace(branchName)) return candidates;
+
+            string trimmed = branchName.Trim();
+            candidates.Add(trimmed);
+
+            if (trimmed.StartsWith(_ORIGIN_PREFIX, StringComparison.Ordinal))
+            {
+                string stripped = trimmed.Substring(_ORIGIN_PREFIX.Length);
+                if (!String.IsNullOrWhiteSpace(stripped) && !candidates.Contains(stripped, StringComparer.Ordinal))
+                    candidates.Add(stripped);
+            }
+            else
+            {
+                string prefixed = _ORIGIN_PREFIX + trimmed;
+                if (!candidates.Contains(prefixed, StringComparer.Ordinal))
+                    candidates.Add(prefixed);
+            }
+
+            return candidates;
+        }
+
         private async Task<string?> ResolveMergeRefAsync(string worktreePath, string branchName, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(branchName)) return null;
 
-            foreach (string candidate in new[] { branchName, "origin/" + branchName })
+            foreach (string candidate in BuildMergeRefCandidates(branchName))
             {
                 GitProcessResult probe = await RunGitCapturingAsync(
                     worktreePath, token, "rev-parse", "--verify", "--quiet", candidate + "^{commit}").ConfigureAwait(false);
