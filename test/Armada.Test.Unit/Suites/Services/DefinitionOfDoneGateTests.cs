@@ -88,6 +88,60 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            // Regression: two gates used to run their full build and unit-test commands at the same
+            // time on one host. Mission status cannot prevent it -- WorkProduced is persisted when the
+            // agent finishes, before the gate starts, and the vessel-mutex query counts only
+            // Assigned/InProgress, so a vessel reads as idle for the whole duration of its own gate.
+            // The loser of that race fails with a burst of sub-millisecond failures across unrelated
+            // test classes and a Timeout classification, and its downstream pipeline is cancelled.
+            //
+            // The command below fails outright if a second gate is inside the critical section with
+            // it, so this test detects overlap directly rather than inferring it from timing.
+            await RunTest("Two concurrent gates never execute their commands at the same time", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreeA = CreateTempDir();
+                string worktreeB = CreateTempDir();
+                string lockPath = Path.Combine(Path.GetTempPath(), "armada-gate-overlap-" + Guid.NewGuid().ToString("N"));
+
+                try
+                {
+                    string exclusiveCommand = MutuallyExclusiveCommand(lockPath);
+
+                    await EnsureVesselWithProfileAsync(testDb, "ten_gate_lock", "vsl_gate_lock_a",
+                        worktreeA, SuccessCommand(), exclusiveCommand, null, "Gate Lock Vessel A").ConfigureAwait(false);
+                    await EnsureVesselWithProfileAsync(testDb, "ten_gate_lock", "vsl_gate_lock_b",
+                        worktreeB, SuccessCommand(), exclusiveCommand, null, "Gate Lock Vessel B").ConfigureAwait(false);
+
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false };
+
+                    // Separate instances on separate vessels: the lock must be host-wide, so a
+                    // per-instance or per-vessel lock would let this test through.
+                    DefinitionOfDoneGate gateA = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
+                    DefinitionOfDoneGate gateB = new DefinitionOfDoneGate(settings, testDb.Driver, logging);
+
+                    Task<DefinitionOfDoneResult> runA = gateA.EvaluateAsync(
+                        CreateWorkerMission("ten_gate_lock", "vsl_gate_lock_a"),
+                        new Dock { WorktreePath = worktreeA });
+                    Task<DefinitionOfDoneResult> runB = gateB.EvaluateAsync(
+                        CreateWorkerMission("ten_gate_lock", "vsl_gate_lock_b"),
+                        new Dock { WorktreePath = worktreeB });
+
+                    DefinitionOfDoneResult[] results = await Task.WhenAll(runA, runB).ConfigureAwait(false);
+
+                    AssertTrue(results[0].Passed, "First gate must pass; a failure here means the two gates overlapped");
+                    AssertTrue(results[1].Passed, "Second gate must pass; a failure here means the two gates overlapped");
+                    AssertFalse(File.Exists(lockPath), "Overlap sentinel must be cleaned up by both runs");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreeA);
+                    TryDeleteDirectory(worktreeB);
+                    try { if (File.Exists(lockPath)) File.Delete(lockPath); } catch { }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate passes when both build and unit-test commands succeed", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -877,6 +931,24 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         /// <summary>
+        /// A command that fails if another copy of itself is running concurrently. It refuses to
+        /// start when the sentinel already exists, creates it, holds it long enough for a racing
+        /// caller to observe, then clears it. Overlap therefore shows up as a failed gate rather
+        /// than as a timing measurement that could flake under load.
+        /// </summary>
+        private static string MutuallyExclusiveCommand(string lockPath)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                return "if exist \"" + lockPath + "\" (exit 1) else (echo held > \"" + lockPath +
+                    "\" && timeout /t 2 /nobreak > nul && del \"" + lockPath + "\")";
+            }
+
+            return "if [ -e '" + lockPath + "' ]; then exit 1; fi; touch '" + lockPath +
+                "'; sleep 2; rm -f '" + lockPath + "'";
+        }
+
+        /// <summary>
         /// Returns a shell command that echoes the given text into a file in the working
         /// directory. Used by stripping tests to capture the effective command content.
         /// </summary>
@@ -930,9 +1002,10 @@ namespace Armada.Test.Unit.Suites.Services
             string worktreePath,
             string? buildCommand,
             string? testCommand,
-            string? containerlessTestCommand = null)
+            string? containerlessTestCommand = null,
+            string vesselName = "Test Vessel")
         {
-            await EnsureVesselOnlyAsync(testDb, tenantId, vesselId, worktreePath).ConfigureAwait(false);
+            await EnsureVesselOnlyAsync(testDb, tenantId, vesselId, worktreePath, vesselName).ConfigureAwait(false);
 
             WorkflowProfile profile = new WorkflowProfile
             {
@@ -953,7 +1026,8 @@ namespace Armada.Test.Unit.Suites.Services
             TestDatabase testDb,
             string tenantId,
             string vesselId,
-            string worktreePath)
+            string worktreePath,
+            string vesselName = "Test Vessel")
         {
             Armada.Core.Models.TenantMetadata? existing = await testDb.Driver.Tenants.ReadAsync(tenantId).ConfigureAwait(false);
             if (existing == null)
@@ -969,7 +1043,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Id = vesselId,
                 TenantId = tenantId,
-                Name = "Test Vessel",
+                Name = vesselName,
                 RepoUrl = "file:///tmp/dod-test.git",
                 LocalPath = worktreePath,
                 WorkingDirectory = worktreePath,

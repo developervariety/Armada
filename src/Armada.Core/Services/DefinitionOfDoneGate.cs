@@ -31,6 +31,10 @@ namespace Armada.Core.Services
         private readonly IContainerRuntimeProbe? _ContainerRuntimeProbe;
         private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
 
+        // Host-wide, not per-instance: every gate in this Admiral shares one execution slot because
+        // the resource they contend for is the machine's CPU and disk, not any single vessel.
+        private static readonly SemaphoreSlim _GateExecutionLock = new SemaphoreSlim(1, 1);
+
         private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
         private const int _MAX_SECTION_CHARS = 7800;
         private const int _MAX_LINE_CHARS = 2000;
@@ -123,6 +127,40 @@ namespace Armada.Core.Services
                     DefinitionOfDoneFailureClassEnum.Infra);
             }
 
+            // Serialize the expensive half host-wide. A gate runs the vessel's full build and unit-test
+            // command, and two of those at once on one host produce a failure that looks like broken
+            // code but is not: a burst of many simultaneous sub-millisecond failures across unrelated
+            // test classes, classified Timeout, where the same command passes alone. The mission that
+            // loses the race is marked Failed and its whole downstream pipeline is cancelled.
+            //
+            // Mission status cannot be the interlock. WorkProduced is persisted when the agent
+            // finishes, before this gate runs, and the vessel-mutex query counts only
+            // Assigned/InProgress -- so a vessel looks idle for the entire duration of its own gate
+            // and the next mission is admitted underneath it. Widening that query to include
+            // WorkProduced would deadlock every vessel holding a stranded WorkProduced mission.
+            // The contended resource is the host, not the vessel, so the lock belongs here.
+            await _GateExecutionLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                return await RunGateCommandsAsync(profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _GateExecutionLock.Release();
+            }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<DefinitionOfDoneResult> RunGateCommandsAsync(
+            WorkflowProfile? profile,
+            string? buildCommand,
+            string? testCommand,
+            string worktreePath,
+            CancellationToken token)
+        {
             if (!String.IsNullOrWhiteSpace(buildCommand))
             {
                 string effectiveBuild = _Settings.RunRestoreBeforeBuild ? EnsureRestore(buildCommand) : buildCommand;
@@ -156,10 +194,6 @@ namespace Armada.Core.Services
 
             return DefinitionOfDoneResult.Pass();
         }
-
-        #endregion
-
-        #region Private-Methods
 
         /// <summary>
         /// How long a single gate command may run before it is cancelled.
