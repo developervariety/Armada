@@ -96,7 +96,8 @@ namespace Armada.Server.Mcp
             IncidentService? incidentService = null,
             AutonomousObjectiveScheduler? objectiveScheduler = null,
             ICaptainQuarantineService? captainQuarantine = null,
-            UnlandedBranchService? unlandedBranches = null)
+            UnlandedBranchService? unlandedBranches = null,
+            Armada.Core.Services.DiskLifecycleService? diskLifecycle = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -115,6 +116,7 @@ namespace Armada.Server.Mcp
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
+            McpPapercutTools.Register(register, database);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs);
@@ -146,6 +148,7 @@ namespace Armada.Server.Mcp
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
             McpReflectionTools.Register(register, database, effectiveReflectionDispatcher, effectiveSettings);
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
+            if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
         }
 
         /// <summary>

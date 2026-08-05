@@ -89,6 +89,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new EntityResolverTests());
             runner.AddSuite(new MessageTemplateServiceTests());
             runner.AddSuite(new ProgressParserTests());
+            runner.AddSuite(new PapercutTests());
             runner.AddSuite(new SettingsTests());
             runner.AddSuite(new ReleaseVersionTests());
             runner.AddSuite(new StartupScriptTests());
@@ -239,6 +240,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpCheckRunToolsTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());
+            runner.AddSuite(new SiblingLeaseRegistryTests());
+            runner.AddSuite(new DiskLifecycleTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
             runner.AddSuite(new MergeRefCandidateTests());
             runner.AddSuite(new TestDataDirectoryIsolationTests());

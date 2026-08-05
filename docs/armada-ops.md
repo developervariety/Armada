@@ -395,9 +395,26 @@ Risk labels:
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_get_dock` |
+| Read | `armada_get_dock`, `armada_list_papercuts` |
 | Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read` |
 | Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
+
+#### Papercuts
+
+Captains report friction they meet during a mission on an `[ARMADA:PAPERCUT]`
+line: a stale document, a dead link, a brief that contradicts itself, a missing
+sibling repository. Without this they work around the problem and say nothing,
+so the next captain on the same vessel pays the same cost again.
+
+The admiral stores each report as a `papercut` event with the reporting mission,
+captain, vessel, and voyage. Judge missions are excluded, because a judge already
+reports what it finds through its verdict.
+
+`armada_list_papercuts` collapses repeats of the same vessel, category, and
+problem into one row with a count and a distinct-captain count. One captain
+reporting a problem is an anecdote. Nine captains reporting it is a defect with
+evidence. Promote a group to a backlog item on the vessel, or to an Armada
+objective when the category is `BriefContradiction` or `PlatformBug`.
 
 ### 8.10 Incidents
 
@@ -483,6 +500,27 @@ truth.
 | --- | --- |
 | Write | `armada_backup` |
 | Destructive | `armada_restore`, `armada_stop_server` |
+
+### 8.20 Disk Lifecycle
+
+`armada_disk_lifecycle` reports and, when explicitly enabled in settings,
+reclaims Armada-owned disk storage. Run `action=scan` for the dry-run report
+before anything destructive: it returns bytes per owned category (docks, bare
+repos, mission logs, diffs, instruction snapshots, dock metadata, integration
+and merge-queue worktrees, temp artifacts, backups) plus reclaimable counts.
+`action=reconcile` additionally purges stale sibling-worktree leases and, only
+when `diskLifecycle.enabled` is true and `diskLifecycle.dryRun` is false,
+deletes eligible items. Reclamation fails closed: only paths under the allowed
+roots, not symlinks, past their grace period, and not referenced by active
+docks, missions, or merge-queue entries are ever touched. Docker image and
+build-cache pruning stays an explicit host-side operator action
+(`docker builder prune` with the current and rollback images protected), never
+a container-triggered deletion.
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_disk_lifecycle` (action `scan`) |
+| Destructive | `armada_disk_lifecycle` (action `reconcile`; gated by `diskLifecycle.enabled` and `diskLifecycle.dryRun`) |
 
 ## 9. Safety Rules
 

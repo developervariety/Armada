@@ -1076,6 +1076,17 @@ namespace Armada.Core.Settings
             set => _DefinitionOfDone = value ?? new DefinitionOfDoneSettings();
         }
 
+        /// <summary>
+        /// Disk-lifecycle settings that bound and make observable the reclamation of
+        /// Armada-owned storage. Destructive periodic cleanup is off by default (dry-run
+        /// observability first, per the direct-edit rollout constraint).
+        /// </summary>
+        public DiskLifecycleSettings DiskLifecycle
+        {
+            get => _DiskLifecycle;
+            set => _DiskLifecycle = value ?? new DiskLifecycleSettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -1157,6 +1168,7 @@ namespace Armada.Core.Settings
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
         private DockBoundarySettings _DockBoundary = new DockBoundarySettings();
         private DefinitionOfDoneSettings _DefinitionOfDone = new DefinitionOfDoneSettings();
+        private DiskLifecycleSettings _DiskLifecycle = new DiskLifecycleSettings();
         private bool _DatabasePathConfigured = false;
 
         #endregion
@@ -1290,6 +1302,7 @@ namespace Armada.Core.Settings
             IncidentLifecycle = source.IncidentLifecycle;
             DockBoundary = source.DockBoundary;
             DefinitionOfDone = source.DefinitionOfDone;
+            DiskLifecycle = source.DiskLifecycle;
             Architect = source.Architect;
         }
 

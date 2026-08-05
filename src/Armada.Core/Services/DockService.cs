@@ -24,6 +24,7 @@ namespace Armada.Core.Services
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private IGitService _Git;
+        private SiblingLeaseRegistry _Leases;
 
         #endregion
 
@@ -42,6 +43,7 @@ namespace Armada.Core.Services
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
+            _Leases = new SiblingLeaseRegistry(_Logging, _Database, _Settings);
         }
 
         #endregion
@@ -239,11 +241,6 @@ namespace Armada.Core.Services
                 await InstallBoundaryHooksAsync(repoPath, vessel, token).ConfigureAwait(false);
                 await WriteBoundaryConfigAsync(vessel, worktreePath, token).ConfigureAwait(false);
 
-                // Provision declared sibling repositories alongside this dock so consumer repos
-                // that resolve cross-repo sources via parent-probe paths can build inside the dock.
-                // No-op for vessels that declare no siblings (single-repo vessels are unaffected).
-                await ProvisionSiblingReposAsync(vessel, worktreePath, branchName, token).ConfigureAwait(false);
-
                 string? headCommit = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
                 if (String.IsNullOrEmpty(headCommit))
                 {
@@ -251,7 +248,9 @@ namespace Armada.Core.Services
                         " for branch " + branchName + " without a valid HEAD commit");
                 }
 
-                // Create dock record
+                // Create the dock record before provisioning siblings so the sibling lease is keyed
+                // by a real dock id. A provisioning failure after this point leaves an Active dock
+                // row with no worktree, which the orphan-dock reclaimer heals after its grace period.
                 Dock dock = new Dock(vessel.Id);
                 dock.TenantId = vessel.TenantId;
                 dock.UserId = vessel.UserId;
@@ -259,6 +258,11 @@ namespace Armada.Core.Services
                 dock.WorktreePath = worktreePath;
                 dock.BranchName = branchName;
                 dock = await _Database.Docks.CreateAsync(dock, token).ConfigureAwait(false);
+
+                // Provision declared sibling repositories alongside this dock so consumer repos
+                // that resolve cross-repo sources via parent-probe paths can build inside the dock.
+                // No-op for vessels that declare no siblings (single-repo vessels are unaffected).
+                await ProvisionSiblingReposAsync(vessel, worktreePath, branchName, dock.Id, token).ConfigureAwait(false);
 
                 try
                 {
@@ -613,7 +617,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task ProvisionSiblingReposAsync(Vessel vessel, string worktreePath, string dockBranchName, CancellationToken token)
+        private async Task ProvisionSiblingReposAsync(Vessel vessel, string worktreePath, string dockBranchName, string dockId, CancellationToken token)
         {
             List<SiblingRepo> siblings = vessel.GetSiblingRepos();
             if (siblings.Count == 0) return;
@@ -649,54 +653,56 @@ namespace Armada.Core.Services
                         siblingBranch = dockBranchName;
                     }
 
-                    // A sibling path can be shared by concurrent docks. Reuse a healthy registered
-                    // worktree so provisioning does not interrupt another dock's build.
-                    if (Directory.Exists(siblingWorktreePath))
+            // A sibling path can be shared by concurrent docks. Reuse a healthy registered
+            // worktree so provisioning does not interrupt another dock's build.
+            if (Directory.Exists(siblingWorktreePath))
+            {
+                bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);
+
+                // Registration alone is not enough to call this a live checkout: earlier
+                // provisioning steps (OpenCode permission seeding) pre-create the sibling
+                // directory empty. Only a populated checkout can be one another dock is
+                // building against, so only that is reused; an empty shell is rebuilt.
+                bool hasContent = false;
+                foreach (string unused in Directory.EnumerateFileSystemEntries(siblingWorktreePath))
+                {
+                    hasContent = true;
+                    break;
+                }
+
+                if (isRegistered && hasContent)
+                {
+                    if (!String.Equals(siblingBranch, fallbackBranch, StringComparison.Ordinal))
                     {
-                        bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);
-
-                        // Registration alone is not enough to call this a live checkout: earlier
-                        // provisioning steps (OpenCode permission seeding) pre-create the sibling
-                        // directory empty. Only a populated checkout can be one another dock is
-                        // building against, so only that is reused; an empty shell is rebuilt.
-                        bool hasContent = false;
-                        foreach (string unused in Directory.EnumerateFileSystemEntries(siblingWorktreePath))
-                        {
-                            hasContent = true;
-                            break;
-                        }
-
-                        if (isRegistered && hasContent)
-                        {
-                            if (!String.Equals(siblingBranch, fallbackBranch, StringComparison.Ordinal))
-                            {
-                                // Another dock owns this shared checkout. Re-pointing it at a
-                                // dock-specific branch would corrupt that dock's build, so keep
-                                // what is there and make the compromise visible.
-                                _Logging.Warn(_Header + "sibling " + siblingWorktreePath
-                                    + " is shared and already provisioned; not re-pointing it at branch "
-                                    + siblingBranch + " for vessel " + vessel.Id);
-                            }
-                            else
-                            {
-                                _Logging.Info(_Header + "reusing existing sibling worktree " + siblingWorktreePath + " for vessel " + vessel.Id);
-                            }
-
-                            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
-                            continue;
-                        }
-
-                        // Not a registered worktree -- a stale or foreign leftover, safe to clear.
-                        await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
+                        // Another dock owns this shared checkout. Re-pointing it at a
+                        // dock-specific branch would corrupt that dock's build, so keep
+                        // what is there and make the compromise visible.
+                        _Logging.Warn(_Header + "sibling " + siblingWorktreePath
+                            + " is shared and already provisioned; not re-pointing it at branch "
+                            + siblingBranch + " for vessel " + vessel.Id);
+                    }
+                    else
+                    {
+                        _Logging.Info(_Header + "reusing existing sibling worktree " + siblingWorktreePath + " for vessel " + vessel.Id);
                     }
 
-                    // Use a detached worktree for siblings so that when another worktree already has
-                    // the same branch checked out (e.g. a parallel dock on the same vessel), git does
-                    // not reject the add with "already checked out".
-                    await _Git.CreateWorktreeAsync(siblingRepoPath, siblingWorktreePath, siblingBranch, fallbackBranch, detached: true, token: token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (branch " + siblingBranch + ") for vessel " + vessel.Id);
-
                     await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+                    await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
+                    continue;
+                }
+
+                // Not a registered worktree -- a stale or foreign leftover, safe to clear.
+                await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
+            }
+
+            // Use a detached worktree for siblings so that when another worktree already has
+            // the same branch checked out (e.g. a parallel dock on the same vessel), git does
+            // not reject the add with "already checked out".
+            await _Git.CreateWorktreeAsync(siblingRepoPath, siblingWorktreePath, siblingBranch, fallbackBranch, detached: true, token: token).ConfigureAwait(false);
+            _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (branch " + siblingBranch + ") for vessel " + vessel.Id);
+
+            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+            await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -886,8 +892,8 @@ namespace Armada.Core.Services
             // Sibling worktrees are SHARED by every concurrent dock on the vessel (they resolve to
             // one path such as docks/<Vessel>/JproDeobfuscator, one level above each dock worktree).
             // Tearing them down on one dock's teardown while another dock's captain is still reading
-            // them erases that captain's cross-repo source view. Reference-count: only remove the
-            // shared siblings when this is the last active dock on the vessel.
+            // them erases that captain's cross-repo source view. Belt-and-braces: skip removal when
+            // any other dock row is still active, and the per-target lease then decides atomically.
             try
             {
                 List<Dock> vesselDocks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
@@ -917,15 +923,53 @@ namespace Armada.Core.Services
 
                 try
                 {
-                    await _Git.RemoveWorktreeAsync(siblingWorktreePath, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "removed sibling worktree for dock " + dock.Id + " at " + siblingWorktreePath);
+                    // The lease serializes this removal against a concurrent provisioning
+                    // acquire on the same sibling target: the dock's own lease is released and
+                    // the sibling is removed only when no other dock holds a lease.
+                    bool removed = await _Leases.RemoveIfUnleasedAsync(
+                        dock.Id,
+                        vessel.Id,
+                        siblingWorktreePath,
+                        async (ct) =>
+                        {
+                            try
+                            {
+                                await _Git.RemoveWorktreeAsync(siblingWorktreePath, ct).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                _Logging.Warn(_Header + "error removing sibling worktree for dock " + dock.Id + ": " + ex.Message);
+                            }
+                            await ForceRemoveDirectoryAsync(siblingWorktreePath, ct).ConfigureAwait(false);
+                        },
+                        token).ConfigureAwait(false);
+
+                    if (removed)
+                    {
+                        _Logging.Info(_Header + "removed sibling worktree for dock " + dock.Id + " at " + siblingWorktreePath);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _Logging.Warn(_Header + "error removing sibling worktree for dock " + dock.Id + ": " + ex.Message);
+                    _Logging.Warn(_Header + "error in lease-guarded sibling removal for dock " + dock.Id + ": " + ex.Message);
                 }
+            }
+        }
 
-                await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
+        /// <summary>
+        /// Take a reference-counted lease on a shared sibling worktree so another dock's reclaim
+        /// never removes it while this dock still needs it. Lease failures are warnings only; a
+        /// provisioning dock must not fail because lease bookkeeping hiccuped.
+        /// </summary>
+        private async Task TakeSiblingLeaseAsync(string dockId, string vesselId, string siblingWorktreePath, CancellationToken token)
+        {
+            try
+            {
+                await _Leases.TryAcquireAsync(dockId, vesselId, siblingWorktreePath, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not lease shared sibling " + siblingWorktreePath + " for dock " + dockId + ": " + ex.Message);
             }
         }
 

@@ -77,6 +77,7 @@ namespace Armada.Server
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
+        private DiskLifecycleService _DiskLifecycle = null!;
         private OpenCodeServerLauncher _OpenCodeServerLauncher = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
         private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
@@ -323,6 +324,7 @@ namespace Armada.Server
             // Initialize log rotation and data expiry
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
             _DataExpiry = new DataExpiryService(_Logging, _Settings.Database.GetConnectionString(), _Settings.DataRetentionDays);
+            _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
 
             // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
             RemoteTriggerHttpClient rtHttp = new RemoteTriggerHttpClient(_Logging);
@@ -1236,7 +1238,8 @@ namespace Armada.Server
                 incidentService: _IncidentService,
                 objectiveScheduler: _ObjectiveScheduler,
                 captainQuarantine: _CaptainQuarantine,
-                unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging));
+                unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging),
+                diskLifecycle: _DiskLifecycle);
         }
 
         private async Task EmitEventAsync(string eventType, string message,
@@ -1299,20 +1302,33 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "startup stale captain cleanup error: " + ex.Message);
             }
 
-            // Recover landing jobs before the first health check so the steady-state
-            // merge reconciler cannot process the same in-flight entry concurrently.
-            try
-            {
-                int recovered = await _MergeQueue.RecoverInFlightLandingsAsync(token).ConfigureAwait(false);
-                if (recovered > 0)
-                {
-                    _Logging.Info(_Header + "startup landing recovery resumed " + recovered + " in-flight entr" + (recovered == 1 ? "y" : "ies"));
-                }
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "startup landing recovery error: " + ex.Message);
-            }
+    // Recover landing jobs before the first health check so the steady-state
+    // merge reconciler cannot process the same in-flight entry concurrently.
+    try
+    {
+        int recovered = await _MergeQueue.RecoverInFlightLandingsAsync(token).ConfigureAwait(false);
+        if (recovered > 0)
+        {
+            _Logging.Info(_Header + "startup landing recovery resumed " + recovered + " in-flight entr" + (recovered == 1 ? "y" : "ies"));
+        }
+    }
+    catch (Exception ex)
+    {
+        _Logging.Warn(_Header + "startup landing recovery error: " + ex.Message);
+    }
+
+    // Reconcile owned disk storage at startup: purge stale sibling leases left by a crashed
+    // Admiral and record the first dry-run byte report. Deletion only happens when the
+    // diskLifecycle settings opt in, so startup is always safe.
+    try
+    {
+        await _DiskLifecycle.ReconcileAsync(token).ConfigureAwait(false);
+        _Logging.Info(_Header + "startup disk lifecycle reconciliation completed");
+    }
+    catch (Exception ex)
+    {
+        _Logging.Warn(_Header + "startup disk lifecycle reconciliation error: " + ex.Message);
+    }
 
             // Run an immediate health check on startup to dispatch any pending missions
             try
@@ -1352,11 +1368,18 @@ namespace Armada.Server
                         await _PlanningSessions.MaintainSessionsAsync(token).ConfigureAwait(false);
                     }
 
-                    // Run data expiry every 100 health check cycles (~50 min at default interval)
-                    if (_HealthCheckCycles % 100 == 0)
-                    {
-                        await _DataExpiry.PurgeExpiredDataAsync(token).ConfigureAwait(false);
-                    }
+            // Run data expiry every 100 health check cycles (~50 min at default interval)
+            if (_HealthCheckCycles % 100 == 0)
+            {
+                await _DataExpiry.PurgeExpiredDataAsync(token).ConfigureAwait(false);
+            }
+
+            // Run disk lifecycle reconciliation on its configured cadence. Observability and
+            // stale-lease purging always run; deletion is gated by diskLifecycle settings.
+            if (_HealthCheckCycles % _Settings.DiskLifecycle.ReconcileIntervalCycles == 0)
+            {
+                await _DiskLifecycle.ReconcileAsync(token).ConfigureAwait(false);
+            }
                 }
                 catch (OperationCanceledException)
                 {
