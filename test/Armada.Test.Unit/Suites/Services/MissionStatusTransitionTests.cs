@@ -139,6 +139,43 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Regression: a mission retried after a failed attempt kept the earlier attempt's
+            // FailureReason forever. The requeue paths leave that text in place on purpose, so a
+            // Pending mission shows why it is being retried -- but nothing cleared it when a later
+            // attempt succeeded. Observed on msn_msfamlyg: Status WorkProduced, a real CommitHash,
+            // RecoveryAttempts 1, and FailureReason still reading "403 Daily spend limit reached"
+            // from the attempt that was superseded. Anyone reading FailureReason without checking
+            // Status concludes a mission that worked had failed.
+            await RunTest("HandleCompletion clears a superseded FailureReason from an earlier attempt", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
+                    Captain captain = entities.Captain;
+                    Mission mission = entities.Mission;
+
+                    mission.FailureReason =
+                        "Failed to authenticate. API Error: 403 Daily spend limit of $2000.00 reached for this user.";
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+
+                    await missionService.HandleCompletionAsync(captain);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                    AssertNotNull(updated, "Mission should exist after completion");
+                    AssertEqual(MissionStatusEnum.WorkProduced, updated!.Status, "Status should be WorkProduced");
+                    AssertNull(updated.FailureReason,
+                        "A mission that reached WorkProduced must not still report why an earlier attempt failed");
+                }
+            });
+
             await RunTest("HandleCompletion clears ProcessId", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

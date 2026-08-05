@@ -798,6 +798,9 @@ namespace Armada.Core.Services
             if (hasDependentPipelineStages)
             {
                 mission.Status = MissionStatusEnum.Complete;
+
+                // Entering a success state supersedes any earlier attempt's failure reason.
+                mission.FailureReason = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
@@ -811,6 +814,9 @@ namespace Armada.Core.Services
 
             Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
             mission.Status = MissionStatusEnum.WorkProduced;
+
+            // Entering a success state supersedes any earlier attempt's failure reason.
+            mission.FailureReason = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
@@ -1034,6 +1040,15 @@ namespace Armada.Core.Services
             // Mark mission as work produced (agent finished, landing not yet attempted)
             mission.Status = MissionStatusEnum.WorkProduced;
             mission.ProcessId = null;
+
+            // A retried mission still carries the reason its earlier attempt failed. The requeue
+            // paths keep that text on purpose so a Pending mission shows why it is being retried,
+            // but once an attempt succeeds the text describes a superseded attempt and nothing
+            // about the current state. Left in place it reads as a failure that did not happen:
+            // a mission can sit in WorkProduced with a real commit and a stale provider error,
+            // and any reader that checks FailureReason before Status concludes the mission failed.
+            // The DoD gate below sets a fresh reason if it rejects this work.
+            mission.FailureReason = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             _Logging.Info(_Header + "mission " + mission.Id + " work produced by captain " + captain.Id);
