@@ -160,6 +160,26 @@ because the first status call shows `Pending`.
 Long operations can return an accepted job. Poll `armada_job_status` with the
 returned job ID.
 
+#### Model pinning
+
+`preferredModel` normally takes a complexity tier (`low`, `mid`, or `high`)
+and Armada picks the best-fit available captain. It also accepts a literal
+model name (for example `claude-opus-5`, `gpt-5.6-sol`,
+`opencode-go/glm-5.2`, `zyloo/gpt-5.5`): the dispatcher first filters idle
+captains by an exact case-insensitive model match, and only then falls back to
+tier routing. A pin is therefore best-effort, not a guarantee -- when no idle
+captain carries that exact model, Armada classifies the model into a tier and
+picks a peer. Verify the assignment after dispatch when the pin matters;
+benching is never required to pin a model.
+
+#### Read-only dispatches stay single-stage
+
+When every mission in a dispatch is `Audit` or `Research` mode and no pipeline
+is requested, the vessel or fleet default pipeline is ignored and the voyage
+dispatches single-stage. A read-only probe must not silently inherit a
+multi-stage default (a four-mission diagnostic once expanded to sixteen
+missions). An explicitly requested pipeline is always honored.
+
 ### 4.5 Monitor
 
 Dispatch is the start of the operator loop.

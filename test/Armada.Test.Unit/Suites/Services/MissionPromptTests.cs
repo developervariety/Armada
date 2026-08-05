@@ -81,6 +81,95 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Objective scope (obj_ms6vucr2): a voyage that links an objective must carry the
+            // objective's scope, acceptance criteria, and non-goals once in the generated brief,
+            // and the mission description must appear exactly once.
+            await RunTest("GenerateClaudeMdAsync includes Objective Scope once when the voyage links an objective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Voyage voyage = new Voyage("scope-voyage");
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                        Objective objective = new Objective();
+                        objective.Title = "Scope the seed-key port";
+                        objective.Description = "Port the seed-key exchange to the extractor.";
+                        objective.AcceptanceCriteria = new List<string> { "The exchange round-trips 128 seeds.", "No secret bytes enter the manifest." };
+                        objective.NonGoals = new List<string> { "No reflash support." };
+                        objective.VoyageIds = new List<string> { voyage.Id };
+                        await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                        Vessel vessel = new Vessel("ScopeVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Port seed-key";
+                        mission.Description = "Implement the seed-key exchange per the objective.";
+                        mission.VoyageId = voyage.Id;
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("## Objective Scope (Definition of Done)", content);
+                        AssertContains("Port the seed-key exchange to the extractor.", content);
+                        AssertContains("The exchange round-trips 128 seeds.", content);
+                        AssertContains("No secret bytes enter the manifest.", content);
+                        AssertContains("No reflash support.", content);
+                        AssertContains("the Judge reviews against these acceptance criteria", content);
+
+                        int descriptionOccurrences = CountOccurrences(content, mission.Description);
+                        AssertEqual(1, descriptionOccurrences, "The mission description must appear exactly once in the generated brief");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("GenerateClaudeMdAsync omits Objective Scope when the voyage links no objective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Voyage voyage = new Voyage("unlinked-voyage");
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                        Vessel vessel = new Vessel("UnlinkedVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Standalone work";
+                        mission.Description = "No objective is linked to this voyage.";
+                        mission.VoyageId = voyage.Id;
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertTrue(!content.Contains("Objective Scope"), "A voyage without a linked objective must not carry an Objective Scope module");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A configured AI-Memory root is named once for every runtime, content not inlined", async () =>
             {
                 AgentRuntimeEnum[] runtimes = new AgentRuntimeEnum[]
@@ -1555,6 +1644,18 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("follow it exactly", prompt);
                 }
             });
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0;
+            int index = 0;
+            while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += needle.Length;
+            }
+            return count;
         }
     }
 }

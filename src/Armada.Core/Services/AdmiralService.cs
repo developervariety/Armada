@@ -299,14 +299,19 @@ namespace Armada.Core.Services
                 await _Playbooks.ResolveSelectionsAsync(vessel.TenantId, selectedPlaybooks, token).ConfigureAwait(false);
             }
 
-            // Resolve pipeline: explicit > vessel default > fleet default > WorkerOnly
-            Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+            // Resolve pipeline: explicit > vessel default > fleet default > WorkerOnly.
+            // A read-only dispatch (all missions Audit or Research) never inherits a multi-stage
+            // vessel/fleet default pipeline: a four-mission diagnostic probe once became sixteen
+            // missions because the vessel default (ReferencePortingTested) expanded every stage.
+            Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
 
             // If pipeline is single-stage Worker (or null), use the standard dispatch path
             if (pipeline == null || (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker"))
             {
                 return await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token).ConfigureAwait(false);
             }
+
+            _Logging.Info(_Header + "resolved pipeline " + pipeline.Name + " with " + pipeline.Stages.Count + " stage(s) for voyage dispatch of " + missionDescriptions.Count + " mission(s)");
 
             // Multi-stage pipeline: create voyage, then for each mission create a chain of persona stages
             Voyage voyage = new Voyage(title, description);
@@ -440,7 +445,7 @@ namespace Armada.Core.Services
             ValidatePrestagedFilesOrThrow(missionDescriptions);
             await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
 
-            Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+            Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
             bool isMultiStage = pipeline != null
                 && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
 
@@ -1377,6 +1382,41 @@ namespace Armada.Core.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Resolve the pipeline for a dispatch, with the read-only guard: when every mission in the
+        /// dispatch is Audit or Research mode and no pipeline was explicitly requested, the vessel or
+        /// fleet default pipeline is NOT inherited. A read-only voyage must stay single-stage --
+        /// inheriting a multi-stage default silently multiplied a four-mission diagnostic probe into
+        /// sixteen missions. An explicit pipelineId is always honored.
+        /// </summary>
+        /// <param name="pipelineId">Explicitly requested pipeline id or name, or null.</param>
+        /// <param name="vessel">Target vessel.</param>
+        /// <param name="missions">Mission descriptions being dispatched.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The resolved pipeline, or null for a single-stage Worker dispatch.</returns>
+        private async Task<Pipeline?> ResolvePipelineAsync(string? pipelineId, Vessel vessel, List<MissionDescription> missions, CancellationToken token = default)
+        {
+            bool allReadOnly = missions != null
+                && missions.Count > 0
+                && missions.All(m => m != null && IsReadOnlyMissionMode(m.Mode));
+            if (allReadOnly && String.IsNullOrEmpty(pipelineId))
+            {
+                _Logging.Info(_Header + "read-only dispatch (" + missions!.Count + " mission(s)) skips the vessel/fleet default pipeline -- single-stage Worker dispatch");
+                return null;
+            }
+
+            return await ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Whether a mission-mode string is read-only (Audit or Research).
+        /// </summary>
+        private static bool IsReadOnlyMissionMode(string? mode)
+        {
+            MissionModeEnum parsed = MissionModes.Parse(mode);
+            return parsed == MissionModeEnum.Audit || parsed == MissionModeEnum.Research;
         }
 
         /// <summary>

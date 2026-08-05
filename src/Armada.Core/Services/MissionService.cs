@@ -1706,6 +1706,17 @@ namespace Armada.Core.Services
             content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
             content += "\n";
 
+            // Objective scope, supplied once when the voyage links an objective: the objective's own
+            // scope, acceptance criteria, and non-goals are the definition of done. Previously a linked
+            // objective never reached the captain as distinct context -- the mission description alone
+            // had to stand in for it -- and the Judge had no acceptance criteria to review against.
+            string objectiveScope = await BuildObjectiveScopeSectionAsync(mission, token).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(objectiveScope))
+            {
+                content += ledger.Track("mission.objective_scope", objectiveScope);
+                content += "\n";
+            }
+
             // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback.
             //
             // An Audit or Research mission gets the read-only rule set instead of the implementation
@@ -1927,6 +1938,69 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not record prompt budget telemetry for " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Build the Objective Scope module for a mission whose voyage links an objective: the
+        /// objective's own scope, acceptance criteria, and non-goals, supplied once, as the mission's
+        /// definition of done. The Judge reviews against these criteria. Returns an empty string when
+        /// the voyage links no objective or the lookup fails (a brief must never fail a dispatch).
+        /// </summary>
+        /// <param name="mission">Mission being briefed.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The Objective Scope section, or an empty string.</returns>
+        private async Task<string> BuildObjectiveScopeSectionAsync(Mission mission, CancellationToken token)
+        {
+            if (mission == null || String.IsNullOrEmpty(mission.VoyageId))
+            {
+                return String.Empty;
+            }
+
+            try
+            {
+                List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+                Objective? linked = objectives.FirstOrDefault(o =>
+                    o != null
+                    && o.VoyageIds != null
+                    && o.VoyageIds.Contains(mission.VoyageId));
+                if (linked == null)
+                {
+                    return String.Empty;
+                }
+
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.Append("## Objective Scope (Definition of Done)\n\n");
+                sb.Append("This mission belongs to a linked objective. The objective below is the definition of done; work that does not meet it is not complete, and the Judge reviews against these acceptance criteria and non-goals:\n\n");
+                sb.Append("**Title:** ").Append(linked.Title).Append("\n\n");
+                if (!String.IsNullOrWhiteSpace(linked.Description))
+                {
+                    sb.Append("**Scope:** ").Append(linked.Description.Trim()).Append("\n\n");
+                }
+                if (linked.AcceptanceCriteria != null && linked.AcceptanceCriteria.Count > 0)
+                {
+                    sb.Append("**Acceptance Criteria:**\n");
+                    foreach (string ac in linked.AcceptanceCriteria)
+                    {
+                        if (!String.IsNullOrWhiteSpace(ac)) sb.Append("- ").Append(ac.Trim()).Append("\n");
+                    }
+                    sb.Append("\n");
+                }
+                if (linked.NonGoals != null && linked.NonGoals.Count > 0)
+                {
+                    sb.Append("**Non-Goals (out of scope):**\n");
+                    foreach (string ng in linked.NonGoals)
+                    {
+                        if (!String.IsNullOrWhiteSpace(ng)) sb.Append("- ").Append(ng.Trim()).Append("\n");
+                    }
+                    sb.Append("\n");
+                }
+                return sb.ToString();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not build objective scope for mission " + mission.Id + ": " + ex.Message);
+                return String.Empty;
             }
         }
 

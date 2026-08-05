@@ -382,6 +382,58 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Dispatch ergonomics (obj_ms6vvefn): a read-only dispatch (all missions Audit/Research)
+            // must NOT inherit a multi-stage vessel default pipeline -- a four-mission diagnostic
+            // probe once expanded to sixteen missions. An explicitly requested pipeline still wins.
+            await RunTest("DispatchVoyageAsync ReadOnlyMissionsSkipVesselDefaultPipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Pipeline reviewed = new Pipeline("Reviewed");
+                    reviewed.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    reviewed = await db.Pipelines.CreateAsync(reviewed);
+
+                    Vessel vessel = new Vessel("ReadOnlyVessel", "https://github.com/test/repo");
+                    vessel.DefaultPipelineId = reviewed.Id;
+                    await db.Vessels.CreateAsync(vessel);
+
+                    // All-mission Audit dispatch with no explicit pipeline: single Worker mission.
+                    Voyage auditVoyage = await service.DispatchVoyageAsync(
+                        "Audit Probe", "diagnostic", vessel.Id,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Probe A", "inspect") { Mode = "Audit" },
+                            new MissionDescription("Probe B", "inspect") { Mode = "Audit" }
+                        },
+                        (string?)null).ConfigureAwait(false);
+
+                    List<Mission> auditMissions = await db.Missions.EnumerateByVoyageAsync(auditVoyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, auditMissions.Count, "Read-only dispatch must not expand stages from the vessel default pipeline");
+                    AssertTrue(auditMissions.All(m => !String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)),
+                        "Read-only dispatch must not create the default pipeline's review stages");
+
+                    // An explicit pipeline is always honored, even for read-only missions.
+                    Voyage explicitVoyage = await service.DispatchVoyageAsync(
+                        "Audit With Pipeline", "diagnostic", vessel.Id,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Probe C", "inspect") { Mode = "Research" }
+                        },
+                        reviewed.Id).ConfigureAwait(false);
+
+                    List<Mission> explicitMissions = await db.Missions.EnumerateByVoyageAsync(explicitVoyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, explicitMissions.Count, "An explicitly requested pipeline must still expand its stages");
+                }
+            });
+
             await RunTest("DispatchVoyageQueuedAsync ReturnsBeforeAssignmentLaunchCompletes", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
