@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
@@ -93,6 +94,72 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(1, executionPage.Objects.Count);
                 AssertEqual(RunbookExecutionStatusEnum.Completed, executionPage.Objects[0].Status);
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue dispatch attaches Build and UnitTest checks to the rescue voyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_checks", "usr_auto_checks").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_checks", "usr_auto_checks").ConfigureAwait(false);
+                string workingDir = Path.Combine(Path.GetTempPath(), "armada_auto_checks_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDir);
+                vessel.WorkingDirectory = workingDir;
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                WorkflowProfile profile = new WorkflowProfile
+                {
+                    TenantId = vessel.TenantId,
+                    Name = "Auto Checks Profile",
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = vessel.Id,
+                    BuildCommand = "true",
+                    UnitTestCommand = "true",
+                    IsDefault = true,
+                    Active = true
+                };
+                await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, profiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, profiles, readiness, logging);
+
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), logging,
+                    null, null, null, null, null, null, checkRuns);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                // The rescue Judge's real-signal gate needs independent green Checks; the
+                // orchestrator must attach Build + UnitTest to the rescue voyage at dispatch
+                // (regression for the 231e760e incident where a recovery judge PASS was
+                // rejected for having no Checks).
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertFalse(String.IsNullOrWhiteSpace(rescue!.VoyageId), "Rescue mission must belong to a rescue voyage");
+
+                EnumerationResult<CheckRun> checkPage = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                {
+                    VoyageId = rescue.VoyageId,
+                    PageNumber = 1,
+                    PageSize = 50
+                }, CancellationToken.None).ConfigureAwait(false);
+
+                AssertTrue(checkPage.Objects.Any(c => c.Type == CheckRunTypeEnum.Build),
+                    "A Build check must be attached to the rescue voyage");
+                AssertTrue(checkPage.Objects.Any(c => c.Type == CheckRunTypeEnum.UnitTest),
+                    "A UnitTest check must be attached to the rescue voyage");
             }).ConfigureAwait(false);
 
             await RunTest("Claude thinking block failure disables extended thinking on rescue captain", async () =>

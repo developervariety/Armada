@@ -47,6 +47,7 @@ namespace Armada.Server
         private readonly ProviderProgressTracker? _ProviderProgress;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _MissionLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
+        private readonly CheckRunService? _CheckRuns;
 
         /// <summary>
         /// Instantiate.
@@ -58,7 +59,7 @@ namespace Armada.Server
             RunbookService runbooks,
             ArmadaSettings settings,
             LoggingModule logging)
-            : this(database, admiral, incidents, runbooks, settings, logging, null, null, null, null, null, null)
+            : this(database, admiral, incidents, runbooks, settings, logging, null, null, null, null, null, null, null)
         {
         }
 
@@ -77,7 +78,7 @@ namespace Armada.Server
             IAutoLandEvaluator? autoLandEvaluator,
             IConventionChecker? conventionChecker,
             ICriticalTriggerEvaluator? criticalTriggerEvaluator)
-            : this(database, admiral, incidents, runbooks, settings, logging, mergeQueue, git, autoLandEvaluator, conventionChecker, criticalTriggerEvaluator, null)
+            : this(database, admiral, incidents, runbooks, settings, logging, mergeQueue, git, autoLandEvaluator, conventionChecker, criticalTriggerEvaluator, null, null)
         {
         }
 
@@ -105,7 +106,8 @@ namespace Armada.Server
             IAutoLandEvaluator? autoLandEvaluator,
             IConventionChecker? conventionChecker,
             ICriticalTriggerEvaluator? criticalTriggerEvaluator,
-            ProviderProgressTracker? providerProgress)
+            ProviderProgressTracker? providerProgress,
+            CheckRunService? checkRuns = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -119,6 +121,7 @@ namespace Armada.Server
             _ConventionChecker = conventionChecker;
             _CriticalTriggerEvaluator = criticalTriggerEvaluator;
             _ProviderProgress = providerProgress;
+            _CheckRuns = checkRuns;
         }
 
         /// <summary>
@@ -1244,7 +1247,57 @@ namespace Armada.Server
                 BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "Judge", attemptNumber),
                 token).ConfigureAwait(false);
 
+            // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
+            // Build/UnitTest Checks, and a rescue voyage has none unless something creates them
+            // (a recovery judge with no Checks was rejected at the gate and misreported as a judge
+            // FAIL - the 231e760e incident). Attach and run the checks now, exactly as an operator
+            // would with armada_run_check after dispatch. They run sequentially (never two full
+            // suites at once on this host), and a failure here must not break the rescue dispatch.
+            await RunRescueChecksAsync(failedMission, rescueVoyage.Id, token).ConfigureAwait(false);
+
             return dispatchedWorker;
+        }
+
+        /// <summary>
+        /// Create and run Build then UnitTest checks for a rescue voyage so the rescue Judge's
+        /// real-signal gate finds independent green Checks when it evaluates the PASS. Runs
+        /// sequentially and swallows failures: the rescue must proceed even if a check cannot be
+        /// created or executed (the gate then reports the specific rejection reason).
+        /// </summary>
+        /// <param name="failedMission">The failed mission being rescued; supplies vessel context.</param>
+        /// <param name="voyageId">The rescue voyage the checks are linked to.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task RunRescueChecksAsync(Mission failedMission, string voyageId, CancellationToken token)
+        {
+            if (_CheckRuns == null) return;
+            if (String.IsNullOrWhiteSpace(failedMission.VesselId)) return;
+
+            AuthContext auth = AuthContext.Authenticated(
+                Constants.DefaultTenantId,
+                Constants.DefaultUserId,
+                isAdmin: true,
+                isTenantAdmin: true,
+                authMethod: "System",
+                principalDisplay: "Autonomous recovery checks");
+
+            foreach (CheckRunTypeEnum type in new CheckRunTypeEnum[] { CheckRunTypeEnum.Build, CheckRunTypeEnum.UnitTest })
+            {
+                try
+                {
+                    await _CheckRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = failedMission.VesselId,
+                        VoyageId = voyageId,
+                        MissionId = failedMission.Id,
+                        Type = type,
+                        Label = "Rescue " + type
+                    }, allowDeploymentExecution: false, token: token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not run rescue " + type + " check for voyage " + voyageId + ": " + ex.Message);
+                }
+            }
         }
 
         // Build a downstream verification stage (TestEngineer / Judge) for the rescue loop. The
