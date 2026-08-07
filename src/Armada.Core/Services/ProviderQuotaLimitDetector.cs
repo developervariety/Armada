@@ -33,6 +33,7 @@ namespace Armada.Core.Services
                 normalized.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("authentication", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("authenticate", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("permission_denied", StringComparison.OrdinalIgnoreCase);
         }
 

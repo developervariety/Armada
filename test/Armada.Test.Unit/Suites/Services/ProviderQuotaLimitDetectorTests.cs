@@ -394,6 +394,12 @@ namespace Armada.Test.Unit.Suites.Services
                     ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("authentication failed for provider"),
                     "authentication should be detected");
                 AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("Failed to authenticate. API Error: 403"),
+                    "the canonical CLI auth-failure phrasing must be detected (verb form)");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("Failed to authenticate. API Error: 403 \u9884\u6263\u8D39\u989D\u5EA6\u5931\u8D25"),
+                    "an auth failure whose balance detail is non-English must still be detected");
+                AssertTrue(
                     ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("permission_denied for resource"),
                     "permission_denied should be detected");
                 return Task.CompletedTask;
