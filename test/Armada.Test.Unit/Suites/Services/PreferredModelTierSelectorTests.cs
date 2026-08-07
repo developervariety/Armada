@@ -1031,6 +1031,42 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Architect", null), "a persona absent from the allow-list is rejected");
                 return Task.CompletedTask;
             });
+
+            await RunTest("ResolveTierForPersona_HighInheritedByNonSpecialist_CapsToMid", () =>
+            {
+                // The rescue path inherits the failed mission's tier, and a Judge rejection is
+                // recovered by a Worker. Carrying the reviewer's "high" onto the Worker makes the
+                // rescue unassignable whenever no high-tier captain accepts the Worker persona.
+                AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("high", "Worker"), "a high tier inherited by a Worker is capped to mid");
+                AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("High", "Worker"), "the cap is case-insensitive");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ResolveTierForPersona_NonHighTiers_PassThroughUnchanged", () =>
+            {
+                AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("mid", "Worker"), "an explicit mid request is preserved");
+                AssertEqual("low", PreferredModelTierSelector.ResolveTierForPersona("low", "Worker"), "an explicit low request is preserved");
+                AssertNull(PreferredModelTierSelector.ResolveTierForPersona(null, "Worker"), "a non-specialist with no preferred model is left unset, not filled in");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ResolveTierForPersona_SpecialistPersona_StillUpgradesToHigh", () =>
+            {
+                // The cap must not weaken the existing upgrade: specialist personas keep high.
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", "Judge"), "a Judge keeps high");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", "Judge"), "a Judge is upgraded from mid to high");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona(null, "TestEngineer"), "a TestEngineer with no tier is set to high");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ResolveTierForPersona_LiteralModelName_IsNeverRewritten", () =>
+            {
+                // An operator-pinned literal stays honest in both directions; the dispatcher's
+                // tier-fallback handles the runtime case when no captain matches.
+                AssertEqual("claude-opus-4-7", PreferredModelTierSelector.ResolveTierForPersona("claude-opus-4-7", "Worker"), "a literal model name is not capped");
+                AssertEqual("zyloo/gpt-5.6-sol", PreferredModelTierSelector.ResolveTierForPersona("zyloo/gpt-5.6-sol", "Judge"), "a literal model name is not upgraded");
+                return Task.CompletedTask;
+            });
         }
     }
 }

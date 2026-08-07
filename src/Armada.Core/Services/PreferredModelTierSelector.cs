@@ -204,6 +204,42 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Returns a PreferredModel value safe to store on a mission whose persona may differ
+        /// from the mission the value was inherited from. This is the two-way counterpart to
+        /// <see cref="EnforceHighTierForPersona"/>: it upgrades to "high" for specialist
+        /// personas exactly as that method does, and it additionally caps a "high" selector
+        /// down to "mid" for a persona that is not a specialist.
+        ///
+        /// The cap matters because the high tier is reserved for specialist and reviewer
+        /// personas. A non-specialist persona carrying "high" is unassignable whenever the
+        /// captain roster has no high-tier captain that accepts that persona: the mission
+        /// waits at WaitingForIdleCaptain forever while captains sit Idle, which reads as a
+        /// capacity problem and is not one. Inheriting a tier across a persona change is the
+        /// way that state is normally reached.
+        ///
+        /// Literal model names are passed through unchanged so operator-pinned literals stay
+        /// honest, and a null or empty value is only filled in when the persona requires high.
+        /// </summary>
+        /// <param name="preferredModel">Requested tier selector or literal model name.</param>
+        /// <param name="persona">Persona the mission will actually run as.</param>
+        /// <param name="specialistPersonas">Optional override set; null uses the built-in default.</param>
+        public static string? ResolveTierForPersona(
+            string? preferredModel,
+            string? persona,
+            IReadOnlyCollection<string>? specialistPersonas = null)
+        {
+            if (RequiresHighTier(persona, specialistPersonas))
+                return EnforceHighTierForPersona(preferredModel, persona, specialistPersonas);
+
+            if (String.IsNullOrWhiteSpace(preferredModel)) return preferredModel;
+            if (!IsTierSelector(preferredModel)) return preferredModel;
+            if (String.Equals(NormalizeTier(preferredModel), HighTier, StringComparison.OrdinalIgnoreCase))
+                return MidTier;
+
+            return preferredModel;
+        }
+
+        /// <summary>
         /// Normalizes a tier selector value to its canonical form (low, mid, or high).
         /// Throws <see cref="ArgumentException"/> if value is not a tier selector.
         /// </summary>

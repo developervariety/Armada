@@ -1175,7 +1175,14 @@ namespace Armada.Server
                 VesselId = failedMission.VesselId,
                 ParentMissionId = failedMission.Id,
                 Persona = rescuePersona,
-                PreferredModel = failedMission.PreferredModel,
+                // The rescue persona is frequently NOT the failed mission's persona -- a Judge
+                // rejection is recovered by a Worker revision. Inheriting the tier verbatim hands
+                // the Worker the reviewer's "high", which no high-tier captain accepts, so the
+                // rescue queues forever instead of running. Resolve the tier against the persona
+                // the rescue will actually run as.
+                PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
+                    failedMission.PreferredModel,
+                    rescuePersona),
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
                 Description = BuildRescueDescription(failedMission, incident, attemptNumber),
@@ -1317,7 +1324,12 @@ namespace Armada.Server
                 VoyageId = voyageId,
                 DependsOnMissionId = dependsOnMissionId,
                 Persona = persona,
-                PreferredModel = failedMission.PreferredModel,
+                // Same persona/tier mismatch as the rescue itself: this stage runs as its own
+                // persona, so the tier must be resolved against that persona rather than copied
+                // from the failed mission.
+                PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
+                    failedMission.PreferredModel,
+                    persona),
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Status = MissionStatusEnum.Pending,
                 RecoveryAttempts = attemptNumber,
