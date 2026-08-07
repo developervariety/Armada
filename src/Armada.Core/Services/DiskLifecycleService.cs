@@ -226,7 +226,14 @@ namespace Armada.Core.Services
                 {
                     MissionStatusEnum.Pending,
                     MissionStatusEnum.Assigned,
-                    MissionStatusEnum.InProgress
+                    MissionStatusEnum.InProgress,
+                    // Mid-pipeline states: the mission's dock is still in use while the DoD gate
+                    // runs (WorkProduced), while a TestEngineer/Review stage works (Testing/Review),
+                    // or while landing retries are possible (LandingFailed).
+                    MissionStatusEnum.WorkProduced,
+                    MissionStatusEnum.Testing,
+                    MissionStatusEnum.Review,
+                    MissionStatusEnum.LandingFailed
                 })
                 {
                     List<Mission> missions = await _Database.Missions.EnumerateByStatusAsync(status, token).ConfigureAwait(false);
@@ -290,6 +297,16 @@ namespace Armada.Core.Services
                     if (protectedPaths.Contains(full))
                     {
                         RecordAction(report, category, full, "protected", "active dock or preserved for a live mission");
+                        category.ProtectedItems++;
+                        continue;
+                    }
+
+                    // Dock directories are named by dock id (docks/<Vessel>/<dockId>). A lease held
+                    // by a definition-of-done gate pins the worktree even when the DB row has not yet
+                    // been updated (obj_msg0hlkw: gates queued behind another gate lost their docks).
+                    if (DockLeaseRegistry.IsHeld(Path.GetFileName(full)))
+                    {
+                        RecordAction(report, category, full, "protected", "dock lease held by an active gate");
                         category.ProtectedItems++;
                         continue;
                     }

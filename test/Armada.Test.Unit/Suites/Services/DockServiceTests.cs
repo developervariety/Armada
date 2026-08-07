@@ -719,6 +719,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ReclaimAsync defers while a definition-of-done gate holds the dock lease", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    LockingGitService git = new LockingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string worktree = Path.Combine(settings.DocksDirectory, "leased-mission");
+                    Directory.CreateDirectory(worktree);
+                    await File.WriteAllTextAsync(Path.Combine(worktree, "sentinel.txt"), "gate still needs this").ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("lease-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = worktree,
+                        BranchName = "armada/leased",
+                        Active = true
+                    };
+                    dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    // A queued definition-of-done gate holds the lease; reclamation must defer.
+                    DockLeaseRegistry.Acquire(dock.Id);
+                    try
+                    {
+                        await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
+
+                        Dock? reloaded = await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+                        AssertNotNull(reloaded, "Dock should remain readable");
+                        AssertTrue(reloaded!.Active, "A leased dock must not be reclaimed");
+                        AssertTrue(File.Exists(Path.Combine(worktree, "sentinel.txt")),
+                            "The worktree must survive while the gate lease is held");
+                    }
+                    finally
+                    {
+                        DockLeaseRegistry.Release(dock.Id);
+                    }
+
+                    // Once the gate releases the lease, reclamation proceeds normally.
+                    await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
+
+                    Dock? afterRelease = await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+                    AssertNotNull(afterRelease, "Dock should remain readable after release");
+                    AssertFalse(afterRelease!.Active, "Dock must be reclaimable after the lease is released");
+                }
+            });
+
             await RunTest("ProvisionAsync provisions declared sibling repos at expected relative paths with branch-compatible refs", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

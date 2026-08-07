@@ -139,14 +139,28 @@ namespace Armada.Core.Services
             // and the next mission is admitted underneath it. Widening that query to include
             // WorkProduced would deadlock every vessel holding a stranded WorkProduced mission.
             // The contended resource is the host, not the vessel, so the lock belongs here.
-            await _GateExecutionLock.WaitAsync(token).ConfigureAwait(false);
+            //
+            // A queued gate must keep its dock alive for the whole wait: the host-wide lock can sit
+            // this gate behind another gate's full build+test run, and dock reclamation would delete
+            // the worktree in between (obj_msg0hlkw - five missions lost their worktrees this way).
+            // The lease is held across the queue wait and the command run, and released afterwards;
+            // the disk-lifecycle sweep and DockService.ReclaimAsync both honor it.
+            DockLeaseRegistry.Acquire(dock.Id);
             try
             {
-                return await RunGateCommandsAsync(profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
+                await _GateExecutionLock.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    return await RunGateCommandsAsync(profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _GateExecutionLock.Release();
+                }
             }
             finally
             {
-                _GateExecutionLock.Release();
+                DockLeaseRegistry.Release(dock.Id);
             }
         }
 

@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Threading;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -164,6 +165,54 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(result.Passed, "Gate should pass when both commands succeed");
                     AssertNull(result.CommandLabel, "No command should be labeled as failing");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate holds a dock lease across execution and releases it afterwards", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    // A deliberately slow build command so the lease is observable while the gate runs.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_lease", "vsl_lease",
+                        worktreePath, "sleep 2", "true").ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+
+                    Mission mission = CreateWorkerMission("ten_lease", "vsl_lease");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+                    AssertFalse(DockLeaseRegistry.IsHeld(dock.Id), "No lease before the gate runs");
+
+                    Task<DefinitionOfDoneResult> run = gate.EvaluateAsync(mission, dock, CancellationToken.None);
+
+                    // Poll until the gate is inside the critical section (lease acquired before the
+                    // host-wide wait), then assert the lease is genuinely held mid-execution.
+                    bool observedHeld = false;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+                    while (DateTime.UtcNow < deadline && !run.IsCompleted)
+                    {
+                        if (DockLeaseRegistry.IsHeld(dock.Id))
+                        {
+                            observedHeld = true;
+                            break;
+                        }
+                        await Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    AssertTrue(observedHeld, "The gate must hold the dock lease while it executes");
+                    DefinitionOfDoneResult result = await run.ConfigureAwait(false);
+                    AssertTrue(result.Passed, "Gate should pass when both commands succeed");
+                    AssertFalse(DockLeaseRegistry.IsHeld(dock.Id), "The gate must release the lease after execution");
+                    AssertEqual(0, DockLeaseRegistry.LeaseCount(dock.Id), "Lease count must return to zero");
                 }
                 finally
                 {

@@ -101,6 +101,74 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Scan protects a gate-leased dock and a WorkProduced-mission dock from the orphan sweep", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    Vessel vessel = await CreateVesselWithSiblingAsync(testDb, layout).ConfigureAwait(false);
+
+                    // Orphan dock dir (old, gitdir marker) stays reclaimable.
+                    Directory.CreateDirectory(layout.OrphanDockPath);
+                    File.WriteAllText(Path.Combine(layout.OrphanDockPath, ".git"), "gitdir: /tmp/nowhere\n");
+                    File.SetLastWriteTimeUtc(layout.OrphanDockPath, DateTime.UtcNow.AddDays(-2));
+
+                    // A dock directory whose mission is WorkProduced (mid-gate) with an old
+                    // timestamp: protected by the mission-status loop even though the dock row is
+                    // inactive (obj_msg0hlkw regression).
+                    string producedDockPath = Path.Combine(Path.GetDirectoryName(layout.ActiveDockPath)!, "msn_produced");
+                    Directory.CreateDirectory(producedDockPath);
+                    File.WriteAllText(Path.Combine(producedDockPath, ".git"), "gitdir: /tmp/nowhere\n");
+                    File.SetLastWriteTimeUtc(producedDockPath, DateTime.UtcNow.AddDays(-2));
+                    Dock producedDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = producedDockPath,
+                        Active = false
+                    };
+                    producedDock = await testDb.Driver.Docks.CreateAsync(producedDock).ConfigureAwait(false);
+                    Mission produced = new Mission("produced-mission", "mid-gate");
+                    produced.VesselId = vessel.Id;
+                    produced.Status = MissionStatusEnum.WorkProduced;
+                    produced.DockId = producedDock.Id;
+                    await testDb.Driver.Missions.CreateAsync(produced).ConfigureAwait(false);
+
+                    // A dock directory pinned by a definition-of-done gate lease, also old:
+                    // protected only by the lease (obj_msg0hlkw regression).
+                    string leasedDockPath = Path.Combine(Path.GetDirectoryName(layout.ActiveDockPath)!, "msn_leased");
+                    Directory.CreateDirectory(leasedDockPath);
+                    File.WriteAllText(Path.Combine(leasedDockPath, ".git"), "gitdir: /tmp/nowhere\n");
+                    File.SetLastWriteTimeUtc(leasedDockPath, DateTime.UtcNow.AddDays(-2));
+                    string leasedDockId = "msn_leased";
+                    DockLeaseRegistry.Acquire(leasedDockId);
+                    try
+                    {
+                        DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, logging);
+                        DiskLifecycleReport report = await service.ScanAsync().ConfigureAwait(false);
+
+                        AssertTrue(
+                            report.Actions.Any(a => a.Category == "docks" && a.Path == layout.OrphanDockPath && a.Disposition == "dry-run-reclaim"),
+                            "Old orphan dock dir must still be flagged reclaimable.");
+                        AssertTrue(
+                            report.Actions.Any(a => a.Category == "docks" && a.Path == producedDockPath && a.Disposition == "protected"),
+                            "A WorkProduced-mission dock must be protected from the orphan sweep.");
+                        AssertTrue(
+                            report.Actions.Any(a => a.Category == "docks" && a.Path == leasedDockPath && a.Disposition == "protected"),
+                            "A gate-leased dock directory must be protected from the orphan sweep.");
+                    }
+                    finally
+                    {
+                        DockLeaseRegistry.Release(leasedDockId);
+                    }
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Reconcile in dry-run mode deletes nothing; enabled mode deletes only eligible items", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
