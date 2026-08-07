@@ -106,6 +106,19 @@ namespace Armada.Core.Models
         public DateTime? TestStartedUtc { get; set; } = null;
 
         /// <summary>
+        /// Number of times processing this entry has been attempted. Bounds automatic retries so
+        /// a persistently failing entry is not retried forever.
+        /// </summary>
+        public int RetryCount { get; set; } = 0;
+
+        /// <summary>
+        /// UTC time at which the current processing lease on this entry expires. A non-terminal
+        /// entry (e.g. stuck in Testing) whose lease has elapsed is recovered by the queue driver
+        /// rather than blocking the queue head indefinitely. Null when not being processed.
+        /// </summary>
+        public DateTime? LeaseExpiresUtc { get; set; } = null;
+
+        /// <summary>
         /// Timestamp when the entry was landed or failed.
         /// </summary>
         public DateTime? CompletedUtc { get; set; } = null;

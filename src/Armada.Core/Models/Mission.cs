@@ -165,6 +165,13 @@ namespace Armada.Core.Models
         public DateTime? ReviewRequestedUtc { get; set; } = null;
 
         /// <summary>
+        /// UTC deadline by which a mission parked in Review must be actioned. When elapsed, the
+        /// review watchdog escalates and frees the retained dock and captain so a forgotten
+        /// review cannot pin capacity indefinitely. Null when the mission is not awaiting review.
+        /// </summary>
+        public DateTime? ReviewDeadlineUtc { get; set; } = null;
+
+        /// <summary>
         /// Timestamp when this mission's most recent review decision was made.
         /// </summary>
         public DateTime? ReviewedUtc { get; set; } = null;

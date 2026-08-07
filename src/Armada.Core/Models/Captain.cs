@@ -134,6 +134,14 @@ namespace Armada.Core.Models
         public DateTime? LastHeartbeatUtc { get; set; } = null;
 
         /// <summary>
+        /// UTC time the captain's OS process was last observed alive by the supervisor. This is
+        /// distinct from <see cref="LastHeartbeatUtc"/>, which advances only on real agent output:
+        /// stall detection compares output-heartbeat age so a process that is alive but silent is
+        /// still detected as stalled, while liveness telemetry stays fresh here.
+        /// </summary>
+        public DateTime? LastProcessAliveUtc { get; set; } = null;
+
+        /// <summary>
         /// Creation timestamp in UTC.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
