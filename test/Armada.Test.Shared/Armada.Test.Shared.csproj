@@ -10,6 +10,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Armada.Core\Armada.Core.csproj" />
+    <ProjectReference Include="..\..\src\Armada.Runtimes\Armada.Runtimes.csproj" />
+    <ProjectReference Include="..\..\src\Armada.Server\Armada.Server.csproj" />
+    <ProjectReference Include="..\..\src\Armada.Proxy\Armada.Proxy.csproj" />
   </ItemGroup>
 
 </Project>

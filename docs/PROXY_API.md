@@ -1,6 +1,6 @@
 # Proxy API
 
-**Version:** `0.8.0`
+**Version:** 0.8.0
 
 `Armada.Proxy` is now a portal and relay for the real Armada dashboard. It no longer ships a second long-lived remote operations UI with its own feature-by-feature API family.
 
