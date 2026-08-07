@@ -72,6 +72,7 @@ namespace Armada.Core.Database.SqlServer
             Events = new EventMethods(this, _Settings, _Logging);
             RequestHistory = new RequestHistoryMethods(this);
             MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
@@ -327,6 +328,20 @@ namespace Armada.Core.Database.SqlServer
         }
 
         /// <summary>
+        /// Convert a native DATETIME2 column value to a nullable UTC DateTime, handling DBNull.
+        /// SQL Server returns DATETIME2 values with an unspecified kind; they are stamped as UTC
+        /// here because all Armada timestamps are stored and compared in UTC.
+        /// </summary>
+        /// <param name="value">Object value.</param>
+        /// <returns>Nullable UTC DateTime value.</returns>
+        internal static DateTime? NullableDateTime(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+            return DateTime.SpecifyKind(Convert.ToDateTime(value, CultureInfo.InvariantCulture), DateTimeKind.Utc);
+        }
+
+        /// <summary>
         /// Convert a SqlDataReader row to a Fleet model.
         /// </summary>
         /// <param name="reader">Data reader positioned on a row.</param>
@@ -421,6 +436,7 @@ namespace Armada.Core.Database.SqlServer
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
+            try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
@@ -477,6 +493,7 @@ namespace Armada.Core.Database.SqlServer
             try { mission.ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]); } catch { }
             try { mission.ReviewRequestedUtc = FromIso8601Nullable(reader["review_requested_utc"]); } catch { }
             try { mission.ReviewedUtc = FromIso8601Nullable(reader["reviewed_utc"]); } catch { }
+            try { mission.ReviewDeadlineUtc = NullableDateTime(reader["review_deadline_utc"]); } catch { }
             return mission;
         }
 
@@ -522,6 +539,15 @@ namespace Armada.Core.Database.SqlServer
             dock.WorktreePath = NullableString(reader["worktree_path"]);
             dock.BranchName = NullableString(reader["branch_name"]);
             dock.Active = Convert.ToBoolean(reader["active"]);
+            try
+            {
+                string? dockStateStr = NullableString(reader["state"]);
+                if (!String.IsNullOrEmpty(dockStateStr) && Enum.TryParse<DockStateEnum>(dockStateStr, out DockStateEnum dockState))
+                    dock.State = dockState;
+            }
+            catch { }
+            try { dock.LeaseExpiresUtc = NullableDateTime(reader["lease_expires_utc"]); } catch { }
+            try { dock.OwnerToken = NullableString(reader["owner_token"]); } catch { }
             dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return dock;
@@ -592,6 +618,8 @@ namespace Armada.Core.Database.SqlServer
             entry.TestCommand = NullableString(reader["test_command"]);
             entry.TestOutput = NullableString(reader["test_output"]);
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
+            try { entry.RetryCount = Convert.ToInt32(reader["retry_count"]); } catch { }
+            try { entry.LeaseExpiresUtc = NullableDateTime(reader["lease_expires_utc"]); } catch { }
             entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);

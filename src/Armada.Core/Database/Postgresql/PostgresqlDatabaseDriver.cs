@@ -250,6 +250,7 @@ namespace Armada.Core.Database.Postgresql
             CheckRuns = new CheckRunMethods(this);
             Releases = new ReleaseMethods(this);
             Deployments = new DeploymentMethods(this);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
         }
 
         #endregion

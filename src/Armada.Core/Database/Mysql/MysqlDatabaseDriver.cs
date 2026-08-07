@@ -80,6 +80,7 @@ namespace Armada.Core.Database.Mysql
             CheckRuns = new CheckRunMethods(_ConnectionString);
             Releases = new ReleaseMethods(_ConnectionString);
             Deployments = new DeploymentMethods(_ConnectionString);
+            CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
         }
 
         #endregion
@@ -339,7 +340,8 @@ namespace Armada.Core.Database.Mysql
                 TableQueries.Docks,
                 TableQueries.Signals,
                 TableQueries.Events,
-                TableQueries.MergeEntries
+                TableQueries.MergeEntries,
+                TableQueries.CoordinationLeases
             };
 
             foreach (string index in TableQueries.Indexes)
@@ -508,6 +510,11 @@ namespace Armada.Core.Database.Mysql
                     42,
                     "Add normalized objectives backlog tables",
                     TableQueries.MigrationV42Statements
+                ),
+                new SchemaMigration(
+                    44,
+                    "Reliability release: dock leases, process liveness, review deadline, merge retry, coordination leases",
+                    TableQueries.MigrationV44Statements
                 )
             };
         }
@@ -667,6 +674,7 @@ namespace Armada.Core.Database.Mysql
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
+            try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return captain;
@@ -722,6 +730,8 @@ namespace Armada.Core.Database.Mysql
             entry.TestCommand = NullableString(reader["test_command"]);
             entry.TestOutput = NullableString(reader["test_output"]);
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
+            try { entry.RetryCount = Convert.ToInt32(reader["retry_count"]); } catch { }
+            try { entry.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
             entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);

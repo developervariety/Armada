@@ -70,6 +70,7 @@ namespace Armada.Core.Database.Mysql.Queries
             process_id INT,
             recovery_attempts INT NOT NULL DEFAULT 0,
             last_heartbeat_utc DATETIME(6),
+            last_process_alive_utc DATETIME(6) NULL,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL
         );";
@@ -111,6 +112,7 @@ namespace Armada.Core.Database.Mysql.Queries
             commit_hash VARCHAR(450),
             diff_snapshot LONGTEXT,
             agent_output LONGTEXT,
+            review_deadline_utc DATETIME(6) NULL,
             created_utc DATETIME(6) NOT NULL,
             started_utc DATETIME(6),
             completed_utc DATETIME(6),
@@ -130,6 +132,9 @@ namespace Armada.Core.Database.Mysql.Queries
             captain_id VARCHAR(450),
             worktree_path LONGTEXT,
             branch_name VARCHAR(450),
+            state VARCHAR(32) NOT NULL DEFAULT 'Available',
+            lease_expires_utc DATETIME(6) NULL,
+            owner_token TEXT NULL,
             active TINYINT(1) NOT NULL DEFAULT 1,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL,
@@ -184,6 +189,8 @@ namespace Armada.Core.Database.Mysql.Queries
             test_command LONGTEXT,
             test_output LONGTEXT,
             test_exit_code INT,
+            retry_count INT NOT NULL DEFAULT 0,
+            lease_expires_utc DATETIME(6) NULL,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL,
             test_started_utc DATETIME(6),
@@ -1095,6 +1102,35 @@ namespace Armada.Core.Database.Mysql.Queries
             );",
             @"CREATE INDEX idx_objective_refinement_messages_session_sequence ON objective_refinement_messages(objective_refinement_session_id, sequence);",
             @"CREATE INDEX idx_objective_refinement_messages_objective_created ON objective_refinement_messages(objective_id, created_utc DESC);"
+        };
+
+        /// <summary>
+        /// DDL for the coordination_leases table. Provides durable, restart-safe, multi-instance-safe
+        /// mutual exclusion via atomic compare-and-swap on the lease name, with TTL-based takeover.
+        /// </summary>
+        public static readonly string CoordinationLeases = @"CREATE TABLE IF NOT EXISTS coordination_leases (
+            name VARCHAR(255) NOT NULL PRIMARY KEY,
+            holder TEXT NOT NULL,
+            tenant_id VARCHAR(255) NULL,
+            acquired_utc DATETIME(6) NOT NULL,
+            expires_utc DATETIME(6) NOT NULL,
+            INDEX idx_coordination_leases_expires (expires_utc)
+        );";
+
+        /// <summary>
+        /// Migration v44 statements for the reliability release: dock leases, process liveness,
+        /// review deadline, merge retry, and coordination leases.
+        /// </summary>
+        public static readonly string[] MigrationV44Statements = new string[]
+        {
+            @"ALTER TABLE docks ADD COLUMN state VARCHAR(32) NOT NULL DEFAULT 'Available';",
+            @"ALTER TABLE docks ADD COLUMN lease_expires_utc DATETIME(6) NULL;",
+            @"ALTER TABLE docks ADD COLUMN owner_token TEXT NULL;",
+            @"ALTER TABLE captains ADD COLUMN last_process_alive_utc DATETIME(6) NULL;",
+            @"ALTER TABLE missions ADD COLUMN review_deadline_utc DATETIME(6) NULL;",
+            @"ALTER TABLE merge_entries ADD COLUMN retry_count INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE merge_entries ADD COLUMN lease_expires_utc DATETIME(6) NULL;",
+            CoordinationLeases
         };
 
         /// <summary>

@@ -28,7 +28,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 Docks,
                 Signals,
                 Events,
-                MergeEntries
+                MergeEntries,
+                CoordinationLeases
             };
 
             foreach (string index in Indexes)
@@ -792,6 +793,27 @@ namespace Armada.Core.Database.SqlServer.Queries
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_objective_refinement_messages_session_sequence') CREATE INDEX idx_objective_refinement_messages_session_sequence ON objective_refinement_messages(objective_refinement_session_id, sequence);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_objective_refinement_messages_objective_created') CREATE INDEX idx_objective_refinement_messages_objective_created ON objective_refinement_messages(objective_id, created_utc DESC);"
+                ),
+                new SchemaMigration(
+                    44,
+                    "Reliability release: dock leases, process liveness, review deadline, merge retry, coordination leases",
+                    @"IF COL_LENGTH('docks', 'state') IS NULL ALTER TABLE docks ADD state NVARCHAR(32) NOT NULL CONSTRAINT DF_docks_state DEFAULT 'Available';",
+                    @"IF COL_LENGTH('docks', 'lease_expires_utc') IS NULL ALTER TABLE docks ADD lease_expires_utc DATETIME2 NULL;",
+                    @"IF COL_LENGTH('docks', 'owner_token') IS NULL ALTER TABLE docks ADD owner_token NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('captains', 'last_process_alive_utc') IS NULL ALTER TABLE captains ADD last_process_alive_utc DATETIME2 NULL;",
+                    @"IF COL_LENGTH('missions', 'review_deadline_utc') IS NULL ALTER TABLE missions ADD review_deadline_utc DATETIME2 NULL;",
+                    @"IF COL_LENGTH('merge_entries', 'retry_count') IS NULL ALTER TABLE merge_entries ADD retry_count INT NOT NULL CONSTRAINT DF_merge_entries_retry_count DEFAULT 0;",
+                    @"IF COL_LENGTH('merge_entries', 'lease_expires_utc') IS NULL ALTER TABLE merge_entries ADD lease_expires_utc DATETIME2 NULL;",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'coordination_leases')
+                    CREATE TABLE coordination_leases (
+                        name NVARCHAR(255) NOT NULL PRIMARY KEY,
+                        holder NVARCHAR(MAX) NOT NULL,
+                        tenant_id NVARCHAR(255) NULL,
+                        acquired_utc DATETIME2 NOT NULL,
+                        expires_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_coordination_leases_expires') CREATE INDEX idx_coordination_leases_expires ON coordination_leases(expires_utc);"
                 )
             };
         }
@@ -917,6 +939,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 process_id INT,
                 recovery_attempts INT NOT NULL DEFAULT 0,
                 last_heartbeat_utc NVARCHAR(450),
+                last_process_alive_utc DATETIME2 NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 last_update_utc NVARCHAR(450) NOT NULL
             );";
@@ -962,6 +985,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 commit_hash NVARCHAR(450),
                 diff_snapshot NVARCHAR(MAX),
                 agent_output NVARCHAR(MAX),
+                review_deadline_utc DATETIME2 NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 started_utc NVARCHAR(450),
                 completed_utc NVARCHAR(450),
@@ -984,6 +1008,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                 worktree_path NVARCHAR(450),
                 branch_name NVARCHAR(450),
                 active BIT NOT NULL DEFAULT 1,
+                state NVARCHAR(32) NOT NULL DEFAULT 'Available',
+                lease_expires_utc DATETIME2 NULL,
+                owner_token NVARCHAR(MAX) NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 last_update_utc NVARCHAR(450) NOT NULL,
                 CONSTRAINT FK_docks_vessel FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE,
@@ -1043,10 +1070,25 @@ namespace Armada.Core.Database.SqlServer.Queries
                 test_command NVARCHAR(MAX),
                 test_output NVARCHAR(MAX),
                 test_exit_code INT,
+                retry_count INT NOT NULL DEFAULT 0,
+                lease_expires_utc DATETIME2 NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 last_update_utc NVARCHAR(450) NOT NULL,
                 test_started_utc NVARCHAR(450),
                 completed_utc NVARCHAR(450)
+            );";
+
+        /// <summary>
+        /// Coordination leases table. Backs restart-safe, multi-instance-safe mutual exclusion via
+        /// atomic compare-and-swap on the lease name with TTL-based takeover.
+        /// </summary>
+        public static readonly string CoordinationLeases = @"
+            CREATE TABLE coordination_leases (
+                name NVARCHAR(255) NOT NULL PRIMARY KEY,
+                holder NVARCHAR(MAX) NOT NULL,
+                tenant_id NVARCHAR(255) NULL,
+                acquired_utc DATETIME2 NOT NULL,
+                expires_utc DATETIME2 NOT NULL
             );";
 
         #endregion
@@ -1156,7 +1198,10 @@ namespace Armada.Core.Database.SqlServer.Queries
             "CREATE INDEX idx_merge_entries_tenant_status ON merge_entries(tenant_id, status);",
             "CREATE INDEX idx_merge_entries_tenant_status_priority ON merge_entries(tenant_id, status, priority ASC, created_utc ASC);",
             "CREATE INDEX idx_merge_entries_tenant_vessel ON merge_entries(tenant_id, vessel_id);",
-            "CREATE INDEX idx_merge_entries_tenant_mission ON merge_entries(tenant_id, mission_id);"
+            "CREATE INDEX idx_merge_entries_tenant_mission ON merge_entries(tenant_id, mission_id);",
+
+            // Coordination leases
+            "CREATE INDEX idx_coordination_leases_expires ON coordination_leases(expires_utc);"
         };
 
         #endregion

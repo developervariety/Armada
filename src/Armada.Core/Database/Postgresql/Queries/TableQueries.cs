@@ -123,6 +123,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         process_id INTEGER,
                         recovery_attempts INTEGER NOT NULL DEFAULT 0,
                         last_heartbeat_utc TIMESTAMP,
+                        last_process_alive_utc TIMESTAMP,
                         created_utc TIMESTAMP NOT NULL,
                         last_update_utc TIMESTAMP NOT NULL
                     );",
@@ -170,6 +171,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         commit_hash TEXT,
                         diff_snapshot TEXT,
                         agent_output TEXT,
+                        review_deadline_utc TIMESTAMP,
                         created_utc TIMESTAMP NOT NULL,
                         started_utc TIMESTAMP,
                         completed_utc TIMESTAMP,
@@ -201,6 +203,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                         worktree_path TEXT,
                         branch_name TEXT,
                         active BOOLEAN NOT NULL DEFAULT TRUE,
+                        state TEXT NOT NULL DEFAULT 'Available',
+                        lease_expires_utc TIMESTAMP,
+                        owner_token TEXT,
                         created_utc TIMESTAMP NOT NULL,
                         last_update_utc TIMESTAMP NOT NULL,
                         FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE,
@@ -280,6 +285,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                         test_command TEXT,
                         test_output TEXT,
                         test_exit_code INTEGER,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        lease_expires_utc TIMESTAMP,
                         created_utc TEXT NOT NULL,
                         last_update_utc TEXT NOT NULL,
                         test_started_utc TEXT,
@@ -294,7 +301,17 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_merge_entries_tenant_status ON merge_entries(tenant_id, status);",
                     @"CREATE INDEX IF NOT EXISTS idx_merge_entries_tenant_status_priority ON merge_entries(tenant_id, status, priority ASC, created_utc ASC);",
                     @"CREATE INDEX IF NOT EXISTS idx_merge_entries_tenant_vessel ON merge_entries(tenant_id, vessel_id);",
-                    @"CREATE INDEX IF NOT EXISTS idx_merge_entries_tenant_mission ON merge_entries(tenant_id, mission_id);"
+                    @"CREATE INDEX IF NOT EXISTS idx_merge_entries_tenant_mission ON merge_entries(tenant_id, mission_id);",
+
+                    // Coordination leases
+                    @"CREATE TABLE IF NOT EXISTS coordination_leases (
+                        name TEXT PRIMARY KEY,
+                        holder TEXT NOT NULL,
+                        tenant_id TEXT,
+                        acquired_utc TIMESTAMP NOT NULL,
+                        expires_utc TIMESTAMP NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_leases_expires ON coordination_leases(expires_utc);"
                 ),
                 new SchemaMigration(2, "Protected resources and user ownership",
                     @"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_protected BOOLEAN NOT NULL DEFAULT FALSE;",
@@ -937,6 +954,23 @@ namespace Armada.Core.Database.Postgresql.Queries
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_objective_refinement_messages_session_sequence ON objective_refinement_messages(objective_refinement_session_id, sequence);",
                     @"CREATE INDEX IF NOT EXISTS idx_objective_refinement_messages_objective_created ON objective_refinement_messages(objective_id, created_utc DESC);"
+                ),
+                new SchemaMigration(44, "Reliability release: dock leases, process liveness, review deadline, merge retry, coordination leases",
+                    @"ALTER TABLE docks ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'Available';",
+                    @"ALTER TABLE docks ADD COLUMN IF NOT EXISTS lease_expires_utc TIMESTAMP;",
+                    @"ALTER TABLE docks ADD COLUMN IF NOT EXISTS owner_token TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS last_process_alive_utc TIMESTAMP;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_deadline_utc TIMESTAMP;",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS lease_expires_utc TIMESTAMP;",
+                    @"CREATE TABLE IF NOT EXISTS coordination_leases (
+                        name TEXT PRIMARY KEY,
+                        holder TEXT NOT NULL,
+                        tenant_id TEXT,
+                        acquired_utc TIMESTAMP NOT NULL,
+                        expires_utc TIMESTAMP NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_leases_expires ON coordination_leases(expires_utc);"
                 )
             };
         }

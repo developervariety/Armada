@@ -144,6 +144,11 @@ namespace Armada.Core.Database
         /// </summary>
         public IDeploymentMethods Deployments { get; protected set; } = null!;
 
+        /// <summary>
+        /// Durable coordination lease operations (restart-safe, multi-instance-safe mutual exclusion).
+        /// </summary>
+        public ICoordinationLeaseMethods CoordinationLeases { get; protected set; } = null!;
+
         #endregion
 
         #region Constructors-and-Factories
