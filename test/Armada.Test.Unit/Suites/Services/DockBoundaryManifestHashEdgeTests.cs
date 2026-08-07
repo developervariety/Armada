@@ -13,11 +13,12 @@ namespace Armada.Test.Unit.Suites.Services
     /// and its wiring in <see cref="DockBoundaryScanner"/>).
     ///
     /// These tests complement <c>DockBoundaryManifestHashTests</c> by exercising:
-    /// per-line and per-file suppression granularity in multi-line/multi-file diffs; the
-    /// exact digest-shape boundaries (case sensitivity, length); case-insensitive hash-field
-    /// keywords; additional known manifest/lockfile filenames; null/empty input guards; and
-    /// the SRI-form recognition branch, which the standard base64_chunk trigger does not
-    /// reach through the Scan path (see Residual Risks in the mission report).
+    /// per-line and per-file suppression granularity in multi-line/multi-file diffs;
+    /// the hex-run suppression policy of the base64-chunk entropy gate (obj_msfid367);
+    /// case-insensitive hash-field keywords; additional known manifest/lockfile
+    /// filenames; null/empty input guards; and the SRI-form recognition branch, which
+    /// the standard base64_chunk trigger does not reach through the Scan path (see
+    /// Residual Risks in the mission report).
     ///
     /// All secret- and digest-shaped inputs are assembled at runtime so this file's raw
     /// source does not itself trip CORE_RULE_5 when scanned by the dock boundary gate.
@@ -83,6 +84,14 @@ namespace Armada.Test.Unit.Suites.Services
             return "api_key = \"" + "ABCDEF1234567890ABCDEF" + "\"";
         }
 
+        // A genuine base64-shaped secret chunk (alphabet string encoding). Split into
+        // segments under 40 chars so the raw source never carries a firing quoted run.
+        private static string GenuineBase64Chunk()
+        {
+            return "QUJDRGVmZ2hJSktMbW5vUHFyU3R1Vld4WXowMTIz" +
+                   "NDU2Nzg5K2Yv";
+        }
+
         #endregion
 
         /// <summary>Run all tests.</summary>
@@ -110,18 +119,18 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Suppression is file-scoped: manifest hash exempt in lockfile, bare hex still flagged in source file", () =>
+            await RunTest("Suppression is file-scoped: manifest hash exempt in lockfile, genuine secret still flagged in source file", () =>
             {
                 string hashLine = "\"sha256\": \"" + _SyntheticHexDigest + "\"";
-                string bareHexLine = "token = \"" + _SyntheticHexDigest2 + "\"";
+                string secretLine = "token = \"" + GenuineBase64Chunk() + "\"";
                 string diff = FileBlock("package-lock.json", hashLine) +
-                              FileBlock("src/Config.cs", bareHexLine);
+                              FileBlock("src/Config.cs", secretLine);
                 DockBoundaryScanResult result = scanner.Scan(
                     diff, null, null, null, null, null, DefaultSettings());
                 AssertFalse(result.Passed,
-                    "The bare-hex token in the source file must still be flagged");
+                    "The genuine base64 secret in the source file must still be flagged");
                 AssertEqual(1, result.Findings.Count,
-                    "Only the source-file bare-hex line should be flagged");
+                    "Only the source-file secret line should be flagged");
                 AssertEqual("src/Config.cs", result.Findings[0].Path);
                 AssertEqual(_BaseChunkRule, result.Findings[0].FindingLabel);
                 return Task.CompletedTask;
@@ -158,38 +167,39 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // -----------------------------------------------------------------------
-            // Digest-shape boundaries: the exemption recognizes ONLY exactly-64
-            // lowercase hex. Uppercase or off-by-one length is NOT a digest and the
-            // base64_chunk match remains flagged even in a manifest hash field.
+            // Hex-run policy since obj_msfid367: every hex-alphabet chunk is suppressed
+            // by the entropy gate, whatever its case or length. These two cases were the
+            // old "conservative default" and are now explicitly reversed by the objective
+            // acceptance criterion "hex-ID runs no longer match".
             // -----------------------------------------------------------------------
 
-            await RunTest("Uppercase 64-hex in a manifest hash field is STILL flagged (lowercase-only policy)", () =>
+            await RunTest("Uppercase 64-hex in a manifest hash field is NOT flagged (hex-run suppression)", () =>
             {
-                // Uppercase hex is still valid base64, so base64_chunk fires, but the digest
-                // pattern is lowercase-only, so the token is not recognized as a content digest.
+                // Uppercase hex is still hex; the entropy gate suppresses every
+                // hex-alphabet run regardless of case or hash context.
                 string upper = _SyntheticHexDigest.ToUpperInvariant();
                 string line = "\"sha256\": \"" + upper + "\"";
                 string diff = FileBlock("package-lock.json", line);
                 DockBoundaryScanResult result = scanner.Scan(
                     diff, null, null, null, null, null, DefaultSettings());
-                AssertFalse(result.Passed,
-                    "Uppercase 64-hex is not a recognized digest and must remain flagged");
-                AssertEqual(_BaseChunkRule, result.Findings[0].FindingLabel);
+                AssertTrue(result.Passed,
+                    "Uppercase 64-hex is a hex run and must be suppressed");
+                AssertEqual(0, result.Findings.Count);
                 return Task.CompletedTask;
             });
 
-            await RunTest("65-hex token in a manifest hash field is STILL flagged (exactly-64 boundary)", () =>
+            await RunTest("65-hex token in a manifest hash field is NOT flagged (hex-run suppression)", () =>
             {
-                // 65 contiguous hex chars have no internal word boundary, so the exactly-64
-                // digest pattern does not match; base64_chunk still fires and stays flagged.
+                // A 65-char hex run is not an exactly-64 digest, but it is still a
+                // hex run, so the entropy gate suppresses it.
                 string tooLong = _SyntheticHexDigest + "a";
                 string line = "\"sha256\": \"" + tooLong + "\"";
                 string diff = FileBlock("package-lock.json", line);
                 DockBoundaryScanResult result = scanner.Scan(
                     diff, null, null, null, null, null, DefaultSettings());
-                AssertFalse(result.Passed,
-                    "A 65-char hex token is not a 64-char digest and must remain flagged");
-                AssertEqual(_BaseChunkRule, result.Findings[0].FindingLabel);
+                AssertTrue(result.Passed,
+                    "A 65-char hex run must be suppressed");
+                AssertEqual(0, result.Findings.Count);
                 return Task.CompletedTask;
             });
 

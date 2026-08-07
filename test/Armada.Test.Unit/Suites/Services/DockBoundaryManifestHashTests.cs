@@ -9,8 +9,10 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Tests that SHA-256 content digests in manifest/lockfile contexts are NOT flagged as
-    /// secrets by the dock boundary scanner, while genuine secrets remain blocked and bare
-    /// 64-hex tokens outside hash contexts continue to be treated per existing policy.
+    /// secrets by the dock boundary scanner, while genuine secrets remain blocked.
+    /// Bare hex tokens outside hash contexts are also no longer flagged: the
+    /// base64-chunk entropy gate (obj_msfid367) suppresses every hex-alphabet run
+    /// because hex runs are IDs or digests, not base64 secrets.
     /// </summary>
     public sealed class DockBoundaryManifestHashTests : TestSuite
     {
@@ -217,26 +219,26 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // -----------------------------------------------------------------------
-            // Bare 64-hex token outside hash context -- policy: still flagged
+            // Bare hex token outside hash context -- policy since obj_msfid367: NOT flagged
             //
-            // A 64-char lowercase hex string on a line that has no hash-field keyword
-            // and is not in a known manifest/lockfile is NOT exempted. This is deliberate:
-            // the allowlist requires both a digest-shaped token AND a hash-context signal
-            // so that a genuine API key or token that happens to be 64 lowercase hex chars
-            // in a non-manifest file is not silently suppressed.
+            // A 64-char hex string on a line that has no hash-field keyword and is not in a
+            // known manifest/lockfile is suppressed by the base64-chunk entropy gate, which
+            // treats every hex-alphabet run as an ID or digest rather than a base64 secret.
+            // This reverses the earlier conservative default per the objective acceptance
+            // criterion "hex-ID runs no longer match".
             // -----------------------------------------------------------------------
 
-            await RunTest("Bare 64-hex token in non-manifest non-hash context is STILL flagged", () =>
+            await RunTest("Bare 64-hex token in non-manifest non-hash context is NOT flagged (hex-run suppression)", () =>
             {
                 // A 64-char hex string on a plain source line with no hash-field keyword.
-                // Policy: this remains flagged per existing behavior (conservative default).
+                // Policy since obj_msfid367: hex runs are IDs/digests, never base64 secrets.
                 string line = "token = \"" + _SyntheticHexDigest + "\"";
                 string diff = MakeDiff("src/Config.cs", line);
                 DockBoundaryScanResult result = scanner.Scan(
                     diff, null, null, null, null, null, DefaultSettings());
-                AssertFalse(result.Passed,
-                    "Bare 64-hex token in non-hash context must remain flagged (conservative policy)");
-                AssertEqual(DockBoundaryFindingKindEnum.Secret, result.Findings[0].Kind);
+                AssertTrue(result.Passed,
+                    "Bare 64-hex token in non-hash context must be suppressed (hex-run policy)");
+                AssertEqual(0, result.Findings.Count);
                 return Task.CompletedTask;
             });
 

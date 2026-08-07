@@ -12,6 +12,10 @@ namespace Armada.Core.Services
     /// Rules check CORE RULE 2 (mocking libs), CORE RULE 4 (structured logging),
     /// CORE RULE 5 (secret patterns), CORE RULE 12 (spec/plan refs in comments).
     /// Non-blocking: failures don't prevent auto-land; they escalate to deep review.
+    /// CORE_RULE_5_base64_chunk applies an entropy and character-class gate before
+    /// firing, so long CamelCase identifiers, slash-joined path lists, and hex-ID runs
+    /// inside single-line JSON files no longer false-positive while genuine base64
+    /// key/seed/password material still blocks.
     /// </summary>
     public sealed class ConventionChecker : IConventionChecker
     {
@@ -22,6 +26,29 @@ namespace Armada.Core.Services
         // SRI integrity hash: sha256- prefix followed by 43-44 base64 chars with optional padding.
         private static readonly Regex _Sha256SriDigestPattern =
             new Regex(@"sha256-[A-Za-z0-9+/]{43,44}={0,2}", RegexOptions.Compiled);
+
+        // ERE pattern string for the base64-chunk rule. Shared verbatim by the dock-boundary
+        // hook config (DockService) so the hook and the server-side gate cannot drift. The
+        // pattern is deliberately broad; <see cref="LooksLikeBase64Secret"/> decides whether
+        // a quoted run is genuine secret material before the rule fires.
+        internal const string Base64ChunkPatternString = "\"[A-Za-z0-9+/]{40,}={0,2}\"";
+
+        // Entropy-gate thresholds for CORE_RULE_5_base64_chunk, calibrated against the
+        // source-glossary certified-command-catalog.json false-positive population (long
+        // CamelCase identifiers, slash-joined path lists, hex-ID runs) and against real
+        // base64 key/seed/password material. Two independent branches fire:
+        // 1. Structural: balanced case (|P(upper) - P(lower)| &lt;= MaxCaseBalanceStructuralBranch)
+        //    with meaningful fractions of upper, lower, and digit-or-slash characters.
+        // 2. Entropy: Shannon entropy above MinEntropyForEntropyBranch with case balance up
+        //    to MaxCaseBalanceForEntropyBranch, catching real random material whose case
+        //    split happens to be skewed.
+        // Chunks whose alphabet is a subset of hex ([0-9a-fA-F]) never fire: they are IDs,
+        // digests, or hex-ID runs, not base64 secrets.
+        internal const double MaxCaseBalanceStructuralBranch = 0.40;
+        internal const double MinClassFractionStructuralBranch = 0.15;
+        internal const double MinDigitFractionStructuralBranch = 0.05;
+        internal const double MinEntropyForEntropyBranch = 4.6;
+        internal const double MaxCaseBalanceForEntropyBranch = 0.62;
 
         // Hash-related field keyword indicating the line is a content-digest declaration.
         // "sha256" matches embedded (BundleSha256, SourceTreeSha256, ...), not just as a standalone word --
@@ -36,7 +63,7 @@ namespace Armada.Core.Services
             ("CORE_RULE_2_mocking_lib", new Regex(@"using\s+(Moq|NSubstitute|FakeItEasy|Rhino\.Mocks|JustMock|Moq\.Protected|NSubstitute\.Extensions)\b", RegexOptions.Compiled)),
             ("CORE_RULE_4_log_interpolation", new Regex(@"\.(LogInformation|LogDebug|LogWarning|LogError|LogTrace|LogCritical)\s*\(\s*\$""", RegexOptions.Compiled)),
             ("CORE_RULE_5_private_key", new Regex(@"-----BEGIN (RSA |EC )?PRIVATE KEY-----", RegexOptions.Compiled)),
-            ("CORE_RULE_5_base64_chunk", new Regex(@"""[A-Za-z0-9+/]{40,}={0,2}""", RegexOptions.Compiled)),
+            ("CORE_RULE_5_base64_chunk", new Regex(Base64ChunkPatternString, RegexOptions.Compiled)),
             ("CORE_RULE_5_password_literal", new Regex(@"password\s*[:=]\s*""\w{8,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_5_apikey_literal", new Regex(@"api_?key\s*[:=]\s*""\w{16,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_5_bearer_literal", new Regex(@"bearer\s+[A-Za-z0-9._~-]{20,}", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
@@ -69,6 +96,9 @@ namespace Armada.Core.Services
         /// re-scanning the full diff through all convention rules.
         /// Returns matched rule names; empty list when no secret pattern fires.
         /// Secret bytes are never echoed -- only the rule name is returned.
+        /// The base64-chunk rule fires only when at least one quoted run passes
+        /// <see cref="LooksLikeBase64Secret"/>, so identifiers and hex runs in
+        /// single-line JSON catalogs do not false-positive.
         /// </summary>
         /// <param name="addedLine">
         /// Content of a '+' addition line from a unified diff, with the leading '+' stripped.
@@ -81,9 +111,89 @@ namespace Armada.Core.Services
             foreach ((string rule, System.Text.RegularExpressions.Regex pattern) in _Rules)
             {
                 if (!rule.StartsWith("CORE_RULE_5", StringComparison.Ordinal)) continue;
-                if (pattern.IsMatch(addedLine)) matched.Add(rule);
+                if (RuleFiresOnLine(rule, pattern, addedLine)) matched.Add(rule);
             }
             return matched;
+        }
+
+        /// <summary>
+        /// Evaluate one rule against one addition line. The base64-chunk rule evaluates
+        /// every quoted candidate run on the line and fires only when a candidate passes
+        /// <see cref="LooksLikeBase64Secret"/>; all other rules use a plain regex match.
+        /// </summary>
+        private static bool RuleFiresOnLine(string rule, Regex pattern, string line)
+        {
+            if (!String.Equals(rule, "CORE_RULE_5_base64_chunk", StringComparison.Ordinal))
+                return pattern.IsMatch(line);
+
+            foreach (Match match in pattern.Matches(line))
+            {
+                // Match.Value carries the surrounding quotes; strip them before measuring.
+                string chunk = match.Value.Trim('"');
+                if (LooksLikeBase64Secret(chunk)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Decide whether a quoted base64-alphabet run is genuine secret material.
+        /// The run must be non-hex, and it must satisfy either the structural branch
+        /// (balanced case with meaningful upper, lower, and digit-or-slash fractions)
+        /// or the entropy branch (Shannon entropy at or above
+        /// <see cref="MinEntropyForEntropyBranch"/> with case balance at or below
+        /// <see cref="MaxCaseBalanceForEntropyBranch"/>). Trailing '=' padding is
+        /// stripped before measurement because it is not encoded content.
+        /// </summary>
+        /// <param name="chunk">Quoted base64 run with surrounding quotes already removed.</param>
+        /// <returns>True when the run looks like real base64 secret material.</returns>
+        internal static bool LooksLikeBase64Secret(string? chunk)
+        {
+            if (String.IsNullOrEmpty(chunk)) return false;
+
+            string body = chunk.TrimEnd('=');
+            int length = body.Length;
+            if (length < 2) return false;
+
+            int upper = 0;
+            int lower = 0;
+            int digitOrSlash = 0;
+            bool hexOnly = true;
+            Dictionary<char, int> counts = new Dictionary<char, int>();
+
+            foreach (char c in body)
+            {
+                if (c >= 'A' && c <= 'Z') upper++;
+                else if (c >= 'a' && c <= 'z') lower++;
+                if ((c >= '0' && c <= '9') || c == '+' || c == '/') digitOrSlash++;
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+                    hexOnly = false;
+
+                if (!counts.ContainsKey(c)) counts[c] = 1;
+                else counts[c] = counts[c] + 1;
+            }
+
+            // Hex-alphabet runs are IDs, digests, or hex-ID runs, never base64 secrets.
+            if (hexOnly) return false;
+
+            double upperFraction = (double)upper / length;
+            double lowerFraction = (double)lower / length;
+            double digitFraction = (double)digitOrSlash / length;
+            double balance = Math.Abs(upperFraction - lowerFraction);
+
+            bool structural = balance <= MaxCaseBalanceStructuralBranch &&
+                              upperFraction >= MinClassFractionStructuralBranch &&
+                              lowerFraction >= MinClassFractionStructuralBranch &&
+                              digitFraction >= MinDigitFractionStructuralBranch;
+            if (structural) return true;
+
+            double entropy = 0.0;
+            foreach (KeyValuePair<char, int> entry in counts)
+            {
+                double probability = (double)entry.Value / length;
+                entropy -= probability * Math.Log(probability, 2.0);
+            }
+
+            return entropy >= MinEntropyForEntropyBranch && balance <= MaxCaseBalanceForEntropyBranch;
         }
 
         /// <summary>
@@ -174,7 +284,7 @@ namespace Armada.Core.Services
 
                 foreach ((string rule, Regex pattern) in _Rules)
                 {
-                    if (pattern.IsMatch(line))
+                    if (RuleFiresOnLine(rule, pattern, line))
                     {
                         result.Violations.Add(new ConventionViolation(rule, line));
                         result.Passed = false;

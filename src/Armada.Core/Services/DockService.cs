@@ -1265,6 +1265,49 @@ namespace Armada.Core.Services
             await File.AppendAllTextAsync(excludePath, prefix + normalizedEntry + "\n", token).ConfigureAwait(false);
         }
 
+        // Shared awk entropy gate for the CORE_RULE_5_base64_chunk hook pattern. grep cannot
+        // express entropy, so the hook extracts every quoted base64-alphabet run from the added
+        // text with sed -E, then feeds each run here. The gate mirrors
+        // ConventionChecker.LooksLikeBase64Secret: hex-alphabet runs never block; a run blocks
+        // only when its case balance and class fractions (structural branch) or its Shannon
+        // entropy (entropy branch) indicate genuine secret material. exit 0 = high entropy.
+        private const string _HookBase64EntropyGate =
+            "is_high_entropy_b64() {\n" +
+            "  printf '%s' \"$1\" | awk '{\n" +
+            "    n = length($0)\n" +
+            "    if (n < 2) exit 1\n" +
+            "    U = 0; L = 0; D = 0; hex = 1\n" +
+            "    split(\"\", c)\n" +
+            "    for (i = 1; i <= n; i++) {\n" +
+            "      ch = substr($0, i, 1)\n" +
+            "      if (ch ~ /[A-Z]/) U++\n" +
+            "      if (ch ~ /[a-z]/) L++\n" +
+            "      if (ch ~ /[0-9+\\/]/) D++\n" +
+            "      if (ch !~ /[0-9a-fA-F]/) hex = 0\n" +
+            "      c[ch]++\n" +
+            "    }\n" +
+            "    if (hex) exit 1\n" +
+            "    bal = (U > L ? U - L : L - U) / n\n" +
+            "    h = 0\n" +
+            "    for (k in c) { p = c[k] / n; h -= p * log(p) / log(2) }\n" +
+            "    if ((bal <= 0.40 && U / n >= 0.15 && L / n >= 0.15 && D / n >= 0.05) || (h >= 4.6 && bal <= 0.62)) exit 0\n" +
+            "    exit 1\n" +
+            "  }'\n" +
+            "}\n" +
+            "extract_b64_chunks() {\n" +
+            "  printf '%s' \"$1\" | sed -E 's/" + ConventionChecker.Base64ChunkPatternString + "/\\n&\\n/g' | grep -E '^" + ConventionChecker.Base64ChunkPatternString + "$' | sed 's/^\"//;s/\"$//'\n" +
+            "}\n" +
+            "block_if_high_entropy_b64() {\n" +
+            "  _cands=$(extract_b64_chunks \"$1\")\n" +
+            "  for c in $_cands; do\n" +
+            "    if is_high_entropy_b64 \"$c\"; then\n" +
+            "      echo \"$2\" >&2\n" +
+            "      exit 1\n" +
+            "    fi\n" +
+            "  done\n" +
+            "}\n" +
+            "b64chunk_pat='" + ConventionChecker.Base64ChunkPatternString + "'\n";
+
         // LF-only hook scripts so Git for Windows sh.exe can execute them without CRLF errors.
         // Protected paths are read from .armada/boundary.json via extract_section (globs need no
         // unescaping). Secret and private-id patterns are read from the sibling .armada/boundary.patterns
@@ -1274,6 +1317,7 @@ namespace Armada.Core.Services
         private const string _PreCommitHook =
             "#!/bin/sh\n" +
             "# Armada boundary pre-commit hook -- do not edit; regenerated on dock provision\n" +
+            _HookBase64EntropyGate +
             "cfg=\".armada/boundary.json\"\n" +
             "pat_cfg=\".armada/boundary.patterns\"\n" +
             "extract_section() {\n" +
@@ -1358,7 +1402,9 @@ namespace Armada.Core.Services
             "  if [ -n \"$added\" ]; then\n" +
             "    while IFS= read -r pat; do\n" +
             "      [ -z \"$pat\" ] && continue\n" +
-            "      if printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "      if [ \"$pat\" = \"$b64chunk_pat\" ]; then\n" +
+            "        block_if_high_entropy_b64 \"$added\" \"BLOCKED: staged changes contain secret material. Remove the sensitive content before committing.\"\n" +
+            "      elif printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
             "        echo \"BLOCKED: staged changes contain secret material. Remove the sensitive content before committing.\" >&2\n" +
             "        exit 1\n" +
             "      fi\n" +
@@ -1386,6 +1432,7 @@ namespace Armada.Core.Services
         private const string _PrePushHook =
             "#!/bin/sh\n" +
             "# Armada boundary pre-push hook -- do not edit; regenerated on dock provision\n" +
+            _HookBase64EntropyGate +
             "cfg=\".armada/boundary.json\"\n" +
             "pat_cfg=\".armada/boundary.patterns\"\n" +
             "extract_section() {\n" +
@@ -1478,7 +1525,9 @@ namespace Armada.Core.Services
             "    if [ -n \"$added\" ]; then\n" +
             "      while IFS= read -r pat; do\n" +
             "        [ -z \"$pat\" ] && continue\n" +
-            "        if printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "        if [ \"$pat\" = \"$b64chunk_pat\" ]; then\n" +
+            "          block_if_high_entropy_b64 \"$added\" \"BLOCKED: pushed commits contain secret material. Rewrite history to remove the sensitive content.\"\n" +
+            "        elif printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
             "          echo \"BLOCKED: pushed commits contain secret material. Rewrite history to remove the sensitive content.\" >&2\n" +
             "          exit 1\n" +
             "        fi\n" +

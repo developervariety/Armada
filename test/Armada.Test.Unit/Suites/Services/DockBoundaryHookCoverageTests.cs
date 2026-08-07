@@ -250,6 +250,83 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
+            await RunTest("Single-line JSON catalog of identifiers passes the real pre-commit hook", async () =>
+            {
+                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; catalog-hook test skipped"); return; }
+                string? shPath = FindShPath();
+                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; catalog-hook test skipped"); return; }
+
+                string tempRoot = NewTempRoot("armada-hookcov-catalog");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ProvisionedDock provisioned = await ProvisionDockAsync(testDb, tempRoot, "catalog-vessel",
+                            "https://github.com/test/repo.git", null, null).ConfigureAwait(false);
+                        string worktreePath = provisioned.WorktreePath;
+
+                        // One single-line JSON row in the certified-command-catalog.json shape:
+                        // CamelCase command identifiers, slash-joined paths, hex IDs. Previously
+                        // this blocked every landing (obj_msfid367); the entropy gate must pass it.
+                        string catalogLine = "{\"certifiedCommands\":[{\"commandName\":\"" +
+                            "Cummins" + "Request" + "AndVerify" + "Response" + "Step" + "J1939" +
+                            "\",\"flowPath\":\"" + "ActionRequests" + "/" + "RequestWriteDataByLocalIdentifier" + "/" + "KLine" + "/" + "Step" +
+                            "\",\"requestId\":\"" + "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2" + "\"}]}";
+                        string catalogFile = Path.Combine(worktreePath, "catalog.json");
+                        await File.WriteAllTextAsync(catalogFile, catalogLine + "\n").ConfigureAwait(false);
+                        await RunGitAsync(worktreePath, "add", "catalog.json").ConfigureAwait(false);
+
+                        HookRun run = await RunHookAsync(shPath, provisioned.HookPath, worktreePath).ConfigureAwait(false);
+
+                        AssertEqual(0, run.ExitCode,
+                            "Catalog identifiers/paths/hex must pass the hook (stderr=" + run.Stderr + ")");
+                        Assert(!run.Stderr.Contains("BLOCKED:"),
+                            "Catalog identifiers must not produce BLOCKED: (stderr=" + run.Stderr + ")");
+                    }
+                }
+                finally { SafeDeleteDirectory(tempRoot); }
+            }).ConfigureAwait(false);
+
+            await RunTest("Real base64 key still blocks via the entropy path of the real pre-commit hook", async () =>
+            {
+                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; key-hook test skipped"); return; }
+                string? shPath = FindShPath();
+                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; key-hook test skipped"); return; }
+
+                string tempRoot = NewTempRoot("armada-hookcov-key");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ProvisionedDock provisioned = await ProvisionDockAsync(testDb, tempRoot, "key-vessel",
+                            "https://github.com/test/repo.git", null, null).ConfigureAwait(false);
+                        string worktreePath = provisioned.WorktreePath;
+
+                        // Genuine 256-bit key material (base64 of the fixed byte sequence 1..32),
+                        // embedded in the same single-line JSON shape. Must still block.
+                        byte[] keyBytes = new byte[32];
+                        for (int i = 0; i < keyBytes.Length; i++) keyBytes[i] = (byte)(i + 1);
+                        string keyChunk = Convert.ToBase64String(keyBytes);
+                        string catalogLine = "{\"certifiedCommands\":[{\"commandName\":\"" +
+                            "Cummins" + "Request" + "AndVerify" + "Response" + "Step" + "J1939" +
+                            "\",\"seed\":\"" + keyChunk + "\"}]}";
+                        string catalogFile = Path.Combine(worktreePath, "catalog.json");
+                        await File.WriteAllTextAsync(catalogFile, catalogLine + "\n").ConfigureAwait(false);
+                        await RunGitAsync(worktreePath, "add", "catalog.json").ConfigureAwait(false);
+
+                        HookRun run = await RunHookAsync(shPath, provisioned.HookPath, worktreePath).ConfigureAwait(false);
+
+                        Assert(run.ExitCode != 0,
+                            "A genuine base64 key must still block through the hook (ExitCode=" + run.ExitCode + ", stderr=" + run.Stderr + ")");
+                        AssertContains("BLOCKED:", run.Stderr,
+                            "Key block must emit BLOCKED: (stderr=" + run.Stderr + ")");
+                        Assert(!run.Stderr.Contains(keyChunk),
+                            "Hook must never print the key bytes (CORE RULE 4)");
+                    }
+                }
+                finally { SafeDeleteDirectory(tempRoot); }
+            }).ConfigureAwait(false);
+
             await RunTest("boundary.patterns stores raw un-escaped patterns under ordered section headers", async () =>
             {
                 if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; raw-patterns format test skipped"); return; }
