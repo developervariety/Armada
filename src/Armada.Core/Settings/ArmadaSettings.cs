@@ -1050,6 +1050,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// External model provider registry used to route captain models to
+        /// non-native endpoints. A provider is registered by model-id namespace
+        /// prefix, for example <c>zyloo</c> or <c>cun-ai</c>.
+        /// </summary>
+        public ModelProvidersSettings ModelProviders
+        {
+            get => _ModelProviders;
+            set => _ModelProviders = value ?? new ModelProvidersSettings();
+        }
+
+        /// <summary>
         /// Architect captain decomposition settings.
         /// </summary>
         public ArchitectSettings Architect
@@ -1171,6 +1182,7 @@ namespace Armada.Core.Settings
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
         private SelfDeploySettings _SelfDeploy = new SelfDeploySettings();
         private ModelTierSettings _ModelTier = new ModelTierSettings();
+        private ModelProvidersSettings _ModelProviders = new ModelProvidersSettings();
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
@@ -1392,6 +1404,7 @@ namespace Armada.Core.Settings
             _CodeIndex.IndexDirectory = ResolvePathRelativeToDataDirectory(_CodeIndex.IndexDirectory);
 
             _ModelTier ??= new ModelTierSettings();
+            _ModelProviders ??= new ModelProvidersSettings();
         }
 
         private string ResolveEffectiveSqlitePath()

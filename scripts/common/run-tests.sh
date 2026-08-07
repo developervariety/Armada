@@ -26,7 +26,7 @@ declare -a SUITE_PROJECTS=(
   test/Armada.Test.Runtimes
 )
 
-# ClaudeCodeZylooRoutingTests asserts on the environment a child process would
+# ClaudeCodeProviderRoutingTests asserts on the environment a child process would
 # inherit, so an ANTHROPIC_* variable exported in the caller's shell makes those
 # tests fail for reasons that have nothing to do with the code under test.
 run_suite() {

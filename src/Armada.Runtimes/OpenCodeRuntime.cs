@@ -10,7 +10,6 @@ namespace Armada.Runtimes
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using SyslogLogging;
-
     /// <summary>
     /// Agent runtime adapter for the OpenCode CLI.
     /// </summary>
@@ -40,13 +39,13 @@ namespace Armada.Runtimes
         public override bool SupportsResume => false;
 
         /// <summary>
-        /// Starts an OpenCode captain process, adding the Zyloo custom-provider overlay only
-        /// when the captain explicitly selects a canonical <c>zyloo/</c> model.
+        /// Starts an OpenCode captain process, adding the external-provider overlay only
+        /// when the captain selects a model served by a registered provider.
         /// </summary>
         /// <remarks>
         /// Existing environment-supplied inline configuration remains authoritative. This
         /// permits operator overrides while ensuring normal OpenCode captains receive no
-        /// Zyloo-specific configuration or behavior.
+        /// provider-specific configuration or behavior.
         /// </remarks>
         public override async Task<int> StartAsync(
             string workingDirectory,
@@ -62,14 +61,15 @@ namespace Armada.Runtimes
                 ? null
                 : new Dictionary<string, string>(environment, StringComparer.Ordinal);
 
-            if (OpenCodeZylooProviderConfigBuilder.IsZylooModel(model) &&
+            if (OpenCodeProviderConfigBuilder.IsProviderModel(model, _ModelProviders) &&
                 (launchEnvironment == null || !launchEnvironment.ContainsKey("OPENCODE_CONFIG_CONTENT")))
             {
                 launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
-                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = OpenCodeZylooProviderConfigBuilder.Build(
+                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = OpenCodeProviderConfigBuilder.Build(
                     model!,
                     captain?.ApiKey,
-                    captain?.ApiBaseUrl);
+                    captain?.ApiBaseUrl,
+                    _ModelProviders);
             }
 
             return await base.StartAsync(
@@ -94,6 +94,8 @@ namespace Armada.Runtimes
 
         private readonly OpenCodeConnection _Connection;
 
+        private readonly ModelProvidersSettings _ModelProviders;
+
         private readonly LoggingModule _Logging;
 
         private string _Header = "[OpenCodeRuntime] ";
@@ -113,10 +115,28 @@ namespace Armada.Runtimes
         /// factory tests remain green without requiring explicit settings.
         /// </param>
         public OpenCodeRuntime(LoggingModule logging, OpenCodeServerSettings? connectionSettings = null)
+            : this(logging, connectionSettings, null)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate with a provider registry.
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="connectionSettings">
+        /// Optional OpenCode server settings. When null, defaults are used so existing
+        /// factory tests remain green without requiring explicit settings.
+        /// </param>
+        /// <param name="modelProviders">
+        /// External model provider registry; null uses the built-in default set so
+        /// existing Zyloo captains keep routing without configuration.
+        /// </param>
+        public OpenCodeRuntime(LoggingModule logging, OpenCodeServerSettings? connectionSettings, ModelProvidersSettings? modelProviders)
             : base(logging)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Connection = new OpenCodeConnection(connectionSettings ?? new OpenCodeServerSettings());
+            _ModelProviders = modelProviders ?? new ModelProvidersSettings();
 
             // Self-subscribe to the inherited process-exit event so an empty run
             // (process exited 0 but no assistant content or tool calls were streamed)

@@ -80,15 +80,18 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Per-captain provider credential override used when this captain's model is served by
-        /// Zyloo. Takes precedence over the host-level <c>ZYLOO_KEY</c> environment variable, so
-        /// captains on separate Zyloo subscriptions can run side by side. Never logged.
+        /// Per-captain provider credential override used when this captain's model is served
+        /// by an external provider (for example Zyloo or cun-ai). Takes precedence over the
+        /// provider's host-level environment variable, so captains on separate subscriptions
+        /// can run side by side. Never logged.
         /// </summary>
         public string? ApiKey { get; set; } = null;
 
         /// <summary>
         /// Per-captain provider base URL override used when this captain's model is served by
-        /// Zyloo. Null means the default Zyloo endpoint for the runtime route.
+        /// an external provider. Null means the provider's default endpoint for the runtime
+        /// route. A captain whose model carries no provider prefix routes to this URL when
+        /// both it and <see cref="ApiKey"/> are set (custom-endpoint captain).
         /// </summary>
         public string? ApiBaseUrl { get; set; } = null;
 

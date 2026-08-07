@@ -19,6 +19,7 @@ namespace Armada.Runtimes
         private string _Header = "[AgentRuntimeFactory] ";
         private LoggingModule _Logging;
         private OpenCodeServerSettings? _OpenCodeConnection;
+        private ModelProvidersSettings? _ModelProviders;
         private Dictionary<string, Func<IAgentRuntime>> _CustomRuntimes = new Dictionary<string, Func<IAgentRuntime>>();
 
         #endregion
@@ -29,9 +30,8 @@ namespace Armada.Runtimes
         /// Instantiate.
         /// </summary>
         /// <param name="logging">Logging module.</param>
-        public AgentRuntimeFactory(LoggingModule logging)
+        public AgentRuntimeFactory(LoggingModule logging) : this(logging, null, null)
         {
-            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
         /// <summary>
@@ -43,9 +43,27 @@ namespace Armada.Runtimes
         /// runtime reads the same shared config as the inference client.
         /// </param>
         public AgentRuntimeFactory(LoggingModule logging, OpenCodeServerSettings? openCodeConnection)
+            : this(logging, openCodeConnection, null)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate with OpenCode connection settings and the external provider registry.
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="openCodeConnection">
+        /// Optional OpenCode server settings threaded to <see cref="OpenCodeRuntime"/> so the
+        /// runtime reads the same shared config as the inference client.
+        /// </param>
+        /// <param name="modelProviders">
+        /// External model provider registry threaded to the runtimes so provider routing is
+        /// configuration, not code.
+        /// </param>
+        public AgentRuntimeFactory(LoggingModule logging, OpenCodeServerSettings? openCodeConnection, ModelProvidersSettings? modelProviders)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _OpenCodeConnection = openCodeConnection;
+            _ModelProviders = modelProviders;
         }
 
         #endregion
@@ -62,7 +80,7 @@ namespace Armada.Runtimes
             switch (runtimeType)
             {
                 case AgentRuntimeEnum.ClaudeCode:
-                    return new ClaudeCodeRuntime(_Logging);
+                    return new ClaudeCodeRuntime(_Logging, _ModelProviders);
                 case AgentRuntimeEnum.Codex:
                     return new CodexRuntime(_Logging);
                 case AgentRuntimeEnum.Gemini:
@@ -70,7 +88,7 @@ namespace Armada.Runtimes
                 case AgentRuntimeEnum.Cursor:
                     return new CursorRuntime(_Logging);
                 case AgentRuntimeEnum.OpenCode:
-                    return new OpenCodeRuntime(_Logging, _OpenCodeConnection);
+                    return new OpenCodeRuntime(_Logging, _OpenCodeConnection, _ModelProviders);
                 case AgentRuntimeEnum.Mux:
                     return new MuxRuntime(_Logging);
                 case AgentRuntimeEnum.Custom:

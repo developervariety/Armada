@@ -29,14 +29,15 @@ namespace Armada.Server.Mcp
         public string? Model { get; set; }
 
         /// <summary>
-        /// Per-captain provider credential override for Zyloo-served models. Takes precedence over
-        /// the host-level ZYLOO_KEY environment variable, so captains on separate subscriptions
-        /// run side by side.
+        /// Per-captain provider credential override for external-provider-served models
+        /// (for example Zyloo or cun-ai). Takes precedence over the provider's host-level
+        /// environment variable, so captains on separate subscriptions run side by side.
         /// </summary>
         public string? ApiKey { get; set; }
 
         /// <summary>
-        /// Per-captain provider base URL override for Zyloo-served models.
+        /// Per-captain provider base URL override for external-provider-served models.
+        /// A model without a provider prefix routes to this URL when the key is also set.
         /// </summary>
         public string? ApiBaseUrl { get; set; }
 
