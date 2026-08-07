@@ -345,7 +345,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@notes", (object?)deployment.Notes ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@status", deployment.Status.ToString());
             cmd.Parameters.AddWithValue("@verification_status", deployment.VerificationStatus.ToString());
-            cmd.Parameters.AddWithValue("@approval_required", deployment.ApprovalRequired);
+            cmd.Parameters.AddWithValue("@approval_required", deployment.ApprovalRequired ? 1 : 0);
             cmd.Parameters.AddWithValue("@approved_by_user_id", (object?)deployment.ApprovedByUserId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@approved_utc", (object?)deployment.ApprovedUtc?.ToUniversalTime() ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@approval_comment", (object?)deployment.ApprovalComment ?? DBNull.Value);
