@@ -56,7 +56,7 @@ namespace Armada.Core.Database.Sqlite
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
-            _ConnectionString = settings.GetConnectionString();
+            _ConnectionString = NormalizeConnectionString(settings.GetConnectionString());
 
             Fleets = new FleetMethods(this, _Settings, _Logging);
             Vessels = new VesselMethods(this, _Settings, _Logging);
@@ -94,7 +94,8 @@ namespace Armada.Core.Database.Sqlite
         /// <param name="logging">Logging module.</param>
         public SqliteDatabaseDriver(string connectionString, LoggingModule logging)
         {
-            _ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            if (connectionString == null) throw new ArgumentNullException(nameof(connectionString));
+            _ConnectionString = NormalizeConnectionString(connectionString);
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = new DatabaseSettings();
 
@@ -125,6 +126,23 @@ namespace Armada.Core.Database.Sqlite
             CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
+        }
+
+        /// <summary>
+        /// Normalize a SQLite connection string so every connection opened from it enforces
+        /// foreign keys and honors a sane default command timeout. SQLite's foreign_keys pragma
+        /// is per-connection (not persistent), so relying on a one-time PRAGMA at init leaves
+        /// enforcement dependent on connection-pool reuse. Setting it on the connection string
+        /// applies it deterministically on every open.
+        /// </summary>
+        /// <param name="connectionString">Raw connection string.</param>
+        /// <returns>Connection string with foreign keys enabled and a default timeout floor.</returns>
+        private static string NormalizeConnectionString(string connectionString)
+        {
+            SqliteConnectionStringBuilder builder = new SqliteConnectionStringBuilder(connectionString);
+            builder.ForeignKeys = true;
+            if (builder.DefaultTimeout < 30) builder.DefaultTimeout = 30;
+            return builder.ConnectionString;
         }
 
         #endregion

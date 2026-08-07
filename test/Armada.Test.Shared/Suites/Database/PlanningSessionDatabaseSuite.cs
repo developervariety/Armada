@@ -174,16 +174,22 @@ namespace Armada.Test.Shared.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
+
+                    // planning_sessions.tenant_id is a foreign key to tenants(id); the owning
+                    // tenant must exist for the row to insert once FK enforcement is on.
+                    TenantMetadata owner = new TenantMetadata("Owner");
+                    await db.Tenants.CreateAsync(owner);
+
                     PlanningSession session = new PlanningSession
                     {
-                        TenantId = "ten_owner",
+                        TenantId = owner.Id,
                         CaptainId = "cpt_test",
                         VesselId = "vsl_test",
                         Title = "Tenant Fenced Session"
                     };
                     await db.PlanningSessions.CreateAsync(session);
 
-                    PlanningSession? sameTenant = await db.PlanningSessions.ReadAsync("ten_owner", session.Id);
+                    PlanningSession? sameTenant = await db.PlanningSessions.ReadAsync(owner.Id, session.Id);
                     AssertNotNull(sameTenant);
 
                     PlanningSession? otherTenant = await db.PlanningSessions.ReadAsync("ten_intruder", session.Id);
