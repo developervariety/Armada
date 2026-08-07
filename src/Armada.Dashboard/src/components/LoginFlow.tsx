@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useTheme } from '../context/ThemeContext';
-import { lookupTenants, authenticate } from '../api/client';
+import { lookupTenants, authenticate, getOAuthConfig, oauthAuthorizeUrl, type OAuthConfig } from '../api/client';
 import type { TenantListEntry } from '../types/models';
 import LanguageSelector from './shared/LanguageSelector';
 
@@ -11,9 +11,10 @@ type LoginMode = 'email' | 'apikey';
 type RevealField = 'password' | 'apikey';
 
 export default function LoginFlow() {
-  const { login } = useAuth();
+  const { login, oauthError, clearOauthError } = useAuth();
   const { t } = useLocale();
   const { darkMode, toggleTheme } = useTheme();
+  const [oauthConfig, setOauthConfig] = useState<OAuthConfig | null>(null);
   const [mode, setMode] = useState<LoginMode>('email');
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
@@ -24,6 +25,17 @@ export default function LoginFlow() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [revealedField, setRevealedField] = useState<RevealField | null>(null);
+
+  useEffect(() => {
+    getOAuthConfig()
+      .then((cfg) => setOauthConfig(cfg.enabled ? cfg : null))
+      .catch(() => setOauthConfig(null));
+  }, []);
+
+  function handleSsoLogin() {
+    clearOauthError();
+    window.location.assign(oauthAuthorizeUrl());
+  }
 
   function beginReveal(field: RevealField) {
     setRevealedField(field);
@@ -105,6 +117,15 @@ export default function LoginFlow() {
         <h1>Armada</h1>
         <LanguageSelector className="login-language-select" showLabel />
 
+        {oauthConfig && (
+          <>
+            <button type="button" className="login-sso-button" onClick={handleSsoLogin}>
+              {t('Sign in with {{provider}}', { provider: oauthConfig.displayName })}
+            </button>
+            <div className="login-divider"><span>{t('or')}</span></div>
+          </>
+        )}
+
         <div className="login-mode-tabs">
           <button
             className={`login-mode-tab${mode === 'email' ? ' active' : ''}`}
@@ -122,6 +143,7 @@ export default function LoginFlow() {
           </button>
         </div>
 
+        {oauthError && <div className="login-error">{t('Single sign-on failed.')} ({oauthError})</div>}
         {error && <div className="login-error">{error}</div>}
 
         {mode === 'apikey' && (

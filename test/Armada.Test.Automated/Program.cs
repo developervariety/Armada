@@ -118,6 +118,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new LogTests(authClient, unauthClient, tempDir));
                 runner.AddSuite(new AuthenticationTests(authClient, unauthClient, baseUrl, apiKey));
                 runner.AddSuite(new AuthApiTests(authClient, unauthClient, baseUrl, apiKey));
+                runner.AddSuite(new OAuthApiTests(unauthClient, baseUrl));
                 runner.AddSuite(new CrossTenantApiTests(authClient, unauthClient, baseUrl, apiKey));
                 runner.AddSuite(new McpToolTests(mcpClient));
                 runner.AddSuite(new WebSocketTests(authClient, unauthClient, restPort, apiKey));

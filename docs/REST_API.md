@@ -77,6 +77,68 @@ X-Api-Key: your-api-key-here
 
 > **Deprecation notice:** `X-Api-Key` will be removed in a future version. Migrate to bearer tokens for new integrations.
 
+### OAuth2 / OIDC Single Sign-On (Authentik and other providers)
+
+Armada can delegate **dashboard login** to a generic OAuth2 / OIDC provider (for
+example [Authentik](https://goauthentik.io/)) using the Authorization-Code flow
+with PKCE. On a successful SSO login the server maps the provider identity to an
+Armada user and mints the same encrypted session token described above, so the
+rest of the API is unchanged.
+
+The flow is redirect-based and requires no client secret in the browser:
+
+1. The dashboard calls `GET /api/v1/auth/oauth/config` and shows a
+   "Sign in with &lt;DisplayName&gt;" button when SSO is enabled.
+2. The button navigates to `GET /api/v1/auth/oauth/authorize`, which redirects
+   to the provider's authorization endpoint.
+3. After the user authenticates, the provider redirects back to
+   `GET /api/v1/auth/oauth/callback`. Armada exchanges the code for tokens,
+   reads the userinfo endpoint, resolves or provisions the user, and redirects
+   to `/dashboard#oauth_token=<session-token>`. The dashboard consumes the
+   token from the URL fragment and clears it from history.
+
+Users are matched to an existing Armada user by email within
+`OAuth2.DefaultTenantId`. When `OAuth2.AllowAutoProvision` is `true`, a new
+non-admin user is created on first login; when `false`, only users an admin has
+already created may sign in. SSO users are provisioned with a random,
+unusable password (password login is effectively disabled for them).
+
+**Settings** (`OAuth2` block in `settings.json`):
+
+| Field | Description |
+|-------|-------------|
+| `Enabled` | Master switch for SSO. |
+| `DisplayName` | Label on the dashboard sign-in button (e.g. `Authentik`). |
+| `AuthorizationEndpoint` | Provider authorize URL (Authentik: `.../application/o/authorize/`). |
+| `TokenEndpoint` | Provider token URL (Authentik: `.../application/o/token/`). |
+| `UserInfoEndpoint` | Provider userinfo URL (Authentik: `.../application/o/userinfo/`). |
+| `ClientId` / `ClientSecret` | OAuth2 client credentials issued by the provider. |
+| `Scopes` | Requested scopes (default `openid profile email`). |
+| `RedirectUri` | Optional explicit callback URI; derived from the request when empty. Set this behind a reverse proxy. |
+| `UsePkce` | Use PKCE S256 (default `true`). |
+| `EmailClaim` / `NameClaim` | Userinfo claims used for identity/display name (default `email` / `name`). |
+| `RequireVerifiedEmail` | Require the provider's `email_verified` claim to be `true` before trusting the email (default `true`). Prevents takeover via an unverified email. |
+| `AllowAutoProvision` | Auto-create users on first login (default `true`). |
+| `DefaultTenantId` | Tenant SSO users are mapped/provisioned into (default `default`). |
+
+Example (Authentik):
+
+```json
+"OAuth2": {
+  "Enabled": true,
+  "DisplayName": "Authentik",
+  "AuthorizationEndpoint": "https://authentik.example.com/application/o/authorize/",
+  "TokenEndpoint": "https://authentik.example.com/application/o/token/",
+  "UserInfoEndpoint": "https://authentik.example.com/application/o/userinfo/",
+  "ClientId": "armada",
+  "ClientSecret": "<client-secret>",
+  "RedirectUri": "https://armada.example.com/api/v1/auth/oauth/callback"
+}
+```
+
+Register `https://<armada-host>/api/v1/auth/oauth/callback` as the redirect URI
+in the provider's application configuration.
+
 ### Authorization Tiers
 
 All endpoints fall into one of three authorization levels:
@@ -104,6 +166,9 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/authenticate` | POST | NoAuthRequired | |
 | `/api/v1/tenants/lookup` | POST | NoAuthRequired | Input: email, returns matching tenants |
 | `/api/v1/onboarding` | POST | NoAuthRequired | Gated by `AllowSelfRegistration` setting |
+| `/api/v1/auth/oauth/config` | GET | NoAuthRequired | SSO public config (enabled + display name) |
+| `/api/v1/auth/oauth/authorize` | GET | NoAuthRequired | Begins SSO; redirects to the provider |
+| `/api/v1/auth/oauth/callback` | GET | NoAuthRequired | SSO callback; redirects to the dashboard with a session token |
 | `/api/v1/whoami` | GET | Authenticated | |
 | `/api/v1/status` | GET | Authenticated | Tenant-scoped |
 | `/api/v1/settings` | GET | AdminOnly | Server configuration and remote-control settings |
@@ -140,6 +205,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 - `POST /api/v1/authenticate`
 - `POST /api/v1/tenants/lookup`
 - `POST /api/v1/onboarding` (when `AllowSelfRegistration` is enabled)
+- `GET /api/v1/auth/oauth/config`, `GET /api/v1/auth/oauth/authorize`, `GET /api/v1/auth/oauth/callback` (OAuth2 SSO)
 - `POST /api/v1/server/stop` (when `RequireAuthForShutdown` is `false`, the default)
 - `GET /dashboard` and all `/dashboard/*` paths
 - `GET /` (redirects to `/dashboard`)

@@ -970,6 +970,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Generic OAuth2 / OIDC single sign-on settings for the web dashboard.
+        /// </summary>
+        public OAuth2Settings OAuth2
+        {
+            get => _OAuth2;
+            set => _OAuth2 = value ?? new OAuth2Settings();
+        }
+
+        /// <summary>
         /// Optional: configuration for admiral-side event-driven orchestrator wakes via Claude Code
         /// Routines /fire API. Null or absent means the feature is disabled; admiral runs as today.
         /// </summary>
@@ -1178,6 +1187,7 @@ namespace Armada.Core.Settings
         private LearnedFactsPruneOptions _LearnedFactsPrune = new LearnedFactsPruneOptions();
         private int _FleetCurateDualJudgeFanOutWarnThreshold = 3;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
+        private OAuth2Settings _OAuth2 = new OAuth2Settings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
         private SelfDeploySettings _SelfDeploy = new SelfDeploySettings();

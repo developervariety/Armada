@@ -51,6 +51,7 @@ namespace Armada.Core.Authorization
             if (path.EndsWith("/authenticate") && method == "POST") return PermissionLevel.NoAuthRequired;
             if (path.EndsWith("/tenants/lookup") && method == "POST") return PermissionLevel.NoAuthRequired;
             if (path.EndsWith("/onboarding") && method == "POST") return PermissionLevel.NoAuthRequired;
+            if (path.StartsWith("/api/v1/auth/oauth")) return PermissionLevel.NoAuthRequired;
             if (path.StartsWith("/dashboard")) return PermissionLevel.NoAuthRequired;
             if (path == "/") return PermissionLevel.NoAuthRequired;
 
