@@ -307,6 +307,14 @@ namespace Armada.Core.Models
         /// </summary>
         public ContextPackUsageSummary? ContextPackUsage { get; set; } = null;
 
+        /// <summary>
+        /// Transient projection of the most-recent <c>mission.prompt_budget</c> and
+        /// <c>mission.launch_prompt_budget</c> events for this mission. Never persisted to the
+        /// database; populated on demand by armada_mission_status. Null when no budget event has
+        /// been emitted or when the payload is unreadable.
+        /// </summary>
+        public PromptBudgetSummary? PromptBudget { get; set; } = null;
+
         #endregion
 
         #region Private-Members

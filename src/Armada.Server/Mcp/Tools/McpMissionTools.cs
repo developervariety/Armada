@@ -70,18 +70,35 @@ namespace Armada.Server.Mcp.Tools
                         List<ArmadaEvent> missionEvents = await database.Events.EnumerateByMissionAsync(
                             missionId, 50).ConfigureAwait(false);
                         ArmadaEvent? packEvent = null;
+                        ArmadaEvent? budgetEvent = null;
+                        ArmadaEvent? launchBudgetEvent = null;
                         foreach (ArmadaEvent evt in missionEvents)
                         {
-                            if (evt.EventType != "mission.context_pack_usage") continue;
-                            if (packEvent == null || evt.CreatedUtc > packEvent.CreatedUtc)
+                            if (evt.EventType == "mission.context_pack_usage" &&
+                                (packEvent == null || evt.CreatedUtc > packEvent.CreatedUtc))
+                            {
                                 packEvent = evt;
+                            }
+                            else if (evt.EventType == "mission.prompt_budget" &&
+                                     (budgetEvent == null || evt.CreatedUtc > budgetEvent.CreatedUtc))
+                            {
+                                budgetEvent = evt;
+                            }
+                            else if (evt.EventType == "mission.launch_prompt_budget" &&
+                                     (launchBudgetEvent == null || evt.CreatedUtc > launchBudgetEvent.CreatedUtc))
+                            {
+                                launchBudgetEvent = evt;
+                            }
                         }
                         if (packEvent != null)
                             mission.ContextPackUsage = ContextPackUsageSummary.FromEventPayload(packEvent.Payload);
+                        if (budgetEvent != null)
+                            mission.PromptBudget = PromptBudgetSummary.FromEventPayloads(
+                                budgetEvent.Payload, launchBudgetEvent?.Payload);
                     }
                     catch (Exception)
                     {
-                        // Non-fatal; leave ContextPackUsage null.
+                        // Non-fatal; leave ContextPackUsage and PromptBudget null.
                     }
                     return (object)mission;
                 });
