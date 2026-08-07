@@ -1,0 +1,35 @@
+namespace Armada.Test.Nunit
+{
+    using System.Collections;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Test.Shared;
+    using Touchstone.Core;
+    using Touchstone.NunitAdapter;
+    using global::NUnit.Framework;
+
+    /// <summary>
+    /// NUnit host for the shared Armada test descriptors. Uses <c>TestCaseSource</c> so each
+    /// descriptor surfaces as its own NUnit test for granular reporting under <c>dotnet test</c>.
+    /// </summary>
+    [TestFixture]
+    public sealed class ArmadaNunitTests
+    {
+        private static IEnumerable TestCases()
+        {
+            return new TouchstoneTestCaseSource(ArmadaTestSuites.All);
+        }
+
+        /// <summary>
+        /// Execute a single shared descriptor.
+        /// </summary>
+        /// <param name="testCase">The descriptor to run.</param>
+        /// <returns>Task.</returns>
+        [Test]
+        [TestCaseSource(nameof(TestCases))]
+        public async Task RunTest(TestCaseDescriptor testCase)
+        {
+            await testCase.ExecuteAsync(CancellationToken.None);
+        }
+    }
+}
