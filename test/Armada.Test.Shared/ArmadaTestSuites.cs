@@ -52,9 +52,22 @@ namespace Armada.Test.Shared
                 descriptors.Add(suite.Build());
             }
 
-            return descriptors
+            List<TestSuiteDescriptor> ordered = descriptors
                 .OrderBy(d => d.SuiteId, StringComparer.Ordinal)
                 .ToList();
+
+            // Optional diagnostic/CI filter: ARMADA_TEST_SUITES=E2E,Database restricts the run
+            // to suites whose SuiteId starts with one of the comma-separated prefixes.
+            string? filter = Environment.GetEnvironmentVariable("ARMADA_TEST_SUITES");
+            if (!String.IsNullOrWhiteSpace(filter))
+            {
+                string[] prefixes = filter.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                ordered = ordered
+                    .Where(d => prefixes.Any(p => d.SuiteId.StartsWith(p.Trim(), StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+            }
+
+            return ordered;
         }
 
         #endregion

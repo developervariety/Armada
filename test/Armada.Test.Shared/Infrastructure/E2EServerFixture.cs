@@ -69,7 +69,8 @@ namespace Armada.Test.Shared.Infrastructure
         #region Private-Members
 
         private static readonly SemaphoreSlim _Gate = new SemaphoreSlim(1, 1);
-        private static E2EServerFixture? _Instance;
+        private static E2EServerFixture? _Current;
+        private static object? _CurrentKey;
         private ArmadaServer _Server = null!;
 
         #endregion
@@ -81,22 +82,39 @@ namespace Armada.Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Get the shared fixture, booting the server on first call.
+        /// Acquire the server for the given suite. Each e2e suite gets its own fresh in-process
+        /// server: the first case in a suite boots one, subsequent cases in the same suite reuse
+        /// it (preserving intra-suite state), and when a different suite starts the previous
+        /// suite's server is torn down. This isolates suites from one another (no shared-server
+        /// state bleed or order dependence) while keeping only one server alive at a time, since
+        /// the runners execute a suite's cases consecutively.
         /// </summary>
-        /// <returns>The initialized fixture.</returns>
-        public static async Task<E2EServerFixture> GetAsync()
+        /// <param name="suiteKey">A stable per-suite key (pass the suite instance, <c>this</c>).</param>
+        /// <returns>The initialized fixture for this suite.</returns>
+        public static async Task<E2EServerFixture> AcquireAsync(object suiteKey)
         {
-            if (_Instance != null) return _Instance;
+            if (suiteKey == null) throw new ArgumentNullException(nameof(suiteKey));
+
+            E2EServerFixture? current = _Current;
+            if (current != null && ReferenceEquals(_CurrentKey, suiteKey)) return current;
 
             await _Gate.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (_Instance != null) return _Instance;
+                if (_Current != null && ReferenceEquals(_CurrentKey, suiteKey)) return _Current;
+
+                if (_Current != null)
+                {
+                    _Current.Shutdown();
+                    _Current = null;
+                    _CurrentKey = null;
+                }
 
                 E2EServerFixture fixture = new E2EServerFixture();
                 await fixture.StartAsync().ConfigureAwait(false);
-                _Instance = fixture;
-                return _Instance;
+                _Current = fixture;
+                _CurrentKey = suiteKey;
+                return fixture;
             }
             finally
             {
@@ -143,15 +161,20 @@ namespace Armada.Test.Shared.Infrastructure
 
             BaseUrl = "http://127.0.0.1:" + RestPort;
 
+            TimeSpan clientTimeout = TimeSpan.FromSeconds(30);
+
             AuthClient = new HttpClient();
             AuthClient.BaseAddress = new Uri(BaseUrl);
             AuthClient.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
+            AuthClient.Timeout = clientTimeout;
 
             UnauthClient = new HttpClient();
             UnauthClient.BaseAddress = new Uri(BaseUrl);
+            UnauthClient.Timeout = clientTimeout;
 
             McpClient = new HttpClient();
             McpClient.BaseAddress = new Uri("http://localhost:" + McpPort);
+            McpClient.Timeout = clientTimeout;
 
             await WaitForReadyAsync().ConfigureAwait(false);
 
