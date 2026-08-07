@@ -1233,10 +1233,14 @@ namespace Armada.Core.Services
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
+                bool judgeGateRejected = false;
                 if (verdict == JudgeVerdict.Pass)
                 {
                     if (!TryValidateJudgePassOutput(mission.AgentOutput, out verdictFailureReason))
                     {
+                        // A PASS that fails structural validation degrades to a re-run request
+                        // (NEEDS_REVISION semantics) so the mission stays non-terminal and the
+                        // review is not recorded as a rejection.
                         verdict = JudgeVerdict.NeedsRevision;
                     }
                     else
@@ -1247,6 +1251,9 @@ namespace Armada.Core.Services
                         // unresolved Checks hold the PASS until they land (bounded in-place re-run);
                         // a PASS with no Checks at all is rejected unless the Judge documents an
                         // environmental exclusion with the explicit marker.
+                        // Each rejection branch already terminalizes the mission with a SPECIFIC
+                        // FailureReason (the generic "Judge verdict: ..." fall-through below would
+                        // otherwise overwrite it and misreport a PASS as a judge rejection).
                         JudgeCheckGate checkGate = await EvaluateJudgeCheckGateAsync(mission, token).ConfigureAwait(false);
                         switch (checkGate)
                         {
@@ -1258,6 +1265,7 @@ namespace Armada.Core.Services
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;
+                                judgeGateRejected = true;
                                 _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected by a failed independent Check (real-signal gate)");
                                 break;
 
@@ -1279,6 +1287,7 @@ namespace Armada.Core.Services
                                     mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                     verdict = JudgeVerdict.Fail;
+                                    judgeGateRejected = true;
                                     _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected: Checks unresolved after the wait budget");
                                 }
                                 break;
@@ -1291,6 +1300,7 @@ namespace Armada.Core.Services
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;
+                                judgeGateRejected = true;
                                 _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected: no independent Checks (real-signal gate)");
                                 break;
 
@@ -1318,7 +1328,7 @@ namespace Armada.Core.Services
                         " produced no verdict line; re-running in place (recovery attempt " +
                         mission.RecoveryAttempts + " of " + _MaxMissingJudgeVerdictRetries + ")");
                 }
-                else if (verdict != JudgeVerdict.Pass)
+                else if (verdict != JudgeVerdict.Pass && !judgeGateRejected)
                 {
                     mission.Status = MissionStatusEnum.Failed;
                     mission.CompletedUtc = DateTime.UtcNow;

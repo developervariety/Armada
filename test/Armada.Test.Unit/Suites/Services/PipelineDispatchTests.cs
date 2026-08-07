@@ -2108,6 +2108,90 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Judge PASS rejected by the real-signal gate keeps the specific failure reason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    int landingCalls = 0;
+                    missionService.OnMissionComplete = (m, d) =>
+                    {
+                        landingCalls++;
+                        return Task.CompletedTask;
+                    };
+
+                    Vessel vessel = new Vessel("judge-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain judgeCaptain = new Captain("judge-captain");
+                    judgeCaptain.State = CaptainStateEnum.Working;
+                    judgeCaptain = await testDb.Driver.Captains.CreateAsync(judgeCaptain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("judge-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission judge = new Mission("[Judge] Review worker output", "Review changes");
+                    judge.VesselId = vessel.Id;
+                    judge.VoyageId = voyage.Id;
+                    judge.Persona = "Judge";
+                    judge.Status = MissionStatusEnum.InProgress;
+                    judge.CaptainId = judgeCaptain.Id;
+                    judge.BranchName = "armada/judge/review";
+                    judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+                    Dock judgeDock = new Dock(vessel.Id);
+                    judgeDock.CaptainId = judgeCaptain.Id;
+                    judgeDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, judge.Id);
+                    judgeDock.BranchName = judge.BranchName;
+                    judgeDock.Active = true;
+                    judgeDock = await testDb.Driver.Docks.CreateAsync(judgeDock).ConfigureAwait(false);
+
+                    judge.DockId = judgeDock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                    judgeCaptain.CurrentMissionId = judge.Id;
+                    judgeCaptain.CurrentDockId = judgeDock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(judgeCaptain).ConfigureAwait(false);
+
+                    // A genuine PASS review with all four required sections. No independent
+                    // Checks exist, so the real-signal gate must reject it -- and the stored
+                    // failure reason must say WHY (no checks), not the generic judge-verdict
+                    // line that previously overwrote it (regression for the recovery-judge
+                    // misreport where a PASS read as "Judge verdict: FAIL").
+                    missionService.OnGetMissionOutput = _ =>
+                        "## Completeness\n" +
+                        "Every spec item is present and correct on the reviewed branch.\n\n" +
+                        "## Correctness\n" +
+                        "Verified by execution: the build is clean and the gate passes.\n\n" +
+                        "## Tests\n" +
+                        "Negative paths are covered and the full suite is green.\n\n" +
+                        "## Failure Modes\n" +
+                        "No genuine defect found; the blast radius is contained.\n\n" +
+                        "[ARMADA:VERDICT] PASS";
+
+                    await missionService.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
+
+                    Mission? reloadedJudge = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    AssertNotNull(reloadedJudge, "Judge mission should remain readable");
+                    AssertEqual(MissionStatusEnum.Failed, reloadedJudge!.Status, "Judge PASS without Checks must be rejected by the real-signal gate");
+                    AssertContains("no green independent Checks", reloadedJudge.FailureReason ?? String.Empty,
+                        "The failure reason must name the missing independent Checks, not a judge rejection");
+                    AssertFalse((reloadedJudge.FailureReason ?? String.Empty).Contains("Judge verdict: FAIL", StringComparison.Ordinal),
+                        "A PASS rejected by the check gate must not be misreported as a judge FAIL verdict");
+                    AssertContains("## Completeness", reloadedJudge.ReviewComment ?? String.Empty,
+                        "The review comment must preserve the judge's written review");
+                    AssertEqual(0, landingCalls, "Judge PASS rejected by the gate must not invoke landing");
+                }
+            });
+
             await RunTest("Judge PASS requires structured review sections before landing", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
