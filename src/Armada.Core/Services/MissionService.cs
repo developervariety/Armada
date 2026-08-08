@@ -1577,6 +1577,50 @@ namespace Armada.Core.Services
         /// After a mission produces work, check if any missions in the same voyage depend on it
         /// and prepare them for assignment (inject prior stage context into description).
         /// </summary>
+        /// <summary>
+        /// Recover pipeline handoffs that dangled: a mission reached WorkProduced but its Pending
+        /// downstream stage was never prepared (branch/context not copied), so it can never be
+        /// dispatched. Re-drives the handoff for any such mission so the next stage becomes
+        /// dispatchable. Architect stages are skipped here because re-driving their fan-out is not
+        /// idempotent; their handoff is handled on completion. Returns the number re-driven.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Count of missions whose handoff was re-driven.</returns>
+        public async Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default)
+        {
+            int redriven = 0;
+            List<Mission> workProduced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+
+            foreach (Mission produced in workProduced)
+            {
+                if (String.IsNullOrEmpty(produced.VoyageId)) continue;
+                if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
+
+                List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(produced.VoyageId, token).ConfigureAwait(false);
+                List<Mission> pendingDependents = voyageMissions
+                    .Where(m => m.DependsOnMissionId == produced.Id && m.Status == MissionStatusEnum.Pending)
+                    .ToList();
+                if (pendingDependents.Count == 0) continue;
+
+                bool anyUnprepared = pendingDependents.Any(dep => !IsPipelineHandoffPrepared(dep, produced));
+                if (!anyUnprepared) continue;
+
+                _Logging.Warn(_Header + "re-driving dangling pipeline handoff for WorkProduced mission " + produced.Id +
+                    " (" + pendingDependents.Count + " pending dependent(s) not prepared)");
+                try
+                {
+                    await TryHandoffToNextStageAsync(produced, token).ConfigureAwait(false);
+                    redriven++;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error re-driving handoff for mission " + produced.Id + ": " + ex.Message);
+                }
+            }
+
+            return redriven;
+        }
+
         private async Task<bool> TryHandoffToNextStageAsync(Mission completedMission, CancellationToken token)
         {
             if (String.IsNullOrEmpty(completedMission.VoyageId)) return false;

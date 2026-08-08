@@ -507,6 +507,18 @@ namespace Armada.Core.Services
             // reassigned before the health check could detect the old process exit.
             await RecoverOrphanedMissionsAsync(token).ConfigureAwait(false);
 
+            // Re-drive pipeline handoffs that dangled: WorkProduced missions whose downstream
+            // Pending stage was never prepared and would otherwise never be dispatched.
+            try
+            {
+                int redriven = await _Missions.RecoverDanglingHandoffsAsync(token).ConfigureAwait(false);
+                if (redriven > 0) _Logging.Info(_Header + "re-drove " + redriven + " dangling pipeline handoff(s)");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error recovering dangling handoffs: " + ex.Message);
+            }
+
             // Check for completed voyages
             List<Voyage> completedVoyages = await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
             if (OnVoyageComplete != null)

@@ -47,6 +47,12 @@ namespace Armada.Core.Services.Interfaces
         Task HandleCompletionAsync(Captain captain, string missionId, CancellationToken token = default);
 
         /// <summary>
+        /// Re-drive pipeline handoffs that dangled: WorkProduced missions whose Pending downstream
+        /// stage was never prepared. Returns the number of missions whose handoff was re-driven.
+        /// </summary>
+        Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default);
+
+        /// <summary>
         /// Approve a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>
