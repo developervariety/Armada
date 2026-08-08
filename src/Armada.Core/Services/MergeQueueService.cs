@@ -34,6 +34,16 @@ namespace Armada.Core.Services
         /// guard) indefinitely.
         /// </summary>
         private static readonly TimeSpan _OperationTimeout = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// Identity of this Admiral instance for the cross-instance merge-queue processing lease.
+        /// </summary>
+        private readonly string _InstanceId = "mq-" + Guid.NewGuid().ToString("N");
+
+        /// <summary>
+        /// Name of the durable lease that serializes queue processing across instances.
+        /// </summary>
+        private const string _ProcessLeaseName = "merge-queue:process";
         private readonly object _ProcessLock = new object();
 
         #endregion
@@ -84,8 +94,21 @@ namespace Armada.Core.Services
                 _Processing = true;
             }
 
+            bool leaseAcquired = false;
             try
             {
+                // Cross-instance guard: only one Admiral processes the queue at a time. The lease
+                // TTL guarantees a crashed holder does not block the queue forever, and takeover is
+                // automatic once it expires.
+                leaseAcquired = await _Database.CoordinationLeases
+                    .TryAcquireAsync(_ProcessLeaseName, _InstanceId, TimeSpan.FromMinutes(15), null, token)
+                    .ConfigureAwait(false);
+                if (!leaseAcquired)
+                {
+                    _Logging.Debug(_Header + "merge queue already being processed by another instance -- skipping");
+                    return;
+                }
+
                 // Get all queued entries ordered by priority then created_utc
                 List<MergeEntry> queued = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Queued, token).ConfigureAwait(false);
 
@@ -112,6 +135,17 @@ namespace Armada.Core.Services
             }
             finally
             {
+                if (leaseAcquired)
+                {
+                    try
+                    {
+                        await _Database.CoordinationLeases.ReleaseAsync(_ProcessLeaseName, _InstanceId, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error releasing merge-queue processing lease: " + ex.Message);
+                    }
+                }
                 lock (_ProcessLock) { _Processing = false; }
             }
         }
