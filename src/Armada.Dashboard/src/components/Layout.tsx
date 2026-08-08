@@ -43,8 +43,20 @@ const navSections: NavSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/dispatch', '/planning', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
+    matchers: ['/ask', '/dispatch', '/planning', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
     items: [
+      {
+        to: '/ask',
+        label: 'Ask Armada',
+        tooltip: 'Ask about fleet state in plain language',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            <path d="M12 7v4" />
+            <path d="M12 15h.01" />
+          </svg>
+        ),
+      },
       {
         to: '/planning',
         label: 'Planning',

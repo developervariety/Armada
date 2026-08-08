@@ -538,6 +538,10 @@ namespace Armada.Server
             new SkillRoutes(_Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Ask Armada assistant
+            new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Objectives
             new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService)
                 .Register(_App, authenticate, _AuthorizationService);

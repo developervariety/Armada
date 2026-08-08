@@ -66,6 +66,7 @@ import type {
   ProjectProfileResolutionResult,
   PersonaPromptPreview,
   Skill,
+  AskResponse,
   CheckRun,
   CheckRunImportRequest,
   CheckRunRequest,
@@ -789,6 +790,9 @@ export const getSkill = (id: string) => get<Skill>(`/api/v1/skills/${encodeURICo
 export const createSkill = (data: Partial<Skill>) => post<Skill>('/api/v1/skills', data);
 export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`, data);
 export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURIComponent(id)}`);
+
+// Ask Armada
+export const askArmada = (message: string) => post<AskResponse>('/api/v1/ask', { message });
 
 // ==================== Environments ====================
 export const listEnvironments = (params?: DeploymentEnvironmentQuery) =>

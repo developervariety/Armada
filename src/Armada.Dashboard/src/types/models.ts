@@ -833,6 +833,19 @@ export interface Skill {
   lastUpdateUtc: string;
 }
 
+export interface AskLink {
+  label: string;
+  href: string;
+}
+
+export type AskResponseKind = 'Answer' | 'Help' | 'Unknown';
+
+export interface AskResponse {
+  reply: string;
+  kind: AskResponseKind;
+  links: AskLink[];
+}
+
 export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
 
 export interface WorkflowProfileCommandPreview {

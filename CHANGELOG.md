@@ -28,6 +28,10 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - Pipeline detail now shows a visual left-to-right stage flow (persona cards with review-gate and optional badges) alongside the existing low-code stage editor
 - Live run-mode: dispatch a voyage that runs a pipeline against a chosen vessel directly from the pipeline page, then jump to the voyage to watch it
 
+### Ask Armada
+- Added a lightweight conversational assistant (`AskArmadaService`) that answers read-only questions about fleet state (status, captains, missions, failures, stalls, docks, voyages) and returns suggested navigation links; the intent layer is a clean seam for a future LLM/agent-backed upgrade
+- REST `POST /api/v1/ask`; dashboard "Ask Armada" chat page under Operations
+
 ---
 
 ## v0.9.0
