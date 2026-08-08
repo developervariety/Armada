@@ -954,9 +954,9 @@ namespace Armada.Core.Services
         /// accepted as WorkProduced with an empty diff. Two provider-side flavors are
         /// caught:
         /// <list type="bullet">
-        /// <item>The GLM 5.2 / Zyloo flavor reads AGENTS.md, emits
+        /// <item>The GLM 5.2 flavor reads AGENTS.md, emits
         /// [ARMADA:RESULT] COMPLETE, and exits cleanly.</item>
-        /// <item>The DeepSeek V4 Pro / Zyloo flavor reads AGENTS.md and exits 0
+        /// <item>The DeepSeek V4 Pro flavor reads AGENTS.md and exits 0
         /// after a brief acknowledgment, without any result marker.</item>
         /// </list>
         /// Both reach WorkProduced with an empty diff and a tiny AgentOutput, which the
@@ -1035,7 +1035,7 @@ namespace Armada.Core.Services
                 + Math.Round(runtime.TotalSeconds, 1)
                 + "s with an empty diff and "
                 + agentOutputLength
-                + " chars of AgentOutput on a " + modeLabel + ". This is the false-complete pattern (typical for GLM 5.2 / DeepSeek V4 Pro / Zyloo when the captain reads the brief and exits without working). The mission is re-queued rather than marked WorkProduced so the rescue path can retry with a different captain.";
+                + " chars of AgentOutput on a " + modeLabel + ". This is the false-complete pattern (typical for GLM 5.2 / DeepSeek V4 Pro when the captain reads the brief and exits without working). The mission is re-queued rather than marked WorkProduced so the rescue path can retry with a different captain.";
         }
 
         /// <summary>

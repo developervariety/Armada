@@ -37,7 +37,7 @@ namespace Armada.Helm.Commands
         public string? Model { get; set; }
 
         /// <summary>
-        /// Optional per-captain provider credential override for external-provider-served models (e.g. Zyloo, cun-ai).
+        /// Optional per-captain provider credential override for external-provider-served models (e.g. cun-ai).
         /// An empty string clears it.
         /// </summary>
         [Description("Per-captain provider credential override for external-provider-served models; empty clears it")]

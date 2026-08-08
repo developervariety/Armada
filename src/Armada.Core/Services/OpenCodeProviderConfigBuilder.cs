@@ -8,11 +8,11 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// Builds the ephemeral OpenCode configuration overlay required for a model served by
-    /// an external provider such as Zyloo or cun-ai.
+    /// an external provider such as cun-ai.
     /// </summary>
     /// <remarks>
     /// The configuration references the provider's host environment variable (for example
-    /// <c>ZYLOO_KEY</c>) by placeholder rather than accepting or serializing a credential.
+    /// <c>CUN_AI_KEY</c>) by placeholder rather than accepting or serializing a credential.
     /// OpenCode merges this inline overlay with its global and project configuration, so it
     /// adds only the provider and leaves existing OpenCode providers and captains unchanged.
     /// </remarks>
@@ -49,7 +49,7 @@ namespace Armada.Core.Services
         /// Builds an inline OpenCode configuration overlay for one provider model using the
         /// provider's host environment-variable credential reference.
         /// </summary>
-        /// <param name="model">Canonical provider model identifier, for example <c>zyloo/claude-opus-4-7</c>.</param>
+        /// <param name="model">Canonical provider model identifier, for example <c>cun-ai/claude-fable-5</c>.</param>
         /// <returns>Valid, deterministic JSON suitable for <c>OPENCODE_CONFIG_CONTENT</c>.</returns>
         public static string Build(string model)
         {
@@ -76,7 +76,7 @@ namespace Armada.Core.Services
         /// Builds an inline OpenCode configuration overlay for one provider model resolved
         /// against the provider registry.
         /// </summary>
-        /// <param name="model">Canonical provider model identifier, for example <c>zyloo/claude-opus-4-7</c>.</param>
+        /// <param name="model">Canonical provider model identifier, for example <c>cun-ai/claude-fable-5</c>.</param>
         /// <param name="apiKey">Optional per-captain credential; when null the overlay references
         /// the provider's host environment variable instead of embedding a credential.</param>
         /// <param name="baseUrl">Optional per-captain base URL; when null the registered
@@ -171,7 +171,7 @@ namespace Armada.Core.Services
                 string providerModelId = model.Substring(model.IndexOf('/') + 1);
                 Models = new Dictionary<string, OpenCodeModelDefinition>(StringComparer.Ordinal)
                 {
-                    [providerModelId] = new OpenCodeModelDefinition(model)
+                    [providerModelId] = new OpenCodeModelDefinition(providerModelId)
                 };
 
                 Options.ApiKey = apiKey;
@@ -196,11 +196,11 @@ namespace Armada.Core.Services
             public Dictionary<string, OpenCodeModelDefinition> Models { get; set; }
         }
 
-        /// <summary>OpenCode model alias mapped to the canonical provider API identifier.</summary>
+        /// <summary>OpenCode model alias mapped to the provider-facing API identifier.</summary>
         private sealed class OpenCodeModelDefinition
         {
-            /// <summary>Creates a model definition for the upstream provider identifier.</summary>
-            /// <param name="model">Canonical provider API model identifier.</param>
+            /// <summary>Creates a model definition for the provider API identifier.</summary>
+            /// <param name="model">Provider-facing model identifier, without the Armada namespace prefix.</param>
             public OpenCodeModelDefinition(string model)
             {
                 Id = model;

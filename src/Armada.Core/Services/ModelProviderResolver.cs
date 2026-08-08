@@ -13,7 +13,7 @@ namespace Armada.Core.Services
     /// Resolution rules:
     /// <list type="bullet">
     /// <item>A model id with a registered provider prefix (for example
-    /// <c>zyloo/claude-fable-5</c>) routes to that provider's endpoint.</item>
+    /// <c>cun-ai/claude-fable-5</c>) routes to that provider's endpoint.</item>
     /// <item>A model id with an unregistered prefix is left alone so runtimes with
     /// their own namespaces (for example OpenCode's built-in providers) are untouched.</item>
     /// <item>A model id without a prefix routes only when the captain carries an
@@ -30,7 +30,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Split a model id into its provider namespace prefix and the remaining model
-        /// id. <c>zyloo/claude-fable-5</c> becomes <c>zyloo</c> and <c>claude-fable-5</c>;
+        /// id. <c>cun-ai/claude-fable-5</c> becomes <c>cun-ai</c> and <c>claude-fable-5</c>;
         /// <c>claude-fable-5</c> yields a null prefix.
         /// </summary>
         /// <param name="model">Model id to split.</param>
@@ -69,10 +69,10 @@ namespace Armada.Core.Services
             string? effectiveModel = captain?.Model ?? model;
             if (String.IsNullOrWhiteSpace(effectiveModel)) return null;
 
-            if (TrySplitModel(effectiveModel, out string? providerId, out _))
+            if (TrySplitModel(effectiveModel, out string? providerId, out string modelId))
             {
                 if (providerId == null)
-                    return ResolveCustomEndpoint(captain);
+                    return ResolveCustomEndpoint(captain, modelId);
 
                 ModelProviderSettings? provider = registry.Find(providerId);
                 if (provider == null) return null;
@@ -88,7 +88,8 @@ namespace Armada.Core.Services
                 {
                     ProviderId = providerId,
                     BaseUrl = baseUrl,
-                    ApiKey = key
+                    ApiKey = key,
+                    ApiModelId = modelId
                 };
             }
 
@@ -104,8 +105,9 @@ namespace Armada.Core.Services
         /// explicit base URL and key on the captain record itself.
         /// </summary>
         /// <param name="captain">Captain being launched; may be null.</param>
+        /// <param name="modelId">Model id as carried on the captain record.</param>
         /// <returns>Resolved endpoint and key, or null when not fully configured.</returns>
-        private static ResolvedModelProvider? ResolveCustomEndpoint(Captain? captain)
+        private static ResolvedModelProvider? ResolveCustomEndpoint(Captain? captain, string modelId)
         {
             if (captain == null) return null;
             if (String.IsNullOrWhiteSpace(captain.ApiBaseUrl)) return null;
@@ -115,7 +117,8 @@ namespace Armada.Core.Services
             {
                 ProviderId = null,
                 BaseUrl = captain.ApiBaseUrl,
-                ApiKey = captain.ApiKey
+                ApiKey = captain.ApiKey,
+                ApiModelId = modelId
             };
         }
 

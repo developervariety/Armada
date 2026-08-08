@@ -14,15 +14,16 @@ namespace Armada.Core.Services
     /// and are handled by the calling dispatcher.
     ///
     /// Tier membership is config-driven through <see cref="ModelTierSettings"/>:
-    /// the LowTierModels, MidTierModels, and HighTierModels lists determine which
-    /// concrete models belong to each tier. When no settings are supplied, a fresh
-    /// built-in default set is used so existing call sites keep working.
+    /// the MidTierModels and HighTierModels lists determine which concrete models
+    /// belong to each tier. There is no low tier; the legacy low selector maps to
+    /// mid. When no settings are supplied, a fresh built-in default set is used so
+    /// existing call sites keep working.
     /// </summary>
     public static class PreferredModelTierSelector
     {
         #region Public-Members
 
-        /// <summary>Canonical tier name for low-complexity work.</summary>
+        /// <summary>Canonical tier name for low-complexity work. Legacy: a low request maps to the mid tier.</summary>
         public const string LowTier = "low";
 
         /// <summary>Canonical tier name for mid-complexity work.</summary>
@@ -81,15 +82,15 @@ namespace Armada.Core.Services
         private static readonly Regex _GeminiProPattern =
             new Regex(@"^gemini-[\d.]+-pro$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // Kimi K2.7 is explicitly mid-tier. This pattern anchors the version so earlier
-        // Kimi releases (K2.5, K2.6) stay low and future K2.7 aliases classify mid without
-        // requiring each slash-prefixed variant to be added by hand.
+        // Kimi K2.7 is explicitly mid-tier. This pattern anchors the version so future
+        // K2.7 aliases classify mid without requiring each slash-prefixed variant to be
+        // added by hand.
         private static readonly Regex _CanonicalKimiK27Pattern =
             new Regex(@"^(?:opencode(?:-go)?/)?kimi-k2\.7(?:[-.].*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Dictionary<string, string> _Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            { "quick", LowTier },
+            { "quick", MidTier },
             { "medium", MidTier }
         };
 
@@ -126,7 +127,7 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Returns true if the value is a recognized tier selector (low, mid, high, or an alias).
+        /// Returns true if the value is a recognized tier selector (mid, high, low as a legacy alias, or an alias).
         /// Returns false for null, empty, and literal model names.
         /// </summary>
         public static bool IsTierSelector(string? value)
@@ -240,7 +241,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Normalizes a tier selector value to its canonical form (low, mid, or high).
+        /// Normalizes a tier selector value to its canonical form (mid or high).
+        /// The legacy <c>low</c> selector (and its <c>quick</c> alias) maps to mid:
+        /// there is no low tier, so a low request is served by the mid tier.
         /// Throws <see cref="ArgumentException"/> if value is not a tier selector.
         /// </summary>
         public static string NormalizeTier(string value)
@@ -248,28 +251,28 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(value))
                 throw new ArgumentException("Tier value must not be null or empty.", nameof(value));
 
-            if (String.Equals(value, LowTier, StringComparison.OrdinalIgnoreCase)) return LowTier;
+            if (String.Equals(value, LowTier, StringComparison.OrdinalIgnoreCase)) return MidTier;
             if (String.Equals(value, MidTier, StringComparison.OrdinalIgnoreCase)) return MidTier;
             if (String.Equals(value, HighTier, StringComparison.OrdinalIgnoreCase)) return HighTier;
 
             string? alias = null;
-            if (_Aliases.TryGetValue(value, out alias)) return alias;
+            if (_Aliases.TryGetValue(value, out alias)) return NormalizeTier(alias);
 
             throw new ArgumentException("Unknown tier selector: " + value, nameof(value));
         }
 
         /// <summary>
-        /// Returns the model names for the specified tier (low, mid, or high). The list is
+        /// Returns the model names for the specified tier (mid or high). The list is
         /// sourced from <paramref name="modelTierSettings"/> when supplied, otherwise from
-        /// the built-in defaults. The returned collection is read-only.
+        /// the built-in defaults. The returned collection is read-only. A legacy low
+        /// request resolves to the mid tier; there is no low tier.
         /// </summary>
-        /// <param name="tier">Tier selector value (low, mid, high, or alias).</param>
+        /// <param name="tier">Tier selector value (mid, high, low as a legacy alias, or a tier alias).</param>
         /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
         public static IReadOnlyList<string> GetTierModels(string tier, ModelTierSettings? modelTierSettings = null)
         {
             ModelTierSettings settings = modelTierSettings ?? CreateDefaultSettings();
             string normalized = NormalizeTier(tier);
-            if (normalized == LowTier) return settings.LowTierModels.AsReadOnly();
             if (normalized == MidTier) return settings.MidTierModels.AsReadOnly();
             return settings.HighTierModels.AsReadOnly();
         }
@@ -277,22 +280,17 @@ namespace Armada.Core.Services
         /// <summary>
         /// Returns all model names in the specified tier and every tier above it.
         /// Used to validate whether a pinned captain's model is acceptable for the
-        /// requested tier or its upward fallback chain.
+        /// requested tier or its upward fallback chain. A legacy low request resolves
+        /// to mid and above; there is no low tier.
         /// </summary>
-        /// <param name="tier">Tier selector value (low, mid, high, or alias).</param>
+        /// <param name="tier">Tier selector value (mid, high, low as a legacy alias, or a tier alias).</param>
         /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
         public static IReadOnlyList<string> GetTierAndAboveModels(string tier, ModelTierSettings? modelTierSettings = null)
         {
             ModelTierSettings settings = modelTierSettings ?? CreateDefaultSettings();
             string normalized = NormalizeTier(tier);
             List<string> result = new List<string>();
-            if (normalized == LowTier)
-            {
-                result.AddRange(settings.LowTierModels);
-                result.AddRange(settings.MidTierModels);
-                result.AddRange(settings.HighTierModels);
-            }
-            else if (normalized == MidTier)
+            if (normalized == MidTier)
             {
                 result.AddRange(settings.MidTierModels);
                 result.AddRange(settings.HighTierModels);
@@ -305,7 +303,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Classifies a concrete model name into its complexity tier (low, mid, or high),
+        /// Classifies a concrete model name into its complexity tier (mid or high),
         /// or null when the model is not recognized as belonging to any tier. A model counts
         /// when it is in the configured tier membership lists. When no settings object
         /// is supplied, built-in family inference also recognizes routine version bumps.
@@ -324,7 +322,6 @@ namespace Armada.Core.Services
             // for explicit entries such as gpt-5.5.
             if (ContainsModel(settings.HighTierModels, normalized)) return HighTier;
             if (ContainsModel(settings.MidTierModels, normalized)) return MidTier;
-            if (ContainsModel(settings.LowTierModels, normalized)) return LowTier;
 
             // A supplied settings object is authoritative. Do not let family heuristics
             // silently re-add or reclassify a model the operator removed from its lists.
@@ -337,19 +334,18 @@ namespace Armada.Core.Services
             if (_CanonicalSonnetPattern.IsMatch(normalized)) return MidTier;
             if (_GeminiProPattern.IsMatch(normalized)) return MidTier;
             if (normalized.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)) return MidTier;
-            if (normalized.StartsWith("kimi-", StringComparison.OrdinalIgnoreCase)) return LowTier;
 
             return null;
         }
 
         /// <summary>
         /// Returns true when the given concrete model belongs to the requested tier or any
-        /// tier above it (low &lt; mid &lt; high). Used to validate a captain's model against a
+        /// tier above it (mid &lt; high). Used to validate a captain's model against a
         /// tier pin while honoring the upward-only fallback chain. Returns false for models
         /// that classify into no tier.
         /// </summary>
         /// <param name="model">Concrete model name (not a tier selector).</param>
-        /// <param name="requestedTier">Tier selector value (low, mid, high, or alias).</param>
+        /// <param name="requestedTier">Tier selector value (mid, high, or a legacy alias).</param>
         /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
         public static bool ModelMatchesTierOrAbove(string? model, string requestedTier, ModelTierSettings? modelTierSettings = null)
         {
@@ -372,7 +368,7 @@ namespace Armada.Core.Services
         /// preference-order step, with unprofiled models trailing. Unknown or empty hints
         /// degrade gracefully to the existing preference-order or random path.
         /// </summary>
-        /// <param name="tierValue">Tier selector value (low, mid, high, or alias).</param>
+        /// <param name="tierValue">Tier selector value (mid, high, or a legacy alias).</param>
         /// <param name="idleCaptains">All currently idle captains.</param>
         /// <param name="persona">Optional persona name the mission requires.</param>
         /// <param name="randomPick">
@@ -577,9 +573,9 @@ namespace Armada.Core.Services
             if (isSpecialist)
                 return new string[] { HighTier };
             if (normalizedTier == LowTier)
-                return new string[] { LowTier, MidTier, HighTier };
+                return new string[] { MidTier, HighTier };
             if (normalizedTier == MidTier)
-                return new string[] { MidTier, LowTier, HighTier };
+                return new string[] { MidTier, HighTier };
             return new string[] { HighTier };
         }
 

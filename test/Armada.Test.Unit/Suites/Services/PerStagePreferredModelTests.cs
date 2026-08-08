@@ -73,7 +73,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Pipeline pipeline = new Pipeline("ReviewedTest_RoundTrip");
                     pipeline.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "Worker") { PreferredModel = "zyloo/claude-opus-4-7" },
+                        new PipelineStage(1, "Worker") { PreferredModel = "gpt-5.6-luna" },
                         new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7" }
                     };
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
@@ -86,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Services
                     PipelineStage? judge = readBack.Stages.FirstOrDefault(s => s.PersonaName == "Judge");
                     AssertNotNull(worker, "Worker stage should round-trip");
                     AssertNotNull(judge, "Judge stage should round-trip");
-                    AssertEqual("zyloo/claude-opus-4-7", worker!.PreferredModel, "Worker stage PreferredModel should round-trip");
+                    AssertEqual("gpt-5.6-luna", worker!.PreferredModel, "Worker stage PreferredModel should round-trip");
                     AssertEqual("claude-opus-4-7", judge!.PreferredModel, "Judge stage PreferredModel should round-trip");
                 }
             });
@@ -162,7 +162,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         new MissionDescription("Feature work", "Implement feature with reviewed pipeline")
                         {
-                            PreferredModel = "zyloo/claude-opus-4-7"
+                            PreferredModel = "gpt-5.6-luna"
                         }
                     };
 
@@ -182,10 +182,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(worker, "Worker mission should exist");
                     AssertNotNull(judge, "Judge mission should exist");
 
-                    // Worker stage has no PreferredModel override -> inherits the per-mission Zyloo Opus pin.
-                    AssertEqual("zyloo/claude-opus-4-7", worker!.PreferredModel,
+                    // Worker stage has no PreferredModel override -> inherits the per-mission luna pin.
+                    AssertEqual("gpt-5.6-luna", worker!.PreferredModel,
                         "Worker mission should inherit per-mission PreferredModel when stage override is null");
-                    // Judge stage has PreferredModel="claude-opus-4-7" -> overrides per-mission Zyloo Opus.
+                    // Judge stage has PreferredModel="claude-opus-4-7" -> overrides per-mission luna.
                     AssertEqual("claude-opus-4-7", judge!.PreferredModel,
                         "Judge mission should pick up stage-level PreferredModel override");
                 }

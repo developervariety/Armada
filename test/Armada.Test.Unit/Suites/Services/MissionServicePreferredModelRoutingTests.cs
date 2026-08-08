@@ -94,7 +94,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "luna-captain", "zyloo/gpt-5.6-luna").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "luna-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Captain pinnedModel = await CreateCaptainAsync(testDb.Driver, "custom-captain", "custom-model-v1").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal route", "custom-model-v1").ConfigureAwait(false);
 
@@ -114,10 +114,10 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "architect-pin", "zyloo/claude-fable-5", "[\"Architect\"]").ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "opus-worker", "zyloo/claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
-                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "opus-judge", "zyloo/claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal persona route", "zyloo/claude-opus-5", "Judge").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "architect-pin", "cun-ai/claude-fable-5", "[\"Architect\"]").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "opus-worker", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "opus-judge", "claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal persona route", "claude-opus-5", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
@@ -136,8 +136,8 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     // Judge is a specialist persona, so it resolves on high-tier captains only.
-                    await CreateCaptainAsync(testDb.Driver, "opus-worker", "zyloo/claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
-                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "opus5-judge", "zyloo/claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "opus-worker", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "opus5-judge", "claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier route", "high", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -157,8 +157,8 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     // Judge is a specialist persona, so it resolves on high-tier captains only.
-                    await CreateCaptainAsync(testDb.Driver, "opus-general", "zyloo/claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
-                    Captain preferredJudge = await CreateCaptainAsync(testDb.Driver, "opus-preferred", "zyloo/claude-opus-5", "[\"Judge\"]", "Judge").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "opus-general", "claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
+                    Captain preferredJudge = await CreateCaptainAsync(testDb.Driver, "opus-preferred", "claude-opus-5", "[\"Judge\"]", "Judge").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier preferred persona", "high", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -171,7 +171,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("TryAssign_LiteralPreferredModel_CanonicalFamilyFallback_Assigns", async () =>
             {
-                // zyloo/claude-opus-5 is a curated high-tier model. When no exact captain is available,
+                // claude-opus-5 is a curated high-tier model. When no exact captain is available,
                 // the dispatch should fall back to any idle high-tier captain.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -179,8 +179,8 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
-                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "zyloo/claude-opus-5").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "canonical family fallback", "zyloo/claude-opus-5").ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "canonical family fallback", "claude-opus-5").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
@@ -200,7 +200,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain anyCaptain = await CreateCaptainAsync(testDb.Driver, "generic-captain", "zyloo/claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain anyCaptain = await CreateCaptainAsync(testDb.Driver, "generic-captain", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "unclassified fallback", "my-totally-unknown-model-v7", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -223,8 +223,8 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "mid-only", "composer-2.5").ConfigureAwait(false);
-                    // zyloo/claude-opus-5 classifies to high; only a mid-tier captain is available.
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "no high tier available", "zyloo/claude-opus-5").ConfigureAwait(false);
+                    // claude-opus-5 classifies to high; only a mid-tier captain is available.
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "no high tier available", "claude-opus-5").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
@@ -237,7 +237,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("TryAssign_LiteralPreferredModel_ClassifiedTierUpgradesUpwardChain_Assigns", async () =>
             {
-                // zyloo/claude-opus-4-7 classifies to mid via the curated mid list. With no
+                // gpt-5.6-luna classifies to mid via the curated mid list. With no
                 // exact captain and no idle mid-tier captain, the classified-tier fallback delegates
                 // to SelectModel, which follows the upward-only chain (mid -> high) and lands on the
                 // available high-tier captain rather than leaving the mission pending.
@@ -246,8 +246,8 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-only", "zyloo/claude-opus-5").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "mid pin upward chain", "zyloo/claude-opus-4-7").ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-only", "claude-opus-5").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "mid pin upward chain", "gpt-5.6-luna").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
@@ -260,7 +260,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("TryAssign_LiteralPreferredModel_ClassifiedTierPersonaIneligible_StaysPending", async () =>
             {
-                // zyloo/claude-opus-5 classifies to high. The only idle high-tier captain does not allow
+                // claude-opus-5 classifies to high. The only idle high-tier captain does not allow
                 // the mission's Judge persona, so the classified-tier fallback (which filters by
                 // persona inside SelectModel) must find no eligible model and leave the mission pending
                 // rather than routing to a persona-incompatible captain.
@@ -269,8 +269,8 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "worker-only-high", "zyloo/claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "classified persona ineligible", "zyloo/claude-opus-5", "Judge").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "worker-only-high", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "classified persona ineligible", "claude-opus-5", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
@@ -292,7 +292,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "worker-only", "zyloo/claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "worker-only", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "unclassified persona ineligible", "my-totally-unknown-model-v9", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -314,7 +314,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "high-captain", "zyloo/claude-opus-5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "non-specialist mid route", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -329,14 +329,14 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("TryAssign_MidTier_FirstPreference_AssignsTopRankedCaptain", async () =>
             {
                 // The default ModelTierSettings.WithinTierPreferenceOrder leads the mid tier with
-                // the Zyloo Opus captain. While it is idle it wins over other idle mid captains.
+                // the gpt-5.6-luna captain. While it is idle it wins over other idle mid captains.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
-                    Captain opusCaptain = await CreateCaptainAsync(testDb.Driver, "opus-captain", "zyloo/claude-opus-4-7").ConfigureAwait(false);
+                    Captain opusCaptain = await CreateCaptainAsync(testDb.Driver, "opus-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked preferred worker", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -351,15 +351,15 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("TryAssign_MidTier_TopRankedBusy_FallsBackToNextRanked", async () =>
             {
                 // When no top-ranked captain is idle, the configured mid preference falls to the
-                // next ranked model that has one. With the Zyloo Opus primary absent, composer-2.5
-                // (rank 4) beats grok-4.5 (rank 5).
+                // next ranked model that has one. With the luna primary absent, grok-4.5
+                // (rank 2) beats composer-2.5 (rank 4).
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain fallbackCaptain = await CreateCaptainAsync(testDb.Driver, "composer-captain", "composer-2.5").ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
+                    Captain fallbackCaptain = await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "composer-captain", "composer-2.5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked busy fallback", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -367,28 +367,28 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertTrue(assigned, "Mid-tier Worker mission should fall back to the next ranked model");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(fallbackCaptain.Id, readBack.CaptainId, "the next ranked mid model (composer) should be chosen when the top-ranked model is busy");
+                    AssertEqual(fallbackCaptain.Id, readBack.CaptainId, "the next ranked mid model (grok) should be chosen when the top-ranked model is busy");
                 }
             });
 
             await RunTest("TryAssign_NonSpecialistOnlyHighIdle_FallsUpToHighLastResort", async () =>
             {
-                // End-to-end last-resort fall-up: no idle mid/low captain exists, so a non-specialist
+                // End-to-end last-resort fall-up: no idle mid captain exists, so a non-specialist
                 // mid mission may use the idle high captain rather than stay pending.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-only", "zyloo/claude-opus-5").ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-only", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "non-specialist last resort", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertTrue(assigned, "Non-specialist mission should fall up to high when no mid/low captain is idle");
+                    AssertTrue(assigned, "Non-specialist mission should fall up to high when no mid captain is idle");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched via last-resort high");
-                    AssertEqual(highCaptain.Id, readBack.CaptainId, "High is the last-resort captain when no mid/low captain is idle");
+                    AssertEqual(highCaptain.Id, readBack.CaptainId, "High is the last-resort captain when no mid captain is idle");
                 }
             });
 
@@ -403,7 +403,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "high-captain", "zyloo/claude-opus-5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "empty preferred non-specialist", "", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -425,7 +425,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
-                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "zyloo/claude-opus-5").ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "empty preferred specialist", "", "Judge").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);

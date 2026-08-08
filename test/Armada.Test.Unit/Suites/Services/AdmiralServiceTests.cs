@@ -106,7 +106,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // A provider spend cap is scoped to the model, not the provider account: an expensive frontier
                 // model can be capped while the cheap models on the SAME provider still answer. Benching the whole
-                // "zyloo/" prefix took working captains offline, so only the capped model may be benched here.
+                // "cun-ai/" prefix took working captains offline, so only the capped model may be benched here.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
@@ -114,11 +114,11 @@ namespace Armada.Test.Unit.Suites.Services
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
                     Captain capped = new Captain("capped-1");
-                    capped.Model = "zyloo/claude-opus-4-8";
+                    capped.Model = "cun-ai/claude-fable-5";
                     Captain sameModel = new Captain("capped-2");
-                    sameModel.Model = "zyloo/claude-opus-4-8";
+                    sameModel.Model = "cun-ai/claude-fable-5";
                     Captain sameProviderOtherModel = new Captain("cheap-1");
-                    sameProviderOtherModel.Model = "zyloo/gpt-5.6-sol";
+                    sameProviderOtherModel.Model = "cun-ai/gpt-5.6-sol";
                     Captain otherProvider = new Captain("native-1");
                     otherProvider.Model = "claude-opus-4-7";
 

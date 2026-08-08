@@ -6,10 +6,10 @@ namespace Armada.Core.Settings
     /// <summary>
     /// Settings that govern how captain model tiers are reserved across personas.
     /// Specialist personas (reviewers, Judge, Architect, etc.) are reserved for
-    /// high-tier captains; non-specialist work runs on mid/low tiers with high held
-    /// back as a last resort. The specialist set and tier membership lists are
-    /// configurable so operators can reclassify a persona or move a model between
-    /// tiers without a code change.
+    /// high-tier captains; non-specialist work runs on the mid tier with high held
+    /// back as a last resort. There is no low tier. The specialist set and tier
+    /// membership lists are configurable so operators can reclassify a persona or
+    /// move a model between tiers without a code change.
     /// </summary>
     public class ModelTierSettings
     {
@@ -18,7 +18,7 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Persona names that are reserved for high-tier captains. A mission whose
         /// persona is in this set is routed only to high-tier captains; all other
-        /// personas prefer mid/low and fall up to high only when no mid/low captain
+        /// personas prefer mid and fall up to high only when no mid captain
         /// is available. Setting this to null restores the built-in default set.
         /// </summary>
         public List<string> SpecialistPersonas
@@ -33,7 +33,7 @@ namespace Armada.Core.Settings
         /// capacity left after specialist dispatch is high-tier and at or below this
         /// count, non-specialist (Worker) dispatch is deferred for one scheduler cycle
         /// so the held-back slots stay free for the next incoming review/landing stage.
-        /// Workers always prefer mid/low captains, so this never withholds non-high-tier
+        /// Workers always prefer mid captains, so this never withholds non-high-tier
         /// capacity. The reservation is suppressed while no in-flight work could produce
         /// a downstream specialist stage, so a high-tier-only fleet never deadlocks (a
         /// Worker primes the pipeline before the reserve engages). Clamped to [0, 10].
@@ -88,18 +88,6 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Low-complexity model names. A captain whose model is in this list is
-        /// eligible for low-tier dispatch and falls up to mid/high only through the
-        /// upward fallback chain. Setting this to null restores the built-in default
-        /// list.
-        /// </summary>
-        public List<string> LowTierModels
-        {
-            get => _LowTierModels;
-            set => _LowTierModels = value ?? BuildDefaultLowTierModels();
-        }
-
-        /// <summary>
         /// Mid-complexity model names. A captain whose model is in this list is
         /// eligible for mid-tier dispatch and falls up to high only through the
         /// upward fallback chain. Setting this to null restores the built-in default
@@ -131,7 +119,6 @@ namespace Armada.Core.Settings
         private Dictionary<string, List<string>> _WithinTierPreferenceOrder = BuildDefaultWithinTierPreferenceOrder();
         private Dictionary<string, ModelCapabilityProfile> _ModelCapabilityProfiles = BuildDefaultModelCapabilityProfiles();
         private Dictionary<string, string> _CapabilityHintDimensionMap = BuildDefaultCapabilityHintDimensionMap();
-        private List<string> _LowTierModels = BuildDefaultLowTierModels();
         private List<string> _MidTierModels = BuildDefaultMidTierModels();
         private List<string> _HighTierModels = BuildDefaultHighTierModels();
 
@@ -184,7 +171,6 @@ namespace Armada.Core.Settings
             WithinTierPreferenceOrder = source.WithinTierPreferenceOrder;
             ModelCapabilityProfiles = source.ModelCapabilityProfiles;
             CapabilityHintDimensionMap = source.CapabilityHintDimensionMap;
-            LowTierModels = source.LowTierModels;
             MidTierModels = source.MidTierModels;
             HighTierModels = source.HighTierModels;
         }
@@ -215,40 +201,25 @@ namespace Armada.Core.Settings
             return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 {
-                    "low",
-                    new List<string>
-                    {
-                        "opencode-go/deepseek-v4-flash"
-                    }
-                },
-                {
                     "mid",
                     new List<string>
                     {
-                        "zyloo/claude-opus-4-7",
-                        "zyloo/claude-opus-4-8",
-                        "zyloo/gpt-5.6-luna",
-                        "composer-2.5",
-                        "grok-4.5"
+                        "gpt-5.6-luna",
+                        "grok-4.5",
+                        "opencode-go/deepseek-v4-flash",
+                        "composer-2.5"
                     }
                 },
                 {
                     "high",
                     new List<string>
                     {
-                        "zyloo/claude-fable-5",
-                        "zyloo/claude-opus-5",
-                        "zyloo/gpt-5.6-sol"
+                        "cun-ai/claude-fable-5",
+                        "claude-fable-5",
+                        "claude-opus-5",
+                        "gpt-5.6-sol"
                     }
                 }
-            };
-        }
-
-        private static List<string> BuildDefaultLowTierModels()
-        {
-            return new List<string>
-            {
-                "opencode-go/deepseek-v4-flash"
             };
         }
 
@@ -256,11 +227,10 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
-                "zyloo/claude-opus-4-7",
-                "zyloo/claude-opus-4-8",
-                "zyloo/gpt-5.6-luna",
-                "composer-2.5",
-                "grok-4.5"
+                "gpt-5.6-luna",
+                "grok-4.5",
+                "opencode-go/deepseek-v4-flash",
+                "composer-2.5"
             };
         }
 
@@ -268,9 +238,10 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
-                "zyloo/claude-fable-5",
-                "zyloo/claude-opus-5",
-                "zyloo/gpt-5.6-sol"
+                "cun-ai/claude-fable-5",
+                "claude-fable-5",
+                "claude-opus-5",
+                "gpt-5.6-sol"
             };
         }
 
@@ -278,17 +249,12 @@ namespace Armada.Core.Settings
         {
             return new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
             {
+                { "cun-ai/claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
-                { "zyloo/claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-opus-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
-                { "zyloo/claude-opus-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
-                { "zyloo/claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
-                { "zyloo/claude-opus-4-7", new ModelCapabilityProfile { TelemetryRichness = 92, AuditReasoningFit = 92, MechanicalThroughput = 58, Cost = 90 } },
                 { "gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 88, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
-                { "zyloo/gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 88, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
                 { "gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 78, MechanicalThroughput = 70, Cost = 55 } },
-                { "zyloo/gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 78, MechanicalThroughput = 70, Cost = 55 } },
                 { "composer-2.5", new ModelCapabilityProfile { TelemetryRichness = 55, AuditReasoningFit = 58, MechanicalThroughput = 70, Cost = 25 } },
                 { "grok-4.5", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 68, Cost = 55 } },
                 { "opencode-go/deepseek-v4-flash", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 75, Cost = 15 } }

@@ -165,7 +165,7 @@ returned job ID.
 `preferredModel` normally takes a complexity tier (`low`, `mid`, or `high`)
 and Armada picks the best-fit available captain. It also accepts a literal
 model name (for example `claude-opus-5`, `gpt-5.6-sol`,
-`opencode-go/glm-5.2`, `zyloo/gpt-5.5`): the dispatcher first filters idle
+`opencode-go/glm-5.2`): the dispatcher first filters idle
 captains by an exact case-insensitive model match, and only then falls back to
 tier routing. A pin is therefore best-effort, not a guarantee -- when no idle
 captain carries that exact model, Armada classifies the model into a tier and
@@ -354,10 +354,10 @@ provider models with a live provider call before putting them in a tier.
 
 ### Per-captain provider credentials
 
-A captain whose model is served by Zyloo (a `zyloo/` model id) normally uses
-the host-level `ZYLOO_KEY` environment variable. A captain may instead carry
+A captain whose model is served by an external provider (a `provider/model` id such as `cun-ai/claude-fable-5`) normally uses
+the provider's host-level environment variable (for example `CUN_AI_KEY`). A captain may instead carry
 its own `apiKey` (and optional `apiBaseUrl`) on its record, which wins over
-the environment variable. This lets captains on separate Zyloo subscriptions
+the environment variable. This lets captains on separate provider subscriptions
 run side by side on one Admiral; burn down each subscription, then delete its
 captains. The MCP captain surface returns the key masked (last four
 characters preserved); the dashboard keeps the raw value so the edit form can

@@ -75,7 +75,7 @@ namespace Armada.Test.Unit.Suites.Recovery
             await RunTest("LongHealthyToolLoopIsNeverStalled", async () =>
             {
                 // A captain that has completed many steps recently must never be stalled, even if
-                // the step count is far above the historical Mux/Zyloo ~50-iteration ceiling. The
+                // the step count is far above the historical Mux ~50-iteration ceiling. The
                 // classifier keys on recency, not on an absolute step count.
                 DateTime now = DateTime.UtcNow;
                 for (int step = 0; step < 100; step++)

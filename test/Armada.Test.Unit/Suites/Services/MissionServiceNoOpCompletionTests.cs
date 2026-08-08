@@ -8,7 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Unit coverage for the captain "false complete" detection. The platform catches
-    /// GLM 5.2 / Zyloo captains that emit [ARMADA:RESULT] COMPLETE (or DeepSeek V4 Pro
+    /// GLM 5.2 captains that emit [ARMADA:RESULT] COMPLETE (or DeepSeek V4 Pro
     /// captains that exit 0 with a bare acknowledgment) after running briefly with no
     /// diff and a tiny AgentOutput, so the rescue path can retry with a different
     /// captain rather than let the mission reach WorkProduced.

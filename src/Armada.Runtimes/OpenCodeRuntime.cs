@@ -129,7 +129,7 @@ namespace Armada.Runtimes
         /// </param>
         /// <param name="modelProviders">
         /// External model provider registry; null uses the built-in default set so
-        /// existing Zyloo captains keep routing without configuration.
+        /// Every external provider is registered in settings.json by the operator.
         /// </param>
         public OpenCodeRuntime(LoggingModule logging, OpenCodeServerSettings? connectionSettings, ModelProvidersSettings? modelProviders)
             : base(logging)

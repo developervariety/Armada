@@ -77,18 +77,17 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Runs the suite.</summary>
         protected override async Task RunTestsAsync()
         {
-            string? original = Environment.GetEnvironmentVariable("ZYLOO_KEY");
             string? originalCun = Environment.GetEnvironmentVariable("CUN_AI_KEY");
-            Environment.SetEnvironmentVariable("ZYLOO_KEY", "test-key-not-a-real-credential");
+            Environment.SetEnvironmentVariable("CUN_AI_KEY", "test-key-not-a-real-credential");
 
             try
             {
                 await RunTest("ProviderModel_IsRoutedToTheProviderEndpoint", () =>
                 {
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithModel("zyloo-1", "zyloo/claude-opus-4-8"));
+                    InvokeRouting(startInfo, CaptainWithModel("cun-ai-1", "cun-ai/claude-fable-5"), RegistryWithCunAi());
 
-                    AssertEqual("https://api.zyloo.io", startInfo.Environment["ANTHROPIC_BASE_URL"],
+                    AssertEqual("https://cun.ai", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "A provider-prefixed captain must be pointed at the provider's Anthropic-native endpoint");
                     AssertEqual("test-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "The provider key must be supplied as ANTHROPIC_API_KEY, the form providers document");
@@ -112,13 +111,13 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("ConcurrentLaunches_DoNotLeakBetweenCaptains", () =>
                 {
                     // Two captains launched from the same admiral get independent environments.
-                    ProcessStartInfo zyloo = new ProcessStartInfo();
+                    ProcessStartInfo provider = new ProcessStartInfo();
                     ProcessStartInfo native = new ProcessStartInfo();
 
-                    InvokeRouting(zyloo, CaptainWithModel("zyloo-2", "zyloo/claude-fable-5"));
+                    InvokeRouting(provider, CaptainWithModel("cun-ai-2", "cun-ai/claude-fable-5"), RegistryWithCunAi());
                     InvokeRouting(native, CaptainWithModel("native-2", "claude-fable-5"));
 
-                    AssertTrue(zyloo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
+                    AssertTrue(provider.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "The provider captain keeps its redirect");
                     AssertFalse(native.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "The native captain launched alongside it must be unaffected");
@@ -129,10 +128,10 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     // An inherited ANTHROPIC_AUTH_TOKEN outranks the API key inside the CLI, so it must
                     // be cleared for the routed child -- and left intact for everyone else.
-                    ProcessStartInfo zyloo = new ProcessStartInfo();
-                    zyloo.Environment["ANTHROPIC_AUTH_TOKEN"] = "inherited-native-token";
-                    InvokeRouting(zyloo, CaptainWithModel("zyloo-3", "zyloo/claude-opus-4-7"));
-                    AssertFalse(zyloo.Environment.ContainsKey("ANTHROPIC_AUTH_TOKEN"),
+                    ProcessStartInfo provider = new ProcessStartInfo();
+                    provider.Environment["ANTHROPIC_AUTH_TOKEN"] = "inherited-native-token";
+                    InvokeRouting(provider, CaptainWithModel("cun-ai-3", "cun-ai/claude-fable-5"), RegistryWithCunAi());
+                    AssertFalse(provider.Environment.ContainsKey("ANTHROPIC_AUTH_TOKEN"),
                         "A stale inherited auth token must not override the provider API key");
 
                     ProcessStartInfo native = new ProcessStartInfo();
@@ -148,20 +147,20 @@ namespace Armada.Test.Unit.Suites.Services
                     // Two subscriptions run side by side: a captain's own key must beat the
                     // host-level key that serves the other subscription.
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-keyed", "zyloo/claude-opus-4-7", "captain-key-not-a-real-credential"));
+                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-keyed", "cun-ai/claude-fable-5", "captain-key-not-a-real-credential"), RegistryWithCunAi());
 
                     AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "The per-captain key must win over the environment fallback");
-                    AssertEqual("https://api.zyloo.io", startInfo.Environment["ANTHROPIC_BASE_URL"],
+                    AssertEqual("https://cun.ai", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "The per-captain key must still use the default provider endpoint");
                     return Task.CompletedTask;
                 });
 
                 await RunTest("CaptainApiKey_FallsBackToTheHostEnvironmentKey", () =>
                 {
-                    // A captain without its own key keeps the existing single-key behavior.
+                    // A captain without its own key keeps the single-key behavior.
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-env", "zyloo/claude-fable-5", null));
+                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-env", "cun-ai/claude-fable-5", null), RegistryWithCunAi());
 
                     AssertEqual("test-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "The host-level key must remain the fallback for captains without a key");
@@ -171,7 +170,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("CaptainApiBaseUrl_OverridesTheDefaultEndpoint", () =>
                 {
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-base", "zyloo/claude-opus-4-7", "captain-key-not-a-real-credential", "https://proxy.example.test"));
+                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-base", "cun-ai/claude-fable-5", "captain-key-not-a-real-credential", "https://proxy.example.test"), RegistryWithCunAi());
 
                     AssertEqual("https://proxy.example.test", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "A captain's base URL must override the default provider endpoint");
@@ -183,28 +182,28 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("CaptainApiKey_PresentWithoutEnvironmentKey_StillRoutes", () =>
                 {
                     // The per-captain key must work even when the host carries no provider key at all.
-                    Environment.SetEnvironmentVariable("ZYLOO_KEY", null);
+                    Environment.SetEnvironmentVariable("CUN_AI_KEY", null);
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("zyloo-standalone", "zyloo/claude-opus-4-7", "captain-key-not-a-real-credential"));
+                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-standalone", "cun-ai/claude-fable-5", "captain-key-not-a-real-credential"), RegistryWithCunAi());
 
                     AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "A per-captain key must route without any host-level key present");
                     AssertTrue(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "The endpoint must be set when the per-captain key routes the captain");
-                    Environment.SetEnvironmentVariable("ZYLOO_KEY", "test-key-not-a-real-credential");
+                    Environment.SetEnvironmentVariable("CUN_AI_KEY", "test-key-not-a-real-credential");
                     return Task.CompletedTask;
                 });
 
                 await RunTest("MissingKey_LeavesTheCaptainOnTheNativeEndpoint", () =>
                 {
                     // Half-configuring the captain would fail every step and read as a provider outage.
-                    Environment.SetEnvironmentVariable("ZYLOO_KEY", null);
+                    Environment.SetEnvironmentVariable("CUN_AI_KEY", null);
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithModel("zyloo-4", "zyloo/claude-opus-4-8"));
+                    InvokeRouting(startInfo, CaptainWithModel("cun-ai-4", "cun-ai/claude-fable-5"), RegistryWithCunAi());
 
                     AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "With no key the captain must not be redirected to a half-configured endpoint");
-                    Environment.SetEnvironmentVariable("ZYLOO_KEY", "test-key-not-a-real-credential");
+                    Environment.SetEnvironmentVariable("CUN_AI_KEY", "test-key-not-a-real-credential");
                     return Task.CompletedTask;
                 });
 
@@ -266,7 +265,7 @@ namespace Armada.Test.Unit.Suites.Services
                     return Task.CompletedTask;
                 });
 
-                await RunTest("UnknownProviderPrefix_IsLeftAlone", () =>
+                await RunTest("UnregisteredProviderPrefix_IsLeftAlone", () =>
                 {
                     // Only registered provider prefixes route; an unregistered namespace is
                     // presumed to belong to the runtime or the operator's own config.
@@ -283,41 +282,49 @@ namespace Armada.Test.Unit.Suites.Services
                     return Task.CompletedTask;
                 });
 
-                await RunTest("RegisteredCustomProvider_RoutesViaTheRegistry", () =>
+                await RunTest("DefaultRegistry_IsEmpty_NoProviderRoutesWithoutRegistration", () =>
                 {
-                    // Register cun-ai in the provider registry; a prefixed model then routes to
-                    // its defaults, and the host env var supplies the fallback key.
-                    Environment.SetEnvironmentVariable("CUN_AI_KEY", "cun-env-key-not-a-real-credential");
+                    // The built-in default registry is empty: no provider routes until the
+                    // operator registers one in settings.json.
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithModel("cun-ai-1", "cun-ai/claude-fable-5"), RegistryWithCunAi());
+                    InvokeRouting(startInfo, CaptainWithModel("no-registry", "cun-ai/claude-fable-5"));
 
-                    AssertEqual("https://cun.ai", startInfo.Environment["ANTHROPIC_BASE_URL"],
-                        "A registered provider must route to its configured endpoint");
-                    AssertEqual("cun-env-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
-                        "A registered provider's host env key must be the fallback");
-                    Environment.SetEnvironmentVariable("CUN_AI_KEY", originalCun);
+                    AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
+                        "With an empty default registry, no prefixed model routes");
                     return Task.CompletedTask;
                 });
 
-                await RunTest("RegisteredCustomProvider_CaptainKeyWins", () =>
+                await RunTest("ResolvedModel_ApiModelId_StripsTheArmadaNamespacePrefix", () =>
                 {
-                    ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential(
-                        "cun-ai-keyed",
-                        "cun-ai/claude-fable-5",
-                        "captain-key-not-a-real-credential",
-                        "https://cun.ai.proxy.test"), RegistryWithCunAi());
+                    // The prefix is Armada's selection namespace; the provider API serves the id
+                    // after it. cun.ai serves "claude-fable-5", not "cun-ai/claude-fable-5" --
+                    // passing the prefixed form yields "No available channel" from the provider.
+                    ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(
+                        CaptainWithModel("cun-ai-5", "cun-ai/claude-fable-5"),
+                        null,
+                        RegistryWithCunAi());
 
-                    AssertEqual("https://cun.ai.proxy.test", startInfo.Environment["ANTHROPIC_BASE_URL"],
-                        "The captain's own base URL must win over the registry default");
-                    AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
-                        "The captain's own key must win over the registry env fallback");
+                    AssertNotNull(resolved, "A registered provider must resolve");
+                    AssertEqual("claude-fable-5", resolved!.ApiModelId,
+                        "The provider-facing model id must omit the namespace prefix");
+                    return Task.CompletedTask;
+                });
+
+                await RunTest("ResolvedModel_CustomEndpoint_ApiModelIdKeepsThePlainId", () =>
+                {
+                    ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(
+                        CaptainWithCredential("custom-1", "claude-fable-5", "captain-key-not-a-real-credential", "https://cun.ai"),
+                        null,
+                        null);
+
+                    AssertNotNull(resolved, "A custom-endpoint captain must resolve");
+                    AssertEqual("claude-fable-5", resolved!.ApiModelId,
+                        "A plain model id must pass through verbatim");
                     return Task.CompletedTask;
                 });
             }
             finally
             {
-                Environment.SetEnvironmentVariable("ZYLOO_KEY", original);
                 Environment.SetEnvironmentVariable("CUN_AI_KEY", originalCun);
             }
         }

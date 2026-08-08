@@ -42,12 +42,21 @@ namespace Armada.Test.Unit
         }
 
         // Settings carrying explicit profiles so selection outcomes do not depend on the
-        // exact seeded default numbers. Tier membership and the hint->dimension map keep
-        // their built-in defaults (all models below are in the default mid-tier list).
+        // exact seeded default numbers. Tier membership, the within-tier order, and the
+        // hint->dimension map are all pinned to the fixture ids below, so the tests are
+        // self-contained and the default roster can change without breaking them.
+        private static readonly string[] _MidMembers = new string[]
+        {
+            "pref-primary", "audit-strong", "audit-mid", "grok-4.5", "composer-2.5"
+        };
+
         private static ModelTierSettings SettingsWith(Dictionary<string, ModelCapabilityProfile> profiles)
         {
             ModelTierSettings s = new ModelTierSettings();
             s.ModelCapabilityProfiles = profiles;
+            s.MidTierModels = new List<string>(_MidMembers);
+            s.HighTierModels = new List<string> { "claude-opus-5", "claude-opus-4-7" };
+            s.WithinTierPreferenceOrder = DefaultMidOrder();
             return s;
         }
 
@@ -55,17 +64,21 @@ namespace Armada.Test.Unit
         {
             return new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase)
             {
-                { "zyloo/claude-opus-4-7", Profile(92, 58) },
-                { "zyloo/claude-opus-4-8", Profile(95, 55) },
-                { "zyloo/gpt-5.6-luna", Profile(78, 70) },
+                { "pref-primary", Profile(92, 58) },
+                { "audit-strong", Profile(95, 55) },
+                { "audit-mid", Profile(78, 70) },
                 { "grok-4.5", Profile(65, 68) },
                 { "composer-2.5", Profile(58, 70) }
             };
         }
 
-        private static IReadOnlyDictionary<string, List<string>> DefaultMidOrder()
+        private static Dictionary<string, List<string>> DefaultMidOrder()
         {
-            return new ModelTierSettings().WithinTierPreferenceOrder;
+            return new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                { "mid", new List<string> { "pref-primary", "audit-strong", "audit-mid", "composer-2.5", "grok-4.5" } },
+                { "high", new List<string> { "claude-opus-5", "claude-opus-4-7" } }
+            };
         }
 
         /// <summary>Run all tests.</summary>
@@ -82,13 +95,13 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8"),
-                    MakeCaptain("zyloo/gpt-5.6-luna")
+                    MakeCaptain("audit-strong"),
+                    MakeCaptain("audit-mid")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "audit");
-                AssertEqual("zyloo/claude-opus-4-8", selected, "audit hint must pick the highest AuditReasoningFit model, overriding the preference order");
+                AssertEqual("audit-strong", selected, "audit hint must pick the highest AuditReasoningFit model, overriding the preference order");
                 return Task.CompletedTask;
             });
 
@@ -98,13 +111,13 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8"),
+                    MakeCaptain("audit-strong"),
                     MakeCaptain("grok-4.5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "reasoning-heavy");
-                AssertEqual("zyloo/claude-opus-4-8", selected, "reasoning-heavy maps to AuditReasoningFit, so the highest-AR model wins");
+                AssertEqual("audit-strong", selected, "reasoning-heavy maps to AuditReasoningFit, so the highest-AR model wins");
                 return Task.CompletedTask;
             });
 
@@ -116,7 +129,7 @@ namespace Armada.Test.Unit
                 // dimension drives a different pick.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("zyloo/claude-opus-4-8"),
+                    MakeCaptain("audit-strong"),
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5")
                 };
@@ -132,7 +145,7 @@ namespace Armada.Test.Unit
                 // doc-only shares the MechanicalThroughput dimension with mechanical (cheap/fast).
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("zyloo/claude-opus-4-8"),
+                    MakeCaptain("audit-strong"),
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5")
                 };
@@ -148,12 +161,12 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8")
+                    MakeCaptain("audit-strong")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "AuDiT");
-                AssertEqual("zyloo/claude-opus-4-8", selected, "hint matching is case-insensitive");
+                AssertEqual("audit-strong", selected, "hint matching is case-insensitive");
                 return Task.CompletedTask;
             });
 
@@ -185,8 +198,8 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8"),
-                    MakeCaptain("zyloo/gpt-5.6-luna")
+                    MakeCaptain("audit-strong"),
+                    MakeCaptain("audit-mid")
                 };
 
                 string? omitted = PreferredModelTierSelector.SelectModel(
@@ -194,7 +207,7 @@ namespace Armada.Test.Unit
                 string? nullHint = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), null);
 
-                AssertEqual("zyloo/claude-opus-4-8", omitted, "no-hint call follows the within-tier preference order");
+                AssertEqual("audit-strong", omitted, "no-hint call follows the within-tier preference order");
                 AssertEqual(omitted, nullHint, "an explicit null hint matches the omitted-parameter result");
                 return Task.CompletedTask;
             });
@@ -206,8 +219,8 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8"),
-                    MakeCaptain("zyloo/gpt-5.6-luna")
+                    MakeCaptain("audit-strong"),
+                    MakeCaptain("audit-mid")
                 };
 
                 string? unknown = PreferredModelTierSelector.SelectModel(
@@ -217,28 +230,27 @@ namespace Armada.Test.Unit
                 string? whitespace = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "   ");
 
-                AssertEqual("zyloo/claude-opus-4-8", unknown, "an unknown hint degrades to preference-order selection");
-                AssertEqual("zyloo/claude-opus-4-8", empty, "an empty hint degrades to preference-order selection");
-                AssertEqual("zyloo/claude-opus-4-8", whitespace, "a whitespace hint degrades to preference-order selection");
+                AssertEqual("audit-strong", unknown, "an unknown hint degrades to preference-order selection");
+                AssertEqual("audit-strong", empty, "an empty hint degrades to preference-order selection");
+                AssertEqual("audit-strong", whitespace, "a whitespace hint degrades to preference-order selection");
                 return Task.CompletedTask;
             });
 
             // --- Tier + overflow + specialist interaction with a hint present ---
 
-            await RunTest("SelectModel_MidHint_NoMidIdle_FallsUpDownPerTierOrder", () =>
+            await RunTest("SelectModel_MidHint_NoMidIdle_FallsUpToHigh", () =>
             {
-                // A mid request with only low and high captains idle still walks the non-specialist
-                // [mid, low, high] order: low must be chosen before high, and the hint only orders
-                // within the chosen tier (here a single low model), never breaking the tier walk.
+                // A mid request with no idle mid captain falls up to high through the
+                // non-specialist [mid, high] order; the hint only orders within the
+                // chosen tier, never breaking the tier walk.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("zyloo/claude-opus-5")
+                    MakeCaptain("claude-opus-5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "audit");
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "a hinted mid request with no mid idle still tries low before high");
+                AssertEqual("claude-opus-5", selected, "a hinted mid request with no mid idle falls up to high");
                 return Task.CompletedTask;
             });
 
@@ -249,12 +261,12 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-5")
+                    MakeCaptain("claude-opus-5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Judge", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "mechanical");
-                AssertEqual("zyloo/claude-opus-5", selected, "specialist reservation to high tier is unchanged by a capability hint");
+                AssertEqual("claude-opus-5", selected, "specialist reservation to high tier is unchanged by a capability hint");
                 return Task.CompletedTask;
             });
 
@@ -268,13 +280,13 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8"),
-                    MakeCaptain("zyloo/gpt-5.6-luna")
+                    MakeCaptain("audit-strong"),
+                    MakeCaptain("audit-mid")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
-                AssertEqual("zyloo/claude-opus-4-8", selected, "an empty profile map degrades the hint to preference-order selection");
+                AssertEqual("audit-strong", selected, "an empty profile map degrades the hint to preference-order selection");
                 return Task.CompletedTask;
             });
 
@@ -285,17 +297,17 @@ namespace Armada.Test.Unit
                 // preference order decides: composer-2.5 is ranked ahead of prior-generation sonnet.
                 Dictionary<string, ModelCapabilityProfile> profiles = new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "zyloo/claude-opus-4-7", Profile(90, 90) }
+                    { "pref-primary", Profile(90, 90) }
                 };
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8")
+                    MakeCaptain("audit-strong")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(profiles), "audit");
-                AssertEqual("zyloo/claude-opus-4-8", selected, "when no idle model is profiled for the dimension, the preference order resolves it");
+                AssertEqual("audit-strong", selected, "when no idle model is profiled for the dimension, the preference order resolves it");
                 return Task.CompletedTask;
             });
 
@@ -308,13 +320,13 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8"),
-                    MakeCaptain("zyloo/gpt-5.6-luna")
+                    MakeCaptain("audit-strong"),
+                    MakeCaptain("audit-mid")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
-                AssertEqual("zyloo/claude-opus-4-8", selected, "a hint with no mapped dimension degrades to preference-order selection");
+                AssertEqual("audit-strong", selected, "a hint with no mapped dimension degrades to preference-order selection");
                 return Task.CompletedTask;
             });
 
@@ -324,22 +336,22 @@ namespace Armada.Test.Unit
                 // within-tier preference order, deterministically (flipping the order flips the pick).
                 Dictionary<string, ModelCapabilityProfile> tied = new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "zyloo/claude-opus-4-8", Profile(50, 50) },
+                    { "audit-strong", Profile(50, 50) },
                     { "composer-2.5", Profile(50, 50) }
                 };
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8")
+                    MakeCaptain("audit-strong")
                 };
 
                 Dictionary<string, List<string>> sonnetFirst = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "zyloo/claude-opus-4-8", "composer-2.5" } }
+                    { "mid", new List<string> { "audit-strong", "composer-2.5" } }
                 };
                 Dictionary<string, List<string>> composerFirst = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "composer-2.5", "zyloo/claude-opus-4-8" } }
+                    { "mid", new List<string> { "composer-2.5", "audit-strong" } }
                 };
 
                 string? pickA = PreferredModelTierSelector.SelectModel(
@@ -347,7 +359,7 @@ namespace Armada.Test.Unit
                 string? pickB = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, composerFirst, SettingsWith(tied), "audit");
 
-                AssertEqual("zyloo/claude-opus-4-8", pickA, "tie resolves to the model listed first in the preference order");
+                AssertEqual("audit-strong", pickA, "tie resolves to the model listed first in the preference order");
                 AssertEqual("composer-2.5", pickB, "flipping the preference order flips the tie winner -- resolution is deterministic");
                 return Task.CompletedTask;
             });
@@ -355,18 +367,18 @@ namespace Armada.Test.Unit
             await RunTest("SelectModel_SeededDefaults_AuditPrefersRichModel", () =>
             {
                 // Guard the shipped seed direction: with the built-in default profiles, an audit
-                // hint must prefer the rich-telemetry/high-audit sonnet over the throughput-tuned
+                // hint must prefer the high-audit gpt-5.6-luna over the throughput-tuned
                 // composer. Uses default settings (no custom profiles) to pin the seed values.
                 ModelTierSettings defaults = new ModelTierSettings();
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("zyloo/claude-opus-4-8")
+                    MakeCaptain("gpt-5.6-luna")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults, "audit");
-                AssertEqual("zyloo/claude-opus-4-8", selected, "default seeds give Opus a higher AuditReasoningFit than composer");
+                AssertEqual("gpt-5.6-luna", selected, "default seeds give luna a higher AuditReasoningFit than composer");
                 return Task.CompletedTask;
             });
 
@@ -454,8 +466,8 @@ namespace Armada.Test.Unit
             await RunTest("ModelTierSettings_ModelCapabilityProfiles_DefaultsAndNullReset", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("zyloo/claude-opus-5"), "default profiles include a seeded high-tier model");
-                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("zyloo/claude-opus-4-8"), "default profiles include a seeded mid-tier model");
+                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("cun-ai/claude-fable-5"), "default profiles include a seeded high-tier model");
+                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("gpt-5.6-luna"), "default profiles include a seeded mid-tier model");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.ModelCapabilityProfiles = new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase)
@@ -463,10 +475,10 @@ namespace Armada.Test.Unit
                     { "house-model", Profile(10, 10) }
                 };
                 AssertTrue(custom.ModelCapabilityProfiles.ContainsKey("house-model"), "custom profiles replace the defaults");
-                AssertFalse(custom.ModelCapabilityProfiles.ContainsKey("zyloo/claude-opus-5"), "default seeds do not leak into a custom profile map");
+                AssertFalse(custom.ModelCapabilityProfiles.ContainsKey("cun-ai/claude-fable-5"), "default seeds do not leak into a custom profile map");
 
                 custom.ModelCapabilityProfiles = null!;
-                AssertTrue(custom.ModelCapabilityProfiles.ContainsKey("zyloo/claude-opus-5"), "null setter restores the built-in default profiles");
+                AssertTrue(custom.ModelCapabilityProfiles.ContainsKey("cun-ai/claude-fable-5"), "null setter restores the built-in default profiles");
                 return Task.CompletedTask;
             });
 
@@ -503,7 +515,7 @@ namespace Armada.Test.Unit
                 };
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("zyloo/claude-opus-4-8"),
+                    MakeCaptain("audit-strong"),
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5")
                 };

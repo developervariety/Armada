@@ -5,13 +5,13 @@ namespace Armada.Core.Settings
 
     /// <summary>
     /// Registry of external model providers keyed by the model-id namespace prefix,
-    /// for example <c>zyloo</c> or <c>cun-ai</c>. Runtimes resolve a captain's model
-    /// against this registry so provider behavior is configuration, not code.
+    /// for example <c>cun-ai</c>. Runtimes resolve a captain's model against this
+    /// registry so provider behavior is configuration, not code.
     /// </summary>
     /// <remarks>
     /// Lives under the <c>modelProviders</c> key in settings.json. The built-in
-    /// default carries only Zyloo so existing deployments keep working with no
-    /// configuration change.
+    /// default registry is empty; every external provider must be registered in
+    /// settings.json by the operator.
     /// </remarks>
     public class ModelProvidersSettings
     {
@@ -38,28 +38,20 @@ namespace Armada.Core.Settings
         #region Public-Methods
 
         /// <summary>
-        /// Build the built-in provider registry. Currently Zyloo only, so the existing
-        /// Zyloo captains keep routing with no configuration change.
+        /// Build the built-in provider registry. Empty: external providers are
+        /// registered per deployment in settings.json, keeping provider behavior
+        /// neutral by default.
         /// </summary>
         /// <returns>Case-insensitive registry dictionary.</returns>
         public static Dictionary<string, ModelProviderSettings> BuildDefaultProviders()
         {
-            return new Dictionary<string, ModelProviderSettings>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["zyloo"] = new ModelProviderSettings
-                {
-                    Name = "Zyloo",
-                    BaseUrl = "https://api.zyloo.io",
-                    OpenAiBaseUrl = "https://api.zyloo.io/v1",
-                    ApiKeyEnv = "ZYLOO_KEY"
-                }
-            };
+            return new Dictionary<string, ModelProviderSettings>(StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>
         /// Find a registered provider by namespace prefix, case-insensitively.
         /// </summary>
-        /// <param name="providerId">Provider namespace prefix, for example "zyloo".</param>
+        /// <param name="providerId">Provider namespace prefix, for example "cun-ai".</param>
         /// <returns>The provider definition, or null when not registered.</returns>
         public ModelProviderSettings? Find(string? providerId)
         {

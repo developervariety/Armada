@@ -180,11 +180,6 @@ namespace Armada.Server
         public Dictionary<string, string>? CapabilityHintDimensionMap { get; set; }
 
         /// <summary>
-        /// Low-complexity model names.
-        /// </summary>
-        public List<string>? LowTierModels { get; set; }
-
-        /// <summary>
         /// Mid-complexity model names.
         /// </summary>
         public List<string>? MidTierModels { get; set; }
@@ -206,7 +201,6 @@ namespace Armada.Server
             if (WithinTierPreferenceOrder != null) target.WithinTierPreferenceOrder = WithinTierPreferenceOrder;
             if (ModelCapabilityProfiles != null) target.ModelCapabilityProfiles = ModelCapabilityProfiles;
             if (CapabilityHintDimensionMap != null) target.CapabilityHintDimensionMap = CapabilityHintDimensionMap;
-            if (LowTierModels != null) target.LowTierModels = LowTierModels;
             if (MidTierModels != null) target.MidTierModels = MidTierModels;
             if (HighTierModels != null) target.HighTierModels = HighTierModels;
         }

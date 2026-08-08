@@ -32,7 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("IsProviderAccountSpendLimitSignal_DailySpendCap_ReturnsTrue", () =>
             {
-                // The exact Zyloo account-wide daily cap message that previously went undetected and
+                // The exact account-wide daily cap message that previously went undetected and
                 // cascade-cancelled voyages instead of benching the provider group.
                 string msg = "Daily spend limit of $2000.00 reached for this user. Contact an admin to increase or remove the limit.";
                 AssertTrue(ProviderQuotaLimitDetector.IsProviderAccountSpendLimitSignal(msg),

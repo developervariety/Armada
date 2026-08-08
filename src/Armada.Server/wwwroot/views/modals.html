@@ -121,9 +121,9 @@
                     <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
                 </div>
                 <details>
-                    <summary>Provider Credential (Zyloo)</summary>
-                    <div class="form-group"><label>Provider API Key</label><input type="password" x-model="modalData.apiKey" placeholder="Optional; overrides the host-level ZYLOO_KEY" title="Per-captain Zyloo credential used when the model is a zyloo/ model. Leave blank to use the host-level ZYLOO_KEY environment variable."></div>
-                    <div class="form-group"><label>Provider Base URL</label><input type="text" x-model="modalData.apiBaseUrl" placeholder="Optional, e.g. https://api.zyloo.io" title="Optional provider base URL override for Zyloo-served models"></div>
+                    <summary>Provider Credential</summary>
+                    <div class="form-group"><label>Provider API Key</label><input type="password" x-model="modalData.apiKey" placeholder="Optional; overrides the provider host env key" title="Per-captain credential used when the model is served by an external provider. Leave blank to use the provider host environment variable."></div>
+                    <div class="form-group"><label>Provider Base URL</label><input type="text" x-model="modalData.apiBaseUrl" placeholder="Optional, e.g. https://cun.ai" title="Optional provider base URL override for external-provider-served models"></div>
                 </details>
                 <template x-if="modalData.runtime === 'Mux'">
                     <div>
@@ -149,7 +149,7 @@
                         </div>
                         <details>
                             <summary>Advanced Mux Overrides</summary>
-                            <div class="form-group"><label>OpenAI-Compatible Base URL</label><input type="text" x-model="modalData.muxBaseUrl" placeholder="Optional, e.g. https://api.zyloo.io/v1"></div>
+                            <div class="form-group"><label>OpenAI-Compatible Base URL</label><input type="text" x-model="modalData.muxBaseUrl" placeholder="Optional, e.g. https://cun.ai/v1"></div>
                             <div class="form-group"><label>Mux Adapter Type</label><input type="text" x-model="modalData.muxAdapterType" placeholder="Optional adapter type override"></div>
                             <div class="form-group"><label>Mux Temperature</label><input type="text" x-model="modalData.muxTemperature" placeholder="Optional number"></div>
                             <div class="form-group"><label>Mux Max Tokens</label><input type="text" x-model="modalData.muxMaxTokens" placeholder="Optional integer"></div>
@@ -193,9 +193,9 @@
                     <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
                 </div>
                 <details>
-                    <summary>Provider Credential (Zyloo)</summary>
-                    <div class="form-group"><label>Provider API Key</label><input type="password" x-model="modalData.apiKey" placeholder="Optional; overrides the host-level ZYLOO_KEY" title="Per-captain Zyloo credential used when the model is a zyloo/ model. Leave blank to use the host-level ZYLOO_KEY environment variable."></div>
-                    <div class="form-group"><label>Provider Base URL</label><input type="text" x-model="modalData.apiBaseUrl" placeholder="Optional, e.g. https://api.zyloo.io" title="Optional provider base URL override for Zyloo-served models"></div>
+                    <summary>Provider Credential</summary>
+                    <div class="form-group"><label>Provider API Key</label><input type="password" x-model="modalData.apiKey" placeholder="Optional; overrides the provider host env key" title="Per-captain credential used when the model is served by an external provider. Leave blank to use the provider host environment variable."></div>
+                    <div class="form-group"><label>Provider Base URL</label><input type="text" x-model="modalData.apiBaseUrl" placeholder="Optional, e.g. https://cun.ai" title="Optional provider base URL override for external-provider-served models"></div>
                 </details>
                 <template x-if="modalData.runtime === 'Mux'">
                     <div>
@@ -221,7 +221,7 @@
                         </div>
                         <details>
                             <summary>Advanced Mux Overrides</summary>
-                            <div class="form-group"><label>OpenAI-Compatible Base URL</label><input type="text" x-model="modalData.muxBaseUrl" placeholder="Optional, e.g. https://api.zyloo.io/v1"></div>
+                            <div class="form-group"><label>OpenAI-Compatible Base URL</label><input type="text" x-model="modalData.muxBaseUrl" placeholder="Optional, e.g. https://cun.ai/v1"></div>
                             <div class="form-group"><label>Mux Adapter Type</label><input type="text" x-model="modalData.muxAdapterType" placeholder="Optional adapter type override"></div>
                             <div class="form-group"><label>Mux Temperature</label><input type="text" x-model="modalData.muxTemperature" placeholder="Optional number"></div>
                             <div class="form-group"><label>Mux Max Tokens</label><input type="text" x-model="modalData.muxMaxTokens" placeholder="Optional integer"></div>

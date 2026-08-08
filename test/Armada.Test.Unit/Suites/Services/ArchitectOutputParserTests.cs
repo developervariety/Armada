@@ -59,7 +59,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string blocks =
                     MakeMissionBlock("M1", "First", "mid") + "\n" +
                     MakeMissionBlock("M2", "Second", "high", "M1") + "\n" +
-                    MakeMissionBlock("M3", "Third", "low", "M2");
+                    MakeMissionBlock("M3", "Third", "high", "M2");
                 string input = MakePlanPrefix() + blocks;
                 ArchitectParseResult result = sut.Parse(input);
 
@@ -99,7 +99,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Parse_BadIdShape_ReturnsStructuralFailure", () =>
             {
                 ArchitectOutputParser sut = CreateSut();
-                string block = "[ARMADA:MISSION]\nid: Mission1\ntitle: Bad ID\npreferredModel: zyloo/claude-opus-4-8\ndescription: something\n[ARMADA:MISSION-END]";
+                string block = "[ARMADA:MISSION]\nid: Mission1\ntitle: Bad ID\npreferredModel: cun-ai/claude-fable-5\ndescription: something\n[ARMADA:MISSION-END]";
                 string input = MakePlanPrefix() + block;
                 ArchitectParseResult result = sut.Parse(input);
 
@@ -121,7 +121,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 ArchitectOutputParser sut = CreateSut();
                 // Concrete model names are no longer valid in Architect output; only low/mid/high are accepted.
-                string block = "[ARMADA:MISSION]\nid: M1\ntitle: Test\npreferredModel: zyloo/claude-opus-4-8\ndescription: something\n[ARMADA:MISSION-END]";
+                string block = "[ARMADA:MISSION]\nid: M1\ntitle: Test\npreferredModel: cun-ai/claude-fable-5\ndescription: something\n[ARMADA:MISSION-END]";
                 string input = MakePlanPrefix() + block;
                 ArchitectParseResult result = sut.Parse(input);
 
@@ -139,17 +139,16 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Parse_AllThreeTierValues_AreValid", () =>
+            await RunTest("Parse_AllTierValues_AreValid", () =>
             {
                 ArchitectOutputParser sut = CreateSut();
                 string blocks =
-                    MakeMissionBlock("M1", "Low tier", "low") + "\n" +
-                    MakeMissionBlock("M2", "Mid tier", "mid", "M1") + "\n" +
-                    MakeMissionBlock("M3", "High tier", "high", "M2");
+                    MakeMissionBlock("M1", "Mid tier", "mid") + "\n" +
+                    MakeMissionBlock("M2", "High tier", "high", "M1");
                 string input = MakePlanPrefix() + blocks;
                 ArchitectParseResult result = sut.Parse(input);
 
-                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "low/mid/high should all be valid tier values");
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "mid/high should all be valid tier values");
                 AssertEqual(0, result.Errors.Count, "No errors for valid tier values");
                 return Task.CompletedTask;
             });

@@ -95,7 +95,7 @@ namespace Armada.Runtimes
         /// <param name="logging">Logging module.</param>
         /// <param name="modelProviders">
         /// External model provider registry; null uses the built-in default set so
-        /// existing Zyloo captains keep routing without configuration.
+        /// Every external provider is registered in settings.json by the operator.
         /// </param>
         public ClaudeCodeRuntime(LoggingModule logging, Armada.Core.Settings.ModelProvidersSettings? modelProviders)
             : base(logging)
@@ -140,8 +140,17 @@ namespace Armada.Runtimes
 
             if (!String.IsNullOrEmpty(model))
             {
+                // A provider-prefixed model id resolves to the provider-facing id: the prefix is
+                // Armada's selection namespace (cun-ai/claude-fable-5), while the provider API
+                // serves the id after it (claude-fable-5). A custom-endpoint or native captain
+                // keeps its id verbatim.
+                ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, model, _ModelProviders);
+                string effectiveModel = (resolved != null && !String.IsNullOrWhiteSpace(resolved.ApiModelId))
+                    ? resolved.ApiModelId
+                    : model;
+
                 args.Add("--model");
-                args.Add(model);
+                args.Add(effectiveModel);
             }
 
             if (SkipPermissions)
@@ -555,7 +564,7 @@ namespace Armada.Runtimes
         ///
         /// The endpoint and credential are resolved per captain by
         /// <see cref="ModelProviderResolver"/>: a registered provider prefix (for example
-        /// <c>zyloo/</c>) selects the provider, and a model without a prefix routes when the
+        /// <c>cun-ai/</c>) selects the provider, and a model without a prefix routes when the
         /// captain carries its own base URL and key (custom-endpoint captain). The captain's
         /// own key and base URL win over the provider defaults, so captains on separate
         /// subscriptions run side by side.
@@ -597,8 +606,9 @@ namespace Armada.Runtimes
             ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, captain?.Model ?? model, providers);
             if (resolved == null) return;
 
-            // The model id is passed through to --model unchanged. Providers route on their
-            // namespace prefix, and a custom-endpoint captain's plain id goes to its own URL.
+            // The provider-facing model id is stripped of the Armada namespace prefix in
+            // BuildArguments: the prefix selects the provider here, and the provider API
+            // serves the id after it.
             startInfo.Environment["ANTHROPIC_BASE_URL"] = resolved.BaseUrl;
             startInfo.Environment["ANTHROPIC_API_KEY"] = resolved.ApiKey;
 

@@ -8,7 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Tests the credential-free inline OpenCode configuration used for external-provider
-    /// captains (for example Zyloo or cun-ai).
+    /// captains (for example cun-ai).
     /// </summary>
     public class OpenCodeProviderConfigBuilderTests : TestSuite
     {
@@ -32,72 +32,62 @@ namespace Armada.Test.Unit.Suites.Services
         {
             await RunTest("IsProviderModel_RecognizesRegisteredPrefixes", () =>
             {
-                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("zyloo/gpt-5.6-sol", null),
-                    "Canonical lower-case Zyloo IDs must be recognized");
-                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("  ZYLOO/claude-opus-4-7  ", null),
+                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("cun-ai/claude-fable-5", RegistryWithCunAi()),
+                    "A registered provider prefix must be recognized");
+                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("  CUN-AI/claude-fable-5  ", RegistryWithCunAi()),
                     "Prefix matching must ignore case and surrounding whitespace");
-                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("openai/gpt-5.6-sol", null),
+                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("openai/gpt-5.6-sol", RegistryWithCunAi()),
                     "Other providers must not receive the overlay");
-                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel(null, null),
+                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel(null, RegistryWithCunAi()),
                     "Missing models must not receive the overlay");
-                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("gpt-5.6-sol", null),
+                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("gpt-5.6-sol", RegistryWithCunAi()),
                     "A model without a provider prefix must not receive the overlay");
                 return Task.CompletedTask;
             });
 
-            await RunTest("IsProviderModel_RecognizesRegisteredCustomProvider", () =>
+            await RunTest("IsProviderModel_UnregisteredPrefix_NotRecognizedWithEmptyDefaults", () =>
             {
-                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("cun-ai/claude-fable-5", RegistryWithCunAi()),
-                    "A registered custom provider must be recognized");
                 AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("cun-ai/claude-fable-5", null),
-                    "An unregistered provider must not be recognized with the default registry");
+                    "An unregistered provider must not be recognized with the empty default registry");
                 return Task.CompletedTask;
             });
 
-            await RunTest("Build_EmitsZylooOverlay", () =>
-            {
-                string json = OpenCodeProviderConfigBuilder.Build("zyloo/claude-opus-4-7");
-
-                AssertContains("\"npm\": \"@ai-sdk/openai-compatible\"", json, "Zyloo must use the OpenAI-compatible AI SDK adapter");
-                AssertContains("\"baseURL\": \"https://api.zyloo.io/v1\"", json, "Zyloo must use the documented OpenAI-compatible endpoint");
-                AssertContains("\"apiKey\": \"{env:ZYLOO_KEY}\"", json, "The configuration must reference the environment key without embedding a credential");
-                AssertContains("\"id\": \"zyloo/claude-opus-4-7\"", json, "The local alias must map to the canonical API model ID");
-
-                AssertFalse(json.Contains("sk-zy-", StringComparison.OrdinalIgnoreCase), "The generated configuration must never contain a provider secret");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("Build_EmitsCustomProviderOverlay", () =>
+            await RunTest("Build_EmitsProviderOverlay", () =>
             {
                 string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", null, null, RegistryWithCunAi());
 
-                AssertContains("\"baseURL\": \"https://cun.ai/v1\"", json, "The registered provider's OpenAI-compatible endpoint must be used");
-                AssertContains("\"apiKey\": \"{env:CUN_AI_KEY}\"", json, "The registered provider's env key reference must be used");
-                AssertContains("\"id\": \"cun-ai/claude-fable-5\"", json, "The local alias must map to the canonical API model ID");
+                AssertContains("\"npm\": \"@ai-sdk/openai-compatible\"", json, "The provider must use the OpenAI-compatible AI SDK adapter");
+                AssertContains("\"baseURL\": \"https://cun.ai/v1\"", json, "The provider's OpenAI-compatible endpoint must be used");
+                AssertContains("\"apiKey\": \"{env:CUN_AI_KEY}\"", json, "The configuration must reference the environment key without embedding a credential");
+                AssertContains("\"id\": \"claude-fable-5\"", json, "The provider-facing id must omit the Armada namespace prefix");
+
+                AssertFalse(json.Contains("sk-", StringComparison.OrdinalIgnoreCase), "The generated configuration must never contain a provider secret");
                 return Task.CompletedTask;
             });
 
             await RunTest("Build_TrimsSurroundingWhitespace", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("  zyloo/gpt-5.6-sol  ");
+                string json = OpenCodeProviderConfigBuilder.Build("  cun-ai/claude-fable-5  ", null, null, RegistryWithCunAi());
 
-                AssertContains("\"zyloo/gpt-5.6-sol\"", json, "The normalized model ID must be emitted");
+                AssertContains("\"id\": \"claude-fable-5\"", json, "The trimmed input must parse and emit the provider-facing id");
+                AssertFalse(json.Contains("cun-ai/claude-fable-5", StringComparison.Ordinal),
+                    "The Armada namespace prefix must not leak into the provider-facing id");
                 return Task.CompletedTask;
             });
 
             await RunTest("Build_EmbedsCaptainKey", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("zyloo/claude-opus-5", "captain-key-not-a-real-credential", null);
+                string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", "captain-key-not-a-real-credential", null, RegistryWithCunAi());
 
                 AssertContains("\"apiKey\": \"captain-key-not-a-real-credential\"", json, "A per-captain key must be embedded in the overlay");
-                AssertFalse(json.Contains("{env:ZYLOO_KEY}", StringComparison.Ordinal),
+                AssertFalse(json.Contains("{env:CUN_AI_KEY}", StringComparison.Ordinal),
                     "A per-captain key must replace the environment reference");
                 return Task.CompletedTask;
             });
 
             await RunTest("Build_EmbedsCaptainBaseUrl", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("zyloo/claude-opus-5", "captain-key-not-a-real-credential", "https://proxy.example.test/v1");
+                string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", "captain-key-not-a-real-credential", "https://proxy.example.test/v1", RegistryWithCunAi());
 
                 AssertContains("\"baseURL\": \"https://proxy.example.test/v1\"", json,
                     "A per-captain base URL must replace the provider default");
@@ -106,9 +96,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Build_UsesEnvironmentKeyReferenceWhenCaptainKeyAbsent", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("zyloo/claude-opus-5", null, null);
+                string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", null, null, RegistryWithCunAi());
 
-                AssertContains("\"apiKey\": \"{env:ZYLOO_KEY}\"", json,
+                AssertContains("\"apiKey\": \"{env:CUN_AI_KEY}\"", json,
                     "Without a captain key the overlay must reference the provider's environment variable");
                 return Task.CompletedTask;
             });

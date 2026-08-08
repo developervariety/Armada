@@ -125,7 +125,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/worker-fix").ConfigureAwait(false);
                     Mission testEngineer = await CreateDependentAsync(
                         testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
-                    Captain captain = await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "zyloo/claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
+                    Captain captain = await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
 
@@ -153,7 +153,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission testEngineer = await CreateUpstreamAsync(testDb.Driver, vessel, "TestEngineer", "armada/te-stage").ConfigureAwait(false);
                     Mission judge = await CreateDependentAsync(
                         testDb.Driver, vessel, "Judge", testEngineer.Id, "Original Judge brief.").ConfigureAwait(false);
-                    Captain captain = await CreateIdleCaptainAsync(testDb.Driver, "judge-captain", "zyloo/claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
+                    Captain captain = await CreateIdleCaptainAsync(testDb.Driver, "judge-captain", "claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
 
@@ -215,7 +215,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission worker = await CreateDependentAsync(
                         testDb.Driver, vessel, "Worker", architect.Id, "Original worker brief.").ConfigureAwait(false);
                     // An eligible idle captain is present, so a defer can only be due to the architect gate.
-                    await CreateIdleCaptainAsync(testDb.Driver, "worker-captain", "zyloo/claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    await CreateIdleCaptainAsync(testDb.Driver, "worker-captain", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(worker, vessel).ConfigureAwait(false);
 
@@ -240,7 +240,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/worker-race").ConfigureAwait(false);
                     Mission testEngineer = await CreateDependentAsync(
                         testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
-                    await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "zyloo/claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
+                    await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
 
                     // Simulate the DoD gate still running: the upstream's completion is in the
                     // in-flight gate. Without the defer, the sweep tick would self-heal here and
