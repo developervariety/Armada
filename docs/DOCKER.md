@@ -24,9 +24,17 @@ This starts two containers:
 |---------|------|-------------|
 | `armada-server` | 7890 | REST API, built-in dashboard, and WebSocket at /ws |
 | `armada-server` | 7891 | MCP (agent communication) |
+| `armada-server` | 9464 | Prometheus scrape endpoint (`/metrics`) |
 | `armada-dashboard` | 3000 | Standalone React dashboard |
+| `prometheus` | 9090 | Metrics store, scrapes the Admiral |
+| `loki` | 3100 | Log store |
+| `grafana` | 3001 | Dashboards (login `admin` / `admin`) |
 
 Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhost:7890/dashboard** (built-in).
+
+The stack also brings up a Prometheus / Loki / Grafana observability stack (telemetry is enabled in the
+container config). Open Grafana at **http://localhost:3001** and see [TELEMETRY.md](TELEMETRY.md) for
+the full metric list and configuration reference.
 
 ### Default Credentials
 

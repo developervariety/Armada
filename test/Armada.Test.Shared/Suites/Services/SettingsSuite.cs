@@ -330,6 +330,85 @@ namespace Armada.Test.Shared.Suites.Services
                 AssertEqual("ghp_global", resolved);
             }));
 
+            cases.Add(Case("telemetry_defaults_are_correct", "ArmadaSettings Telemetry DefaultsAreCorrect", TestTags.Positive, () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                AssertNotNull(settings.Telemetry);
+                AssertFalse(settings.Telemetry.Enabled, "Telemetry should be disabled by default");
+                AssertEqual("armada", settings.Telemetry.ServiceName);
+                AssertNull(settings.Telemetry.OtlpEndpoint);
+                AssertTrue(settings.Telemetry.PrometheusEnabled);
+                AssertEqual(9464, settings.Telemetry.PrometheusPort);
+                AssertNull(settings.Telemetry.LokiEndpoint);
+            }));
+
+            cases.Add(Case("telemetry_service_name_blank_falls_back", "TelemetrySettings ServiceName Blank FallsBack", TestTags.Negative, () =>
+            {
+                TelemetrySettings telemetry = new TelemetrySettings();
+                telemetry.ServiceName = "   ";
+                AssertEqual("armada", telemetry.ServiceName);
+                telemetry.ServiceName = null!;
+                AssertEqual("armada", telemetry.ServiceName);
+            }));
+
+            cases.Add(Case("telemetry_prometheus_port_clamps_out_of_range", "TelemetrySettings PrometheusPort ClampsOutOfRange", TestTags.Negative, () =>
+            {
+                TelemetrySettings telemetry = new TelemetrySettings();
+                telemetry.PrometheusPort = -5;
+                AssertEqual(1, telemetry.PrometheusPort);
+                telemetry.PrometheusPort = 999999;
+                AssertEqual(65535, telemetry.PrometheusPort);
+                telemetry.PrometheusPort = 9500;
+                AssertEqual(9500, telemetry.PrometheusPort);
+            }));
+
+            cases.Add(CaseAsync("telemetry_round_trip_save_load", "ArmadaSettings Telemetry RoundTripSaveLoad", TestTags.Positive, async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_settings_telemetry_" + Guid.NewGuid().ToString("N") + ".json");
+
+                try
+                {
+                    ArmadaSettings original = new ArmadaSettings();
+                    original.Telemetry.Enabled = true;
+                    original.Telemetry.ServiceName = "armada-prod";
+                    original.Telemetry.OtlpEndpoint = "http://collector:4317";
+                    original.Telemetry.PrometheusEnabled = false;
+                    original.Telemetry.PrometheusPort = 9500;
+                    original.Telemetry.LokiEndpoint = "http://loki:3100";
+
+                    await original.SaveAsync(tempFile);
+
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertTrue(loaded.Telemetry.Enabled);
+                    AssertEqual("armada-prod", loaded.Telemetry.ServiceName);
+                    AssertEqual("http://collector:4317", loaded.Telemetry.OtlpEndpoint);
+                    AssertFalse(loaded.Telemetry.PrometheusEnabled);
+                    AssertEqual(9500, loaded.Telemetry.PrometheusPort);
+                    AssertEqual("http://loki:3100", loaded.Telemetry.LokiEndpoint);
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            }));
+
+            cases.Add(Case("metrics_meter_name_and_instruments_present", "ArmadaMetrics MeterName AndInstruments Present", TestTags.Positive, () =>
+            {
+                AssertEqual("Armada", ArmadaMetrics.MeterName);
+                AssertNotNull(ArmadaMetrics.CaptainStalls);
+                AssertNotNull(ArmadaMetrics.CaptainRecoveries);
+                AssertNotNull(ArmadaMetrics.HandoffsRedriven);
+                AssertNotNull(ArmadaMetrics.ReviewsOverdue);
+                AssertNotNull(ArmadaMetrics.DocksProvisioned);
+                AssertNotNull(ArmadaMetrics.DocksReclaimed);
+                AssertNotNull(ArmadaMetrics.MergeEntriesProcessed);
+                AssertNotNull(ArmadaMetrics.MissionsFailed);
+                AssertNotNull(ArmadaMetrics.MissionRuntimeExceeded);
+                // Emitting must be safe with no subscriber attached.
+                ArmadaMetrics.CaptainStalls.Add(1);
+                ArmadaMetrics.HandoffsRedriven.Add(2);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.Settings",
                 displayName: "Settings",

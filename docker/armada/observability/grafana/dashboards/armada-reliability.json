@@ -1,0 +1,92 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "title": "Armada Reliability",
+  "uid": "armada-reliability",
+  "tags": ["armada"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Stalls (1h)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(armada_captains_stalls_total[1h]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Recoveries (1h)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(armada_captains_recoveries_total[1h]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Reviews Overdue (1h)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(armada_reviews_overdue_total[1h]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Runaways Force-Failed (1h)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(armada_missions_runtime_exceeded_total[1h]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Captain stalls & recoveries (rate/min)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "sum(rate(armada_captains_stalls_total[5m])) * 60", "legendFormat": "stalls", "refId": "A" },
+        { "expr": "sum(rate(armada_captains_recoveries_total[5m])) * 60", "legendFormat": "recoveries", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Dock churn (rate/min)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "sum(rate(armada_docks_provisioned_total[5m])) * 60", "legendFormat": "provisioned", "refId": "A" },
+        { "expr": "sum(rate(armada_docks_reclaimed_total[5m])) * 60", "legendFormat": "reclaimed", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Handoffs re-driven & reviews overdue (rate/min)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "sum(rate(armada_handoffs_redriven_total[5m])) * 60", "legendFormat": "handoffs re-driven", "refId": "A" },
+        { "expr": "sum(rate(armada_reviews_overdue_total[5m])) * 60", "legendFormat": "reviews overdue", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Mission failures & merge-queue processed (rate/min)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "sum(rate(armada_missions_failed_total[5m])) * 60", "legendFormat": "missions failed", "refId": "A" },
+        { "expr": "sum(rate(armada_mergequeue_processed_total[5m])) * 60", "legendFormat": "merge processed", "refId": "B" }
+      ]
+    }
+  ]
+}

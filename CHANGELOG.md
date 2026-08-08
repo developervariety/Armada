@@ -23,6 +23,14 @@ Focus: reliability. Eliminates the stuck-dock and dangling-handoff failure modes
 ### Testing
 - Migrated the entire test suite (~2,100 cases) to the runner-agnostic Touchstone framework: a shared descriptor library run by a console/CLI runner, an xUnit adapter, and an NUnit adapter, with reflection-based discovery and per-suite server isolation for end-to-end tests
 
+### Observability
+- OpenTelemetry telemetry export (opt-in via `telemetry` settings): the Admiral hosts an OTel pipeline that exports reliability metrics to an OTLP collector, an in-process Prometheus scrape endpoint, and/or Loki; the core libraries emit through the base class library and take no telemetry-framework dependency
+- Reliability counters under the `Armada` meter (stalls, recoveries, mission failures, runaway force-fails, overdue reviews, handoff re-drives, dock provision/reclaim, merge-queue processing)
+- Docker stack ships Prometheus, Loki, and Grafana services with pre-provisioned datasources and an "Armada Reliability" dashboard; see [docs/TELEMETRY.md](docs/TELEMETRY.md)
+
+### Dependencies
+- Updated all dependencies, including the breaking Voltaic 0.6.0 MCP API (RpcParameters-based tool registration) and Watson 7.1.0
+
 ## v0.8.0
 
 Focus: backlog-first delivery management.

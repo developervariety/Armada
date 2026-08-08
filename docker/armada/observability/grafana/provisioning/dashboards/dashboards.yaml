@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Armada
+    orgId: 1
+    folder: Armada
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

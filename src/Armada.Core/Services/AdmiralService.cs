@@ -535,7 +535,11 @@ namespace Armada.Core.Services
             try
             {
                 int redriven = await _Missions.RecoverDanglingHandoffsAsync(token).ConfigureAwait(false);
-                if (redriven > 0) _Logging.Info(_Header + "re-drove " + redriven + " dangling pipeline handoff(s)");
+                if (redriven > 0)
+                {
+                    ArmadaMetrics.HandoffsRedriven.Add(redriven);
+                    _Logging.Info(_Header + "re-drove " + redriven + " dangling pipeline handoff(s)");
+                }
             }
             catch (Exception ex)
             {
@@ -935,6 +939,8 @@ namespace Armada.Core.Services
                         mission.CompletedUtc = DateTime.UtcNow;
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        ArmadaMetrics.MissionRuntimeExceeded.Add(1);
+                        ArmadaMetrics.MissionsFailed.Add(1);
 
                         await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (exceeded max runtime)",
                             entityType: "mission", entityId: mission.Id,
@@ -953,10 +959,12 @@ namespace Armada.Core.Services
                     if (elapsed.TotalMinutes > _Settings.StallThresholdMinutes)
                     {
                         _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
+                        ArmadaMetrics.CaptainStalls.Add(1);
 
                         // Attempt auto-recovery if under the limit
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
                         {
+                            ArmadaMetrics.CaptainRecoveries.Add(1);
                             // Kill the stalled process first
                             if (_Captains.OnStopAgent != null)
                             {
@@ -981,6 +989,7 @@ namespace Armada.Core.Services
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                ArmadaMetrics.MissionsFailed.Add(1);
                                 _Logging.Warn(_Header + "mission " + mission.Id + " marked failed (captain stalled, recovery exhausted)");
 
                                 // Emit mission.failed event
@@ -1132,6 +1141,7 @@ namespace Armada.Core.Services
                     mission.ReviewDeadlineUtc = null;
                     mission.LastUpdateUtc = now;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    ArmadaMetrics.ReviewsOverdue.Add(1);
 
                     await EmitEventAsync("mission.review_overdue",
                         "Review overdue: " + mission.Title + " -- held captain released, awaiting reviewer",

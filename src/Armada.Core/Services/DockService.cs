@@ -237,6 +237,7 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "unable to persist dock start commit for " + dock.Id + ": " + metadataEx.Message);
                 }
 
+                ArmadaMetrics.DocksProvisioned.Add(1);
                 _Logging.Info(_Header + "provisioned dock " + dock.Id + " at " + worktreePath);
                 return dock;
             }
@@ -314,6 +315,7 @@ namespace Armada.Core.Services
             dock.CaptainId = null;
             dock.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Docks.UpdateAsync(dock, token).ConfigureAwait(false);
+            ArmadaMetrics.DocksReclaimed.Add(1);
         }
 
         /// <inheritdoc />

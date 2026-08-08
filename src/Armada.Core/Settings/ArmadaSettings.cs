@@ -528,6 +528,15 @@ namespace Armada.Core.Settings
             set => _RemoteControl = value ?? new RemoteControlSettings();
         }
 
+        /// <summary>
+        /// Telemetry export settings (OpenTelemetry via Prometheus/Grafana/Loki). Disabled by default.
+        /// </summary>
+        public TelemetrySettings Telemetry
+        {
+            get => _Telemetry;
+            set => _Telemetry = value ?? new TelemetrySettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -571,6 +580,7 @@ namespace Armada.Core.Settings
         private int _MaxConcurrentMissions = Constants.DefaultMaxConcurrentMissions;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
+        private TelemetrySettings _Telemetry = new TelemetrySettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private bool _DatabasePathConfigured = false;
 

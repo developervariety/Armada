@@ -46,6 +46,7 @@ namespace Armada.Server
         private LoggingModule _Logging;
         private ArmadaSettings _Settings;
         private bool _Quiet;
+        private ArmadaTelemetryHost? _TelemetryHost;
 
         private DatabaseDriver _Database = null!;
         private IGitService _Git = null!;
@@ -130,6 +131,10 @@ namespace Armada.Server
         /// </summary>
         public async Task StartAsync()
         {
+            // Start the telemetry host first so instruments are observed from the very start.
+            _TelemetryHost = new ArmadaTelemetryHost(_Logging);
+            _TelemetryHost.Start(_Settings.Telemetry);
+
             // Initialize database
             _Database = DatabaseDriverFactory.Create(_Settings.Database, _Logging);
             await _Database.InitializeAsync().ConfigureAwait(false);
@@ -439,6 +444,7 @@ namespace Armada.Server
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
             _McpServer?.Stop();
             _Database?.Dispose();
+            _TelemetryHost?.Dispose();
             OnStopping?.Invoke();
         }
 

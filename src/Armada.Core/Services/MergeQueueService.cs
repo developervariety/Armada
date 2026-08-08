@@ -520,6 +520,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                ArmadaMetrics.MergeEntriesProcessed.Add(1);
                 _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
 
                 // Reconcile linked mission to Complete
@@ -534,6 +535,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                ArmadaMetrics.MergeEntriesProcessed.Add(1);
 
                 // Reconcile linked mission to LandingFailed
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,

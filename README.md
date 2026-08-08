@@ -751,6 +751,8 @@ The React dashboard exposes that API surface through first-class `Delivery` and 
 
 For the current internal-first operator workflow across releases, deployments, rollback, incidents, and runbooks, see [docs/DELIVERY_OPERATIONS.md](docs/DELIVERY_OPERATIONS.md).
 
+For metrics, dashboards, and the Prometheus/Loki/Grafana observability stack, see [docs/TELEMETRY.md](docs/TELEMETRY.md).
+
 Start the Admiral as a standalone server:
 
 ```bash
