@@ -27,6 +27,13 @@ namespace Armada.Core.Services
         private IGitService _Git;
 
         private bool _Processing = false;
+
+        /// <summary>
+        /// Hard ceiling on any single merge-queue git or test subprocess. A hung operation is
+        /// killed and surfaced as a failure rather than wedging the queue (and its _Processing
+        /// guard) indefinitely.
+        /// </summary>
+        private static readonly TimeSpan _OperationTimeout = TimeSpan.FromMinutes(10);
         private readonly object _ProcessLock = new object();
 
         #endregion
@@ -566,20 +573,33 @@ namespace Armada.Core.Services
                 CreateNoWindow = true
             };
 
-            using (Process process = new Process { StartInfo = startInfo })
+            using (CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
-                process.Start();
+                cts.CancelAfter(_OperationTimeout);
+                using (Process process = new Process { StartInfo = startInfo })
+                {
+                    process.Start();
+                    try
+                    {
+                        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+                        Task<string> stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+                        await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+                        string stdout = await stdoutTask.ConfigureAwait(false);
+                        string stderr = await stderrTask.ConfigureAwait(false);
 
-                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                        string output = stdout;
+                        if (!String.IsNullOrEmpty(stderr))
+                            output += "\n--- STDERR ---\n" + stderr;
 
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-
-                string output = stdout;
-                if (!String.IsNullOrEmpty(stderr))
-                    output += "\n--- STDERR ---\n" + stderr;
-
-                return new TestResult(process.ExitCode, output);
+                        return new TestResult(process.ExitCode, output);
+                    }
+                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                    {
+                        try { process.Kill(entireProcessTree: true); } catch { }
+                        throw new TimeoutException("merge-queue test run '" + testCommand + "' timed out after " +
+                            _OperationTimeout.TotalSeconds.ToString("0") + "s and was killed");
+                    }
+                }
             }
         }
 
@@ -602,16 +622,29 @@ namespace Armada.Core.Services
 
             string argsDisplay = String.Join(" ", args);
 
-            using (Process process = new Process { StartInfo = startInfo })
+            using (CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
-                process.Start();
-
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-
-                if (process.ExitCode != 0)
+                cts.CancelAfter(_OperationTimeout);
+                using (Process process = new Process { StartInfo = startInfo })
                 {
-                    throw new InvalidOperationException("git " + argsDisplay + " failed: " + stderr);
+                    process.Start();
+                    try
+                    {
+                        Task<string> stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+                        await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+                        string stderr = await stderrTask.ConfigureAwait(false);
+
+                        if (process.ExitCode != 0)
+                        {
+                            throw new InvalidOperationException("git " + argsDisplay + " failed: " + stderr);
+                        }
+                    }
+                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                    {
+                        try { process.Kill(entireProcessTree: true); } catch { }
+                        throw new TimeoutException("git " + argsDisplay + " timed out after " +
+                            _OperationTimeout.TotalSeconds.ToString("0") + "s and was killed");
+                    }
                 }
             }
         }

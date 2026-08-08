@@ -1024,6 +1024,10 @@ namespace Armada.Server
                     await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
                     await _DeploymentService.MonitorRolloutWindowsAsync(token).ConfigureAwait(false);
 
+                    // Drive the merge queue so auto-enqueued entries land without a manual trigger.
+                    try { await _MergeQueue.ProcessQueueAsync(token).ConfigureAwait(false); }
+                    catch (Exception mqEx) { _Logging.Warn(_Header + "merge queue processing error: " + mqEx.Message); }
+
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;
                     if (_HealthCheckCycles % 10 == 0)
