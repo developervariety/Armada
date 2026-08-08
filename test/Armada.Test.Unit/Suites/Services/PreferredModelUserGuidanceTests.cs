@@ -198,7 +198,7 @@ namespace Armada.Test.Unit.Suites.Services
             string lower = text.ToLowerInvariant();
             AssertFalse(lower.Contains("claude-opus-5"), context + " should not mention claude-opus-5");
             AssertFalse(lower.Contains("gpt-5.6-luna"), context + " should not mention gpt-5.6-luna");
-            AssertFalse(lower.Contains("cun-ai/claude-fable-5"), context + " should not mention cun-ai/claude-fable-5");
+            AssertFalse(lower.Contains("claude-fable-5"), context + " should not mention claude-fable-5");
         }
     }
 }

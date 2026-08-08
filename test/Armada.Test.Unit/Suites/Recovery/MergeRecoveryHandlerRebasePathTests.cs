@@ -130,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     Mission? rebaseMission = all.FirstOrDefault(m => m.ParentMissionId == setupResult.Mission.Id);
                     AssertNotNull(rebaseMission, "rebase mission should be created");
                     AssertEqual(PreferredModelTierSelector.HighTier, rebaseMission!.PreferredModel ?? "", "whitespace original preferred model should default to the high tier selector");
-                    AssertNotEqual("claude-opus-4-7", rebaseMission.PreferredModel ?? "", "rebase mission must never be frozen to a concrete model name");
+                    AssertNotEqual("claude-opus-5", rebaseMission.PreferredModel ?? "", "rebase mission must never be frozen to a concrete model name");
                 }
             });
 
@@ -180,7 +180,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     Mission? rebaseMission = all.FirstOrDefault(m => m.ParentMissionId == setupResult.Mission.Id);
                     AssertNotNull(rebaseMission, "rebase mission should be created");
                     AssertEqual(PreferredModelTierSelector.HighTier, rebaseMission!.PreferredModel ?? "", "empty-string original preferred model should default to the high tier selector");
-                    AssertNotEqual("claude-opus-4-7", rebaseMission.PreferredModel ?? "", "rebase mission must never be frozen to a concrete model name");
+                    AssertNotEqual("claude-opus-5", rebaseMission.PreferredModel ?? "", "rebase mission must never be frozen to a concrete model name");
                 }
             });
 
@@ -275,7 +275,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                 RebaseCaptainMissionSpec spec = new RebaseCaptainMissionSpec(
                     Brief: (failedMission.Description ?? "") + "\n\n## Conflict context appendix\n\nstub",
                     PrestagedFiles: prestaged,
-                    PreferredModel: "claude-opus-4-7",
+                    PreferredModel: "claude-opus-5",
                     LandingTargetBranch: failedMission.BranchName ?? failedEntry.BranchName,
                     SelectedPlaybooks: playbooks,
                     DependsOnMissionId: null,

@@ -74,7 +74,7 @@ namespace Armada.Test.Unit.Suites.Services
                     pipeline.Stages = new List<PipelineStage>
                     {
                         new PipelineStage(1, "Worker") { PreferredModel = "gpt-5.6-luna" },
-                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7" }
+                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-5" }
                     };
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
 
@@ -87,7 +87,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(worker, "Worker stage should round-trip");
                     AssertNotNull(judge, "Judge stage should round-trip");
                     AssertEqual("gpt-5.6-luna", worker!.PreferredModel, "Worker stage PreferredModel should round-trip");
-                    AssertEqual("claude-opus-4-7", judge!.PreferredModel, "Judge stage PreferredModel should round-trip");
+                    AssertEqual("claude-opus-5", judge!.PreferredModel, "Judge stage PreferredModel should round-trip");
                 }
             });
 
@@ -125,7 +125,7 @@ namespace Armada.Test.Unit.Suites.Services
                     pipeline.Stages = new List<PipelineStage>
                     {
                         new PipelineStage(1, "Worker") { PreferredModel = "opencode-go/deepseek-v4-flash", PipelineId = pipeline.Id },
-                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7", PipelineId = pipeline.Id }
+                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-5", PipelineId = pipeline.Id }
                     };
                     await testDb.Driver.Pipelines.UpdateAsync(pipeline).ConfigureAwait(false);
 
@@ -136,7 +136,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(worker, "Worker stage should exist after update");
                     AssertNotNull(judge, "Judge stage should exist after update");
                     AssertEqual("opencode-go/deepseek-v4-flash", worker!.PreferredModel, "Worker PreferredModel should update");
-                    AssertEqual("claude-opus-4-7", judge!.PreferredModel, "Judge PreferredModel should update");
+                    AssertEqual("claude-opus-5", judge!.PreferredModel, "Judge PreferredModel should update");
                 }
             });
 
@@ -154,7 +154,7 @@ namespace Armada.Test.Unit.Suites.Services
                     pipeline.Stages = new List<PipelineStage>
                     {
                         new PipelineStage(1, "Worker"),
-                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7" }
+                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-5" }
                     };
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
 
@@ -185,8 +185,8 @@ namespace Armada.Test.Unit.Suites.Services
                     // Worker stage has no PreferredModel override -> inherits the per-mission luna pin.
                     AssertEqual("gpt-5.6-luna", worker!.PreferredModel,
                         "Worker mission should inherit per-mission PreferredModel when stage override is null");
-                    // Judge stage has PreferredModel="claude-opus-4-7" -> overrides per-mission luna.
-                    AssertEqual("claude-opus-4-7", judge!.PreferredModel,
+                    // Judge stage has PreferredModel="claude-opus-5" -> overrides per-mission luna.
+                    AssertEqual("claude-opus-5", judge!.PreferredModel,
                         "Judge mission should pick up stage-level PreferredModel override");
                 }
             });
@@ -214,7 +214,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         new MissionDescription("Inherit test", "All stages inherit the per-mission pin")
                         {
-                            PreferredModel = "claude-opus-4-7"
+                            PreferredModel = "claude-opus-5"
                         }
                     };
 
@@ -230,7 +230,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     foreach (Mission m in voyageMissions)
                     {
-                        AssertEqual("claude-opus-4-7", m.PreferredModel,
+                        AssertEqual("claude-opus-5", m.PreferredModel,
                             "Stage with null PreferredModel should inherit per-mission pin (" + m.Persona + ")");
                     }
                 }

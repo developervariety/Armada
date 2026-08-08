@@ -55,7 +55,7 @@ namespace Armada.Test.Unit
             ModelTierSettings s = new ModelTierSettings();
             s.ModelCapabilityProfiles = profiles;
             s.MidTierModels = new List<string>(_MidMembers);
-            s.HighTierModels = new List<string> { "claude-opus-5", "claude-opus-4-7" };
+            s.HighTierModels = new List<string> { "claude-opus-5", "claude-fable-5" };
             s.WithinTierPreferenceOrder = DefaultMidOrder();
             return s;
         }
@@ -77,7 +77,7 @@ namespace Armada.Test.Unit
             return new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
             {
                 { "mid", new List<string> { "pref-primary", "audit-strong", "audit-mid", "composer-2.5", "grok-4.5" } },
-                { "high", new List<string> { "claude-opus-5", "claude-opus-4-7" } }
+                { "high", new List<string> { "claude-opus-5", "claude-fable-5" } }
             };
         }
 
@@ -466,7 +466,7 @@ namespace Armada.Test.Unit
             await RunTest("ModelTierSettings_ModelCapabilityProfiles_DefaultsAndNullReset", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("cun-ai/claude-fable-5"), "default profiles include a seeded high-tier model");
+                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "default profiles include a seeded high-tier model");
                 AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("gpt-5.6-luna"), "default profiles include a seeded mid-tier model");
 
                 ModelTierSettings custom = new ModelTierSettings();
@@ -475,10 +475,10 @@ namespace Armada.Test.Unit
                     { "house-model", Profile(10, 10) }
                 };
                 AssertTrue(custom.ModelCapabilityProfiles.ContainsKey("house-model"), "custom profiles replace the defaults");
-                AssertFalse(custom.ModelCapabilityProfiles.ContainsKey("cun-ai/claude-fable-5"), "default seeds do not leak into a custom profile map");
+                AssertFalse(custom.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "default seeds do not leak into a custom profile map");
 
                 custom.ModelCapabilityProfiles = null!;
-                AssertTrue(custom.ModelCapabilityProfiles.ContainsKey("cun-ai/claude-fable-5"), "null setter restores the built-in default profiles");
+                AssertTrue(custom.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "null setter restores the built-in default profiles");
                 return Task.CompletedTask;
             });
 

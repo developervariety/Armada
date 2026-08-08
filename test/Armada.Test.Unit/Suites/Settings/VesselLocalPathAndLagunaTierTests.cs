@@ -132,7 +132,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 {
                     "opencode-go/deepseek-v4-flash",
                     "gpt-5.6-luna", "composer-2.5", "grok-4.5",
-                    "cun-ai/claude-fable-5", "claude-fable-5", "claude-opus-5", "gpt-5.6-sol"
+                    "claude-fable-5", "claude-opus-5", "gpt-5.6-sol"
                 })
                 {
                     AssertTrue(s.ModelCapabilityProfiles.ContainsKey(m), m + " needs a capability profile");
@@ -146,7 +146,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 {
                     ("gpt-5.6-luna", "mid"), ("grok-4.5", "mid"),
                     ("opencode-go/deepseek-v4-flash", "mid"), ("composer-2.5", "mid"),
-                    ("cun-ai/claude-fable-5", "high"), ("claude-fable-5", "high"),
+                    ("claude-fable-5", "high"),
                     ("claude-opus-4-7", "high"), ("claude-opus-4-8", "high"), ("claude-opus-5", "high"),
                     ("gpt-5.6-sol", "high")
                 };

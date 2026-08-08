@@ -45,7 +45,7 @@ namespace Armada.Test.Unit.Suites.Services
                     reviewed.Stages = new List<PipelineStage>
                     {
                         new PipelineStage(1, "Worker"),
-                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7" }
+                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-5" }
                     };
                     reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
 
@@ -109,11 +109,11 @@ namespace Armada.Test.Unit.Suites.Services
                     // Judge stages take the stage-level Opus override.
                     AssertEqual("composer-2.5", m1Worker.PreferredModel,
                         "M1.Worker should inherit per-mission PreferredModel");
-                    AssertEqual("claude-opus-4-7", m1Judge.PreferredModel,
+                    AssertEqual("claude-opus-5", m1Judge.PreferredModel,
                         "M1.Judge should pick up stage-level Opus override");
                     AssertEqual("composer-2.5", m2Worker.PreferredModel,
                         "M2.Worker should inherit per-mission PreferredModel");
-                    AssertEqual("claude-opus-4-7", m2Judge.PreferredModel,
+                    AssertEqual("claude-opus-5", m2Judge.PreferredModel,
                         "M2.Judge should pick up stage-level Opus override");
 
                     // Persona must be set on every stage mission (was null pre-fix).
@@ -271,7 +271,7 @@ namespace Armada.Test.Unit.Suites.Services
                     reviewed.Stages = new List<PipelineStage>
                     {
                         new PipelineStage(1, "Worker"),
-                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7" }
+                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-5" }
                     };
                     reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
 

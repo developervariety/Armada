@@ -214,7 +214,6 @@ namespace Armada.Core.Settings
                     "high",
                     new List<string>
                     {
-                        "cun-ai/claude-fable-5",
                         "claude-fable-5",
                         "claude-opus-5",
                         "gpt-5.6-sol"
@@ -238,7 +237,6 @@ namespace Armada.Core.Settings
         {
             return new List<string>
             {
-                "cun-ai/claude-fable-5",
                 "claude-fable-5",
                 "claude-opus-5",
                 "gpt-5.6-sol"
@@ -249,7 +247,6 @@ namespace Armada.Core.Settings
         {
             return new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
             {
-                { "cun-ai/claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-opus-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },

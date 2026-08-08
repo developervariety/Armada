@@ -58,6 +58,8 @@ namespace Armada.Runtimes
 
         private string _ExecutablePath = "codex";
 
+        private readonly Armada.Core.Settings.ModelProvidersSettings _ModelProviders;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -66,13 +68,47 @@ namespace Armada.Runtimes
         /// Instantiate.
         /// </summary>
         /// <param name="logging">Logging module.</param>
-        public CodexRuntime(LoggingModule logging) : base(logging)
+        public CodexRuntime(LoggingModule logging) : this(logging, null)
         {
+        }
+
+        /// <summary>
+        /// Instantiate with a provider registry.
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="modelProviders">
+        /// External model provider registry; null uses the built-in default set.
+        /// </param>
+        public CodexRuntime(LoggingModule logging, Armada.Core.Settings.ModelProvidersSettings? modelProviders)
+            : base(logging)
+        {
+            _ModelProviders = modelProviders ?? new Armada.Core.Settings.ModelProvidersSettings();
         }
 
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Point THIS captain process at an external provider's OpenAI-compatible endpoint
+        /// when its model resolves to one. The Codex CLI honors <c>OPENAI_BASE_URL</c> and
+        /// <c>OPENAI_API_KEY</c>, so a resolved provider is wired through those variables.
+        /// </summary>
+        /// <param name="startInfo">Start info for the captain process being launched.</param>
+        /// <param name="captain">Captain being launched; may be null.</param>
+        /// <param name="model">Model id to resolve; the captain's own model wins when both exist.</param>
+        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain, string? model = null)
+        {
+            ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, captain?.Model ?? model, _ModelProviders);
+            if (resolved == null) return;
+
+            startInfo.Environment["OPENAI_BASE_URL"] = resolved.BaseUrl;
+            startInfo.Environment["OPENAI_API_KEY"] = resolved.ApiKey;
+
+            // An inherited credential would outrank or collide with the routed key, so clear it
+            // for this child only; a native captain beside it keeps its own.
+            startInfo.Environment.Remove("CODEX_API_KEY");
+        }
 
         /// <summary>
         /// Codex receives its prompt as a CLI argument, not via stdin. Suppressing the stdin pipe
@@ -131,8 +167,15 @@ namespace Armada.Runtimes
 
             if (!String.IsNullOrEmpty(model))
             {
+                // A provider-prefixed model id resolves to the provider-facing id (the prefix is
+                // Armada's selection namespace); a custom-endpoint captain keeps its id verbatim.
+                ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, model, _ModelProviders);
+                string effectiveModel = (resolved != null && !String.IsNullOrWhiteSpace(resolved.ApiModelId))
+                    ? resolved.ApiModelId
+                    : model;
+
                 args.Add("--model");
-                args.Add(model);
+                args.Add(effectiveModel);
             }
 
             // Forward per-captain reasoning effort to Codex CLI as a per-invocation

@@ -86,10 +86,10 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (string m in models)
                 {
                     if (m == "gpt-5.6-luna") hasMid = true;
-                    if (m == "cun-ai/claude-fable-5") hasHigh = true;
+                    if (m == "claude-fable-5") hasHigh = true;
                 }
                 AssertTrue(hasMid, "Mid tier model gpt-5.6-luna should be included");
-                AssertTrue(hasHigh, "High tier model cun-ai/claude-fable-5 should be included");
+                AssertTrue(hasHigh, "High tier model claude-fable-5 should be included");
                 return Task.CompletedTask;
             });
 
@@ -140,7 +140,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash"), "deepseek-v4-flash must participate in mid-tier routing");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "gpt-5.6-sol must participate in high-tier routing");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5"), "claude-opus-5 must participate in high-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("cun-ai/claude-fable-5"), "cun-ai/claude-fable-5 must participate in high-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5"), "claude-fable-5 must participate in high-tier routing");
                 return Task.CompletedTask;
             });
 
@@ -219,7 +219,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // No mid-tier captains, but high-tier captains are available
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("cun-ai/claude-fable-5"),
+                    MakeCaptain("claude-fable-5"),
                     MakeCaptain("claude-opus-5")
                 };
 
@@ -869,7 +869,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("delta-high", high[0], "custom high tier returns the configured model");
 
                 // The default membership must NOT leak through when custom settings are supplied.
-                AssertFalse(high.Contains("cun-ai/claude-fable-5"), "default high model must not appear under custom high settings");
+                AssertFalse(high.Contains("claude-fable-5"), "default high model must not appear under custom high settings");
                 return Task.CompletedTask;
             });
 
@@ -921,7 +921,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.HighTierModels = new List<string>();
 
-                AssertNull(PreferredModelTierSelector.ClassifyModel("cun-ai/claude-fable-5", custom), "explicit-only cun-ai/claude-fable-5 is unclassified once the high list is emptied");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-fable-5", custom), "explicit-only claude-fable-5 is unclassified once the high list is emptied");
                 AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "an empty configured high list must override the built-in Opus family inference");
                 return Task.CompletedTask;
             });

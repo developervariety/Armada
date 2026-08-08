@@ -82,7 +82,7 @@ namespace Armada.Runtimes
                 case AgentRuntimeEnum.ClaudeCode:
                     return new ClaudeCodeRuntime(_Logging, _ModelProviders);
                 case AgentRuntimeEnum.Codex:
-                    return new CodexRuntime(_Logging);
+                    return new CodexRuntime(_Logging, _ModelProviders);
                 case AgentRuntimeEnum.Gemini:
                     return new GeminiRuntime(_Logging);
                 case AgentRuntimeEnum.Cursor:

@@ -125,7 +125,7 @@ namespace Armada.Test.Unit.Suites.Recovery
 
                     RebaseCaptainMissionSpec spec = await setup.BuildAsync(entry, failedMission, cls).ConfigureAwait(false);
 
-                    AssertEqual(RebaseCaptainDockSetup.PreferredModelClaudeOpus47, spec.PreferredModel, "preferred model should be claude-opus-4-7");
+                    AssertEqual(RebaseCaptainDockSetup.PreferredModelClaudeOpus5, spec.PreferredModel, "preferred model should be claude-opus-5");
                 }
             });
 

@@ -114,13 +114,13 @@ namespace Armada.Test.Unit.Suites.Services
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
                     Captain capped = new Captain("capped-1");
-                    capped.Model = "cun-ai/claude-fable-5";
+                    capped.Model = "cun-ai/gpt-5.6-luna";
                     Captain sameModel = new Captain("capped-2");
-                    sameModel.Model = "cun-ai/claude-fable-5";
+                    sameModel.Model = "cun-ai/gpt-5.6-luna";
                     Captain sameProviderOtherModel = new Captain("cheap-1");
                     sameProviderOtherModel.Model = "cun-ai/gpt-5.6-sol";
                     Captain otherProvider = new Captain("native-1");
-                    otherProvider.Model = "claude-opus-4-7";
+                    otherProvider.Model = "claude-opus-5";
 
                     await db.Captains.CreateAsync(capped);
                     await db.Captains.CreateAsync(sameModel);

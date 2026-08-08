@@ -28,7 +28,7 @@ namespace Armada.Core.Recovery
         private const string _Header = "[RebaseCaptainDockSetup] ";
 
         /// <summary>High-tier rebase model per the auto-recovery design spec.</summary>
-        public const string PreferredModelClaudeOpus47 = "claude-opus-4-7";
+        public const string PreferredModelClaudeOpus5 = "claude-opus-5";
 
         /// <summary>Playbook id for the inline rebase-captain playbook.</summary>
         public const string RebaseCaptainPlaybookId = "pbk_rebase_captain";
@@ -103,7 +103,7 @@ namespace Armada.Core.Recovery
             return new RebaseCaptainMissionSpec(
                 Brief: brief,
                 PrestagedFiles: prestaged,
-                PreferredModel: PreferredModelClaudeOpus47,
+                PreferredModel: PreferredModelClaudeOpus5,
                 LandingTargetBranch: captainBranch,
                 SelectedPlaybooks: selected,
                 DependsOnMissionId: null,

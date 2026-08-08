@@ -45,7 +45,7 @@ namespace Armada.Test.Unit.Suites.Services
         private const string _MidAudit = "audit-mid";
         private const string _Throughput = "composer-2.5";
         private const string _LowAudit = "grok-4.5";
-        private const string _Opus = "claude-opus-4-7";
+        private const string _Opus = "claude-opus-5";
 
         private static LoggingModule CreateLogging()
         {

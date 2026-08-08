@@ -114,7 +114,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "architect-pin", "cun-ai/claude-fable-5", "[\"Architect\"]").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "architect-pin", "claude-fable-5", "[\"Architect\"]").ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "opus-worker", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
                     Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "opus-judge", "claude-opus-5", "[\"Judge\"]").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal persona route", "claude-opus-5", "Judge").ConfigureAwait(false);

@@ -26,6 +26,6 @@ namespace Armada.Core.Recovery
             "4. Commit the resolution to the SAME captain branch.\n" +
             "5. Exit success.\n" +
             "\n" +
-            "Persona allow-list: claude-opus-4-7 OR gpt-5.5 only.\n";
+            "Persona allow-list: claude-opus-5 OR gpt-5.6-sol only.\n";
     }
 }

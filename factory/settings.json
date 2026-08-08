@@ -119,7 +119,7 @@
     "reservedHighTierSlots": 1,
     "withinTierPreferenceOrder": {
       "high": [
-        "cun-ai/claude-fable-5",
+        "claude-fable-5",
         "claude-fable-5",
         "claude-opus-5",
         "gpt-5.6-sol"
@@ -133,7 +133,7 @@
       "low": []
     },
     "modelCapabilityProfiles": {
-      "cun-ai/claude-fable-5": {
+      "claude-fable-5": {
         "telemetryRichness": 96,
         "auditReasoningFit": 96,
         "mechanicalThroughput": 55,
@@ -201,7 +201,7 @@
       "doc-only": "MechanicalThroughput"
     },
     "highTierModels": [
-      "cun-ai/claude-fable-5",
+      "claude-fable-5",
       "claude-fable-5",
       "claude-opus-5",
       "gpt-5.6-sol"
