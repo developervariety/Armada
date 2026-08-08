@@ -24,6 +24,10 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - REST CRUD under `/api/v1/skills` (+ `/enumerate`) and MCP `enumerate` support for `skills`; dashboard Skills list + detail pages
 - Editable expectations: persona output contracts remain editable via prompt templates, and per-project expectations are expressible through `PersonaOverride` additional instructions
 
+### Visual pipeline builder + live run-mode
+- Pipeline detail now shows a visual left-to-right stage flow (persona cards with review-gate and optional badges) alongside the existing low-code stage editor
+- Live run-mode: dispatch a voyage that runs a pipeline against a chosen vessel directly from the pipeline page, then jump to the voyage to watch it
+
 ---
 
 ## v0.9.0
