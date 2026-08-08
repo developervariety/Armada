@@ -1163,6 +1163,29 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v46 statements: skills directory.
+        /// </summary>
+        public static readonly string[] MigrationV46Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS skills (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                category VARCHAR(255),
+                content LONGTEXT,
+                is_built_in TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                INDEX idx_skills_tenant (tenant_id),
+                INDEX idx_skills_category (category),
+                INDEX idx_skills_active (active)
+            );"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

@@ -52,6 +52,8 @@ const WorkflowProfiles = lazy(() => import('./pages/WorkflowProfiles'));
 const WorkflowProfileDetail = lazy(() => import('./pages/WorkflowProfileDetail'));
 const ProjectProfiles = lazy(() => import('./pages/ProjectProfiles'));
 const ProjectProfileDetail = lazy(() => import('./pages/ProjectProfileDetail'));
+const Skills = lazy(() => import('./pages/Skills'));
+const SkillDetail = lazy(() => import('./pages/SkillDetail'));
 const CheckRuns = lazy(() => import('./pages/CheckRuns'));
 const CheckRunDetail = lazy(() => import('./pages/CheckRunDetail'));
 const Environments = lazy(() => import('./pages/Environments'));
@@ -144,6 +146,8 @@ export default function App() {
                       <Route path="workflow-profiles/:id" element={<WorkflowProfileDetail />} />
                       <Route path="project-profiles" element={<ProjectProfiles />} />
                       <Route path="project-profiles/:id" element={<ProjectProfileDetail />} />
+                      <Route path="skills" element={<Skills />} />
+                      <Route path="skills/:id" element={<SkillDetail />} />
                       <Route path="checks" element={<CheckRuns />} />
                       <Route path="checks/:id" element={<CheckRunDetail />} />
                       <Route path="environments" element={<Environments />} />

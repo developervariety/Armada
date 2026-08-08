@@ -842,6 +842,27 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_scope') CREATE INDEX idx_project_profiles_scope ON project_profiles(scope);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_fleet') CREATE INDEX idx_project_profiles_fleet ON project_profiles(fleet_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_vessel') CREATE INDEX idx_project_profiles_vessel ON project_profiles(vessel_id);"
+                ),
+                new SchemaMigration(
+                    46,
+                    "Add skills directory",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'skills')
+                    CREATE TABLE skills (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450) NULL,
+                        user_id NVARCHAR(450) NULL,
+                        name NVARCHAR(450) NOT NULL,
+                        description NVARCHAR(MAX) NULL,
+                        category NVARCHAR(255) NULL,
+                        content NVARCHAR(MAX) NULL,
+                        is_built_in BIT NOT NULL CONSTRAINT DF_skills_is_built_in DEFAULT 0,
+                        active BIT NOT NULL CONSTRAINT DF_skills_active DEFAULT 1,
+                        created_utc DATETIME2 NOT NULL,
+                        last_update_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_tenant') CREATE INDEX idx_skills_tenant ON skills(tenant_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_category') CREATE INDEX idx_skills_category ON skills(category);"
                 )
             };
         }

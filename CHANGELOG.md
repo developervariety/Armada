@@ -16,6 +16,13 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 ### Layered persona resolution + diff preview
 - Per-project persona overrides now take effect at dispatch: `MissionService` resolves the vessel's project profile and applies the matching `PersonaOverride` (swap the persona's prompt template and/or append per-project instructions) when building mission instructions -- best-effort, so a profile lookup never blocks dispatch
 - Added `GET /api/v1/project-profiles/{id}/persona-preview/{persona}` returning the base and effective (override-applied) persona prompt, so the dashboard can render a live before/after diff (`PersonaPromptPreview`)
+- Dashboard: Project Profiles list + detail pages, including the persona-override editor and the live base-vs-effective persona prompt diff
+
+### Skills directory
+- Added the `Skill` entity (`skl_`): a tenant-scoped directory of reusable, categorized, editable capability snippets, persisted across all four database providers (schema migration 46)
+- Project profiles attach skills by id or name; `MissionService` injects the resolved skill content into mission prompts as a Skills section (best-effort)
+- REST CRUD under `/api/v1/skills` (+ `/enumerate`) and MCP `enumerate` support for `skills`; dashboard Skills list + detail pages
+- Editable expectations: persona output contracts remain editable via prompt templates, and per-project expectations are expressible through `PersonaOverride` additional instructions
 
 ---
 

@@ -122,7 +122,7 @@ const navSections: NavSection[] = [
   {
     key: 'delivery',
     label: 'DELIVERY',
-    matchers: ['/workflow-profiles', '/project-profiles', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
+    matchers: ['/workflow-profiles', '/project-profiles', '/skills', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
     items: [
       {
         to: '/workflow-profiles',
@@ -146,6 +146,16 @@ const navSections: NavSection[] = [
             <path d="M12 2 2 7l10 5 10-5-10-5Z" />
             <path d="m2 17 10 5 10-5" />
             <path d="m2 12 10 5 10-5" />
+          </svg>
+        ),
+      },
+      {
+        to: '/skills',
+        label: 'Skills',
+        tooltip: 'Reusable capability snippets attached to projects and injected into prompts',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m12 2 3 7 7 .5-5.5 4.5 2 7-6.5-4-6.5 4 2-7L2 9.5 9 9Z" />
           </svg>
         ),
       },

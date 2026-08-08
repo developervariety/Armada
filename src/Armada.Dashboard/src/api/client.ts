@@ -65,6 +65,7 @@ import type {
   ProjectProfileValidationResult,
   ProjectProfileResolutionResult,
   PersonaPromptPreview,
+  Skill,
   CheckRun,
   CheckRunImportRequest,
   CheckRunRequest,
@@ -780,6 +781,14 @@ export const resolveProjectProfileForVessel = (vesselId: string, projectProfileI
   get<ProjectProfileResolutionResult>(`/api/v1/project-profiles/resolve/vessels/${encodeURIComponent(vesselId)}${projectProfileId ? `?projectProfileId=${encodeURIComponent(projectProfileId)}` : ''}`);
 export const previewPersonaPrompt = (profileId: string, persona: string) =>
   get<PersonaPromptPreview>(`/api/v1/project-profiles/${encodeURIComponent(profileId)}/persona-preview/${encodeURIComponent(persona)}`);
+
+// Skills directory
+export const listSkills = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<Skill>>(`/api/v1/skills${buildQuery(params)}`);
+export const getSkill = (id: string) => get<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`);
+export const createSkill = (data: Partial<Skill>) => post<Skill>('/api/v1/skills', data);
+export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`, data);
+export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURIComponent(id)}`);
 
 // ==================== Environments ====================
 export const listEnvironments = (params?: DeploymentEnvironmentQuery) =>

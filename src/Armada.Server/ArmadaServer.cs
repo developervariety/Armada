@@ -534,6 +534,10 @@ namespace Armada.Server
             new ProjectProfileRoutes(_Database, _ProjectProfileService, _PromptTemplateService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Skills directory
+            new SkillRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Objectives
             new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService)
                 .Register(_App, authenticate, _AuthorizationService);

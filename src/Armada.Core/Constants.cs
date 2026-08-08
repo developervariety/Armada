@@ -164,6 +164,11 @@ namespace Armada.Core
         public static readonly string ProjectProfileIdPrefix = "ppf_";
 
         /// <summary>
+        /// ID prefix for skills.
+        /// </summary>
+        public static readonly string SkillIdPrefix = "skl_";
+
+        /// <summary>
         /// Check run ID prefix.
         /// </summary>
         public static readonly string CheckRunIdPrefix = "chk_";

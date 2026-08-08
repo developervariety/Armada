@@ -819,6 +819,20 @@ export interface PersonaPromptPreview {
   isOverridden: boolean;
 }
 
+export interface Skill {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  category: string | null;
+  content: string;
+  isBuiltIn: boolean;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
 export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
 
 export interface WorkflowProfileCommandPreview {

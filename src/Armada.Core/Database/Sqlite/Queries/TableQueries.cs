@@ -1286,6 +1286,24 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_project_profiles_fleet ON project_profiles(fleet_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_project_profiles_vessel ON project_profiles(vessel_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_project_profiles_default_scope ON project_profiles(scope, is_default, active);"
+                ),
+                new SchemaMigration(46, "Add skills directory",
+                    @"CREATE TABLE IF NOT EXISTS skills (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        category TEXT,
+                        content TEXT,
+                        is_built_in INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 1,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_skills_tenant ON skills(tenant_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category);",
+                    @"CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);"
                 )
             };
         }

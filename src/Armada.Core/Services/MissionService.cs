@@ -994,6 +994,13 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // Inject the vessel's project-profile skills (best-effort) as a Skills section.
+            string skillsMarkdown = await ResolveSkillsMarkdownAsync(vessel, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(skillsMarkdown))
+            {
+                content += "## Skills\n\n" + skillsMarkdown + "\n";
+            }
+
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template.
             // Apply the vessel's project-profile persona override (if any) so per-project customization takes effect.
             PersonaOverride? personaOverride = await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
@@ -1282,6 +1289,58 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "error resolving persona override for vessel " + vessel.Id + ": " + ex.Message);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Resolve the vessel's project-profile skills into a combined markdown block for prompt
+        /// injection. Best-effort: returns an empty string on any error or when no profile/skills apply.
+        /// Skill references in the profile may be skill ids (skl_...) or skill names.
+        /// </summary>
+        private async Task<string> ResolveSkillsMarkdownAsync(Vessel vessel, CancellationToken token)
+        {
+            if (vessel == null) return String.Empty;
+
+            try
+            {
+                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
+                    new ProjectProfileQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
+                    token).ConfigureAwait(false);
+                if (profiles.Count == 0) return String.Empty;
+
+                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                if (profile == null || profile.Skills == null || profile.Skills.Count == 0) return String.Empty;
+
+                List<Skill> skills = await _Database.Skills.EnumerateAllAsync(
+                    new SkillQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
+                    token).ConfigureAwait(false);
+                if (skills.Count == 0) return String.Empty;
+
+                Dictionary<string, Skill> byId = new Dictionary<string, Skill>(StringComparer.Ordinal);
+                Dictionary<string, Skill> byName = new Dictionary<string, Skill>(StringComparer.OrdinalIgnoreCase);
+                foreach (Skill skill in skills)
+                {
+                    byId[skill.Id] = skill;
+                    if (!String.IsNullOrWhiteSpace(skill.Name)) byName[skill.Name.Trim()] = skill;
+                }
+
+                List<string> blocks = new List<string>();
+                foreach (string reference in profile.Skills)
+                {
+                    if (String.IsNullOrWhiteSpace(reference)) continue;
+                    Skill? resolved = null;
+                    if (byId.TryGetValue(reference.Trim(), out Skill? byIdMatch)) resolved = byIdMatch;
+                    else if (byName.TryGetValue(reference.Trim(), out Skill? byNameMatch)) resolved = byNameMatch;
+                    if (resolved == null || String.IsNullOrWhiteSpace(resolved.Content)) continue;
+                    blocks.Add("### " + resolved.Name + "\n\n" + resolved.Content.Trim());
+                }
+
+                return String.Join("\n\n", blocks);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error resolving skills for vessel " + vessel.Id + ": " + ex.Message);
+                return String.Empty;
             }
         }
 

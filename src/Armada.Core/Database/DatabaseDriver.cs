@@ -130,6 +130,11 @@ namespace Armada.Core.Database
         public IProjectProfileMethods ProjectProfiles { get; protected set; } = null!;
 
         /// <summary>
+        /// Skill operations.
+        /// </summary>
+        public ISkillMethods Skills { get; protected set; } = null!;
+
+        /// <summary>
         /// Deployment environment operations.
         /// </summary>
         public IDeploymentEnvironmentMethods Environments { get; protected set; } = null!;

@@ -77,6 +77,7 @@ namespace Armada.Core.Database.Mysql
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
             ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
+            Skills = new SkillMethods(_ConnectionString);
             Environments = new DeploymentEnvironmentMethods(_ConnectionString);
             CheckRuns = new CheckRunMethods(_ConnectionString);
             Releases = new ReleaseMethods(_ConnectionString);
@@ -521,6 +522,11 @@ namespace Armada.Core.Database.Mysql
                     45,
                     "Add project_profiles for per-project persona/pipeline/skill customization",
                     TableQueries.MigrationV45Statements
+                ),
+                new SchemaMigration(
+                    46,
+                    "Add skills directory",
+                    TableQueries.MigrationV46Statements
                 )
             };
         }
