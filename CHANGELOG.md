@@ -4,6 +4,25 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## v0.9.0
+
+Focus: reliability. Eliminates the stuck-dock and dangling-handoff failure modes and hardens the orchestrator for multi-instance operation.
+
+### Reliability
+- Fixed stall detection: the process-liveness loop now refreshes a separate liveness timestamp instead of the output heartbeat, so a live-but-silent agent is still detected as stalled; added a configurable max-mission-runtime backstop for runaways
+- Cross-platform process supervision: agent subprocesses are killed on Admiral shutdown, and PID-identity verification (via process start time) prevents a recycled PID from leaving a captain stuck Working
+- Dangling pipeline handoffs (WorkProduced with an unprepared downstream stage) are re-driven automatically each health cycle
+- Review-timeout watchdog releases the captain a forgotten review was pinning (mission and dock preserved for the reviewer); enforced global MaxConcurrentMissions ceiling
+- Non-destructive dock repair and unstick operator tools (REST + MCP)
+- Merge queue: background driver so entries land without a manual trigger, hard timeouts on git/test subprocesses (no more queue freeze), and multi-instance-safe processing via a durable coordination lease
+- Centralized, tested mission state machine (single authoritative transition table + classifiers)
+
+### Data
+- Schema migration 44 across SQLite, PostgreSQL, MySQL, and SQL Server: dock state/lease, captain process-liveness, mission review deadline, merge-entry retry/lease, and a durable coordination-lease table; deterministic SQLite foreign-key enforcement
+
+### Testing
+- Migrated the entire test suite (~2,100 cases) to the runner-agnostic Touchstone framework: a shared descriptor library run by a console/CLI runner, an xUnit adapter, and an NUnit adapter, with reflection-based discovery and per-suite server isolation for end-to-end tests
+
 ## v0.8.0
 
 Focus: backlog-first delivery management.

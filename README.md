@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Reduce context switching across projects. Keep agent work in queryable memory.</strong>
   <br />
-  <em>v0.8.0 alpha -- APIs and schemas may change</em>
+  <em>v0.9.0 alpha -- APIs and schemas may change</em>
 </p>
 
 <p align="center">
@@ -1107,9 +1107,9 @@ v0.5.0 is focused on dispatch and pipeline stability. It adds captain model sele
 - Mission detail now shows total runtime, and dispatch cleanup removes the redundant parsed-task UI
 - Docker image tags, release metadata, and API documentation are updated for `v0.5.0`
 
-### v0.7.0 to v0.8.0
+### v0.7.0 to v0.9.0
 
-v0.8.0 is focused on backlog-first delivery management. This release adds normalized objective storage, explicit backlog refinement sessions with captain selection, ranked backlog management, and end-to-end linkage from backlog items into release, deployment, and incident records. The Armada server applies the required schema migrations automatically on first startup (SQLite schema version 43, PostgreSQL/MySQL/SQL Server schema version 42).
+v0.9.0 is focused on backlog-first delivery management. This release adds normalized objective storage, explicit backlog refinement sessions with captain selection, ranked backlog management, and end-to-end linkage from backlog items into release, deployment, and incident records. The Armada server applies the required schema migrations automatically on first startup (SQLite schema version 43, PostgreSQL/MySQL/SQL Server schema version 42).
 
 Key changes:
 
@@ -1118,8 +1118,8 @@ Key changes:
 - Backlog refinement sessions with explicit captain selection, transcript persistence, summary generation, and objective apply-back support
 - MCP backlog CRUD and reorder coverage, plus backlog-named aliases for first-class backlog operations
 - Release, deployment, and incident flows now preserve linkage back to the same objective record
-- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.8.0`
-- Versioned migration handoff scripts are available in `migrations/` for `v0.7.0 -> v0.8.0`
+- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.9.0`
+- Versioned migration handoff scripts are available in `migrations/` for `v0.7.0 -> v0.9.0`
 
 ### v0.6.0 to v0.7.0
 

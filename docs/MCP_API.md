@@ -1,6 +1,6 @@
 # Armada MCP API Reference
 
-**Version:** 0.8.0
+**Version:** 0.9.0
 **Default URL:** `http://localhost:7891`
 **Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
 **Server Library:** Voltaic (McpHttpServer)
@@ -8,7 +8,7 @@
 
 ## Remote Control Note
 
-`v0.8.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
+`v0.9.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
 
 Remote control in this release is limited to:
 
@@ -302,7 +302,7 @@ No parameters required.
     "latencyMs": null,
     "capabilityManifest": {
       "protocolVersion": "2026-04-03",
-      "armadaVersion": "0.8.0",
+      "armadaVersion": "0.9.0",
       "features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",

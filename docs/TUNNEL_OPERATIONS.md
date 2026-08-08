@@ -1,8 +1,8 @@
 # Tunnel Operations
 
-**Version:** 0.8.0
+**Version:** 0.9.0
 
-This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.8.0`.
+This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.9.0`.
 
 For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
@@ -10,7 +10,7 @@ For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
 ## Scope
 
-`v0.8.0` now includes:
+`v0.9.0` now includes:
 
 - the Armada-side outbound websocket tunnel client
 - remote tunnel configuration in Armada settings and dashboards
@@ -412,7 +412,7 @@ Recent forwarded events are retained in memory only and are bounded by `maxRecen
 
 ## Release Notes
 
-The `v0.7.0 -> v0.8.0` release adds Armada backlog/objective normalization schema changes on the server side.
+The `v0.7.0 -> v0.9.0` release adds Armada backlog/objective normalization schema changes on the server side.
 
 `Armada.Server` applies those schema migrations automatically on first startup after upgrade. If you need a controlled DBA-managed rollout, the versioned handoff scripts in `migrations/` emit the backend-specific SQL and precheck guidance:
 

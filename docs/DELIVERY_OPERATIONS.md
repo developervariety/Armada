@@ -8,7 +8,7 @@ This guide covers the current internal-first operator workflow for:
 - rolling back failed rollouts
 - recording incidents and postmortems
 
-It describes the shipped Armada-side workflow in `v0.8.0`. It does not assume external CI, PR providers, or remote multi-host delivery.
+It describes the shipped Armada-side workflow in `v0.9.0`. It does not assume external CI, PR providers, or remote multi-host delivery.
 
 ## Scope
 
