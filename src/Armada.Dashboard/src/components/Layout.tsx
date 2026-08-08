@@ -122,7 +122,7 @@ const navSections: NavSection[] = [
   {
     key: 'delivery',
     label: 'DELIVERY',
-    matchers: ['/workflow-profiles', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
+    matchers: ['/workflow-profiles', '/project-profiles', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
     items: [
       {
         to: '/workflow-profiles',
@@ -134,6 +134,18 @@ const navSections: NavSection[] = [
             <path d="M4 12h10" />
             <path d="M4 17h7" />
             <rect x="3" y="3" width="18" height="18" rx="2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/project-profiles',
+        label: 'Project Profiles',
+        tooltip: 'Per-project persona overrides, pipeline, workflow profile, and skills',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+            <path d="m2 17 10 5 10-5" />
+            <path d="m2 12 10 5 10-5" />
           </svg>
         ),
       },

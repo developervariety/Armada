@@ -769,6 +769,56 @@ export interface WorkflowProfileValidationResult {
   commandPreviews: WorkflowProfileCommandPreview[];
 }
 
+export type ProjectProfileScope = 'Global' | 'Fleet' | 'Vessel';
+export type ProjectProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global' | 'None';
+
+export interface PersonaOverride {
+  personaName: string;
+  promptTemplateName: string | null;
+  additionalInstructions: string | null;
+  enabled: boolean;
+}
+
+export interface ProjectProfile {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  scope: ProjectProfileScope;
+  fleetId: string | null;
+  vesselId: string | null;
+  isDefault: boolean;
+  active: boolean;
+  defaultPipelineId: string | null;
+  workflowProfileId: string | null;
+  personaOverrides: PersonaOverride[];
+  skills: string[];
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface ProjectProfileValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface ProjectProfileResolutionResult {
+  profile: ProjectProfile | null;
+  mode: ProjectProfileResolutionMode;
+}
+
+export interface PersonaPromptPreview {
+  personaName: string;
+  baseTemplateName: string;
+  effectiveTemplateName: string;
+  basePrompt: string;
+  effectivePrompt: string;
+  additionalInstructions: string | null;
+  isOverridden: boolean;
+}
+
 export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
 
 export interface WorkflowProfileCommandPreview {

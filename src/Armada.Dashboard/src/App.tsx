@@ -50,6 +50,8 @@ const Playbooks = lazy(() => import('./pages/Playbooks'));
 const PlaybookDetail = lazy(() => import('./pages/PlaybookDetail'));
 const WorkflowProfiles = lazy(() => import('./pages/WorkflowProfiles'));
 const WorkflowProfileDetail = lazy(() => import('./pages/WorkflowProfileDetail'));
+const ProjectProfiles = lazy(() => import('./pages/ProjectProfiles'));
+const ProjectProfileDetail = lazy(() => import('./pages/ProjectProfileDetail'));
 const CheckRuns = lazy(() => import('./pages/CheckRuns'));
 const CheckRunDetail = lazy(() => import('./pages/CheckRunDetail'));
 const Environments = lazy(() => import('./pages/Environments'));
@@ -140,6 +142,8 @@ export default function App() {
                       <Route path="playbooks/:id" element={<PlaybookDetail />} />
                       <Route path="workflow-profiles" element={<WorkflowProfiles />} />
                       <Route path="workflow-profiles/:id" element={<WorkflowProfileDetail />} />
+                      <Route path="project-profiles" element={<ProjectProfiles />} />
+                      <Route path="project-profiles/:id" element={<ProjectProfileDetail />} />
                       <Route path="checks" element={<CheckRuns />} />
                       <Route path="checks/:id" element={<CheckRunDetail />} />
                       <Route path="environments" element={<Environments />} />

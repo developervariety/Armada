@@ -61,6 +61,10 @@ import type {
   WorkflowProfile,
   WorkflowProfileResolutionPreviewResult,
   WorkflowProfileValidationResult,
+  ProjectProfile,
+  ProjectProfileValidationResult,
+  ProjectProfileResolutionResult,
+  PersonaPromptPreview,
   CheckRun,
   CheckRunImportRequest,
   CheckRunRequest,
@@ -763,6 +767,19 @@ export const previewWorkflowProfileForVessel = (vesselId: string, workflowProfil
   get<WorkflowProfileResolutionPreviewResult>(`/api/v1/workflow-profiles/preview/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
 export const resolveWorkflowProfile = (vesselId: string, workflowProfileId?: string | null) =>
   get<WorkflowProfile>(`/api/v1/workflow-profiles/resolve/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
+
+// Project profiles
+export const listProjectProfiles = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<ProjectProfile>>(`/api/v1/project-profiles${buildQuery(params)}`);
+export const getProjectProfile = (id: string) => get<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`);
+export const createProjectProfile = (data: Partial<ProjectProfile>) => post<ProjectProfile>('/api/v1/project-profiles', data);
+export const updateProjectProfile = (id: string, data: Partial<ProjectProfile>) => put<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`, data);
+export const deleteProjectProfile = (id: string) => del<void>(`/api/v1/project-profiles/${encodeURIComponent(id)}`);
+export const validateProjectProfile = (data: Partial<ProjectProfile>) => post<ProjectProfileValidationResult>('/api/v1/project-profiles/validate', data);
+export const resolveProjectProfileForVessel = (vesselId: string, projectProfileId?: string | null) =>
+  get<ProjectProfileResolutionResult>(`/api/v1/project-profiles/resolve/vessels/${encodeURIComponent(vesselId)}${projectProfileId ? `?projectProfileId=${encodeURIComponent(projectProfileId)}` : ''}`);
+export const previewPersonaPrompt = (profileId: string, persona: string) =>
+  get<PersonaPromptPreview>(`/api/v1/project-profiles/${encodeURIComponent(profileId)}/persona-preview/${encodeURIComponent(persona)}`);
 
 // ==================== Environments ====================
 export const listEnvironments = (params?: DeploymentEnvironmentQuery) =>
