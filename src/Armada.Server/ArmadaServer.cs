@@ -8,6 +8,8 @@ namespace Armada.Server
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
     using Voltaic;
+    using Voltaic.Core;
+    using Voltaic.Mcp;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
@@ -913,10 +915,28 @@ namespace Armada.Server
             await ctx.Response.Send("{\"error\":\"Not found\"}").ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Adapts Armada's JsonElement-based tool handler to Voltaic 0.6.0's RpcParameters-based
+        /// RegisterTool signature, so the tool handlers themselves do not need to change.
+        /// </summary>
+        private void RegisterAdaptedTool(string name, string description, object inputSchema, Func<System.Text.Json.JsonElement?, Task<object>> handler)
+        {
+            _McpServer.RegisterTool(name, description, inputSchema, (RpcParameters parameters) =>
+            {
+                System.Text.Json.JsonElement? args = null;
+                if (parameters != null && parameters.HasValue && !string.IsNullOrEmpty(parameters.RawJson))
+                {
+                    using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(parameters.RawJson);
+                    args = doc.RootElement.Clone();
+                }
+                return handler(args);
+            });
+        }
+
         private void RegisterMcpTools()
         {
             McpToolRegistrar.RegisterAll(
-                _McpServer.RegisterTool,
+                RegisterAdaptedTool,
                 _Database,
                 _Admiral,
                 _Settings,

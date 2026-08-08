@@ -6,7 +6,10 @@ namespace Armada.Helm.Commands
     using System.Threading;
     using Spectre.Console.Cli;
     using SyslogLogging;
+    using System.Text.Json;
     using Voltaic;
+    using Voltaic.Core;
+    using Voltaic.Mcp;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Services;
@@ -96,8 +99,23 @@ namespace Armada.Helm.Commands
             DeploymentEnvironmentService environmentService = new DeploymentEnvironmentService(database, workflowProfileService, logging);
             DeploymentService deploymentService = new DeploymentService(database, workflowProfileService, environmentService, checkRunService, logging);
             RunbookService runbookService = new RunbookService(database, logging);
+            // Adapt Armada's JsonElement-based tool handlers to Voltaic 0.6.0's RpcParameters API.
+            void RegisterAdapted(string name, string description, object inputSchema, Func<JsonElement?, Task<object>> handler)
+            {
+                mcpServer.RegisterTool(name, description, inputSchema, (RpcParameters parameters) =>
+                {
+                    JsonElement? args = null;
+                    if (parameters != null && parameters.HasValue && !string.IsNullOrEmpty(parameters.RawJson))
+                    {
+                        using JsonDocument doc = JsonDocument.Parse(parameters.RawJson);
+                        args = doc.RootElement.Clone();
+                    }
+                    return handler(args);
+                });
+            }
+
             McpToolRegistrar.RegisterAll(
-                mcpServer.RegisterTool,
+                RegisterAdapted,
                 database,
                 admiral,
                 armadaSettings,
