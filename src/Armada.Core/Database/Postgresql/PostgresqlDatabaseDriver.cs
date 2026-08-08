@@ -246,6 +246,7 @@ namespace Armada.Core.Database.Postgresql
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this);
+            ProjectProfiles = new ProjectProfileMethods(this);
             Environments = new DeploymentEnvironmentMethods(this);
             CheckRuns = new CheckRunMethods(this);
             Releases = new ReleaseMethods(this);

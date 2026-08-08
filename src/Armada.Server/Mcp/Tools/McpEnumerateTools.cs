@@ -35,13 +35,13 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "enumerate",
-                "Find and browse entities with paginated, filtered, sorted access to: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs, releases, deployments, incidents, runbooks, and runbook_executions. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+                "Find and browse entities with paginated, filtered, sorted access to: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, check_runs, releases, deployments, incidents, runbooks, and runbook_executions. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        entityType = new { type = "string", description = "Entity type to enumerate: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs, releases, deployments, incidents, runbooks, runbook_executions" },
+                        entityType = new { type = "string", description = "Entity type to enumerate: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, check_runs, releases, deployments, incidents, runbooks, runbook_executions" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
                         pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
@@ -413,6 +413,15 @@ namespace Armada.Server.Mcp.Tools
                                 PageSize = query.PageSize
                             }).ConfigureAwait(false);
                             return (object)workflowProfiles;
+                        case "project_profiles":
+                        case "project_profile":
+                        case "projectprofiles":
+                            EnumerationResult<ProjectProfile> projectProfiles = await database.ProjectProfiles.EnumerateAsync(new ProjectProfileQuery
+                            {
+                                PageNumber = query.PageNumber,
+                                PageSize = query.PageSize
+                            }).ConfigureAwait(false);
+                            return (object)projectProfiles;
                         case "check_runs":
                         case "check_run":
                         case "checkruns":
@@ -423,7 +432,7 @@ namespace Armada.Server.Mcp.Tools
                             }).ConfigureAwait(false);
                             return (object)checkRuns;
                         default:
-                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs, releases" };
+                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, check_runs, releases" };
                     }
                 });
         }

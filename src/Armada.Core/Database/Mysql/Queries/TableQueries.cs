@@ -1134,6 +1134,35 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v45 statements: project_profiles for per-project persona/pipeline/skill customization.
+        /// </summary>
+        public static readonly string[] MigrationV45Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS project_profiles (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                scope VARCHAR(64) NOT NULL DEFAULT 'Global',
+                fleet_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                is_default TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                default_pipeline_id VARCHAR(450),
+                workflow_profile_id VARCHAR(450),
+                persona_overrides_json LONGTEXT,
+                skills_json LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                INDEX idx_project_profiles_tenant (tenant_id),
+                INDEX idx_project_profiles_scope (scope),
+                INDEX idx_project_profiles_fleet (fleet_id),
+                INDEX idx_project_profiles_vessel (vessel_id)
+            );"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

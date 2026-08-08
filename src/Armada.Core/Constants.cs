@@ -159,6 +159,11 @@ namespace Armada.Core
         public static readonly string WorkflowProfileIdPrefix = "wfp_";
 
         /// <summary>
+        /// ID prefix for project profiles.
+        /// </summary>
+        public static readonly string ProjectProfileIdPrefix = "ppf_";
+
+        /// <summary>
         /// Check run ID prefix.
         /// </summary>
         public static readonly string CheckRunIdPrefix = "chk_";

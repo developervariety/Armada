@@ -4,6 +4,17 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased (v0.10.0, in progress)
+
+Focus: stickiness -- making Armada a daily driver through per-project customization.
+
+### Project profiles (foundation)
+- Added the `ProjectProfile` entity (`ppf_`): a scoped aggregate (Global -> Fleet -> Vessel) that binds a project's pipeline, workflow profile, per-persona prompt overrides (`PersonaOverride`), and skills in one place, resolved with the same vessel/fleet/global precedence as workflow profiles
+- `ProjectProfileService` validation and layered resolution; full REST CRUD under `/api/v1/project-profiles` (plus `/enumerate`, `/validate`, `/resolve/vessels/{vesselId}`) and MCP `enumerate` support for `project_profiles`
+- Persisted across SQLite, PostgreSQL, MySQL, and SQL Server (schema migration 45)
+
+---
+
 ## v0.9.0
 
 Focus: reliability. Eliminates the stuck-dock and dangling-handoff failure modes and hardens the orchestrator for multi-instance operation.

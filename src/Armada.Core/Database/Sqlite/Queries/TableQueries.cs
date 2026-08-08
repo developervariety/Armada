@@ -1261,6 +1261,31 @@ namespace Armada.Core.Database.Sqlite.Queries
                         expires_utc TEXT NOT NULL
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_coordination_leases_expires ON coordination_leases(expires_utc);"
+                ),
+                new SchemaMigration(45, "Add project_profiles for per-project persona/pipeline/skill customization",
+                    @"CREATE TABLE IF NOT EXISTS project_profiles (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        scope TEXT NOT NULL DEFAULT 'Global',
+                        fleet_id TEXT,
+                        vessel_id TEXT,
+                        is_default INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 1,
+                        default_pipeline_id TEXT,
+                        workflow_profile_id TEXT,
+                        persona_overrides_json TEXT,
+                        skills_json TEXT,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_project_profiles_tenant ON project_profiles(tenant_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_project_profiles_scope ON project_profiles(scope);",
+                    @"CREATE INDEX IF NOT EXISTS idx_project_profiles_fleet ON project_profiles(fleet_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_project_profiles_vessel ON project_profiles(vessel_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_project_profiles_default_scope ON project_profiles(scope, is_default, active);"
                 )
             };
         }

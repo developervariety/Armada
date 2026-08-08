@@ -81,6 +81,7 @@ namespace Armada.Core.Database.Sqlite
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
             Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
             CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
             Releases = new ReleaseMethods(this, _Settings, _Logging);
@@ -123,6 +124,7 @@ namespace Armada.Core.Database.Sqlite
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
             Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
             CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
             Releases = new ReleaseMethods(this, _Settings, _Logging);

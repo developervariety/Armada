@@ -72,6 +72,7 @@ namespace Armada.Server
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
+        private ProjectProfileService _ProjectProfileService = null!;
         private VesselReadinessService _VesselReadinessService = null!;
         private DeploymentEnvironmentService _EnvironmentService = null!;
         private CheckRunService _CheckRunService = null!;
@@ -161,6 +162,7 @@ namespace Armada.Server
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
+            _ProjectProfileService = new ProjectProfileService(_Database, _Logging);
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging);
@@ -526,6 +528,10 @@ namespace Armada.Server
 
             // Workflow profiles
             new WorkflowProfileRoutes(_Database, _WorkflowProfileService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Project profiles
+            new ProjectProfileRoutes(_Database, _ProjectProfileService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Objectives

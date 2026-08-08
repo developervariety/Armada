@@ -125,6 +125,11 @@ namespace Armada.Core.Database
         public IWorkflowProfileMethods WorkflowProfiles { get; protected set; } = null!;
 
         /// <summary>
+        /// Project-profile operations.
+        /// </summary>
+        public IProjectProfileMethods ProjectProfiles { get; protected set; } = null!;
+
+        /// <summary>
         /// Deployment environment operations.
         /// </summary>
         public IDeploymentEnvironmentMethods Environments { get; protected set; } = null!;

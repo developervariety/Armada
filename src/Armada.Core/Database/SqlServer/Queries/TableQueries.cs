@@ -814,6 +814,34 @@ namespace Armada.Core.Database.SqlServer.Queries
                         expires_utc DATETIME2 NOT NULL
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_coordination_leases_expires') CREATE INDEX idx_coordination_leases_expires ON coordination_leases(expires_utc);"
+                ),
+                new SchemaMigration(
+                    45,
+                    "Add project_profiles for per-project persona/pipeline/skill customization",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'project_profiles')
+                    CREATE TABLE project_profiles (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450) NULL,
+                        user_id NVARCHAR(450) NULL,
+                        name NVARCHAR(450) NOT NULL,
+                        description NVARCHAR(MAX) NULL,
+                        scope NVARCHAR(64) NOT NULL CONSTRAINT DF_project_profiles_scope DEFAULT 'Global',
+                        fleet_id NVARCHAR(450) NULL,
+                        vessel_id NVARCHAR(450) NULL,
+                        is_default BIT NOT NULL CONSTRAINT DF_project_profiles_is_default DEFAULT 0,
+                        active BIT NOT NULL CONSTRAINT DF_project_profiles_active DEFAULT 1,
+                        default_pipeline_id NVARCHAR(450) NULL,
+                        workflow_profile_id NVARCHAR(450) NULL,
+                        persona_overrides_json NVARCHAR(MAX) NULL,
+                        skills_json NVARCHAR(MAX) NULL,
+                        created_utc DATETIME2 NOT NULL,
+                        last_update_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_tenant') CREATE INDEX idx_project_profiles_tenant ON project_profiles(tenant_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_scope') CREATE INDEX idx_project_profiles_scope ON project_profiles(scope);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_fleet') CREATE INDEX idx_project_profiles_fleet ON project_profiles(fleet_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_vessel') CREATE INDEX idx_project_profiles_vessel ON project_profiles(vessel_id);"
                 )
             };
         }

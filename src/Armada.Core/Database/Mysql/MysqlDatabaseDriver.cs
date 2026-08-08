@@ -76,6 +76,7 @@ namespace Armada.Core.Database.Mysql
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
+            ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
             Environments = new DeploymentEnvironmentMethods(_ConnectionString);
             CheckRuns = new CheckRunMethods(_ConnectionString);
             Releases = new ReleaseMethods(_ConnectionString);
@@ -515,6 +516,11 @@ namespace Armada.Core.Database.Mysql
                     44,
                     "Reliability release: dock leases, process liveness, review deadline, merge retry, coordination leases",
                     TableQueries.MigrationV44Statements
+                ),
+                new SchemaMigration(
+                    45,
+                    "Add project_profiles for per-project persona/pipeline/skill customization",
+                    TableQueries.MigrationV45Statements
                 )
             };
         }
