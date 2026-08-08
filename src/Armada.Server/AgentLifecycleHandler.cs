@@ -769,66 +769,8 @@ namespace Armada.Server
 
         private static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {
-            if (current == MissionStatusEnum.Pending)
-            {
-                return target == MissionStatusEnum.Assigned
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.Assigned)
-            {
-                return target == MissionStatusEnum.InProgress
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.InProgress)
-            {
-                return target == MissionStatusEnum.WorkProduced
-                    || target == MissionStatusEnum.Testing
-                    || target == MissionStatusEnum.Review
-                    || target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.Failed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.WorkProduced)
-            {
-                return target == MissionStatusEnum.PullRequestOpen
-                    || target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.LandingFailed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.PullRequestOpen)
-            {
-                return target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.LandingFailed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.Testing)
-            {
-                return target == MissionStatusEnum.Review
-                    || target == MissionStatusEnum.InProgress
-                    || target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.Failed;
-            }
-
-            if (current == MissionStatusEnum.Review)
-            {
-                return target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.InProgress
-                    || target == MissionStatusEnum.Failed;
-            }
-
-            if (current == MissionStatusEnum.LandingFailed)
-            {
-                return target == MissionStatusEnum.WorkProduced
-                    || target == MissionStatusEnum.Failed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            return false;
+            // Delegated to the single authoritative table so this handler and the services agree.
+            return MissionStateMachine.IsValidTransition(current, target);
         }
 
         private async Task<string?> ValidateMuxCaptainAsync(Captain captain, CancellationToken token)
