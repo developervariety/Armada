@@ -405,6 +405,90 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        /// <inheritdoc />
+        public async Task<WorkspaceExecResult> ExecAsync(Vessel vessel, WorkspaceExecRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.Command)) throw new ArgumentException("Command is required.", nameof(request));
+
+            string rootPath = GetWorkspaceRoot(vessel);
+            int timeoutSeconds = request.TimeoutSeconds < 1 ? 1 : (request.TimeoutSeconds > 600 ? 600 : request.TimeoutSeconds);
+
+            WorkspaceExecResult result = new WorkspaceExecResult
+            {
+                Command = request.Command,
+                WorkingDirectory = rootPath
+            };
+
+            ProcessStartInfo psi = new ProcessStartInfo
+            {
+                WorkingDirectory = rootPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            if (OperatingSystem.IsWindows())
+            {
+                psi.FileName = "cmd.exe";
+                psi.ArgumentList.Add("/c");
+                psi.ArgumentList.Add(request.Command);
+            }
+            else
+            {
+                psi.FileName = "/bin/sh";
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add(request.Command);
+            }
+
+            const int maxOutputChars = 256 * 1024;
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            using Process process = new Process { StartInfo = psi };
+
+            StringBuilder stdout = new StringBuilder();
+            StringBuilder stderr = new StringBuilder();
+            process.OutputDataReceived += (_, e) => { if (e.Data != null && stdout.Length < maxOutputChars) stdout.AppendLine(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data != null && stderr.Length < maxOutputChars) stderr.AppendLine(e.Data); };
+
+            try
+            {
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+                try
+                {
+                    await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                    result.ExitCode = process.ExitCode;
+                }
+                catch (OperationCanceledException)
+                {
+                    result.TimedOut = !token.IsCancellationRequested;
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    try { await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
+                    result.ExitCode = -1;
+                }
+            }
+            catch (Exception ex)
+            {
+                stderr.AppendLine("Failed to start command: " + ex.Message);
+                result.ExitCode = -1;
+            }
+            finally
+            {
+                stopwatch.Stop();
+            }
+
+            result.Stdout = stdout.ToString();
+            result.Stderr = stderr.ToString();
+            result.DurationMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2);
+            return result;
+        }
+
         private static string GetWorkspaceRoot(Vessel vessel)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));

@@ -54,5 +54,11 @@ namespace Armada.Core.Services.Interfaces
             Vessel vessel,
             IReadOnlyList<WorkspaceActiveMission>? activeMissions = null,
             CancellationToken token = default);
+
+        /// <summary>
+        /// Run a shell command inside a vessel's workspace root (the in-browser dock terminal),
+        /// bounded by a timeout that kills the process tree.
+        /// </summary>
+        Task<WorkspaceExecResult> ExecAsync(Vessel vessel, WorkspaceExecRequest request, CancellationToken token = default);
     }
 }

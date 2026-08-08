@@ -25,6 +25,7 @@ import { useNotifications } from '../context/NotificationContext';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 import WorkspaceTree from '../components/workspace/WorkspaceTree';
 import WorkspaceVesselPicker from '../components/workspace/WorkspaceVesselPicker';
+import WorkspaceTerminal from '../components/workspace/WorkspaceTerminal';
 import {
   buildWorkspaceContextSnippet,
   buildWorkspaceDispatchDraft,
@@ -1093,6 +1094,8 @@ export default function Workspace() {
           </form>
         </div>
       )}
+
+      {currentVessel && <WorkspaceTerminal vesselId={currentVessel.id} />}
     </div>
   );
 }

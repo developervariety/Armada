@@ -32,6 +32,10 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - Added a lightweight conversational assistant (`AskArmadaService`) that answers read-only questions about fleet state (status, captains, missions, failures, stalls, docks, voyages) and returns suggested navigation links; the intent layer is a clean seam for a future LLM/agent-backed upgrade
 - REST `POST /api/v1/ask`; dashboard "Ask Armada" chat page under Operations
 
+### In-browser dock terminal
+- `WorkspaceService.ExecAsync` runs a shell command in a vessel's working tree (cross-platform: cmd.exe on Windows, /bin/sh elsewhere), bounded by a timeout that kills the whole process tree, with captured stdout/stderr and output caps
+- REST `POST /api/v1/workspace/vessels/{vesselId}/exec` (tenant administrators only); dashboard Terminal panel on the Workspace page with command history; one-click open into a vessel workspace via the existing picker
+
 ---
 
 ## v0.9.0

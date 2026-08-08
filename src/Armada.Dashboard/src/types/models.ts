@@ -846,6 +846,21 @@ export interface AskResponse {
   links: AskLink[];
 }
 
+export interface WorkspaceExecRequest {
+  command: string;
+  timeoutSeconds?: number;
+}
+
+export interface WorkspaceExecResult {
+  command: string;
+  workingDirectory: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  durationMs: number;
+}
+
 export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
 
 export interface WorkflowProfileCommandPreview {
