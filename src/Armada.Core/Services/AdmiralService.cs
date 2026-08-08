@@ -476,6 +476,29 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task StopAllAgentProcessesAsync(CancellationToken token = default)
+        {
+            if (_Captains.OnStopAgent == null) return;
+
+            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+            if (workingCaptains.Count == 0) return;
+
+            _Logging.Warn(_Header + "shutdown: stopping " + workingCaptains.Count + " agent process(es) so none are orphaned");
+            foreach (Captain captain in workingCaptains)
+            {
+                if (!captain.ProcessId.HasValue) continue;
+                try
+                {
+                    await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error stopping agent for captain " + captain.Id + " on shutdown: " + ex.Message);
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task HealthCheckAsync(CancellationToken token = default)
         {
             List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
@@ -564,20 +587,17 @@ namespace Armada.Core.Services
 
             foreach (Captain captain in workingCaptains)
             {
-                bool processAlive = false;
-
-                if (captain.ProcessId != null)
+                // Verify liveness with PID identity: a process whose start time is later than the
+                // mission launch is a recycled PID, not our agent, so the captain is treated as
+                // stale rather than left stuck in Working forever.
+                Mission? currentMission = null;
+                if (!String.IsNullOrEmpty(captain.CurrentMissionId))
                 {
-                    try
-                    {
-                        System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(captain.ProcessId.Value);
-                        processAlive = !process.HasExited;
-                    }
-                    catch (ArgumentException)
-                    {
-                        // Process no longer exists
-                    }
+                    currentMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
                 }
+
+                bool processAlive = captain.ProcessId.HasValue &&
+                    ProcessSupervisor.IsTrackedProcessAlive(captain.ProcessId.Value, currentMission?.StartedUtc);
 
                 if (processAlive) continue;
 

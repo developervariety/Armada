@@ -223,7 +223,7 @@ namespace Armada.Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("silent_running_process_refreshes_heartbeats", "Silent running process still refreshes captain and mission heartbeats", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("silent_process_refreshes_liveness_not_heartbeat", "Silent running process refreshes process-liveness but not the output heartbeat", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -259,12 +259,17 @@ namespace Armada.Test.Shared.Suites.Services
                             Mission? refreshedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                             Voyage? refreshedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
 
-                            return refreshedCaptain?.LastHeartbeatUtc.HasValue == true
-                                && refreshedMission != null
-                                && refreshedMission.LastUpdateUtc > beforeMission!.LastUpdateUtc
-                                && refreshedVoyage != null
-                                && refreshedVoyage.LastUpdateUtc > beforeVoyage!.LastUpdateUtc;
+                            // The liveness loop refreshes process-liveness for a merely-alive process.
+                            return refreshedCaptain?.LastProcessAliveUtc.HasValue == true;
                         }, TimeSpan.FromSeconds(8)).ConfigureAwait(false);
+
+                        // Invariant behind the stall-detection fix: a silent-but-alive process
+                        // refreshes process-liveness but must NOT advance the output heartbeat,
+                        // otherwise a stalled agent would be masked.
+                        Captain? afterCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        AssertNotNull(afterCaptain);
+                        AssertNotNull(afterCaptain!.LastProcessAliveUtc, "process-liveness refreshed for a silent process");
+                        AssertNull(afterCaptain.LastHeartbeatUtc, "output heartbeat NOT advanced by a silent process");
                     }
                     finally
                     {
@@ -563,6 +568,11 @@ namespace Armada.Test.Shared.Suites.Services
             public Task RecallAllAsync(CancellationToken token = default)
             {
                 throw new NotImplementedException();
+            }
+
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default)
+            {
+                return Task.CompletedTask;
             }
 
             public Task HealthCheckAsync(CancellationToken token = default)
