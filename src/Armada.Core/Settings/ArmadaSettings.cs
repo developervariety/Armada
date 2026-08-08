@@ -187,7 +187,22 @@ namespace Armada.Core.Settings
         public bool AutoMergePullRequests { get; set; } = false;
 
         /// <summary>
-        /// Maximum number of auto-recovery attempts for stalled captains. Must be >= 0.
+        /// Hard ceiling, in minutes, on how long a single mission may run before it is force-failed
+        /// as a runaway (a backstop independent of stall detection). 0 disables the cap. Must be >= 0.
+        /// </summary>
+        public int MaxMissionRuntimeMinutes
+        {
+            get => _MaxMissionRuntimeMinutes;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxMissionRuntimeMinutes), "Must be >= 0");
+                _MaxMissionRuntimeMinutes = value;
+            }
+        }
+
+        /// <summary>
+        /// Maximum number of automatic recovery attempts for a stalled captain before its mission
+        /// is failed.
         /// </summary>
         public int MaxRecoveryAttempts
         {
@@ -512,6 +527,7 @@ namespace Armada.Core.Settings
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
+        private int _MaxMissionRuntimeMinutes = Constants.DefaultMaxMissionRuntimeMinutes;
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;

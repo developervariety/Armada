@@ -405,6 +405,28 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task UpdateProcessAliveAsync(string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = @"UPDATE captains SET last_process_alive_utc = @last_process_alive_utc, last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    cmd.Parameters.AddWithValue("@last_process_alive_utc", now);
+                    cmd.Parameters.AddWithValue("@last_update_utc", now);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
         /// <summary>
         /// Check if a captain exists by identifier.
         /// </summary>

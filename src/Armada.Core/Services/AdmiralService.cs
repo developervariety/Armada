@@ -872,6 +872,45 @@ namespace Armada.Core.Services
                 // health check would mask stalled agents that are technically running but
                 // producing no output.
 
+                // Hard runaway backstop: force-fail a mission that has run past the configured
+                // max-runtime ceiling, independent of stall detection (a mission emitting steady
+                // output would never trip the stall path). 0 disables the cap.
+                if (_Settings.MaxMissionRuntimeMinutes > 0 &&
+                    mission != null &&
+                    mission.StartedUtc.HasValue &&
+                    (DateTime.UtcNow - mission.StartedUtc.Value).TotalMinutes > _Settings.MaxMissionRuntimeMinutes)
+                {
+                    _Logging.Warn(_Header + "captain " + captain.Id + " mission " + missionId +
+                        " exceeded max runtime of " + _Settings.MaxMissionRuntimeMinutes + " min - force-failing runaway");
+
+                    if (_Captains.OnStopAgent != null)
+                    {
+                        try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
+                        catch { }
+                    }
+
+                    if (mission.Status != MissionStatusEnum.Complete &&
+                        mission.Status != MissionStatusEnum.WorkProduced &&
+                        mission.Status != MissionStatusEnum.LandingFailed &&
+                        mission.Status != MissionStatusEnum.PullRequestOpen)
+                    {
+                        mission.Status = MissionStatusEnum.Failed;
+                        mission.FailureReason = "Mission exceeded max runtime of " + _Settings.MaxMissionRuntimeMinutes + " minutes";
+                        mission.ProcessId = null;
+                        mission.CompletedUtc = DateTime.UtcNow;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                        await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (exceeded max runtime)",
+                            entityType: "mission", entityId: mission.Id,
+                            captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
+                    }
+
+                    await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    return;
+                }
+
                 // Check for stall (no output for too long)
                 if (captain.LastHeartbeatUtc.HasValue)
                 {

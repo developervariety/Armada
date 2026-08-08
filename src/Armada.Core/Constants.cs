@@ -70,6 +70,12 @@ namespace Armada.Core
         public static readonly int DefaultMaxRecoveryAttempts = 3;
 
         /// <summary>
+        /// Default hard ceiling, in minutes, on how long a single mission may run before it is
+        /// force-failed as a runaway. A generous backstop; set to 0 to disable.
+        /// </summary>
+        public static readonly int DefaultMaxMissionRuntimeMinutes = 240;
+
+        /// <summary>
         /// Default maximum log file size in bytes (10 MB).
         /// </summary>
         public static readonly long DefaultMaxLogFileSizeBytes = 10 * 1024 * 1024;

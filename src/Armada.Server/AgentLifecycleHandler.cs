@@ -474,10 +474,12 @@ namespace Armada.Server
                             break;
                         }
 
-                        try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
-                        catch { }
-
-                        try { await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false); }
+                        // Refresh process-liveness telemetry ONLY. The output heartbeat
+                        // (LastHeartbeatUtc, advanced by HandleAgentHeartbeat on real agent output)
+                        // must NOT be touched here: stall detection measures time since last output,
+                        // so refreshing the heartbeat for a merely-alive process would mask a stalled
+                        // agent that is running but producing nothing.
+                        try { await _Database.Captains.UpdateProcessAliveAsync(captainId).ConfigureAwait(false); }
                         catch { }
                     }
                 }
