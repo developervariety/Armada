@@ -26,6 +26,7 @@ namespace Armada.Core.Services
         private const int EditableTextMaxBytes = 512 * 1024;
         private const int PreviewMaxBytes = 64 * 1024;
         private const int SearchFileMaxBytes = 256 * 1024;
+        private const int _GitCommandTimeoutSeconds = 30;
 
         #endregion
 
@@ -489,6 +490,40 @@ namespace Armada.Core.Services
             return result;
         }
 
+        /// <inheritdoc />
+        public async Task<WorkspaceDiffResult> GetDiffAsync(Vessel vessel, string? path = null, CancellationToken token = default)
+        {
+            string rootPath = GetWorkspaceRoot(vessel);
+            WorkspaceDiffResult result = new WorkspaceDiffResult
+            {
+                Path = String.IsNullOrWhiteSpace(path) ? null : path
+            };
+
+            try
+            {
+                string diff;
+                if (!String.IsNullOrWhiteSpace(path))
+                {
+                    string normalized = NormalizeRequestedPath(path);
+                    if (normalized.Length == 0 || normalized.StartsWith(".git", StringComparison.OrdinalIgnoreCase))
+                        throw new UnauthorizedAccessException("That path is not accessible.");
+                    diff = await RunGitCommandAsync(rootPath, token, "diff", "HEAD", "--", normalized).ConfigureAwait(false);
+                }
+                else
+                {
+                    diff = await RunGitCommandAsync(rootPath, token, "diff", "HEAD").ConfigureAwait(false);
+                }
+
+                result.Diff = diff ?? String.Empty;
+            }
+            catch (Exception ex)
+            {
+                result.Error = ex.Message;
+            }
+
+            return result;
+        }
+
         private static string GetWorkspaceRoot(Vessel vessel)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
@@ -773,17 +808,33 @@ namespace Armada.Core.Services
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            // Never prompt for credentials or invoke a pager -- either would hang the request.
+            psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+            psi.Environment["GIT_PAGER"] = "cat";
             foreach (string arg in args) psi.ArgumentList.Add(arg);
 
             using Process process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Unable to start git.");
-            string output = await process.StandardOutput.ReadToEndAsync(token).ConfigureAwait(false);
-            string error = await process.StandardError.ReadToEndAsync(token).ConfigureAwait(false);
-            await process.WaitForExitAsync(token).ConfigureAwait(false);
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException("git exited with code " + process.ExitCode + ": " + error.Trim());
 
-            return output;
+            // Bound every git invocation so a wedged git can never hang the workspace endpoints.
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(_GitCommandTimeoutSeconds));
+
+            try
+            {
+                string output = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false);
+                string error = await process.StandardError.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false);
+                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("git exited with code " + process.ExitCode + ": " + error.Trim());
+
+                return output;
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                throw new InvalidOperationException("git command timed out after " + _GitCommandTimeoutSeconds + " seconds.");
+            }
         }
 
         private static WorkspaceChangesResult ParseGitStatus(string output)

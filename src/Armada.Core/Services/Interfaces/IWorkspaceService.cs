@@ -60,5 +60,10 @@ namespace Armada.Core.Services.Interfaces
         /// bounded by a timeout that kills the process tree.
         /// </summary>
         Task<WorkspaceExecResult> ExecAsync(Vessel vessel, WorkspaceExecRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Get a unified git diff of the vessel working tree against HEAD, optionally scoped to one path.
+        /// </summary>
+        Task<WorkspaceDiffResult> GetDiffAsync(Vessel vessel, string? path = null, CancellationToken token = default);
     }
 }

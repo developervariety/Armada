@@ -861,6 +861,12 @@ export interface WorkspaceExecResult {
   durationMs: number;
 }
 
+export interface WorkspaceDiffResult {
+  path: string | null;
+  diff: string;
+  error: string | null;
+}
+
 export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
 
 export interface WorkflowProfileCommandPreview {

@@ -98,6 +98,7 @@ import type {
   WorkspaceSearchResult,
   WorkspaceStatusResult,
   WorkspaceExecResult,
+  WorkspaceDiffResult,
   WorkspaceTreeResult,
   RequestHistoryEntry,
   RequestHistoryQuery,
@@ -798,6 +799,10 @@ export const askArmada = (message: string) => post<AskResponse>('/api/v1/ask', {
 // Workspace terminal
 export const execWorkspaceCommand = (vesselId: string, command: string, timeoutSeconds?: number) =>
   post<WorkspaceExecResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/exec`, { command, timeoutSeconds });
+
+// Workspace diff (review)
+export const getWorkspaceDiff = (vesselId: string, path?: string) =>
+  get<WorkspaceDiffResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/diff${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
 
 // ==================== Environments ====================
 export const listEnvironments = (params?: DeploymentEnvironmentQuery) =>

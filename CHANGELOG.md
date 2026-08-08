@@ -36,6 +36,11 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - `WorkspaceService.ExecAsync` runs a shell command in a vessel's working tree (cross-platform: cmd.exe on Windows, /bin/sh elsewhere), bounded by a timeout that kills the whole process tree, with captured stdout/stderr and output caps
 - REST `POST /api/v1/workspace/vessels/{vesselId}/exec` (tenant administrators only); dashboard Terminal panel on the Workspace page with command history; one-click open into a vessel workspace via the existing picker
 
+### In-app review + diff
+- `WorkspaceService.GetDiffAsync` returns a unified git diff of the working tree against HEAD (optionally scoped to one path); REST `GET /api/v1/workspace/vessels/{vesselId}/diff`
+- Dashboard: a Review Diff panel on the Workspace page (line-colored unified diff) that, together with the existing file browser and changes list, completes in-app review
+- Hardening: every workspace git invocation is now bounded by a 30s timeout that kills the process tree, and disables the pager and credential prompts, so a wedged git can no longer hang the diff/changes/status endpoints
+
 ---
 
 ## v0.9.0
