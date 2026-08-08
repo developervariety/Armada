@@ -686,12 +686,7 @@ namespace Armada.Core.Services
 
             // If the mission is already in a terminal state, nothing to do — the health check
             // or another handler already processed this completion/failure.
-            if (mission.Status == MissionStatusEnum.Complete ||
-                mission.Status == MissionStatusEnum.Failed ||
-                mission.Status == MissionStatusEnum.Cancelled ||
-                mission.Status == MissionStatusEnum.WorkProduced ||
-                mission.Status == MissionStatusEnum.LandingFailed ||
-                mission.Status == MissionStatusEnum.PullRequestOpen)
+            if (MissionStateMachine.IsTerminalOrPostWork(mission.Status))
             {
                 _Logging.Debug(_Header + "mission " + missionId + " already in terminal/post-work state " + mission.Status + " — skipping process exit handling");
                 return;
@@ -810,12 +805,7 @@ namespace Armada.Core.Services
 
             // Check for terminal mission state (e.g. server restart between completion and release)
             if (mission != null &&
-                (mission.Status == MissionStatusEnum.Complete ||
-                 mission.Status == MissionStatusEnum.Failed ||
-                 mission.Status == MissionStatusEnum.Cancelled ||
-                 mission.Status == MissionStatusEnum.WorkProduced ||
-                 mission.Status == MissionStatusEnum.LandingFailed ||
-                 mission.Status == MissionStatusEnum.PullRequestOpen))
+                MissionStateMachine.IsTerminalOrPostWork(mission.Status))
             {
                 _Logging.Warn(_Header + "captain " + captain.Id + " has terminal/post-work mission " + captain.CurrentMissionId + " (status: " + mission.Status + ") - releasing to Idle");
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
@@ -928,10 +918,7 @@ namespace Armada.Core.Services
                         catch { }
                     }
 
-                    if (mission.Status != MissionStatusEnum.Complete &&
-                        mission.Status != MissionStatusEnum.WorkProduced &&
-                        mission.Status != MissionStatusEnum.LandingFailed &&
-                        mission.Status != MissionStatusEnum.PullRequestOpen)
+                    if (!MissionStateMachine.IsTerminalOrPostWork(mission.Status))
                     {
                         mission.Status = MissionStatusEnum.Failed;
                         mission.FailureReason = "Mission exceeded max runtime of " + _Settings.MaxMissionRuntimeMinutes + " minutes";
@@ -978,10 +965,7 @@ namespace Armada.Core.Services
                         {
                             // Mark the active mission as Failed
                             if (mission != null &&
-                                mission.Status != MissionStatusEnum.Complete &&
-                                mission.Status != MissionStatusEnum.WorkProduced &&
-                                mission.Status != MissionStatusEnum.LandingFailed &&
-                                mission.Status != MissionStatusEnum.PullRequestOpen)
+                                !MissionStateMachine.IsTerminalOrPostWork(mission.Status))
                             {
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.FailureReason = "Captain stalled, recovery exhausted";

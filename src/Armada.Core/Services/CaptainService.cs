@@ -316,11 +316,7 @@ namespace Armada.Core.Services
         private async Task FinalizeRecoveryFailureAsync(Captain captain, Mission? mission, string reason, CancellationToken token)
         {
             if (mission != null &&
-                mission.Status != MissionStatusEnum.Complete &&
-                mission.Status != MissionStatusEnum.Failed &&
-                mission.Status != MissionStatusEnum.Cancelled &&
-                mission.Status != MissionStatusEnum.LandingFailed &&
-                mission.Status != MissionStatusEnum.PullRequestOpen)
+                !MissionStateMachine.IsTerminalOrPostWork(mission.Status))
             {
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = reason;
