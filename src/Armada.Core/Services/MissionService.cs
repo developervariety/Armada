@@ -798,6 +798,9 @@ namespace Armada.Core.Services
                 mission.Status = MissionStatusEnum.Review;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.ReviewRequestedUtc = DateTime.UtcNow;
+                mission.ReviewDeadlineUtc = _Settings.ReviewTimeoutMinutes > 0
+                    ? DateTime.UtcNow.AddMinutes(_Settings.ReviewTimeoutMinutes)
+                    : (DateTime?)null;
                 mission.ReviewComment = null;
                 mission.ReviewedByUserId = null;
                 mission.ReviewedUtc = null;

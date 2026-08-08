@@ -187,6 +187,20 @@ namespace Armada.Core.Settings
         public bool AutoMergePullRequests { get; set; } = false;
 
         /// <summary>
+        /// Minutes a mission may await human review before the watchdog escalates and releases the
+        /// held captain (mission and dock are preserved for the reviewer). 0 disables. Must be >= 0.
+        /// </summary>
+        public int ReviewTimeoutMinutes
+        {
+            get => _ReviewTimeoutMinutes;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(ReviewTimeoutMinutes), "Must be >= 0");
+                _ReviewTimeoutMinutes = value;
+            }
+        }
+
+        /// <summary>
         /// Hard ceiling, in minutes, on how long a single mission may run before it is force-failed
         /// as a runaway (a backstop independent of stall detection). 0 disables the cap. Must be >= 0.
         /// </summary>
@@ -375,6 +389,20 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Global ceiling on missions (working captains) that may run simultaneously, enforced at
+        /// dispatch admission as backpressure against unbounded concurrency. 0 = unlimited. Must be >= 0.
+        /// </summary>
+        public int MaxConcurrentMissions
+        {
+            get => _MaxConcurrentMissions;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxConcurrentMissions), "Must be >= 0");
+                _MaxConcurrentMissions = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum total captains allowed. Set to 0 for unlimited. Must be >= 0.
         /// </summary>
         public int MaxCaptains
@@ -528,6 +556,7 @@ namespace Armada.Core.Settings
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
         private int _MaxMissionRuntimeMinutes = Constants.DefaultMaxMissionRuntimeMinutes;
+        private int _ReviewTimeoutMinutes = Constants.DefaultReviewTimeoutMinutes;
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
@@ -539,6 +568,7 @@ namespace Armada.Core.Settings
         private int _MaxLandingRetries = 3;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
+        private int _MaxConcurrentMissions = Constants.DefaultMaxConcurrentMissions;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();

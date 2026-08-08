@@ -533,6 +533,9 @@ namespace Armada.Core.Services
             // Reconcile PullRequestOpen missions — check if their PRs have been merged
             await ReconcilePullRequestMissionsAsync(token).ConfigureAwait(false);
 
+            // Release captains held by missions whose review has gone overdue (dock preserved).
+            await RecoverOverdueReviewsAsync(token).ConfigureAwait(false);
+
             // Reclaim docks stuck in Provisioned state with no active captain
             await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false);
 
@@ -1043,12 +1046,16 @@ namespace Armada.Core.Services
 
                     if (!inUse)
                     {
-                        // Check if a Pending mission is preserving this dock for re-dispatch
+                        // Preserve the dock if a Pending mission is holding it for re-dispatch, or an
+                        // in-review mission is retaining its worktree for the reviewer (the held
+                        // captain may have been released by the review-timeout watchdog).
                         List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                        bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id);
+                        List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                        bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id) ||
+                                                   reviewMissions.Any(m => m.DockId == dock.Id);
                         if (preservedForMission)
                         {
-                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending mission re-dispatch");
+                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending re-dispatch or an in-review mission");
                             continue;
                         }
 
@@ -1067,6 +1074,55 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error in orphaned dock reclamation: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Release the captain held by a mission whose review has awaited action past the configured
+        /// timeout. The mission stays in Review and its dock is preserved for the reviewer; only the
+        /// scarce captain is freed so a forgotten review cannot pin capacity forever. Fires once per
+        /// overdue mission (the deadline is cleared after handling).
+        /// </summary>
+        private async Task RecoverOverdueReviewsAsync(CancellationToken token)
+        {
+            if (_Settings.ReviewTimeoutMinutes <= 0) return;
+
+            try
+            {
+                List<Mission> reviews = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                DateTime now = DateTime.UtcNow;
+
+                foreach (Mission mission in reviews)
+                {
+                    if (!mission.ReviewDeadlineUtc.HasValue || mission.ReviewDeadlineUtc.Value > now) continue;
+
+                    _Logging.Warn(_Header + "review overdue for mission " + mission.Id +
+                        " -- releasing held captain (mission and dock preserved for the reviewer)");
+
+                    if (!String.IsNullOrEmpty(mission.CaptainId))
+                    {
+                        Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
+                        if (captain != null && captain.State == CaptainStateEnum.Working && captain.CurrentMissionId == mission.Id)
+                        {
+                            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                        }
+                    }
+
+                    // Clear the deadline so the watchdog fires once; the mission remains in Review.
+                    mission.ReviewDeadlineUtc = null;
+                    mission.LastUpdateUtc = now;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                    await EmitEventAsync("mission.review_overdue",
+                        "Review overdue: " + mission.Title + " -- held captain released, awaiting reviewer",
+                        entityType: "mission", entityId: mission.Id,
+                        captainId: mission.CaptainId, missionId: mission.Id,
+                        vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error recovering overdue reviews: " + ex.Message);
             }
         }
 
@@ -1260,6 +1316,14 @@ namespace Armada.Core.Services
 
         private async Task<bool> HasAvailableCapacityAsync(CancellationToken token)
         {
+            // Global concurrency ceiling: refuse new work once the configured number of missions
+            // is already running, as backpressure against unbounded captain execution.
+            if (_Settings.MaxConcurrentMissions > 0)
+            {
+                List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+                if (workingCaptains.Count >= _Settings.MaxConcurrentMissions) return false;
+            }
+
             // Only idle captains have capacity for new assignments
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             return idleCaptains.Count > 0;

@@ -76,6 +76,19 @@ namespace Armada.Core
         public static readonly int DefaultMaxMissionRuntimeMinutes = 240;
 
         /// <summary>
+        /// Default minutes a mission may sit awaiting human review before the review watchdog
+        /// escalates and releases the held captain (the mission and its dock are preserved for the
+        /// reviewer). 0 disables the timeout.
+        /// </summary>
+        public static readonly int DefaultReviewTimeoutMinutes = 1440;
+
+        /// <summary>
+        /// Default global ceiling on the number of missions (working captains) that may run
+        /// simultaneously. 0 means unlimited.
+        /// </summary>
+        public static readonly int DefaultMaxConcurrentMissions = 0;
+
+        /// <summary>
         /// Default maximum log file size in bytes (10 MB).
         /// </summary>
         public static readonly long DefaultMaxLogFileSizeBytes = 10 * 1024 * 1024;
