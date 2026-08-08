@@ -205,6 +205,66 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/docks/{id}/repair", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                string id = req.Parameters["id"];
+                Dock? dock = ctx.IsAdmin
+                    ? await _database.Docks.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (dock == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Dock not found" }; }
+
+                await _dockService.RepairAsync(id).ConfigureAwait(false);
+                await _emitEvent("dock.repaired", "Dock " + id + " worktree repaired",
+                    "dock", id, null, null, null, null).ConfigureAwait(false);
+                return (object)new { Status = "repaired", DockId = id };
+            },
+            api => api
+                .WithTag("Docks")
+                .WithSummary("Repair a dock worktree")
+                .WithDescription("Runs git worktree repair on the dock's worktree to fix a corrupted or relocated registration. Non-destructive: no work is removed.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Dock ID (dck_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<object>("Repaired dock"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/docks/{id}/unstick", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                string id = req.Parameters["id"];
+                Dock? dock = ctx.IsAdmin
+                    ? await _database.Docks.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (dock == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Dock not found" }; }
+
+                await _dockService.UnstickAsync(id).ConfigureAwait(false);
+                await _emitEvent("dock.unstuck", "Dock " + id + " unstuck (held captain released, worktree reclaimed)",
+                    "dock", id, null, null, null, null).ConfigureAwait(false);
+                return (object)new { Status = "unstuck", DockId = id };
+            },
+            api => api
+                .WithTag("Docks")
+                .WithSummary("Unstick a wedged dock")
+                .WithDescription("Releases any captain still holding the dock back to Idle and reclaims its worktree so it stops pinning capacity. Committed branch history is preserved.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Dock ID (dck_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<object>("Unstuck dock"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Post<DeleteMultipleRequest>("/api/v1/docks/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
