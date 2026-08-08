@@ -955,6 +955,178 @@ namespace Armada.Core.Client
 
         #endregion
 
+        #region Public-Methods-ProjectProfiles
+
+        /// <summary>
+        /// List project profiles.
+        /// </summary>
+        public async Task<EnumerationResult<ProjectProfile>?> ListProjectProfilesAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<ProjectProfile>>("/api/v1/project-profiles", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate project profiles with paging and filtering.
+        /// </summary>
+        public async Task<EnumerationResult<ProjectProfile>?> EnumerateProjectProfilesAsync(ProjectProfileQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<ProjectProfile>, ProjectProfileQuery>("/api/v1/project-profiles/enumerate", query ?? new ProjectProfileQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a project profile by ID.
+        /// </summary>
+        public async Task<ProjectProfile?> GetProjectProfileAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<ProjectProfile>("/api/v1/project-profiles/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Validate a project profile definition.
+        /// </summary>
+        public async Task<ProjectProfileValidationResult?> ValidateProjectProfileAsync(ProjectProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<ProjectProfileValidationResult, ProjectProfile>("/api/v1/project-profiles/validate", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the active project profile for a vessel.
+        /// </summary>
+        public async Task<ProjectProfileResolutionResult?> ResolveProjectProfileAsync(string vesselId, string? projectProfileId = null, CancellationToken token = default)
+        {
+            string path = "/api/v1/project-profiles/resolve/vessels/" + vesselId;
+            if (!String.IsNullOrWhiteSpace(projectProfileId))
+                path += "?projectProfileId=" + Uri.EscapeDataString(projectProfileId);
+            return await GetAsync<ProjectProfileResolutionResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Preview the base and effective persona prompt for a project profile.
+        /// </summary>
+        public async Task<PersonaPromptPreview?> PreviewPersonaPromptAsync(string projectProfileId, string persona, CancellationToken token = default)
+        {
+            string path = "/api/v1/project-profiles/" + projectProfileId + "/persona-preview/" + Uri.EscapeDataString(persona);
+            return await GetAsync<PersonaPromptPreview>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a project profile.
+        /// </summary>
+        public async Task<ProjectProfile?> CreateProjectProfileAsync(ProjectProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<ProjectProfile, ProjectProfile>("/api/v1/project-profiles", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update a project profile.
+        /// </summary>
+        public async Task<ProjectProfile?> UpdateProjectProfileAsync(string id, ProjectProfile profile, CancellationToken token = default)
+        {
+            return await PutAsync<ProjectProfile, ProjectProfile>("/api/v1/project-profiles/" + id, profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete a project profile.
+        /// </summary>
+        public async Task DeleteProjectProfileAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/project-profiles/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Skills
+
+        /// <summary>
+        /// List skills.
+        /// </summary>
+        public async Task<EnumerationResult<Skill>?> ListSkillsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Skill>>("/api/v1/skills", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate skills with paging and filtering.
+        /// </summary>
+        public async Task<EnumerationResult<Skill>?> EnumerateSkillsAsync(SkillQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<Skill>, SkillQuery>("/api/v1/skills/enumerate", query ?? new SkillQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a skill by ID.
+        /// </summary>
+        public async Task<Skill?> GetSkillAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Skill>("/api/v1/skills/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a skill.
+        /// </summary>
+        public async Task<Skill?> CreateSkillAsync(Skill skill, CancellationToken token = default)
+        {
+            return await PostAsync<Skill, Skill>("/api/v1/skills", skill, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update a skill.
+        /// </summary>
+        public async Task<Skill?> UpdateSkillAsync(string id, Skill skill, CancellationToken token = default)
+        {
+            return await PutAsync<Skill, Skill>("/api/v1/skills/" + id, skill, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete a skill.
+        /// </summary>
+        public async Task DeleteSkillAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/skills/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Assistant
+
+        /// <summary>
+        /// Ask the Armada assistant a read-only question about fleet state.
+        /// </summary>
+        public async Task<AskResponse?> AskAsync(string message, CancellationToken token = default)
+        {
+            return await PostAsync<AskResponse, AskRequest>("/api/v1/ask", new AskRequest { Message = message }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get the operator "needs you" inbox (most-urgent-first actionable items).
+        /// </summary>
+        public async Task<List<InboxItem>?> GetInboxAsync(CancellationToken token = default)
+        {
+            return await GetAsync<List<InboxItem>>("/api/v1/inbox", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Run a command in a vessel's workspace (the in-browser dock terminal; tenant admins only).
+        /// </summary>
+        public async Task<WorkspaceExecResult?> ExecWorkspaceCommandAsync(string vesselId, string command, int timeoutSeconds = 60, CancellationToken token = default)
+        {
+            WorkspaceExecRequest request = new WorkspaceExecRequest { Command = command, TimeoutSeconds = timeoutSeconds };
+            return await PostAsync<WorkspaceExecResult, WorkspaceExecRequest>("/api/v1/workspace/vessels/" + vesselId + "/exec", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a unified working-tree diff for a vessel, optionally scoped to one path.
+        /// </summary>
+        public async Task<WorkspaceDiffResult?> GetWorkspaceDiffAsync(string vesselId, string? path = null, CancellationToken token = default)
+        {
+            string url = "/api/v1/workspace/vessels/" + vesselId + "/diff";
+            if (!String.IsNullOrWhiteSpace(path))
+                url += "?path=" + Uri.EscapeDataString(path);
+            return await GetAsync<WorkspaceDiffResult>(url, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
         #region Public-Methods-Releases
 
         /// <summary>

@@ -98,6 +98,16 @@ namespace Armada.Helm
                 config.AddCommand<DoctorCommand>("doctor")
                     .WithDescription("Check system health and report issues");
 
+                config.AddCommand<InboxCommand>("inbox")
+                    .WithDescription("Show items awaiting your attention")
+                    .WithExample("inbox")
+                    .WithExample("inbox", "--critical");
+
+                config.AddCommand<AskCommand>("ask")
+                    .WithDescription("Ask Armada about fleet state in plain language")
+                    .WithExample("ask", "\"any failures?\"")
+                    .WithExample("ask", "\"how many captains?\"");
+
                 config.AddCommand<ResetCommand>("reset")
                     .WithDescription("Destructively reset all Armada data back to zero");
 

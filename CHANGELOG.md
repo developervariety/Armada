@@ -46,6 +46,10 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - REST `GET /api/v1/inbox`; dashboard "Needs You" page under Operations with severity counts and one-click navigation
 - Monitoring and the flight recorder are served by the existing mission-history chart and event feed plus the Prometheus/Grafana telemetry stack added earlier in this release
 
+### SDK and CLI propagation
+- `ArmadaApiClient` (C# SDK) gained typed methods for project profiles, skills, the Ask assistant, the needs-you inbox, and the workspace terminal/diff endpoints
+- Helm CLI gained `armada inbox` (with `--critical`) and `armada ask "<question>"` commands
+
 ---
 
 ## v0.9.0
