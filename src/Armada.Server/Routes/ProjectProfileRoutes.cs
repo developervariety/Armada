@@ -22,6 +22,7 @@ namespace Armada.Server.Routes
     {
         private readonly DatabaseDriver _database;
         private readonly ProjectProfileService _projectProfiles;
+        private readonly IPromptTemplateService _promptTemplates;
         private readonly JsonSerializerOptions _jsonOptions;
         private static readonly JsonSerializerOptions _bodyJsonOptions = new JsonSerializerOptions
         {
@@ -36,10 +37,12 @@ namespace Armada.Server.Routes
         public ProjectProfileRoutes(
             DatabaseDriver database,
             ProjectProfileService projectProfiles,
+            IPromptTemplateService promptTemplates,
             JsonSerializerOptions jsonOptions)
         {
             _database = database ?? throw new ArgumentNullException(nameof(database));
             _projectProfiles = projectProfiles ?? throw new ArgumentNullException(nameof(projectProfiles));
+            _promptTemplates = promptTemplates ?? throw new ArgumentNullException(nameof(promptTemplates));
             _jsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
         }
 
@@ -153,6 +156,34 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID"))
                 .WithParameter(OpenApiParameterMetadata.Query("projectProfileId", "Optional explicit project-profile override", false))
                 .WithResponse(200, OpenApiJson.For<ProjectProfileResolutionResult>("Resolved project profile"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/project-profiles/{id}/persona-preview/{persona}", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                ProjectProfile? profile = await _database.ProjectProfiles.ReadAsync(
+                    req.Parameters["id"],
+                    BuildScopedReadQuery(ctx)).ConfigureAwait(false);
+                if (profile == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Project profile not found" };
+                }
+
+                string persona = req.Parameters["persona"];
+                PersonaPromptPreview preview = await ProjectProfileService.BuildPersonaPreviewAsync(profile, persona, _promptTemplates).ConfigureAwait(false);
+                return preview;
+            },
+            api => api
+                .WithTag("ProjectProfiles")
+                .WithSummary("Preview a persona prompt for a project profile")
+                .WithDescription("Returns the base and effective (override-applied) persona prompt so the dashboard can render a live diff.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Project profile ID (ppf_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Path("persona", "Persona name (e.g. Architect, Worker, Test Engineer)"))
+                .WithResponse(200, OpenApiJson.For<PersonaPromptPreview>("Persona prompt preview"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

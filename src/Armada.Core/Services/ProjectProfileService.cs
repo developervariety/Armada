@@ -8,6 +8,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
     using SyslogLogging;
 
     /// <summary>
@@ -206,6 +207,98 @@ namespace Armada.Core.Services
             {
                 Profile = match,
                 Mode = match != null ? ProjectProfileResolutionModeEnum.Global : ProjectProfileResolutionModeEnum.None
+            };
+        }
+
+        /// <summary>
+        /// Select the best matching project profile for a vessel from a pre-fetched candidate list,
+        /// applying vessel -> fleet -> global precedence. Returns null when nothing matches. This is the
+        /// auth-free variant used by the dispatch path, which already holds the vessel and an active
+        /// candidate set.
+        /// </summary>
+        /// <param name="activeCandidates">Active project profiles to select from.</param>
+        /// <param name="vessel">The target vessel.</param>
+        /// <returns>The best matching profile, or null.</returns>
+        public static ProjectProfile? SelectForVessel(List<ProjectProfile> activeCandidates, Vessel vessel)
+        {
+            if (activeCandidates == null || activeCandidates.Count == 0) return null;
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+
+            ProjectProfile? match = ChooseBestMatch(
+                activeCandidates.Where(profile => profile.Scope == ProjectProfileScopeEnum.Vessel
+                    && String.Equals(profile.VesselId, vessel.Id, StringComparison.Ordinal)).ToList());
+            if (match != null) return match;
+
+            if (!String.IsNullOrWhiteSpace(vessel.FleetId))
+            {
+                match = ChooseBestMatch(
+                    activeCandidates.Where(profile => profile.Scope == ProjectProfileScopeEnum.Fleet
+                        && String.Equals(profile.FleetId, vessel.FleetId, StringComparison.Ordinal)).ToList());
+                if (match != null) return match;
+            }
+
+            return ChooseBestMatch(activeCandidates.Where(profile => profile.Scope == ProjectProfileScopeEnum.Global).ToList());
+        }
+
+        /// <summary>
+        /// Resolve the enabled persona override for a persona name within a profile, or null when the
+        /// profile is null or has no enabled override for that persona.
+        /// </summary>
+        /// <param name="profile">The resolved project profile, or null.</param>
+        /// <param name="personaName">The persona name to look up.</param>
+        /// <returns>The matching enabled override, or null.</returns>
+        public static PersonaOverride? ResolvePersonaOverride(ProjectProfile? profile, string? personaName)
+        {
+            if (profile == null || String.IsNullOrWhiteSpace(personaName)) return null;
+            if (profile.PersonaOverrides == null) return null;
+
+            return profile.PersonaOverrides.FirstOrDefault(item =>
+                item != null
+                && item.Enabled
+                && !String.IsNullOrWhiteSpace(item.PersonaName)
+                && String.Equals(item.PersonaName.Trim(), personaName.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Build a before/after preview of a persona's prompt for a project profile: the base built-in
+        /// prompt and the effective prompt after the profile's override is applied.
+        /// </summary>
+        /// <param name="profile">The resolved project profile, or null for a base-only preview.</param>
+        /// <param name="personaName">The persona name to preview.</param>
+        /// <param name="promptTemplates">Prompt-template service for rendering. Required.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The persona prompt preview.</returns>
+        public static async Task<PersonaPromptPreview> BuildPersonaPreviewAsync(
+            ProjectProfile? profile,
+            string personaName,
+            IPromptTemplateService promptTemplates,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(personaName)) throw new ArgumentNullException(nameof(personaName));
+            if (promptTemplates == null) throw new ArgumentNullException(nameof(promptTemplates));
+
+            Dictionary<string, string> emptyParams = new Dictionary<string, string>();
+            PersonaOverride? personaOverride = ResolvePersonaOverride(profile, personaName);
+
+            string baseTemplateName = MissionPromptBuilder.GetPersonaTemplateName(personaName);
+            string basePrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
+                personaName, emptyParams, promptTemplates, null, token).ConfigureAwait(false);
+            string effectivePrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
+                personaName, new Dictionary<string, string>(), promptTemplates, personaOverride, token).ConfigureAwait(false);
+
+            string effectiveTemplateName = baseTemplateName;
+            if (personaOverride != null && !String.IsNullOrWhiteSpace(personaOverride.PromptTemplateName))
+                effectiveTemplateName = personaOverride.PromptTemplateName!.Trim();
+
+            return new PersonaPromptPreview
+            {
+                PersonaName = personaName,
+                BaseTemplateName = baseTemplateName,
+                EffectiveTemplateName = effectiveTemplateName,
+                BasePrompt = basePrompt,
+                EffectivePrompt = effectivePrompt,
+                AdditionalInstructions = personaOverride?.AdditionalInstructions,
+                IsOverridden = personaOverride != null
             };
         }
 

@@ -85,26 +85,37 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Resolve the persona prompt for the mission.
+        /// Resolve the persona prompt for the mission. When a <paramref name="personaOverride"/> from a
+        /// project profile is supplied and enabled, it swaps the persona's prompt template and/or appends
+        /// per-project additional instructions to the rendered prompt.
         /// </summary>
         public static async Task<string> ResolvePersonaPromptAsync(
             string? persona,
             Dictionary<string, string> templateParams,
             IPromptTemplateService? promptTemplates,
+            PersonaOverride? personaOverride = null,
             CancellationToken token = default)
         {
             if (templateParams == null) throw new ArgumentNullException(nameof(templateParams));
 
-            string templateName = GetPersonaTemplateName(persona);
+            bool overrideActive = personaOverride != null && personaOverride.Enabled;
 
+            string templateName = GetPersonaTemplateName(persona);
+            if (overrideActive && !String.IsNullOrWhiteSpace(personaOverride!.PromptTemplateName))
+                templateName = personaOverride.PromptTemplateName!.Trim();
+
+            string result = GetPersonaPromptFallback(persona);
             if (promptTemplates != null)
             {
                 string rendered = await promptTemplates.RenderAsync(templateName, templateParams, token).ConfigureAwait(false);
                 if (!String.IsNullOrEmpty(rendered))
-                    return rendered;
+                    result = rendered;
             }
 
-            return GetPersonaPromptFallback(persona);
+            if (overrideActive && !String.IsNullOrWhiteSpace(personaOverride!.AdditionalInstructions))
+                result = result + "\n\n" + personaOverride.AdditionalInstructions!.Trim();
+
+            return result;
         }
 
         /// <summary>

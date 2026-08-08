@@ -994,8 +994,10 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
-            // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
-            string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
+            // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template.
+            // Apply the vessel's project-profile persona override (if any) so per-project customization takes effect.
+            PersonaOverride? personaOverride = await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
+            string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
             content += await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false);
             content += "\n";
@@ -1245,9 +1247,42 @@ namespace Armada.Core.Services
         /// <summary>
         /// Resolve a persona prompt template by persona name. Falls back to default worker preamble.
         /// </summary>
-        private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, CancellationToken token)
+        private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, PersonaOverride? personaOverride, CancellationToken token)
         {
-            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, token).ConfigureAwait(false);
+            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the effective per-project persona override for a mission's persona by selecting the
+        /// vessel's project profile (vessel -> fleet -> global). Best-effort: returns null on any error so
+        /// a profile lookup never blocks dispatch.
+        /// </summary>
+        private async Task<PersonaOverride?> ResolvePersonaOverrideAsync(Vessel vessel, string? persona, CancellationToken token)
+        {
+            if (vessel == null || String.IsNullOrWhiteSpace(persona)) return null;
+
+            try
+            {
+                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
+                    new ProjectProfileQuery
+                    {
+                        TenantId = vessel.TenantId,
+                        Active = true,
+                        PageNumber = 1,
+                        PageSize = 1000
+                    },
+                    token).ConfigureAwait(false);
+
+                if (profiles.Count == 0) return null;
+
+                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                return ProjectProfileService.ResolvePersonaOverride(profile, persona);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error resolving persona override for vessel " + vessel.Id + ": " + ex.Message);
+                return null;
+            }
         }
 
         /// <summary>

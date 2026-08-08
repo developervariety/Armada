@@ -531,7 +531,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Project profiles
-            new ProjectProfileRoutes(_Database, _ProjectProfileService, _JsonOptions)
+            new ProjectProfileRoutes(_Database, _ProjectProfileService, _PromptTemplateService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Objectives

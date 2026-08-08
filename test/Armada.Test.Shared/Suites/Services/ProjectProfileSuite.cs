@@ -279,6 +279,75 @@ namespace Armada.Test.Shared.Suites.Services
                 }
             }));
 
+            // --- Persona override resolution (#22) ---
+
+            cases.Add(Case("resolve_persona_override_matches_case_insensitive", "ResolvePersonaOverride MatchesCaseInsensitive", TestTags.Positive, () =>
+            {
+                ProjectProfile profile = new ProjectProfile { Name = "P" };
+                profile.PersonaOverrides.Add(new PersonaOverride { PersonaName = "Architect", PromptTemplateName = "persona.architect.custom" });
+                PersonaOverride? ovr = ProjectProfileService.ResolvePersonaOverride(profile, "architect");
+                AssertNotNull(ovr);
+                AssertEqual("persona.architect.custom", ovr!.PromptTemplateName);
+            }));
+
+            cases.Add(Case("resolve_persona_override_skips_disabled", "ResolvePersonaOverride SkipsDisabled", TestTags.Negative, () =>
+            {
+                ProjectProfile profile = new ProjectProfile { Name = "P" };
+                profile.PersonaOverrides.Add(new PersonaOverride { PersonaName = "Worker", Enabled = false });
+                AssertNull(ProjectProfileService.ResolvePersonaOverride(profile, "Worker"));
+            }));
+
+            cases.Add(Case("resolve_persona_override_null_profile", "ResolvePersonaOverride NullProfile ReturnsNull", TestTags.Negative, () =>
+            {
+                AssertNull(ProjectProfileService.ResolvePersonaOverride(null, "Worker"));
+            }));
+
+            cases.Add(CaseAsync("persona_prompt_appends_additional_instructions", "ResolvePersonaPrompt AppendsAdditionalInstructions", TestTags.Positive, async () =>
+            {
+                PersonaOverride ovr = new PersonaOverride { PersonaName = "Worker", AdditionalInstructions = "Always write ADRs." };
+                string prompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
+                    "Worker", new Dictionary<string, string>(), null, ovr, CancellationToken.None);
+                AssertContains("Always write ADRs.", prompt);
+            }));
+
+            cases.Add(CaseAsync("persona_prompt_disabled_override_not_applied", "ResolvePersonaPrompt DisabledOverride NotApplied", TestTags.Negative, async () =>
+            {
+                PersonaOverride ovr = new PersonaOverride { PersonaName = "Worker", AdditionalInstructions = "SHOULD NOT APPEAR", Enabled = false };
+                string prompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
+                    "Worker", new Dictionary<string, string>(), null, ovr, CancellationToken.None);
+                AssertFalse(prompt.Contains("SHOULD NOT APPEAR"), "Disabled override must not be applied");
+            }));
+
+            cases.Add(CaseAsync("persona_preview_reflects_template_override", "BuildPersonaPreview ReflectsTemplateOverride", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, CreateLogging());
+
+                    ProjectProfile profile = new ProjectProfile { Name = "Override Worker with Architect template" };
+                    profile.PersonaOverrides.Add(new PersonaOverride { PersonaName = "Worker", PromptTemplateName = "persona.architect" });
+
+                    PersonaPromptPreview preview = await ProjectProfileService.BuildPersonaPreviewAsync(profile, "Worker", templates);
+                    AssertTrue(preview.IsOverridden, "Preview should be marked overridden");
+                    AssertEqual("persona.worker", preview.BaseTemplateName);
+                    AssertEqual("persona.architect", preview.EffectiveTemplateName);
+                    AssertNotEqual(preview.BasePrompt, preview.EffectivePrompt, "Base and effective prompts should differ");
+                }
+            }));
+
+            cases.Add(CaseAsync("persona_preview_no_override_base_equals_effective", "BuildPersonaPreview NoOverride BaseEqualsEffective", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, CreateLogging());
+                    ProjectProfile profile = new ProjectProfile { Name = "No overrides" };
+
+                    PersonaPromptPreview preview = await ProjectProfileService.BuildPersonaPreviewAsync(profile, "Worker", templates);
+                    AssertFalse(preview.IsOverridden, "No override should mean not overridden");
+                    AssertEqual(preview.BasePrompt, preview.EffectivePrompt, "Without an override base and effective should match");
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Project Profile",

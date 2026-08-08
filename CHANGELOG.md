@@ -13,6 +13,10 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - `ProjectProfileService` validation and layered resolution; full REST CRUD under `/api/v1/project-profiles` (plus `/enumerate`, `/validate`, `/resolve/vessels/{vesselId}`) and MCP `enumerate` support for `project_profiles`
 - Persisted across SQLite, PostgreSQL, MySQL, and SQL Server (schema migration 45)
 
+### Layered persona resolution + diff preview
+- Per-project persona overrides now take effect at dispatch: `MissionService` resolves the vessel's project profile and applies the matching `PersonaOverride` (swap the persona's prompt template and/or append per-project instructions) when building mission instructions -- best-effort, so a profile lookup never blocks dispatch
+- Added `GET /api/v1/project-profiles/{id}/persona-preview/{persona}` returning the base and effective (override-applied) persona prompt, so the dashboard can render a live before/after diff (`PersonaPromptPreview`)
+
 ---
 
 ## v0.9.0
