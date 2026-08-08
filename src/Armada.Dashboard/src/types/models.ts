@@ -867,6 +867,18 @@ export interface WorkspaceDiffResult {
   error: string | null;
 }
 
+export type InboxSeverity = 'Info' | 'Warning' | 'Critical';
+
+export interface InboxItem {
+  kind: string;
+  severity: InboxSeverity;
+  title: string;
+  detail: string;
+  entityType: string | null;
+  entityId: string | null;
+  href: string;
+}
+
 export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
 
 export interface WorkflowProfileCommandPreview {

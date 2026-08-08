@@ -67,6 +67,7 @@ import type {
   PersonaPromptPreview,
   Skill,
   AskResponse,
+  InboxItem,
   CheckRun,
   CheckRunImportRequest,
   CheckRunRequest,
@@ -795,6 +796,9 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 
 // Ask Armada
 export const askArmada = (message: string) => post<AskResponse>('/api/v1/ask', { message });
+
+// Needs-you inbox
+export const getInbox = () => get<InboxItem[]>('/api/v1/inbox');
 
 // Workspace terminal
 export const execWorkspaceCommand = (vesselId: string, command: string, timeoutSeconds?: number) =>

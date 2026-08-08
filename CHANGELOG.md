@@ -41,6 +41,11 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - Dashboard: a Review Diff panel on the Workspace page (line-colored unified diff) that, together with the existing file browser and changes list, completes in-app review
 - Hardening: every workspace git invocation is now bounded by a 30s timeout that kills the process tree, and disables the pager and credential prompts, so a wedged git can no longer hang the diff/changes/status endpoints
 
+### Needs-you inbox
+- Added `InboxService`, a consolidated "needs you" inbox aggregating everything awaiting a human decision -- missions in review (overdue ones flagged critical), failed landings, failed missions, and stalled captains -- ordered most-urgent first with deep links
+- REST `GET /api/v1/inbox`; dashboard "Needs You" page under Operations with severity counts and one-click navigation
+- Monitoring and the flight recorder are served by the existing mission-history chart and event feed plus the Prometheus/Grafana telemetry stack added earlier in this release
+
 ---
 
 ## v0.9.0

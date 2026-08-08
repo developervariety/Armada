@@ -542,6 +542,10 @@ namespace Armada.Server
             new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Needs-you inbox
+            new InboxRoutes(new InboxService(_Database, _Logging), _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Objectives
             new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService)
                 .Register(_App, authenticate, _AuthorizationService);
