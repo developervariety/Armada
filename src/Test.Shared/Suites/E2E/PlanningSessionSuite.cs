@@ -224,7 +224,7 @@ namespace Test.Shared.Suites.E2E
                     return detail;
                 }
 
-                await Task.Delay(250).ConfigureAwait(false);
+                await Task.Delay(25).ConfigureAwait(false);
             }
 
             throw new Exception("Timed out waiting for assistant planning output for session " + sessionId);
@@ -243,7 +243,7 @@ namespace Test.Shared.Suites.E2E
                     return detail;
                 }
 
-                await Task.Delay(250).ConfigureAwait(false);
+                await Task.Delay(25).ConfigureAwait(false);
             }
 
             throw new Exception("Timed out waiting for planning session " + sessionId + " to reach status " + expectedStatus);

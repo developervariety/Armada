@@ -21,6 +21,13 @@ namespace Test.Shared.Suites.E2E
     /// </summary>
     public sealed class MissionSuite : IArmadaTestSuite
     {
+        #region Private-Members
+
+        private readonly object _SeedLock = new object();
+        private Task? _SharedMissionSeed;
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -1448,15 +1455,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Page Mission " + i);
-                }
+                await EnsureMissionsSeededAsync(authClient);
 
                 HttpResponseMessage page1Resp = await authClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=1");
                 EnumerationResult<Mission> page1 = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(page1Resp);
@@ -1469,15 +1469,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Page2 Mission " + i);
-                }
+                await EnsureMissionsSeededAsync(authClient);
 
                 HttpResponseMessage page2Resp = await authClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=2");
                 EnumerationResult<Mission> page2 = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(page2Resp);
@@ -1489,15 +1482,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateMissionAsync(authClient, createdMissionIds, vesselId, "LastPage Mission " + i);
-                }
+                await EnsureMissionsSeededAsync(authClient);
 
                 // With shared data, just verify that a page beyond total returns empty
                 HttpResponseMessage resp = await authClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=1");
@@ -1516,15 +1502,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                for (int i = 1; i <= 5; i++)
-                {
-                    await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Beyond Mission " + i);
-                }
+                await EnsureMissionsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/missions?pageSize=10&pageNumber=99");
                 EnumerationResult<Mission> result = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(response);
@@ -1535,14 +1514,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Single A");
-                await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Single B");
-                await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Single C");
+                await EnsureMissionsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/missions?pageSize=1&pageNumber=1");
                 EnumerationResult<Mission> result = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(response);
@@ -2196,6 +2169,43 @@ namespace Test.Shared.Suites.E2E
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Ensure the shared mission dataset holds at least 25 listable missions, seeding it exactly once
+        /// for the suite. Every case runs against the same in-process server fixture and the list pagination
+        /// cases only assert accumulation-tolerant conditions (a full page slice, a last page with 1-10
+        /// items, an empty page beyond the end, a single-record page), so they can share one dataset instead
+        /// of each re-creating a vessel and 25 missions over sequential HTTP round-trips. The seed Task is
+        /// memoized: the first pagination case to run pays the cost and the rest await the completed Task.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once the shared dataset exists.</returns>
+        private Task EnsureMissionsSeededAsync(HttpClient authClient)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedMissionSeed == null) _SharedMissionSeed = SeedSharedMissionsAsync(authClient);
+                return _SharedMissionSeed;
+            }
+        }
+
+        /// <summary>
+        /// Create a dedicated vessel and 25 missions on it exactly once for the shared pagination dataset.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once the vessel and its 25 missions exist.</returns>
+        private static async Task SeedSharedMissionsAsync(HttpClient authClient)
+        {
+            List<string> createdFleetIds = new List<string>();
+            List<string> createdVesselIds = new List<string>();
+            List<string> createdMissionIds = new List<string>();
+
+            string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
+            for (int i = 1; i <= 25; i++)
+            {
+                await CreateMissionAsync(authClient, createdMissionIds, vesselId, "SharedPagMission " + i);
+            }
+        }
 
         /// <summary>
         /// Creates a fleet and returns its ID.

@@ -18,6 +18,13 @@ namespace Test.Shared.Suites.E2E
     /// </summary>
     public sealed class EventSuite : IArmadaTestSuite
     {
+        #region Private-Members
+
+        private readonly object _SeedLock = new object();
+        private Task? _SharedEventSeed;
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -171,12 +178,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 12; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "PageTest-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/events?pageSize=5&pageNumber=1");
                 EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response);
@@ -193,12 +195,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 12; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "Page2Test-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/events?pageSize=5&pageNumber=2");
                 EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response);
@@ -212,12 +209,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 7; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "LastPage-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 long totalRecords;
                 {
@@ -260,12 +252,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 8; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "IdCheck-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/events?pageSize=3&pageNumber=1");
                 EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response);
@@ -508,12 +495,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 10; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "LimitTest-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/events?limit=3");
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
@@ -591,12 +573,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 5; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "LimitType-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync(
                     "/api/v1/events?type=mission.status_changed&limit=2");
@@ -650,12 +627,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 12; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "EnumPage-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 StringContent content = JsonHelper.ToJsonContent(new { PageSize = 5, PageNumber = 2 });
 
@@ -792,12 +764,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                for (int i = 0; i < 10; i++)
-                {
-                    Mission mission = await CreateMissionAsync(authClient, "EnumQS-" + i);
-                    string missionId = mission.Id;
-                    await TransitionAsync(authClient, missionId, "Assigned");
-                }
+                await EnsureEventsSeededAsync(authClient);
 
                 StringContent content = JsonHelper.ToJsonContent(new { });
 
@@ -908,6 +875,45 @@ namespace Test.Shared.Suites.E2E
             HttpResponseMessage response = await client.PostAsync("/api/v1/voyages", content);
             Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(response);
             return voyage.Id;
+        }
+
+        /// <summary>
+        /// Ensure the shared server holds a reusable dataset of events, seeding it exactly once for the
+        /// suite. Every case runs against the same in-process server fixture and events accumulate
+        /// globally, so the pagination/enumerate cases only assert accumulation-tolerant conditions (a
+        /// full page, a total at or above a threshold, event ids beginning with "evt_"). They can share
+        /// one dataset instead of each re-creating a dozen missions and status transitions over
+        /// sequential HTTP round-trips. The seed Task is memoized: the first converted case to run pays
+        /// the cost and the rest await the completed Task.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once the shared dataset exists.</returns>
+        private Task EnsureEventsSeededAsync(HttpClient authClient)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedEventSeed == null) _SharedEventSeed = SeedSharedEventsAsync(authClient);
+                return _SharedEventSeed;
+            }
+        }
+
+        /// <summary>
+        /// Seeds the shared server with events once. Each event is produced exactly as the retired
+        /// per-case loops did: create a mission, then transition it to "Assigned" (which emits a
+        /// "mission.status_changed" event). Twelve events are created, enough to satisfy the largest
+        /// full-page and threshold assertions among the converted cases (page 2 at page size 5 and
+        /// TotalRecords &gt;= 12).
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once the shared dataset exists.</returns>
+        private static async Task SeedSharedEventsAsync(HttpClient authClient)
+        {
+            for (int i = 0; i < 12; i++)
+            {
+                Mission mission = await CreateMissionAsync(authClient, "SharedEventSeed-" + i);
+                string missionId = mission.Id;
+                await TransitionAsync(authClient, missionId, "Assigned");
+            }
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)

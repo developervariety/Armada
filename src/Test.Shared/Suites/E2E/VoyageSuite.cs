@@ -20,6 +20,13 @@ namespace Test.Shared.Suites.E2E
     /// </summary>
     public sealed class VoyageSuite : IArmadaTestSuite
     {
+        #region Private-Members
+
+        private readonly object _SeedLock = new object();
+        private Task? _SharedVoyageSeed;
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -795,16 +802,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdVoyageIds = new List<string>();
 
-                PrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, createdFleetIds, createdVesselIds);
-                string vesselId = prereqs.VesselId;
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "Pagination Voyage " + i);
-                }
+                await EnsureVoyagesSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/voyages?pageSize=10");
                 EnumerationResult<Voyage> result = await JsonHelper.DeserializeAsync<EnumerationResult<Voyage>>(response);
@@ -816,16 +815,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdVoyageIds = new List<string>();
 
-                PrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, createdFleetIds, createdVesselIds);
-                string vesselId = prereqs.VesselId;
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "Page2 Voyage " + i);
-                }
+                await EnsureVoyagesSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/voyages?pageSize=10&pageNumber=2");
                 EnumerationResult<Voyage> result = await JsonHelper.DeserializeAsync<EnumerationResult<Voyage>>(response);
@@ -838,16 +829,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdVoyageIds = new List<string>();
 
-                PrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, createdFleetIds, createdVesselIds);
-                string vesselId = prereqs.VesselId;
-                for (int i = 1; i <= 25; i++)
-                {
-                    await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "LastPage Voyage " + i);
-                }
+                await EnsureVoyagesSeededAsync(authClient);
 
                 // Get total to find actual last page dynamically
                 HttpResponseMessage firstResp = await authClient.GetAsync("/api/v1/voyages?pageSize=10&pageNumber=1");
@@ -909,16 +892,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdVoyageIds = new List<string>();
 
-                PrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, createdFleetIds, createdVesselIds);
-                string vesselId = prereqs.VesselId;
-                for (int i = 1; i <= 15; i++)
-                {
-                    await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "NoOverlap Voyage " + i);
-                }
+                await EnsureVoyagesSeededAsync(authClient);
 
                 HttpResponseMessage resp1 = await authClient.GetAsync("/api/v1/voyages?pageSize=10&pageNumber=1");
                 EnumerationResult<Voyage> result1 = await JsonHelper.DeserializeAsync<EnumerationResult<Voyage>>(resp1);
@@ -1760,6 +1735,46 @@ namespace Test.Shared.Suites.E2E
             string fleetId = await CreateFleetAsync(client, createdFleetIds);
             string vesselId = await CreateVesselAsync(client, createdVesselIds, fleetId);
             return new PrerequisiteResult(fleetId, vesselId);
+        }
+
+        /// <summary>
+        /// Ensure the shared voyage list holds a reusable dataset of at least 25 voyages, seeding it exactly
+        /// once for the suite. Every case runs against the same in-process server fixture and the four
+        /// list-voyage pagination cases only assert accumulation-tolerant conditions (a full page of 10, a
+        /// second page of 10, a dynamically computed last page, and no overlap between page 1 and page 2),
+        /// so they can share one dataset instead of each re-creating 15-25 voyages over sequential HTTP
+        /// round-trips. The seed Task is memoized: the first pagination case to run pays the cost and the
+        /// rest await the completed Task.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once the shared dataset exists.</returns>
+        private Task EnsureVoyagesSeededAsync(HttpClient authClient)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedVoyageSeed == null) _SharedVoyageSeed = SeedSharedVoyagesAsync(authClient);
+                return _SharedVoyageSeed;
+            }
+        }
+
+        /// <summary>
+        /// Creates the shared pagination dataset of 25 voyages under a single throwaway fleet and vessel.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once all 25 voyages have been created.</returns>
+        private static async Task SeedSharedVoyagesAsync(HttpClient authClient)
+        {
+            List<string> createdFleetIds = new List<string>();
+            List<string> createdVesselIds = new List<string>();
+            List<string> createdVoyageIds = new List<string>();
+
+            PrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, createdFleetIds, createdVesselIds);
+            string vesselId = prereqs.VesselId;
+
+            for (int i = 1; i <= 25; i++)
+            {
+                await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "SharedPagVoyage " + i);
+            }
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)

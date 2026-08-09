@@ -18,6 +18,13 @@ namespace Test.Shared.Suites.E2E
     /// </summary>
     public sealed class FleetSuite : IArmadaTestSuite
     {
+        #region Private-Members
+
+        private readonly object _SeedLock = new object();
+        private Task<Fleet[]>? _SharedFleetSeed;
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -496,9 +503,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "PagTest");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 10, pageNumber: 1);
 
@@ -512,9 +518,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "P1Test");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 10, pageNumber: 1);
 
@@ -528,9 +533,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "P2Test");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 10, pageNumber: 2);
 
@@ -544,9 +548,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "P3Test");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 10, pageNumber: 3);
 
@@ -560,9 +563,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 25, "FirstRec");
+                Fleet[] fleets = await EnsureFleetsSeededAsync(authClient);
 
                 // With shared data, our created fleets may not be on page 1
                 // Instead verify that the created fleets appear somewhere in the full listing
@@ -591,9 +593,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 25, "LastRec");
+                Fleet[] fleets = await EnsureFleetsSeededAsync(authClient);
 
                 // With shared data, verify that the last created fleet appears somewhere in listing
                 string lastCreatedId = fleets[24].Id;
@@ -621,9 +622,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "PS5Test");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 5, pageNumber: 1);
 
@@ -638,9 +638,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "PS5P5");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 5, pageNumber: 5);
 
@@ -653,9 +652,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "Beyond");
+                await EnsureFleetsSeededAsync(authClient);
 
                 // Get total pages first, then request beyond it
                 FleetListResult firstListResult = await ListFleetsAsync(authClient, pageSize: 10, pageNumber: 1);
@@ -674,9 +672,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "BeyondTR");
+                await EnsureFleetsSeededAsync(authClient);
 
                 // Get total pages first, then request well beyond it
                 FleetListResult firstListResult = await ListFleetsAsync(authClient, pageSize: 10, pageNumber: 1);
@@ -696,9 +693,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 25, "NoOverlap");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult page1ListResult = await ListFleetsAsync(authClient, pageSize: 10, pageNumber: 1);
 
@@ -737,9 +733,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 5, "PSReflect");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 3, pageNumber: 1);
 
@@ -756,9 +751,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 5, "AscOrd");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, order: "CreatedAscending");
 
@@ -779,9 +773,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 5, "DescOrd");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, order: "CreatedDescending");
 
@@ -802,9 +795,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 5, "AscAll");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, order: "CreatedAscending");
 
@@ -823,9 +815,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 5, "DescAll");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, order: "CreatedDescending");
 
@@ -900,9 +891,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 3, "EnumDefault");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient);
 
@@ -939,9 +929,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 15, "EnumPag");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, pageSize: 5, pageNumber: 1);
 
@@ -956,9 +945,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 15, "EnumP2");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, pageSize: 5, pageNumber: 2);
 
@@ -972,9 +960,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 15, "EnumP3");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, pageSize: 5, pageNumber: 3);
 
@@ -988,9 +975,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 10, "EnumBeyond");
+                await EnsureFleetsSeededAsync(authClient);
 
                 // Get total pages first, then request beyond it
                 FleetListResult firstListResult = await EnumerateFleetsAsync(authClient, pageSize: 5, pageNumber: 1);
@@ -1009,9 +995,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 5, "EnumAsc");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, order: "CreatedAscending");
 
@@ -1030,9 +1015,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 5, "EnumDesc");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, order: "CreatedDescending");
 
@@ -1051,9 +1035,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 5, "EnumAscAll");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, order: "CreatedAscending");
 
@@ -1072,9 +1055,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 5, "EnumDescAll");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, order: "CreatedDescending");
 
@@ -1093,9 +1075,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 12, "EnumMatch");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult listListResult = await ListFleetsAsync(authClient, pageSize: 5, pageNumber: 1, order: "CreatedAscending");
 
@@ -1118,9 +1099,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 12, "EnumMatchP2");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult listListResult = await ListFleetsAsync(authClient, pageSize: 5, pageNumber: 2, order: "CreatedAscending");
 
@@ -1155,9 +1135,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 5, "EnumPSR");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, pageSize: 3);
 
@@ -1171,9 +1150,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 15, "EnumNoOverlap");
+                await EnsureFleetsSeededAsync(authClient);
 
                 HashSet<string> allIds = new HashSet<string>();
 
@@ -1200,9 +1178,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 10, "EnumAscP2");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, pageSize: 5, pageNumber: 2, order: "CreatedAscending");
 
@@ -1223,9 +1200,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                Fleet[] fleets = await CreateFleetsAsync(authClient, createdFleetIds, 10, "EnumDescP2");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await EnumerateFleetsAsync(authClient, pageSize: 5, pageNumber: 2, order: "CreatedDescending");
 
@@ -1250,9 +1226,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 15, "DefPS");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient);
 
@@ -1266,9 +1241,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 3, "DefPN");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient);
 
@@ -1297,9 +1271,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 10, "Exact10");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 10);
 
@@ -1314,9 +1287,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 11, "Plus1");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 10);
 
@@ -1330,9 +1302,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 3, "PS1");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 1, pageNumber: 1);
 
@@ -1346,9 +1317,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
 
-                await CreateFleetsAsync(authClient, createdFleetIds, 5, "LargePS");
+                await EnsureFleetsSeededAsync(authClient);
 
                 FleetListResult fleetListResult = await ListFleetsAsync(authClient, pageSize: 100);
 
@@ -1467,6 +1437,40 @@ namespace Test.Shared.Suites.E2E
                 }
             }
             return results;
+        }
+
+        /// <summary>
+        /// Ensure the shared server holds a reusable set of 25 fleets, seeding it exactly once for the
+        /// suite. Every case runs against the same in-process fixture and the list/pagination/ordering
+        /// cases only assert accumulation-tolerant conditions (a full page, a total at or above a
+        /// threshold, no page overlap, monotonic CreatedUtc ordering, all seeded IDs present across
+        /// pages), so they can share one seeded set instead of each re-creating fleets over sequential
+        /// HTTP round-trips. The seed Task is memoized: the first bulk case to run pays the cost
+        /// (including the per-create delay that yields distinct CreatedUtc values) and the rest await the
+        /// completed Task and reuse the same 25 fleets.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task returning the 25 shared fleets once they exist.</returns>
+        private Task<Fleet[]> EnsureFleetsSeededAsync(HttpClient authClient)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedFleetSeed == null) _SharedFleetSeed = SeedSharedFleetsAsync(authClient);
+                return _SharedFleetSeed;
+            }
+        }
+
+        /// <summary>
+        /// Creates the single shared set of 25 fleets used by the accumulation-tolerant list, pagination,
+        /// ordering, and enumerate cases. The inter-create delay lives inside <see cref="CreateFleetsAsync"/>
+        /// so distinct CreatedUtc values are produced once for the whole suite.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>The 25 created fleets.</returns>
+        private static async Task<Fleet[]> SeedSharedFleetsAsync(HttpClient authClient)
+        {
+            List<string> seededIds = new List<string>();
+            return await CreateFleetsAsync(authClient, seededIds, 25, "SharedPagFleet").ConfigureAwait(false);
         }
 
         /// <summary>
