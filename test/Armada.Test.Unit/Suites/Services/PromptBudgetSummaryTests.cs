@@ -189,6 +189,37 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(resultMission!.PromptBudget, "PromptBudget must be null when no budget event exists");
                 }
             });
+
+            await RunTest("MissionJsonRoundTrip_DeserializesPromptBudget", () =>
+            {
+                PromptBudgetSummary? summary = PromptBudgetSummary.FromEventPayloads(
+                    JsonSerializer.Serialize(new
+                    {
+                        MissionId = "budget-roundtrip-mission",
+                        Runtime = "ClaudeCode",
+                        InstructionFileBytes = 12000,
+                        TrackedModuleBytes = 11800,
+                        ModuleCount = 9,
+                        ByteBudget = 32768,
+                        OverBudget = false,
+                        Modules = new Dictionary<string, int> { { "mission.rules", 774 } }
+                    }),
+                    null);
+
+                AssertNotNull(summary, "Budget payload must parse");
+
+                Mission mission = new Mission("budget-roundtrip-mission");
+                mission.PromptBudget = summary;
+
+                string json = JsonSerializer.Serialize(mission);
+                Mission? restored = JsonSerializer.Deserialize<Mission>(json);
+                AssertNotNull(restored, "Mission JSON must deserialize");
+                AssertNotNull(restored!.PromptBudget, "PromptBudget must survive the JSON round trip");
+                AssertEqual(12000, restored.PromptBudget!.InstructionFileBytes);
+                AssertEqual(774, restored.PromptBudget.Modules["mission.rules"]);
+                AssertFalse(restored.PromptBudget.OverBudget);
+                return Task.CompletedTask;
+            });
         }
 
         /// <summary>Stub admiral that throws on any use; the status handler never invokes it.</summary>

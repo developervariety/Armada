@@ -62,6 +62,11 @@ namespace Armada.Core.Models
 
         #region Constructors-and-Factories
 
+        /// <summary>
+        /// Parameterless constructor for System.Text.Json deserialization of mission-status payloads.
+        /// Instances for internal use are built through <see cref="FromEventPayloads"/>.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonConstructor]
         private PromptBudgetSummary()
         {
         }
