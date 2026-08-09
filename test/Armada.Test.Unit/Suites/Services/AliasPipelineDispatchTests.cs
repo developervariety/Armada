@@ -68,8 +68,8 @@ namespace Armada.Test.Unit.Suites.Services
                         pipeline = "Reviewed",
                         missions = new object[]
                         {
-                            new { title = "first feature", description = "d1", alias = "M1", preferredModel = "composer-2.5" },
-                            new { title = "second feature", description = "d2", alias = "M2", dependsOnMissionAlias = "M1", preferredModel = "composer-2.5" }
+                            new { title = "first feature", description = "d1", alias = "M1", preferredModel = "gpt-5.6-luna" },
+                            new { title = "second feature", description = "d2", alias = "M2", dependsOnMissionAlias = "M1", preferredModel = "gpt-5.6-luna" }
                         }
                     });
 
@@ -107,11 +107,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                     // PreferredModel: Worker stages inherit the per-mission Composer pin;
                     // Judge stages take the stage-level Opus override.
-                    AssertEqual("composer-2.5", m1Worker.PreferredModel,
+                    AssertEqual("gpt-5.6-luna", m1Worker.PreferredModel,
                         "M1.Worker should inherit per-mission PreferredModel");
                     AssertEqual("claude-opus-5", m1Judge.PreferredModel,
                         "M1.Judge should pick up stage-level Opus override");
-                    AssertEqual("composer-2.5", m2Worker.PreferredModel,
+                    AssertEqual("gpt-5.6-luna", m2Worker.PreferredModel,
                         "M2.Worker should inherit per-mission PreferredModel");
                     AssertEqual("claude-opus-5", m2Judge.PreferredModel,
                         "M2.Judge should pick up stage-level Opus override");

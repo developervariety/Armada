@@ -333,7 +333,6 @@ namespace Armada.Core.Services
             if (_CanonicalKimiK27Pattern.IsMatch(normalized)) return MidTier;
             if (_CanonicalSonnetPattern.IsMatch(normalized)) return MidTier;
             if (_GeminiProPattern.IsMatch(normalized)) return MidTier;
-            if (normalized.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)) return MidTier;
 
             return null;
         }

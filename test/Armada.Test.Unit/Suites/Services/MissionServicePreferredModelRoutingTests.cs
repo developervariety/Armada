@@ -178,7 +178,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "mid-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "canonical family fallback", "claude-opus-5").ConfigureAwait(false);
 
@@ -222,7 +222,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "mid-only", "composer-2.5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "mid-only", "gpt-5.6-luna").ConfigureAwait(false);
                     // claude-opus-5 classifies to high; only a mid-tier captain is available.
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "no high tier available", "claude-opus-5").ConfigureAwait(false);
 
@@ -313,7 +313,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "non-specialist mid route", "mid", "Worker").ConfigureAwait(false);
 
@@ -387,7 +387,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "grok-captain", "opencode-go/qwen3.8-max").ConfigureAwait(false);
                     Captain lunaCaptain = await CreateCaptainAsync(testDb.Driver, "luna-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "worker mission", "mid", "Worker").ConfigureAwait(false);
 
@@ -411,8 +411,8 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain grokCaptain = await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "composer-captain", "composer-2.5").ConfigureAwait(false);
+                    Captain grokCaptain = await CreateCaptainAsync(testDb.Driver, "grok-captain", "opencode-go/qwen3.8-max").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "luna-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "worker mission", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
@@ -455,7 +455,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    Captain midCaptain = await CreateCaptainAsync(testDb.Driver, "mid-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "empty preferred non-specialist", "", "Worker").ConfigureAwait(false);
 
@@ -477,7 +477,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "mid-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "empty preferred specialist", "", "Judge").ConfigureAwait(false);
 

@@ -69,19 +69,17 @@ namespace Armada.Test.Unit.Suites.Settings
             await RunTest("KnownTierMembership_Unchanged_ByLagunaAddition", () =>
             {
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "gpt-5.6-luna stays mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("grok-4.5"), "grok-4.5 stays mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max"), "qwen stays mid");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "opus-4-7 stays high");
                 return Task.CompletedTask;
             });
 
             await RunTest("ChallengerPool_AllRoutable_AsMidTier", () =>
             {
-                // grok-4.5 is BARE because it runs under the Cursor harness, which uses unqualified
-                // model ids. A provider-qualified form would not match ContainsModel's exact compare.
-                // The mid-tier roster is luna, grok, deepseek, and composer.
+                // The mid-tier roster is luna (native), deepseek (opencode-go), and qwen (opencode-go).
                 string[] challengers =
                 {
-                    "gpt-5.6-luna", "grok-4.5", "opencode-go/deepseek-v4-flash", "composer-2.5"
+                    "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max"
                 };
                 foreach (string m in challengers)
                 {
@@ -122,7 +120,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 foreach (string m in new[]
                 {
                     "opencode-go/deepseek-v4-flash",
-                    "gpt-5.6-luna", "composer-2.5", "grok-4.5",
+                    "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max",
                     "claude-fable-5", "claude-opus-5", "gpt-5.6-sol"
                 })
                 {
@@ -135,8 +133,8 @@ namespace Armada.Test.Unit.Suites.Settings
             {
                 var expected = new (string Model, string Tier)[]
                 {
-                    ("gpt-5.6-luna", "mid"), ("grok-4.5", "mid"),
-                    ("opencode-go/deepseek-v4-flash", "mid"), ("composer-2.5", "mid"),
+                    ("gpt-5.6-luna", "mid"),
+                    ("opencode-go/deepseek-v4-flash", "mid"), ("opencode-go/qwen3.8-max", "mid"),
                     ("claude-fable-5", "high"),
                     ("claude-opus-4-7", "high"), ("claude-opus-4-8", "high"), ("claude-opus-5", "high"),
                     ("gpt-5.6-sol", "high")

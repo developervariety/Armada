@@ -43,8 +43,8 @@ namespace Armada.Test.Unit.Suites.Services
         private const string _PreferencePrimary = "pref-primary";
         private const string _HighAudit = "audit-strong";
         private const string _MidAudit = "audit-mid";
-        private const string _Throughput = "composer-2.5";
-        private const string _LowAudit = "grok-4.5";
+        private const string _Throughput = "opencode-go/deepseek-v4-flash";
+        private const string _LowAudit = "opencode-go/qwen3.8-max";
         private const string _Opus = "claude-opus-5";
 
         private static LoggingModule CreateLogging()
@@ -167,7 +167,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // Idle set is audit-strong, composer, grok (no pref-primary).
                     // The mid preference order lists audit-strong before composer, so a
                     // no-hint call would pick it. The mechanical hint maps to MechanicalThroughput,
-                    // where composer (70) beats grok (68) and audit-strong (55), proving a
+                    // where deepseek (75) beats qwen (68) and audit-strong (55), proving a
                     // different dimension drives a different production assignment.
                     Captain highAudit = await SeedCaptainAsync(db, "cpt-high-audit", _HighAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
                     Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);

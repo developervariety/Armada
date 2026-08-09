@@ -47,7 +47,7 @@ namespace Armada.Test.Unit
         // self-contained and the default roster can change without breaking them.
         private static readonly string[] _MidMembers = new string[]
         {
-            "pref-primary", "audit-strong", "audit-mid", "grok-4.5", "composer-2.5"
+            "pref-primary", "audit-strong", "audit-mid", "opencode-go/qwen3.8-max", "opencode-go/deepseek-v4-flash"
         };
 
         private static ModelTierSettings SettingsWith(Dictionary<string, ModelCapabilityProfile> profiles)
@@ -67,8 +67,8 @@ namespace Armada.Test.Unit
                 { "pref-primary", Profile(92, 58) },
                 { "audit-strong", Profile(95, 55) },
                 { "audit-mid", Profile(78, 70) },
-                { "grok-4.5", Profile(65, 68) },
-                { "composer-2.5", Profile(58, 70) }
+                { "opencode-go/qwen3.8-max", Profile(65, 68) },
+                { "opencode-go/deepseek-v4-flash", Profile(58, 70) }
             };
         }
 
@@ -76,7 +76,7 @@ namespace Armada.Test.Unit
         {
             return new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
             {
-                { "mid", new List<string> { "pref-primary", "audit-strong", "audit-mid", "composer-2.5", "grok-4.5" } },
+                { "mid", new List<string> { "pref-primary", "audit-strong", "audit-mid", "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max" } },
                 { "high", new List<string> { "claude-opus-5", "claude-fable-5" } }
             };
         }
@@ -94,7 +94,7 @@ namespace Armada.Test.Unit
                 // hint must override the preference-order pick.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong"),
                     MakeCaptain("audit-mid")
                 };
@@ -110,9 +110,9 @@ namespace Armada.Test.Unit
                 // reasoning-heavy shares the AuditReasoningFit dimension with audit.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong"),
-                    MakeCaptain("grok-4.5")
+                    MakeCaptain("opencode-go/qwen3.8-max")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
@@ -130,13 +130,13 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("audit-strong"),
-                    MakeCaptain("composer-2.5"),
-                    MakeCaptain("grok-4.5")
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
+                    MakeCaptain("opencode-go/qwen3.8-max")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "mechanical");
-                AssertEqual("composer-2.5", selected, "mechanical hint must pick the highest MechanicalThroughput model");
+                AssertEqual("opencode-go/deepseek-v4-flash", selected, "mechanical hint must pick the highest MechanicalThroughput model");
                 return Task.CompletedTask;
             });
 
@@ -146,13 +146,13 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("audit-strong"),
-                    MakeCaptain("composer-2.5"),
-                    MakeCaptain("grok-4.5")
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
+                    MakeCaptain("opencode-go/qwen3.8-max")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "doc-only");
-                AssertEqual("composer-2.5", selected, "doc-only maps to MechanicalThroughput, so the highest-throughput model wins");
+                AssertEqual("opencode-go/deepseek-v4-flash", selected, "doc-only maps to MechanicalThroughput, so the highest-throughput model wins");
                 return Task.CompletedTask;
             });
 
@@ -160,7 +160,7 @@ namespace Armada.Test.Unit
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong")
                 };
 
@@ -179,13 +179,13 @@ namespace Armada.Test.Unit
                 // "fallback when best-fit is busy" behavior.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
-                    MakeCaptain("grok-4.5")
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
+                    MakeCaptain("opencode-go/qwen3.8-max")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "audit");
-                AssertEqual("grok-4.5", selected, "with the top audit model busy, the next-best idle profiled model is chosen");
+                AssertEqual("opencode-go/qwen3.8-max", selected, "with the top audit model busy, the next-best idle profiled model is chosen");
                 return Task.CompletedTask;
             });
 
@@ -197,7 +197,7 @@ namespace Armada.Test.Unit
                 // omitted hint) returns exactly what the within-tier preference order would.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong"),
                     MakeCaptain("audit-mid")
                 };
@@ -218,7 +218,7 @@ namespace Armada.Test.Unit
                 // throw -- selection degrades to the preference-order path.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong"),
                     MakeCaptain("audit-mid")
                 };
@@ -260,7 +260,7 @@ namespace Armada.Test.Unit
                 // idle mid captain and a mechanical hint, only the high-tier captain is eligible.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("claude-opus-5")
                 };
 
@@ -279,7 +279,7 @@ namespace Armada.Test.Unit
                 ModelTierSettings settings = SettingsWith(new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase));
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong"),
                     MakeCaptain("audit-mid")
                 };
@@ -301,7 +301,7 @@ namespace Armada.Test.Unit
                 };
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong")
                 };
 
@@ -319,7 +319,7 @@ namespace Armada.Test.Unit
                 settings.CapabilityHintDimensionMap = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong"),
                     MakeCaptain("audit-mid")
                 };
@@ -337,21 +337,21 @@ namespace Armada.Test.Unit
                 Dictionary<string, ModelCapabilityProfile> tied = new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase)
                 {
                     { "audit-strong", Profile(50, 50) },
-                    { "composer-2.5", Profile(50, 50) }
+                    { "opencode-go/deepseek-v4-flash", Profile(50, 50) }
                 };
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong")
                 };
 
                 Dictionary<string, List<string>> sonnetFirst = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "audit-strong", "composer-2.5" } }
+                    { "mid", new List<string> { "audit-strong", "opencode-go/deepseek-v4-flash" } }
                 };
                 Dictionary<string, List<string>> composerFirst = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "composer-2.5", "audit-strong" } }
+                    { "mid", new List<string> { "opencode-go/deepseek-v4-flash", "audit-strong" } }
                 };
 
                 string? pickA = PreferredModelTierSelector.SelectModel(
@@ -360,7 +360,7 @@ namespace Armada.Test.Unit
                     "mid", captains, "Worker", _ => 0, null, composerFirst, SettingsWith(tied), "audit");
 
                 AssertEqual("audit-strong", pickA, "tie resolves to the model listed first in the preference order");
-                AssertEqual("composer-2.5", pickB, "flipping the preference order flips the tie winner -- resolution is deterministic");
+                AssertEqual("opencode-go/deepseek-v4-flash", pickB, "flipping the preference order flips the tie winner -- resolution is deterministic");
                 return Task.CompletedTask;
             });
 
@@ -372,7 +372,7 @@ namespace Armada.Test.Unit
                 ModelTierSettings defaults = new ModelTierSettings();
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 
@@ -516,13 +516,13 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("audit-strong"),
-                    MakeCaptain("composer-2.5"),
-                    MakeCaptain("grok-4.5")
+                    MakeCaptain("opencode-go/deepseek-v4-flash"),
+                    MakeCaptain("opencode-go/qwen3.8-max")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
-                AssertEqual("composer-2.5", selected, "remapping audit to MechanicalThroughput makes the audit hint pick the throughput leader");
+                AssertEqual("opencode-go/deepseek-v4-flash", selected, "remapping audit to MechanicalThroughput makes the audit hint pick the throughput leader");
                 return Task.CompletedTask;
             });
         }

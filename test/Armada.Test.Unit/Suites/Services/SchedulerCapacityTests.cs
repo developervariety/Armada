@@ -161,7 +161,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "mixed-fleet-vessel");
                     await CreateIdleCaptainAsync(testDb, "mixed-opus", "claude-opus-5");
-                    await CreateIdleCaptainAsync(testDb, "mixed-mid", "composer-2.5");
+                    await CreateIdleCaptainAsync(testDb, "mixed-mid", "gpt-5.6-luna");
 
                     Mission worker = await CreatePendingMissionAsync(testDb, vessel, persona: null, title: "Worker");
 
