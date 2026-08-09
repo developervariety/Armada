@@ -114,11 +114,11 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_PreferenceOrderSelectsFirstListed", () =>
+            await RunTest("SelectModel_MidTier_AllWorkerModelsEqual_RandomPick", () =>
             {
-                // The default mid-tier ranking leads with the gpt-5.6-luna captain, then grok-4.5,
-                // then deepseek-v4-flash, then composer-2.5. With several models idle, the first
-                // listed one wins.
+                // All worker models are equal: the default mid preference order is empty, so a
+                // mid request picks randomly among the eligible models. The stub random index
+                // drives the pick: 0 selects the first eligible model in captain order.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
@@ -127,9 +127,11 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
-                AssertNotNull(selected, "Should select a model when mid-tier captains are available");
-                AssertEqual("gpt-5.6-luna", selected, "Should prefer the first listed mid-tier model");
+                string? first = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
+                AssertNotNull(first, "Should select a model when mid-tier captains are available");
+                AssertEqual("composer-2.5", first, "random stub 0 selects the first eligible worker model");
+                string? last = PreferredModelTierSelector.SelectModel("mid", captains, null, n => n - 1, null, defaultOrder);
+                AssertEqual("gpt-5.6-luna", last, "a different random index selects a different equal worker model");
                 return Task.CompletedTask;
             });
 
@@ -144,7 +146,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_PrefersLunaPrimary", () =>
+            await RunTest("SelectModel_MidTier_NoRankedPrimary_SelectsRandomly", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
@@ -155,15 +157,14 @@ namespace Armada.Test.Unit.Suites.Services
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
 
-                AssertEqual("gpt-5.6-luna", selected, "The luna primary must be preferred over the other idle mid captain");
+                AssertEqual("composer-2.5", selected, "with no ranked primary, random stub 0 selects the first eligible worker model");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_DuplicatedCaptains_PreferenceOrderWins", () =>
+            await RunTest("SelectModel_MidTier_DuplicatedCaptains_SelectRandomlyNotByCount", () =>
             {
-                // Many composer captains and one luna primary. The default mid ranking lists
-                // gpt-5.6-luna ahead of composer, so the primary wins even though it has
-                // fewer idle instances -- preference is not a popularity contest.
+                // Equal worker models are selected randomly, never by idle-instance count:
+                // three composer captains do not outvote one luna captain.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
@@ -176,7 +177,7 @@ namespace Armada.Test.Unit.Suites.Services
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
 
-                AssertEqual("gpt-5.6-luna", selected, "Preference order should select the luna primary ahead of the duplicated composer models");
+                AssertEqual("composer-2.5", selected, "random stub 0 selects the first eligible model regardless of idle counts");
                 return Task.CompletedTask;
             });
 
@@ -532,10 +533,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_PrimaryFirst_WhenIdle", () =>
+            await RunTest("SelectModel_MidTier_WorkerRequest_SelectsRandomlyAmongEquals", () =>
             {
-                // The default mid ranking leads with the gpt-5.6-luna captain. When it is idle it
-                // must win over the lower-ranked mid-tier captains.
+                // A Worker mid request with several idle worker models picks randomly among them.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
@@ -545,31 +545,29 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("gpt-5.6-luna", selected, "Idle primary captain should be selected first for Worker mid work");
+                AssertEqual("composer-2.5", selected, "random stub 0 selects the first eligible worker model");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_FallsBackToNextRanked_WhenPrimaryBusy", () =>
+            await RunTest("SelectModel_MidTier_AnyIdleWorkerModel_Serves", () =>
             {
-                // The primary (gpt-5.6-luna) captains are busy and absent from the idle list, so the
-                // selector must fall to the next ranked mid model that has an idle captain.
+                // No model is ranked; any idle worker model with an eligible captain serves.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
-                    MakeCaptain("grok-4.5"),
-                    MakeCaptain("gpt-5.6-luna")
+                    MakeCaptain("grok-4.5")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("gpt-5.6-luna", selected, "Should select the ranked luna captain when idle");
+                AssertEqual("composer-2.5", selected, "random stub 0 selects the first eligible idle worker model");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_PrefersGrokOverComposer", () =>
+            await RunTest("SelectModel_MidTier_RandomPick_HonorsTheRandomIndex", () =>
             {
-                // Only grok and composer are idle. Preference order lists grok ahead of composer,
-                // so grok wins even though the mid ranking used to place composer second.
+                // Only grok and composer are idle; the random index decides which equal model
+                // wins. Stub 0 picks the first eligible in captain order.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("grok-4.5"),
@@ -578,7 +576,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
-                AssertEqual("grok-4.5", selected, "grok-4.5 ranks above composer-2.5 in the default mid order");
+                AssertEqual("grok-4.5", selected, "random stub 0 selects the first eligible model (grok)");
                 return Task.CompletedTask;
             });
 
@@ -626,11 +624,10 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default preference order contains mid tier");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual(4, midOrder.Count, "default mid preference order lists the four current mid-tier models");
-                AssertEqual("gpt-5.6-luna", midOrder[0], "starts with the gpt-5.6-luna captain, the designated primary");
-                AssertEqual("grok-4.5", midOrder[1], "grok-4.5 follows the primary");
-                AssertEqual("opencode-go/deepseek-v4-flash", midOrder[2], "deepseek-v4-flash is third");
-                AssertEqual("composer-2.5", midOrder[3], "composer-2.5 closes the list");
+                AssertEqual(0, midOrder.Count, "all worker models are equal: the default mid preference order is empty (random peer selection)");
+                List<string> highOrder = defaults.WithinTierPreferenceOrder["high"];
+                AssertEqual(1, highOrder.Count, "the high preference order lists only the Judge-primary fable");
+                AssertEqual("claude-fable-5", highOrder[0], "fable is the only ranked high model; sol and opus are equal peers");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
@@ -792,26 +789,26 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_LunaFirstPreserved", () =>
+            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_WorkerModelsAreEqualPeers", () =>
             {
+                // All worker models are equal: the default mid preference order is empty, so a
+                // mid request selects randomly among the eligible models. The random stub index
+                // 0 picks the first eligible model in captain order.
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default contains mid preference order");
                 List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual("gpt-5.6-luna", midOrder[0], "default mid order starts with gpt-5.6-luna");
-                AssertEqual("grok-4.5", midOrder[1], "grok-4.5 follows the primary");
-                AssertEqual("opencode-go/deepseek-v4-flash", midOrder[2], "deepseek-v4-flash is third");
-                AssertEqual("composer-2.5", midOrder[3], "composer-2.5 closes the list");
+                AssertEqual(0, midOrder.Count, "no worker model is ranked above another");
 
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("composer-2.5"),
                     MakeCaptain("grok-4.5"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults);
-                AssertEqual("gpt-5.6-luna", selected, "Luna-first preference is preserved when all mid captains are idle");
+                AssertEqual("composer-2.5", selected, "with an empty order, the random pick (stub 0) selects the first eligible worker model");
+                string? randomPick = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", n => n - 1, null, defaults.WithinTierPreferenceOrder, defaults);
+                AssertEqual("gpt-5.6-luna", randomPick, "a different random index selects a different equal worker model");
                 return Task.CompletedTask;
             });
 

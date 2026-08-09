@@ -451,6 +451,22 @@ namespace Armada.Core.Services
                         && !String.IsNullOrWhiteSpace(dimension))
                     {
                         List<string> scored = SortByCapabilityScore(eligibleModels, dimension, settings.ModelCapabilityProfiles, preferenceOrder);
+
+                        // Equal models are equal: when several models tie for the top score and
+                        // share an identical capability profile, pick randomly among them instead
+                        // of letting the enumeration order decide.
+                        List<string> topTied = new List<string>();
+                        int topScore = GetModelDimensionScore(scored[0], dimension, settings.ModelCapabilityProfiles);
+                        foreach (string model in scored)
+                        {
+                            if (GetModelDimensionScore(model, dimension, settings.ModelCapabilityProfiles) != topScore)
+                                break;
+                            topTied.Add(model);
+                        }
+
+                        if (topTied.Count > 1 && ShareIdenticalProfile(topTied, settings.ModelCapabilityProfiles))
+                            return topTied[randomPick(topTied.Count)];
+
                         return scored[0];
                     }
                 }
@@ -460,6 +476,12 @@ namespace Armada.Core.Services
                     List<string> ordered = OrderModelsByPreference(eligibleModels, preferenceOrder);
                     if (ordered.Count > 0)
                         return ordered[0];
+
+                    // No listed model has an eligible captain. Unlisted models are equivalent
+                    // (the operator chose not to rank them), so pick randomly among them rather
+                    // than deterministically favoring the first enumerated captain.
+                    if (eligibleModels.Count > 0)
+                        return eligibleModels[randomPick(eligibleModels.Count)];
 
                     continue;
                 }
@@ -549,6 +571,43 @@ namespace Armada.Core.Services
             }
 
             return ordered;
+        }
+
+        /// <summary>
+        /// Returns true when every listed model carries a capability profile and all of them
+        /// are identical across every dimension. Equal models are interchangeable, so the
+        /// selector may randomize among them rather than letting enumeration order decide.
+        /// </summary>
+        /// <param name="models">Models to compare.</param>
+        /// <param name="profiles">Capability profiles keyed by model name.</param>
+        /// <returns>True when all models share one identical profile.</returns>
+        private static bool ShareIdenticalProfile(List<string> models, Dictionary<string, ModelCapabilityProfile> profiles)
+        {
+            if (models == null || models.Count < 2)
+                return false;
+
+            ModelCapabilityProfile? baseline = null;
+            foreach (string model in models)
+            {
+                if (!profiles.TryGetValue(model, out ModelCapabilityProfile? profile))
+                    return false;
+
+                if (baseline == null)
+                {
+                    baseline = profile;
+                    continue;
+                }
+
+                if (baseline.TelemetryRichness != profile.TelemetryRichness ||
+                    baseline.AuditReasoningFit != profile.AuditReasoningFit ||
+                    baseline.MechanicalThroughput != profile.MechanicalThroughput ||
+                    baseline.Cost != profile.Cost)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool IsSpecialistPersona(string? persona, IReadOnlyCollection<string>? specialistPersonas)

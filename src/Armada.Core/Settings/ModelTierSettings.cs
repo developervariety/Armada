@@ -204,19 +204,13 @@ namespace Armada.Core.Settings
                     "mid",
                     new List<string>
                     {
-                        "gpt-5.6-luna",
-                        "grok-4.5",
-                        "opencode-go/deepseek-v4-flash",
-                        "composer-2.5"
                     }
                 },
                 {
                     "high",
                     new List<string>
                     {
-                        "claude-fable-5",
-                        "claude-opus-5",
-                        "gpt-5.6-sol"
+                        "claude-fable-5"
                     }
                 }
             };
@@ -238,8 +232,8 @@ namespace Armada.Core.Settings
             return new List<string>
             {
                 "claude-fable-5",
-                "claude-opus-5",
-                "gpt-5.6-sol"
+                "gpt-5.6-sol",
+                "claude-opus-5"
             };
         }
 
@@ -250,7 +244,7 @@ namespace Armada.Core.Settings
                 { "claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-opus-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "claude-opus-4-8", new ModelCapabilityProfile { TelemetryRichness = 95, AuditReasoningFit = 95, MechanicalThroughput = 55, Cost = 95 } },
-                { "gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 88, AuditReasoningFit = 92, MechanicalThroughput = 62, Cost = 90 } },
+                { "gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                 { "gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 78, MechanicalThroughput = 70, Cost = 55 } },
                 { "composer-2.5", new ModelCapabilityProfile { TelemetryRichness = 55, AuditReasoningFit = 58, MechanicalThroughput = 70, Cost = 25 } },
                 { "grok-4.5", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 68, Cost = 55 } },

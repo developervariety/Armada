@@ -5395,6 +5395,25 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Prefer external-provider-served captains over native ones: a captain carrying
+            // its own provider base URL consumes the alternate (cheaper) subscription, so it
+            // wins the tie for an equal model and saves the native provider's usage. Native
+            // captains remain the fallback when no external captain is idle. Applied to the
+            // model-filtered set so both the no-persona shortcut and the persona path honor it.
+            {
+                List<Captain> external = new List<Captain>();
+                List<Captain> native = new List<Captain>();
+                foreach (Captain captain in idleCaptains)
+                {
+                    if (!String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
+                        external.Add(captain);
+                    else
+                        native.Add(captain);
+                }
+                idleCaptains = external;
+                idleCaptains.AddRange(native);
+            }
+
             // If no persona requirement, return any idle captain
             if (String.IsNullOrEmpty(persona))
                 return idleCaptains[0];
@@ -5407,8 +5426,7 @@ namespace Armada.Core.Services
                 {
                     // No restriction -- captain can fill any persona
                     eligible.Add(captain);
-                }
-                else
+                }                else
                 {
                     // Check if the persona is in the allowed list
                     // AllowedPersonas is a JSON array string, e.g. '["Worker","Judge"]'

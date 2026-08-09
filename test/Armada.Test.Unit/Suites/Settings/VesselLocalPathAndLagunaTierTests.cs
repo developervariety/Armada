@@ -91,20 +91,11 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
-            await RunTest("MidPreferenceOrder_UsesConfiguredOrder", () =>
+            await RunTest("MidPreferenceOrder_IsEmpty_AllWorkerModelsEqual", () =>
             {
                 ModelTierSettings s = new ModelTierSettings();
                 AssertTrue(s.WithinTierPreferenceOrder.TryGetValue("mid", out var order), "mid order must exist");
-                AssertEqual(4, order!.Count, "the mid preference order lists exactly the four current mid-tier models");
-                foreach (string m in order)
-                {
-                    AssertEqual("mid", PreferredModelTierSelector.ClassifyModel(m),
-                        "preference entry '" + m + "' must actually classify mid");
-                }
-                AssertEqual("gpt-5.6-luna", order[0], "configured mid-tier order starts with gpt-5.6-luna");
-                AssertEqual("grok-4.5", order[1], "grok-4.5 follows the primary");
-                AssertEqual("opencode-go/deepseek-v4-flash", order[2], "deepseek-v4-flash is third");
-                AssertEqual("composer-2.5", order[3], "composer-2.5 closes the list");
+                AssertEqual(0, order!.Count, "all worker models are equal: the mid preference order is empty");
                 return Task.CompletedTask;
             });
 

@@ -326,48 +326,101 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("TryAssign_MidTier_FirstPreference_AssignsTopRankedCaptain", async () =>
+            await RunTest("TryAssign_EqualModel_PrefersExternalProviderCaptainOverNative", async () =>
             {
-                // The default ModelTierSettings.WithinTierPreferenceOrder leads the mid tier with
-                // the gpt-5.6-luna captain. While it is idle it wins over other idle mid captains.
+                // Two idle captains carry the same model id (gpt-5.6-sol): one served by an
+                // external provider (ApiBaseUrl set), one native. They are equal models, so the
+                // tie must go to the external-provider captain to save the native subscription.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Captain native = await CreateCaptainAsync(testDb.Driver, "native-sol", "gpt-5.6-sol").ConfigureAwait(false);
+                    Captain external = new Captain("zyloo-sol");
+                    external.Model = "gpt-5.6-sol";
+                    external.ApiBaseUrl = "https://api.zyloo.io/v1";
+                    external.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(external).ConfigureAwait(false);
+
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "external-first equal model", "gpt-5.6-sol").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "an equal-model mission with idle captains should assign");
+                    AssertEqual(external.Id, readBack!.CaptainId,
+                        "the external-provider-served captain must win the equal-model tie");
+                    AssertNotEqual(native.Id, readBack.CaptainId,
+                        "the native captain is the fallback, not the primary, for an equal model");
+                }
+            });
+
+            await RunTest("TryAssign_EqualModel_OnlyNativeIdle_FallsBackToNative", async () =>
+            {
+                // When no external-provider captain is idle for the model, the native captain
+                // takes the work -- the external-first rule is a preference, not a gate.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Captain native = await CreateCaptainAsync(testDb.Driver, "native-sol", "gpt-5.6-sol").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "native fallback", "gpt-5.6-sol").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "a mission with an idle native captain should assign");
+                    AssertEqual(native.Id, readBack!.CaptainId, "the native captain serves when no external captain is idle");
+                }
+            });
+
+            await RunTest("TryAssign_MidTier_AssignsAnIdleWorkerCaptain", async () =>
+            {
+                // All worker models are equal: a mid-tier Worker mission assigns to an idle
+                // worker captain (random peer selection), never stalling for a ranked primary.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
-                    Captain opusCaptain = await CreateCaptainAsync(testDb.Driver, "opus-captain", "gpt-5.6-luna").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked preferred worker", "mid", "Worker").ConfigureAwait(false);
+                    Captain lunaCaptain = await CreateCaptainAsync(testDb.Driver, "luna-captain", "gpt-5.6-luna").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "worker mission", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertTrue(assigned, "Mid-tier Worker mission should assign when an idle top-ranked captain exists");
+                    AssertTrue(assigned, "Mid-tier Worker mission should assign when an idle worker captain exists");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(opusCaptain.Id, readBack.CaptainId, "The top-ranked mid captain should be chosen for mid-tier Worker work");
+                    AssertTrue(
+                        String.Equals(readBack!.CaptainId, lunaCaptain.Id, StringComparison.Ordinal) ||
+                        readBack.CaptainId != null,
+                        "An idle worker captain must be chosen");
                 }
             });
 
-            await RunTest("TryAssign_MidTier_TopRankedBusy_FallsBackToNextRanked", async () =>
+            await RunTest("TryAssign_MidTier_AnyIdleWorkerCaptain_Serves", async () =>
             {
-                // When no top-ranked captain is idle, the configured mid preference falls to the
-                // next ranked model that has one. With the luna primary absent, grok-4.5
-                // (rank 2) beats composer-2.5 (rank 4).
+                // With no ranked mid models, any idle worker captain serves the mission.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain fallbackCaptain = await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
+                    Captain grokCaptain = await CreateCaptainAsync(testDb.Driver, "grok-captain", "grok-4.5").ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "composer-captain", "composer-2.5").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "top-ranked busy fallback", "mid", "Worker").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "worker mission", "mid", "Worker").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertTrue(assigned, "Mid-tier Worker mission should fall back to the next ranked model");
+                    AssertTrue(assigned, "Mid-tier Worker mission should assign when an idle worker captain exists");
                     AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
-                    AssertEqual(fallbackCaptain.Id, readBack.CaptainId, "the next ranked mid model (grok) should be chosen when the top-ranked model is busy");
+                    AssertNotNull(readBack!.CaptainId, "An idle worker captain must be chosen");
                 }
             });
 
