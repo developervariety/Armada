@@ -24,6 +24,9 @@ namespace Test.Shared.Suites.E2E
 
         private const string SuiteId = "E2E.MergeQueue";
 
+        private readonly object _SeedLock = new object();
+        private Task? _SharedQueueSeed;
+
         #endregion
 
         #region Public-Methods
@@ -334,14 +337,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "Pag25").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync(authClient, "PagMission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(authClient, msn, vesselId, "feat/pag-" + i.ToString("D2")).ConfigureAwait(false);
-                }
+                await EnsureQueueSeededAsync(authClient).ConfigureAwait(false);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=1").ConfigureAwait(false);
                 EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
@@ -358,14 +354,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "Pag25P2").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync(authClient, "Pag2Mission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(authClient, msn, vesselId, "feat/pag2-" + i.ToString("D2")).ConfigureAwait(false);
-                }
+                await EnsureQueueSeededAsync(authClient).ConfigureAwait(false);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=2").ConfigureAwait(false);
                 EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
@@ -379,14 +368,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "Pag25P3").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync(authClient, "Pag3Mission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(authClient, msn, vesselId, "feat/pag3-" + i.ToString("D2")).ConfigureAwait(false);
-                }
+                await EnsureQueueSeededAsync(authClient).ConfigureAwait(false);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=3").ConfigureAwait(false);
                 EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
@@ -400,14 +382,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "Pag25P4").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync(authClient, "Pag4Mission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(authClient, msn, vesselId, "feat/pag4-" + i.ToString("D2")).ConfigureAwait(false);
-                }
+                await EnsureQueueSeededAsync(authClient).ConfigureAwait(false);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=999").ConfigureAwait(false);
                 EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
@@ -421,16 +396,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "PagBound").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                List<string> createdIds = new List<string>();
-                for (int i = 0; i < 5; i++)
-                {
-                    string msn = await CreateMissionAsync(authClient, "BoundMission" + i).ConfigureAwait(false);
-                    MergeEntry entry = await EnqueueAsync(authClient, msn, vesselId, "feat/bound-" + i.ToString("D2")).ConfigureAwait(false);
-                    createdIds.Add(entry.Id);
-                }
+                await EnsureQueueSeededAsync(authClient).ConfigureAwait(false);
 
                 HttpResponseMessage page1Response = await authClient.GetAsync("/api/v1/merge-queue?pageSize=3&pageNumber=1").ConfigureAwait(false);
                 EnumerationResult<MergeEntry> page1Result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(page1Response).ConfigureAwait(false);
@@ -496,14 +462,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "EnumPage").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 15; i++)
-                {
-                    string msn = await CreateMissionAsync(authClient, "EnumMission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(authClient, msn, vesselId, "feat/enum-" + i.ToString("D2")).ConfigureAwait(false);
-                }
+                await EnsureQueueSeededAsync(authClient).ConfigureAwait(false);
 
                 HttpResponseMessage response = await authClient.PostAsync("/api/v1/merge-queue/enumerate", JsonHelper.ToJsonContent(new { PageSize = 5, PageNumber = 2 })).ConfigureAwait(false);
                 EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
@@ -549,14 +508,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "EnumQS").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 8; i++)
-                {
-                    string msn = await CreateMissionAsync(authClient, "EnumQSMission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(authClient, msn, vesselId, "feat/enumqs-" + i).ConfigureAwait(false);
-                }
+                await EnsureQueueSeededAsync(authClient).ConfigureAwait(false);
 
                 HttpResponseMessage response = await authClient.PostAsync("/api/v1/merge-queue/enumerate?pageSize=3", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
                 EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
@@ -720,6 +672,36 @@ namespace Test.Shared.Suites.E2E
             string vesselId = await CreateVesselAsync(authClient, fleetId, "Vessel" + suffix).ConfigureAwait(false);
             string missionId = await CreateMissionAsync(authClient, "Mission" + suffix).ConfigureAwait(false);
             return new MergeQueuePrerequisiteResult(fleetId, vesselId, missionId);
+        }
+
+        /// <summary>
+        /// Ensure the shared merge queue holds a reusable dataset of at least 25 queued entries, seeding it
+        /// exactly once for the suite. Every case runs against the same in-process server fixture and the
+        /// list/enumerate pagination cases only assert accumulation-tolerant conditions (a full page, a
+        /// total at or above a threshold, no page overlap), so they can share one dataset instead of each
+        /// re-creating 25 missions and 25 enqueues over sequential HTTP round-trips. The seed Task is
+        /// memoized: the first pagination case to run pays the cost and the rest await the completed Task.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once the shared dataset exists.</returns>
+        private Task EnsureQueueSeededAsync(HttpClient authClient)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedQueueSeed == null) _SharedQueueSeed = SeedSharedQueueAsync(authClient);
+                return _SharedQueueSeed;
+            }
+        }
+
+        private static async Task SeedSharedQueueAsync(HttpClient authClient)
+        {
+            MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, "PagShared").ConfigureAwait(false);
+
+            for (int i = 0; i < 25; i++)
+            {
+                string missionId = await CreateMissionAsync(authClient, "SharedPagMission" + i).ConfigureAwait(false);
+                await EnqueueAsync(authClient, missionId, prereqs.VesselId, "feat/shared-pag-" + i.ToString("D2")).ConfigureAwait(false);
+            }
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
