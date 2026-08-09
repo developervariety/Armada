@@ -77,16 +77,9 @@ namespace Test.Shared.Suites.Services
 
             cases.Add(CaseAsync("git_clean_tree_has_no_conflicts", "Git CleanTree NoConflicts", TestTags.Negative, async () =>
             {
-                string dir = CreateTempDir();
+                string dir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 try
                 {
-                    Git(dir, "init", "-b", "main");
-                    Git(dir, "config", "user.email", "test@armada.local");
-                    Git(dir, "config", "user.name", "Armada Test");
-                    await File.WriteAllTextAsync(Path.Combine(dir, "a.txt"), "hi\n");
-                    Git(dir, "add", "a.txt");
-                    Git(dir, "commit", "-m", "init");
-
                     GitService git = new GitService(CreateLogging());
                     IReadOnlyList<string> conflicts = await git.GetConflictedFilesAsync(dir);
                     AssertEqual(0, conflicts.Count);

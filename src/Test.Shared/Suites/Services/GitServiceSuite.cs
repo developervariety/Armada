@@ -80,21 +80,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("remove_worktree_async_removes_registered_worktree_from_outside_repo", "RemoveWorktreeAsync Removes Registered Worktree From Outside Repo", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string worktreeDir = Path.Combine(rootDir, "worktree");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/remove-me", "main").ConfigureAwait(false);
 
@@ -172,21 +164,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("create_worktree_async_new_branch_starts_at_base_commit", "CreateWorktreeAsync NewBranch StartsAtBaseCommit", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string worktreeDir = Path.Combine(rootDir, "worktree");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     string baseCommit = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
@@ -209,21 +193,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("create_worktree_async_new_branch_uses_latest_remote_base_commit", "CreateWorktreeAsync NewBranch UsesLatestRemoteBaseCommit", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string worktreeDir = Path.Combine(rootDir, "worktree");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await service.CloneBareAsync(sourceDir, bareDir).ConfigureAwait(false);
 
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\nlatest base\n").ConfigureAwait(false);
@@ -248,20 +224,12 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("ensure_local_branch_async_missing_branch_uses_existing_repo_history", "EnsureLocalBranchAsync MissingBranch UsesExistingRepoHistory", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     string sourceHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
 
                     await service.CloneBareAsync(sourceDir, bareDir).ConfigureAwait(false);
@@ -285,21 +253,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("create_worktree_async_existing_branch_stays_on_named_branch", "CreateWorktreeAsync ExistingBranch StaysOnNamedBranch", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string worktreeDir = Path.Combine(rootDir, "worktree");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await RunGitAsync(bareDir, "branch", "armada/existing", "main").ConfigureAwait(false);
 
@@ -384,21 +344,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("fetch_async_checked_out_worktree_branch_uses_remote_tracking_refs", "FetchAsync CheckedOutWorktreeBranch UsesRemoteTrackingRefs", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string worktreeDir = Path.Combine(rootDir, "worktree");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await service.CloneBareAsync(sourceDir, bareDir).ConfigureAwait(false);
                     await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/feature", "main").ConfigureAwait(false);
 
@@ -433,18 +385,10 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("diff_async_no_merge_base_falls_back_to_two_dot_diff", "DiffAsync NoMergeBase FallsBackToTwoDotDiff", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string rootDir = TestGitRepoHelper.CreateWorkingRepoCopy();
 
                 try
                 {
-                    Directory.CreateDirectory(rootDir);
-                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await RunGitAsync(rootDir, "checkout", "--orphan", "armada/orphan").ConfigureAwait(false);
                     await RunGitAsync(rootDir, "rm", "-rf", ".").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\norphan change\n").ConfigureAwait(false);
@@ -469,21 +413,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("merge_branch_local_async_cleans_conflict_state_after_failure", "MergeBranchLocalAsync Cleans Conflict State After Failure", TestTags.Negative, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string targetDir = Path.Combine(rootDir, "target");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base change\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "remote", "add", "armada", bareDir).ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "checkout", "-b", "armada/conflict").ConfigureAwait(false);
@@ -533,22 +469,14 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("merge_branch_local_async_succeeds_when_target_checkout_is_a_git_worktree", "MergeBranchLocalAsync Succeeds When TargetCheckout Is A GitWorktree", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string targetRepoDir = Path.Combine(rootDir, "target");
                 string landingWorktreeDir = Path.Combine(rootDir, "landing-worktree");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "remote", "add", "armada", bareDir).ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "checkout", "-b", "armada/worktree-merge").ConfigureAwait(false);
@@ -583,21 +511,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("merge_branch_local_async_materializes_missing_target_branch_in_landing_checkout", "MergeBranchLocalAsync Materializes MissingTargetBranch In Landing Checkout", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string targetDir = Path.Combine(rootDir, "target");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
@@ -643,21 +563,13 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("merge_branch_local_async_dirty_landing_checkout_throws_before_merge", "MergeBranchLocalAsync DirtyLandingCheckout Throws Before Merge", TestTags.Negative, async () =>
             {
                 GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                 string bareDir = Path.Combine(rootDir, "bare.git");
                 string targetDir = Path.Combine(rootDir, "target");
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
                     await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);

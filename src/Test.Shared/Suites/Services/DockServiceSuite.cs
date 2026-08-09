@@ -89,20 +89,12 @@ namespace Test.Shared.Suites.Services
                     GitService git = new GitService(logging);
                     DockService service = new DockService(logging, testDb.Driver, settings, git);
 
-                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-dockservice-" + Guid.NewGuid().ToString("N"));
-                    string sourceDir = Path.Combine(rootDir, "source");
+                    string rootDir = TestTemp.NewDirectory("dockservice");
+                    string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
                     string workDir = Path.Combine(rootDir, "target");
 
                     try
                     {
-                        Directory.CreateDirectory(sourceDir);
-                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
-
                         string sourceHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
 
                         Vessel vessel = new Vessel("test-vessel", sourceDir);
