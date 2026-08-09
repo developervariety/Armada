@@ -18,6 +18,13 @@ namespace Test.Shared.Suites.E2E
     /// </summary>
     public sealed class VesselSuite : IArmadaTestSuite
     {
+        #region Private-Members
+
+        private readonly object _SeedLock = new object();
+        private Task<string>? _SharedVesselFleet;
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -597,14 +604,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
 
-                string fleetId = await CreateFleetAsync(authClient, createdFleetIds, "PaginationFleet");
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateVesselAndReturnIdAsync(authClient, createdVesselIds, "PagVessel_" + i.ToString("D2"), fleetId: fleetId);
-                }
+                string fleetId = await EnsureVesselsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/vessels?pageSize=10&pageNumber=1&fleetId=" + fleetId);
                 EnumerationResult<Vessel> result = await JsonHelper.DeserializeAsync<EnumerationResult<Vessel>>(response);
@@ -620,14 +621,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
 
-                string fleetId = await CreateFleetAsync(authClient, createdFleetIds, "PagFleet2");
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateVesselAndReturnIdAsync(authClient, createdVesselIds, "Pag2Vessel_" + i.ToString("D2"), fleetId: fleetId);
-                }
+                string fleetId = await EnsureVesselsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/vessels?pageSize=10&pageNumber=2&fleetId=" + fleetId);
                 EnumerationResult<Vessel> result = await JsonHelper.DeserializeAsync<EnumerationResult<Vessel>>(response);
@@ -640,14 +635,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
 
-                string fleetId = await CreateFleetAsync(authClient, createdFleetIds, "PagFleet3");
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateVesselAndReturnIdAsync(authClient, createdVesselIds, "Pag3Vessel_" + i.ToString("D2"), fleetId: fleetId);
-                }
+                string fleetId = await EnsureVesselsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/vessels?pageSize=10&pageNumber=3&fleetId=" + fleetId);
                 EnumerationResult<Vessel> result = await JsonHelper.DeserializeAsync<EnumerationResult<Vessel>>(response);
@@ -660,14 +649,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
 
-                string fleetId = await CreateFleetAsync(authClient, createdFleetIds, "PagFleetFirstLast");
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateVesselAndReturnIdAsync(authClient, createdVesselIds, "FL_Vessel_" + i.ToString("D2"), fleetId: fleetId);
-                }
+                string fleetId = await EnsureVesselsSeededAsync(authClient);
 
                 HttpResponseMessage page1Resp = await authClient.GetAsync(
                     "/api/v1/vessels?pageSize=10&pageNumber=1&order=CreatedAscending&fleetId=" + fleetId);
@@ -679,22 +662,16 @@ namespace Test.Shared.Suites.E2E
                 EnumerationResult<Vessel> page3Result = await JsonHelper.DeserializeAsync<EnumerationResult<Vessel>>(page3Resp);
                 string lastItemName = page3Result.Objects[page3Result.Objects.Count - 1].Name;
 
-                AssertStartsWith("FL_Vessel_00", firstItemName);
-                AssertStartsWith("FL_Vessel_24", lastItemName);
+                AssertStartsWith("SharedPagVessel_00", firstItemName);
+                AssertStartsWith("SharedPagVessel_24", lastItemName);
             }));
 
             cases.Add(CaseAsync("list_vessels_page_beyond_last_page_returns_empty_objects", "List Vessels Page Beyond Last Page Returns Empty Objects", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
 
-                string fleetId = await CreateFleetAsync(authClient, createdFleetIds, "BeyondFleet");
-                for (int i = 0; i < 5; i++)
-                {
-                    await CreateVesselAndReturnIdAsync(authClient, createdVesselIds, "BeyondVessel_" + i, fleetId: fleetId);
-                }
+                string fleetId = await EnsureVesselsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync(
                     "/api/v1/vessels?pageSize=10&pageNumber=99&fleetId=" + fleetId);
@@ -1342,6 +1319,41 @@ namespace Test.Shared.Suites.E2E
         /// <summary>
         /// Creates a fleet and returns its ID.
         /// </summary>
+        /// <summary>
+        /// Ensure a shared fleet holding exactly 25 vessels exists, seeding it once for the suite, and
+        /// return that fleet's ID. The pagination cases scope their queries with <c>?fleetId=</c>, so a
+        /// single shared fleet of 25 vessels satisfies their exact-count assertions (25 total, 3 pages,
+        /// page 3 has 5) without each case re-creating a fleet and 25 vessels over sequential HTTP
+        /// round-trips. The vessels are named <c>SharedPagVessel_00..24</c> and created in order, so a
+        /// CreatedAscending query returns _00 first and _24 last. The seed Task is memoized: the first
+        /// pagination case pays the cost and the rest await the completed Task. Ordering and fleet-filter
+        /// cases keep creating their own fleets, so they are unaffected by this shared dataset.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>The ID of the shared fleet holding the 25 seeded vessels.</returns>
+        private Task<string> EnsureVesselsSeededAsync(HttpClient authClient)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedVesselFleet == null) _SharedVesselFleet = SeedSharedVesselsAsync(authClient);
+                return _SharedVesselFleet;
+            }
+        }
+
+        private static async Task<string> SeedSharedVesselsAsync(HttpClient authClient)
+        {
+            List<string> fleetIds = new List<string>();
+            List<string> vesselIds = new List<string>();
+
+            string fleetId = await CreateFleetAsync(authClient, fleetIds, "SharedPagFleet").ConfigureAwait(false);
+            for (int i = 0; i < 25; i++)
+            {
+                await CreateVesselAndReturnIdAsync(authClient, vesselIds, "SharedPagVessel_" + i.ToString("D2"), fleetId: fleetId).ConfigureAwait(false);
+            }
+
+            return fleetId;
+        }
+
         private static async Task<string> CreateFleetAsync(HttpClient client, List<string> createdFleetIds, string name = "TestFleet")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
