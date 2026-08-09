@@ -94,11 +94,14 @@ namespace Test.Shared.Suites.Runtimes
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
                 string tempDir = Path.GetTempPath();
 
+                bool exited = false;
+                runtime.OnProcessExited += (_, _) => exited = true;
+
                 int pid = await runtime.StartAsync(tempDir, "test prompt");
                 AssertTrue(pid > 0);
 
-                // Wait briefly for process to finish (dotnet --version exits quickly)
-                await Task.Delay(2000);
+                // Let the process finish (dotnet --version exits in well under a second).
+                await WaitForConditionAsync(() => exited, 2000);
             }));
 
             cases.Add(CaseAsync("start_async_invalid_command_throws", "StartAsync Invalid Command Throws", TestTags.Negative, async () =>
@@ -135,8 +138,8 @@ namespace Test.Shared.Suites.Runtimes
 
                 int pid = await runtime.StartAsync(tempDir, "test prompt");
 
-                // Wait for process to complete and events to fire
-                await Task.Delay(3000);
+                // Wait for the process to emit output (arrives in well under the old fixed window).
+                await WaitForConditionAsync(() => { lock (outputLines) { return outputLines.Count > 0; } }, 3000);
 
                 AssertTrue(outputLines.Count > 0, "Expected at least one output line");
             }));
@@ -178,7 +181,7 @@ namespace Test.Shared.Suites.Runtimes
                 };
 
                 await runtime.StartAsync(tempDir, "test prompt");
-                await Task.Delay(2000);
+                await WaitForConditionAsync(() => { lock (outputLines) { return outputLines.Contains(expected); } }, 2000);
 
                 AssertTrue(outputLines.Contains(expected), "Expected UTF-8 stderr content to be preserved");
             }));
@@ -190,13 +193,15 @@ namespace Test.Shared.Suites.Runtimes
 
                 int startedPid = 0;
                 runtime.OnProcessStarted += pid => startedPid = pid;
+                bool exited = false;
+                runtime.OnProcessExited += (_, _) => exited = true;
 
                 int pid = await runtime.StartAsync(tempDir, "test prompt");
 
                 AssertTrue(pid > 0, "Expected a valid PID");
                 AssertEqual(pid, startedPid, "OnProcessStarted should fire with the launched process PID");
 
-                await Task.Delay(1000);
+                await WaitForConditionAsync(() => exited, 1000);
             }));
 
             return new TestSuiteDescriptor(
@@ -208,6 +213,22 @@ namespace Test.Shared.Suites.Runtimes
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Poll a condition until it becomes true or the timeout elapses, returning as soon as it holds.
+        /// Replaces fixed sleeps that waited on subprocess output/exit, which arrives far sooner than the
+        /// old fixed windows on any normal machine.
+        /// </summary>
+        private static async Task WaitForConditionAsync(Func<bool> condition, int timeoutMs, int pollMs = 25)
+        {
+            int waited = 0;
+            while (waited < timeoutMs)
+            {
+                if (condition()) return;
+                await Task.Delay(pollMs).ConfigureAwait(false);
+                waited += pollMs;
+            }
+        }
 
         private static LoggingModule CreateLogging()
         {
