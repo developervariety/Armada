@@ -13,7 +13,7 @@
     <PackageReference Include="Watson" Version="7.1.0" />
     <PackageReference Include="Voltaic" Version="0.6.0" />
     <PackageReference Include="SyslogLogging" Version="2.1.0" />
-    <PackageReference Include="Radiant" Version="0.1.1" />
+    <PackageReference Include="Radiant" Version="0.1.2" />
   </ItemGroup>
 
   <ItemGroup>
