@@ -4207,6 +4207,25 @@ namespace Armada.Core.Services
             string parsedDescription,
             CancellationToken token)
         {
+            await CloneDependentChainCoreAsync(
+                voyageMissions,
+                templateMission,
+                newDependency,
+                parsedTitle,
+                parsedDescription,
+                new HashSet<string>(StringComparer.Ordinal),
+                token).ConfigureAwait(false);
+        }
+
+        private async Task CloneDependentChainCoreAsync(
+            List<Mission> voyageMissions,
+            Mission templateMission,
+            Mission newDependency,
+            string parsedTitle,
+            string parsedDescription,
+            HashSet<string> visited,
+            CancellationToken token)
+        {
             List<Mission> directDependents = voyageMissions
                 .Where(m => m.DependsOnMissionId == templateMission.Id)
                 .OrderBy(m => m.CreatedUtc)
@@ -4214,6 +4233,14 @@ namespace Armada.Core.Services
 
             foreach (Mission templateChild in directDependents)
             {
+                // A dependent whose persona is the pipeline's first stage (Architect) is the root of
+                // another dispatched mission's chain, not a stage of this one. Alias dependencies
+                // link a completed chain's terminal stage to the next chain's first stage, and the
+                // walk must stop there: following the edge would retitle, clone, or sequence the
+                // sibling chains as if they belonged to this plan block.
+                if (IsChainBoundaryDependent(templateChild)) continue;
+                if (!visited.Add(templateChild.Id)) continue;
+
                 Mission clonedStage = new Mission(
                     parsedTitle + " [" + templateChild.Persona + "]",
                     parsedDescription);
@@ -4232,7 +4259,14 @@ namespace Armada.Core.Services
                 clonedStage = await _Database.Missions.CreateAsync(clonedStage, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "architect created chained stage " + clonedStage.Id +
                     " (" + clonedStage.Persona + ") depending on " + newDependency.Id);
-                await CloneDependentChainAsync(voyageMissions, templateChild, clonedStage, parsedTitle, parsedDescription, token).ConfigureAwait(false);
+                await CloneDependentChainCoreAsync(
+                    voyageMissions,
+                    templateChild,
+                    clonedStage,
+                    parsedTitle,
+                    parsedDescription,
+                    visited,
+                    token).ConfigureAwait(false);
             }
         }
 
@@ -4250,6 +4284,8 @@ namespace Armada.Core.Services
 
             foreach (Mission dependent in directDependents)
             {
+                if (IsChainBoundaryDependent(dependent)) continue;
+
                 dependent.Title = parsedTitle + " [" + dependent.Persona + "]";
                 dependent.Description = parsedDescription;
                 dependent.BranchName = null;
@@ -4333,7 +4369,7 @@ namespace Armada.Core.Services
             while (!String.IsNullOrEmpty(current.Id) && visited.Add(current.Id))
             {
                 Mission? next = voyageMissions
-                    .Where(m => m.DependsOnMissionId == current.Id)
+                    .Where(m => m.DependsOnMissionId == current.Id && !IsChainBoundaryDependent(m))
                     .OrderBy(m => m.CreatedUtc)
                     .FirstOrDefault();
                 if (next == null) break;
@@ -4341,6 +4377,12 @@ namespace Armada.Core.Services
             }
 
             return current;
+        }
+
+        private static bool IsChainBoundaryDependent(Mission dependent)
+        {
+            if (dependent == null) return false;
+            return String.Equals(dependent.Persona, "Architect", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<bool> HasDependentPipelineStages(string? voyageId, string missionId, CancellationToken token)
