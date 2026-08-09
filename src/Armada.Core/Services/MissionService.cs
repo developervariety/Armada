@@ -2796,7 +2796,6 @@ namespace Armada.Core.Services
                         "- Work only within this worktree directory\n" +
                         "- Commit all changes to the current branch\n" +
                         "- Commit and push your changes -- the Admiral will also push if needed\n" +
-                        "- When this checkout is detached (no local branch name on HEAD), push with the fully-qualified form `git push origin HEAD:refs/heads/<branch>` instead of `git push -u origin HEAD` -- the -u form fails on a detached HEAD\n" +
                         "- If you encounter a blocking issue, commit what you have and exit\n" +
                         "- Exit with code 0 on success\n" +
                         "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
@@ -3258,6 +3257,10 @@ namespace Armada.Core.Services
                         additionalWorker.Persona = "Worker";
                         additionalWorker.DependsOnMissionId = completedMission.Id;
                         additionalWorker.BranchName = null;
+                        // A read-only voyage must stay read-only end to end: missions spawned from an
+                        // Architect's plan inherit the Architect mission's mode, so an audit or research
+                        // voyage never silently turns its plan blocks into implementing missions.
+                        additionalWorker.Mode = completedMission.Mode;
                         additionalWorker = await _Database.Missions.CreateAsync(additionalWorker, token).ConfigureAwait(false);
                         _Logging.Info(_Header + "architect created additional worker mission " + additionalWorker.Id + ": " + parsed[i].Title);
 
@@ -4251,6 +4254,9 @@ namespace Armada.Core.Services
                 clonedStage.VesselId = templateChild.VesselId;
                 clonedStage.Persona = templateChild.Persona;
                 clonedStage.DependsOnMissionId = newDependency.Id;
+                // Read-only mode propagates with the chain: cloned stages are the same line of
+                // work as their template, so an audit template never spawns implementing stages.
+                clonedStage.Mode = templateChild.Mode;
                 // Deliberately NOT inherited. StageOrder identifies a parallel stage group, and every
                 // cloned chain is an independent line of work that happens to share the template's
                 // shape. Copying it would group the clones together and make each chain's downstream
