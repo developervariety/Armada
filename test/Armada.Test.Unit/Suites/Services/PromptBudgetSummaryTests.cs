@@ -13,8 +13,8 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Tests for <see cref="PromptBudgetSummary.FromEventPayloads"/> and the
-    /// armada_mission_status prompt-budget projection (obj_ms6vukad: mission status
-    /// exposes the measured prompt-component sizes).
+    /// armada_mission_status prompt-budget projection (mission status exposes
+    /// the measured prompt-component sizes).
     /// </summary>
     public class PromptBudgetSummaryTests : TestSuite
     {
