@@ -160,6 +160,12 @@ namespace Test.Shared.Infrastructure
             settings.Rest.Hostname = "127.0.0.1";
             settings.InitializeDirectories();
 
+            // Pre-seed the server's database from the shared migrated-and-seeded template so the server's
+            // InitializeAsync finds the schema already at the current version and skips the full migration
+            // run (and re-seeding, which is existence-guarded) on every suite's boot. The result is
+            // byte-identical to letting the server migrate from empty, just without the per-boot cost.
+            TestDatabaseHelper.SeedDatabaseFile(sqlitePath);
+
             _Server = new ArmadaServer(logging, settings, quiet: true);
             await _Server.StartAsync().ConfigureAwait(false);
 

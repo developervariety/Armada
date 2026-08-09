@@ -55,6 +55,24 @@ namespace Test.Shared.Infrastructure
             return Task.FromResult(new TestDatabase(driver, tempFile, connectionString));
         }
 
+        /// <summary>
+        /// Copy the migrated-and-seeded schema template over the supplied database file path. A server or
+        /// driver that subsequently runs <c>InitializeAsync</c> against this file finds the schema already
+        /// at the current version -- so it skips the full migration run and re-seeding (both are guarded)
+        /// and boots almost instantly. Used by the end-to-end fixture to avoid paying the migration cost
+        /// on every server start. The parent directory is created if it does not already exist.
+        /// </summary>
+        /// <param name="destinationPath">Absolute path of the SQLite database file to (over)write.</param>
+        public static void SeedDatabaseFile(string destinationPath)
+        {
+            if (String.IsNullOrEmpty(destinationPath)) throw new ArgumentNullException(nameof(destinationPath));
+
+            string template = EnsureTemplate();
+            string? directory = Path.GetDirectoryName(destinationPath);
+            if (!String.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            File.Copy(template, destinationPath, true);
+        }
+
         #endregion
 
         #region Private-Methods
