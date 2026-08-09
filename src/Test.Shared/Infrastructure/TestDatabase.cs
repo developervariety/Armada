@@ -51,15 +51,9 @@ namespace Test.Shared.Infrastructure
         public void Dispose()
         {
             Driver.Dispose();
-            try
-            {
-                if (File.Exists(_TempFile)) File.Delete(_TempFile);
-            }
-            catch
-            {
-                // Temp-file cleanup is best effort; a lingering handle on some platforms
-                // must not fail an otherwise-passing test.
-            }
+            // Delete the backing temp file and drop it from TestTemp's tracking set so the process-exit
+            // sweep does not retain a handle to every per-test database for the life of the run.
+            TestTemp.TryDelete(_TempFile);
         }
 
         #endregion

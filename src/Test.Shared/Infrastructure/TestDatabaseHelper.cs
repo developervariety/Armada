@@ -40,10 +40,15 @@ namespace Test.Shared.Infrastructure
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
 
-            string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_" + Guid.NewGuid().ToString("N") + ".db");
+            string tempFile = TestTemp.NewFile("test", ".db");
             File.Copy(template, tempFile);
 
-            string connectionString = "Data Source=" + tempFile;
+            // Disable connection pooling for the per-test file. Pooled connections keep an OS handle on
+            // the SQLite file open after the driver is disposed, which makes the File.Delete in
+            // TestDatabase.Dispose fail silently and leaves the temp .db behind. With pooling off, closing
+            // the driver's connections releases the file immediately so each test database is deleted the
+            // moment its TestDatabase is disposed.
+            string connectionString = "Data Source=" + tempFile + ";Pooling=False";
             // Schema and seed data are already present from the template copy, so InitializeAsync
             // (all migrations + seeding) is intentionally not run here.
             SqliteDatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
@@ -66,7 +71,7 @@ namespace Test.Shared.Infrastructure
                 LoggingModule logging = new LoggingModule();
                 logging.Settings.EnableConsole = false;
 
-                string path = Path.Combine(Path.GetTempPath(), "armada_test_template_" + Guid.NewGuid().ToString("N") + ".db");
+                string path = TestTemp.NewFile("test_template", ".db");
                 using (SqliteDatabaseDriver driver = new SqliteDatabaseDriver("Data Source=" + path, logging))
                 {
                     driver.InitializeAsync().GetAwaiter().GetResult();

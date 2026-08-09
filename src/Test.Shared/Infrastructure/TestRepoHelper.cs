@@ -32,7 +32,7 @@ namespace Test.Shared.Infrastructure
             {
                 if (_BareRepoPath == null)
                 {
-                    string tempBase = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    string tempBase = TestTemp.NewDirectory("test_bare");
                     string workDir = Path.Combine(tempBase, "work");
                     _BareRepoPath = Path.Combine(tempBase, "bare.git");
                     Directory.CreateDirectory(workDir);

@@ -128,8 +128,7 @@ namespace Test.Shared.Infrastructure
 
         private async Task StartAsync()
         {
-            TempDir = Path.Combine(Path.GetTempPath(), "armada_e2e_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(TempDir);
+            TempDir = TestTemp.NewDirectory("e2e");
 
             string sqlitePath = Path.Combine(TempDir, "armada.db");
             DatabaseSettings dbSettings = new DatabaseSettings();
