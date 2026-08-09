@@ -205,6 +205,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(resolved, "Resolved template should not be null");
                     AssertEqual("mission.rules", resolved!.Name, "Template name");
                     AssertTrue(resolved.Content.Contains("## Rules"), "Content should contain '## Rules'");
+                    AssertTrue(resolved.Content.Contains("refs/heads", StringComparison.Ordinal),
+                        "mission.rules must teach the fully-qualified push form for detached checkouts");
                 }
             });
 

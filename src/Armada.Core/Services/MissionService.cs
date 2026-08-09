@@ -2796,6 +2796,7 @@ namespace Armada.Core.Services
                         "- Work only within this worktree directory\n" +
                         "- Commit all changes to the current branch\n" +
                         "- Commit and push your changes -- the Admiral will also push if needed\n" +
+                        "- When this checkout is detached (no local branch name on HEAD), push with the fully-qualified form `git push origin HEAD:refs/heads/<branch>` instead of `git push -u origin HEAD` -- the -u form fails on a detached HEAD\n" +
                         "- If you encounter a blocking issue, commit what you have and exit\n" +
                         "- Exit with code 0 on success\n" +
                         "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
