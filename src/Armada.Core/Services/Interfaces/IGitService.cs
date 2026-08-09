@@ -210,6 +210,24 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default);
 
         /// <summary>
+        /// Whether a repo-relative path is tracked by git (committed to the index). Used to decide
+        /// where the generated mission instructions may live: a tracked root instruction file such
+        /// as CLAUDE.md must never be overwritten, so the generated file goes under
+        /// .armada/instructions/ instead. A root file that is merely present but untracked was
+        /// written by an earlier generation pass and is the canonical location.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="relativePath">Repo-relative path to test, e.g. "AGENTS.md".</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the path is tracked by git.</returns>
+        Task<bool> IsPathTrackedAsync(string worktreePath, string relativePath, CancellationToken token = default)
+        {
+            // Default: untracked. Real GitService overrides; unit stubs that predate the member
+            // keep the behavior they had before it existed (mission brief lands at the root).
+            return Task.FromResult(false);
+        }
+
+        /// <summary>
         /// Check if a local branch exists in the repository.
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>

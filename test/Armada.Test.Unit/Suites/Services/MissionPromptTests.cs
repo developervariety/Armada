@@ -212,6 +212,14 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertContains("/srv/armada/AI-Memory/shared/INDEX.md", brief, runtime + " must get the index path");
                             // The trailing separator must be normalized, not doubled.
                             AssertFalse(brief.Contains("AI-Memory//shared", StringComparison.Ordinal), "the root separator must be normalized");
+                            // The wording must not contradict a repo instruction file the runtime
+                            // auto-loads: an absolute "do not read the whole tree" against an
+                            // auto-loaded directive that names specific memory files reads as a
+                            // contradiction (probe papercut 2026-08-09).
+                            AssertFalse(brief.Contains("Do not read the whole tree", StringComparison.Ordinal),
+                                runtime + " memory section must not order the captain to avoid the tree the repo file names");
+                            AssertContains("If the repository instruction file", brief,
+                                runtime + " memory section must defer to the repo instruction file");
                         }
                         finally
                         {
@@ -314,6 +322,48 @@ namespace Armada.Test.Unit.Suites.Services
 
                         AssertTrue(File.Exists(Path.Combine(tempDir, "AGENTS.md")), "OpenCode missions should write AGENTS.md");
                         AssertFalse(File.Exists(Path.Combine(tempDir, "CLAUDE.md")), "OpenCode missions should no longer fall through to CLAUDE.md");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A generated-at-root brief is never duplicated under .armada/instructions", async () =>
+            {
+                // Probe papercut 2026-08-09: on a repo with no tracked AGENTS.md, generation wrote
+                // the brief at the root (the file OpenCode auto-loads), then EnsureMissionInstructions
+                // Present re-checked existence, saw the root file, and re-homed the brief under
+                // .armada/instructions/ - shipping the same 6.4 KB text twice. The restore path must
+                // decide by TRACKED status, not existence.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("OpenCodeVessel2", "https://github.com/test/repo");
+                        Captain captain = new Captain("OpenCodeCaptain2");
+                        captain.Runtime = AgentRuntimeEnum.OpenCode;
+
+                        Mission mission = new Mission();
+                        mission.Title = "Implement feature";
+                        mission.Description = "The brief belongs at the root, once.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+                        await service.EnsureMissionInstructionsPresentAsync(tempDir, mission, captain, CancellationToken.None);
+
+                        AssertTrue(File.Exists(Path.Combine(tempDir, "AGENTS.md")), "the brief must exist at the root");
+                        AssertFalse(
+                            File.Exists(Path.Combine(tempDir, ".armada", "instructions", "AGENTS.md")),
+                            "the same brief must not be duplicated under .armada/instructions/");
                     }
                     finally
                     {
@@ -1553,9 +1603,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Shared launch prompt builder caps oversized prompts", async () =>
+            await RunTest("Launch prompt does not demand a re-read of an auto-loaded root instruction file", async () =>
             {
+                // Probe papercut 2026-08-09: the launch prompt told an OpenCode captain to read
+                // AGENTS.md explicitly although the runtime had already injected it, doubling the
+                // received bytes. For a runtime that auto-loads the root file, the directive states
+                // the file is already loaded instead of ordering a read.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    IPromptTemplateService templateService = new PromptTemplateService(testDb.Driver, logging);
+                    await templateService.SeedDefaultsAsync();
+
+                    Vessel vessel = new Vessel("AutoLoadVessel", "https://github.com/test/repo");
+
+                    Mission mission = new Mission("Probe mission", "Measure received context.");
+                    mission.BranchName = "armada/auto-load";
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.BranchName = mission.BranchName;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_prompt_autoload_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dock.WorktreePath);
+                    await File.WriteAllTextAsync(Path.Combine(dock.WorktreePath, "AGENTS.md"), "# mission instructions\n");
+
+                    try
+                    {
+                        Captain captain = new Captain("autoload-captain");
+                        captain.Runtime = AgentRuntimeEnum.OpenCode;
+
+                        string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
+                            mission, vessel, captain, dock, templateService).ConfigureAwait(false);
+
+                        AssertContains("AGENTS.md", prompt, "the directive must name the auto-loaded file");
+                        AssertContains("already loaded by your runtime", prompt,
+                            "an auto-loaded root file must be stated as loaded, not ordered to be read again");
+                        AssertFalse(prompt.Contains("Read `AGENTS.md`", StringComparison.Ordinal),
+                            "the launch prompt must not order an explicit read of an already-loaded file");
+
+                        // A runtime that does NOT auto-load the file still gets the explicit read order.
+                        Captain codex = new Captain("codex-captain");
+                        codex.Runtime = AgentRuntimeEnum.Codex;
+                        await File.WriteAllTextAsync(Path.Combine(dock.WorktreePath, "CODEX.md"), "# mission instructions\n");
+
+                        string codexPrompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
+                            mission, vessel, codex, dock, templateService).ConfigureAwait(false);
+                        AssertContains("Read `CODEX.md` in the working directory immediately", codexPrompt,
+                            "a non-auto-load runtime must still be ordered to read the file");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(dock.WorktreePath, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Shared launch prompt builder caps oversized prompts", async () =>
+            {                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     LoggingModule logging = CreateLogging();
                     IPromptTemplateService templateService = new PromptTemplateService(testDb.Driver, logging);

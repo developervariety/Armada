@@ -1638,6 +1638,13 @@ namespace Armada.Core.Services
             string? runtimeName = captain != null ? captain.Runtime.ToString() : null;
             string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(runtimeName);
             string rootInstructionsPath = Path.Combine(worktreePath, instructionsFileName);
+            // A present root instruction file -- tracked repo content (CLAUDE.md) or an untracked
+            // local file -- must never be overwritten, so the generated brief goes under
+            // .armada/instructions/. An ABSENT root file means the runtime auto-loads the filename
+            // (OpenCode/AGENTS.md) or the launch prompt points at it, so the brief lands at the root.
+            // This existence-based decision is the WRITE side. EnsureMissionInstructionsPresentAsync
+            // decides the RESTORE side by tracked status, so a root file this pass generated is never
+            // duplicated under .armada/instructions/ (probe papercut, 2026-08-09).
             string instructionsRelativePath = File.Exists(rootInstructionsPath)
                 ? MissionPromptBuilder.GetGeneratedInstructionsRelativePath(runtimeName)
                 : instructionsFileName;
@@ -2048,6 +2055,11 @@ namespace Armada.Core.Services
         /// memory grows without bound, so inlining it would re-create the prompt bloat this module is
         /// measured against, and a captain can read the parts it needs. The path is emitted exactly as
         /// configured, so it must be the path as it resolves on the host the captain runs on.
+        /// The wording must not contradict a repository instruction file the runtime auto-loads
+        /// (a repo CLAUDE.md that names the active memory set): an absolute "do not read the whole
+        /// tree" against an auto-loaded directive that says to read specific files reads as a
+        /// contradiction the captain must resolve (probe papercut, 2026-08-09). Defer to the
+        /// repository file instead.
         /// </summary>
         /// <param name="memoryRoot">Configured AI-Memory root path.</param>
         /// <returns>The AI-Memory section.</returns>
@@ -2058,8 +2070,9 @@ namespace Armada.Core.Services
             return
                 "## Shared Memory\n" +
                 "Durable, cross-mission knowledge for this fleet lives at `" + root + "`.\n" +
-                "Read `" + root + "/shared/INDEX.md` first, then follow it to what your mission needs. " +
-                "Do not read the whole tree.\n" +
+                "Read `" + root + "/shared/INDEX.md` first; it maps the active set. " +
+                "If the repository instruction file (CLAUDE.md / AGENTS.md) names the memory files that load " +
+                "for this runtime, follow it. " +
                 "It is reference material, not authority: playbooks, vessel instructions, and this mission brief win on conflict.\n";
         }
 
@@ -4978,7 +4991,38 @@ namespace Armada.Core.Services
             return (path ?? String.Empty).Trim().Replace('\\', '/');
         }
 
-        private async Task EnsureMissionInstructionsPresentAsync(
+        /// <summary>
+        /// Whether the root instruction file is tracked by the repository. A tracked file is repo
+        /// content that must not be overwritten; an untracked file at the root was written by an
+        /// earlier generation pass and is the canonical mission-brief location for runtimes that
+        /// auto-load it. Falls back to false when the path is not a git worktree (unit tests), so
+        /// the brief lands at the root and existing tests keep their behavior.
+        /// </summary>
+        /// <param name="worktreePath">Dock worktree path.</param>
+        /// <param name="instructionsFileName">Runtime instruction filename, e.g. "CLAUDE.md".</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the root instruction file is tracked by git.</returns>
+        private async Task<bool> IsRootInstructionsTrackedAsync(string worktreePath, string instructionsFileName, CancellationToken token)
+        {
+            try
+            {
+                return await _Git.IsPathTrackedAsync(worktreePath, instructionsFileName, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve tracked status of root instructions at " +
+                    worktreePath + ": " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Ensure the generated mission instructions exist in the worktree, restoring them from the
+        /// log snapshot when the dock lost them. Internal for the unit suite: the double-write
+        /// regression (brief duplicated at root and under .armada/instructions/) is only provable by
+        /// calling generation and restore back to back.
+        /// </summary>
+        internal async Task EnsureMissionInstructionsPresentAsync(
             string worktreePath,
             Mission mission,
             Captain captain,
@@ -4991,7 +5035,14 @@ namespace Armada.Core.Services
             string runtimeName = captain.Runtime.ToString();
             string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(runtimeName);
             string rootInstructionsPath = Path.Combine(worktreePath, instructionsFileName);
-            string instructionsRelativePath = File.Exists(rootInstructionsPath)
+            bool rootInstructionsTracked = await IsRootInstructionsTrackedAsync(worktreePath, instructionsFileName, token).ConfigureAwait(false);
+            // Restore-side rule: a TRACKED root file is repo content and the brief belongs under
+            // .armada/instructions/. An untracked root file was either generated by an earlier pass
+            // (the brief already lives at the root for an auto-load runtime) or is a local artifact;
+            // either way the root is the canonical location. Deciding by tracked status instead of
+            // mere existence keeps this path from duplicating a brief that generation wrote at the
+            // root, which was the 2026-08-09 probe papercut (AGENTS.md byte-identical at both paths).
+            string instructionsRelativePath = rootInstructionsTracked
                 ? MissionPromptBuilder.GetGeneratedInstructionsRelativePath(runtimeName)
                 : instructionsFileName;
             string instructionsPath = Path.Combine(worktreePath, instructionsRelativePath);

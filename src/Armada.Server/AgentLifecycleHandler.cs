@@ -433,7 +433,10 @@ namespace Armada.Server
                 dock,
                 _PromptTemplateService).ConfigureAwait(false);
 
-            if (_Settings.MessageTemplates.EnableCommitMetadata)
+            // Commit trailers are dead weight on a read-only mission: the rules block forbids
+            // commits, so the trailer block contradicts the brief and costs tokens (probe
+            // papercut, 2026-08-09). Skip it for Audit and Research missions.
+            if (_Settings.MessageTemplates.EnableCommitMetadata && !mission.IsReadOnlyMode)
             {
                 Dictionary<string, string> templateContext = _TemplateService.BuildContext(mission, captain, null, null, dock);
                 string commitInstructions = _TemplateService.RenderCommitInstructions(_Settings.MessageTemplates, templateContext);

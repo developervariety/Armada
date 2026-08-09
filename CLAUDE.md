@@ -1,7 +1,7 @@
 ## Project Context
 Armada is a multi-agent orchestration system that scales human developers with AI. It coordinates AI coding agents ("captains") to work on tasks ("missions") across git repositories ("vessels"). Written in C# (.NET), it exposes MCP tools for fleet, vessel, captain, mission, voyage, dock, signal, and merge queue management.
 
-IMPORTANT -- Context Conservation: When using Armada MCP tools, use armada_enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data -- by default, large fields are excluded and length hints are returned instead.
+Operator runtimes only: Armada MCP tools (armada_enumerate, armada_status, etc.) are not delivered to captains. When using them, prefer armada_enumerate with a small pageSize (10-25) to conserve context, use filters (vesselId, status, date ranges) to narrow results, and set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) only when you specifically need that data.
 
 AI-Memory is the sole durable memory source for Codex, Claude, Cursor, Gemini,
 OpenCode, Armada captains, and future AI runtimes. Read the shared

@@ -198,7 +198,8 @@ namespace Armada.Core.Services
             string instructionDirective = BuildInstructionDirective(
                 dock.WorktreePath,
                 instructionsFileName,
-                generatedInstructionsPath);
+                generatedInstructionsPath,
+                captain.Runtime.ToString());
 
             if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
@@ -226,7 +227,8 @@ namespace Armada.Core.Services
         private static string BuildInstructionDirective(
             string? worktreePath,
             string instructionsFileName,
-            string generatedInstructionsPath)
+            string generatedInstructionsPath,
+            string? runtimeName = null)
         {
             if (!String.IsNullOrWhiteSpace(worktreePath))
             {
@@ -237,7 +239,18 @@ namespace Armada.Core.Services
                     return "Read `" + generatedInstructionsPath + "` immediately.";
 
                 if (File.Exists(rootPath))
+                {
+                    // The runtime auto-loads the root file (ClaudeCode loads CLAUDE.md, OpenCode
+                    // loads AGENTS.md, Gemini loads GEMINI.md). Demanding an explicit read of a file
+                    // the runtime already injected wastes a tool call and, when the same text would
+                    // otherwise be read again, doubles the received bytes. State that it is already
+                    // in context instead (probe papercut, 2026-08-09).
+                    if (RuntimeAutoLoadsInstructionsFile(runtimeName))
+                        return "`" + instructionsFileName + "` in the working directory is your mission instruction file, " +
+                            "already loaded by your runtime. Follow it.";
+
                     return "Read `" + instructionsFileName + "` in the working directory immediately.";
+                }
 
                 return "The mission instruction file is missing. Do not claim completion; report the missing file before doing other work.";
             }

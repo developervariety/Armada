@@ -191,9 +191,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("HandleLaunchAgentAsync persists returned process id before returning", async () =>
+            await RunTest("HandleLaunchAgentAsync omits commit trailers on a read-only mission", async () =>
             {
+                // Probe papercut 2026-08-09: the launch prompt supplied git commit trailers on a
+                // Research mission whose rules forbid any commit - dead weight that contradicts the
+                // brief and costs tokens on every read-only dispatch.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_cursor_readonly_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+
+                    try
+                    {
+                        Captain captain = new Captain("readonly-captain", AgentRuntimeEnum.Cursor)
+                        {
+                            Model = "cursor-model"
+                        };
+
+                        Mission readOnly = new Mission("Read-only mission")
+                        {
+                            Persona = "Worker",
+                            Mode = MissionModeEnum.Audit,
+                            BranchName = "feature/readonly"
+                        };
+
+                        Dock dock = new Dock
+                        {
+                            BranchName = "feature/readonly",
+                            WorktreePath = worktreePath
+                        };
+                        string logFilePath = Path.Combine(settings.LogDirectory, "missions", readOnly.Id + ".log");
+
+                        int processId = await handler.HandleLaunchAgentAsync(captain, readOnly, dock).ConfigureAwait(false);
+                        string logContents = await WaitForFileContainsAsync(logFilePath, "Mission: Read-only mission").ConfigureAwait(false);
+
+                        AssertTrue(processId > 0, "Launch should return a process id");
+                        AssertFalse(logContents.Contains("IMPORTANT", StringComparison.OrdinalIgnoreCase),
+                            "a read-only mission must not receive commit-trailer instructions");
+                        AssertFalse(logContents.Contains("append the following trailers", StringComparison.OrdinalIgnoreCase),
+                            "the commit-trailer block must be absent from a read-only launch prompt");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("HandleLaunchAgentAsync persists returned process id before returning", async () =>
+            {                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 using (CursorShimScope shim = CursorShimScope.Create())
                 {
                     AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);

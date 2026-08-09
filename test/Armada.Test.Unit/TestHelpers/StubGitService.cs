@@ -31,6 +31,7 @@ namespace Armada.Test.Unit.TestHelpers
         public string? CurrentBranchResult { get; set; } = "main";
         public bool IsWorkingDirectoryCleanResult { get; set; } = true;
         public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = Array.Empty<string>();
+        public HashSet<string> TrackedPaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public bool DefaultBranchExistsResult { get; set; } = true;
         public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "main" };
 
@@ -175,6 +176,9 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
             => Task.FromResult(ChangedFilesSinceResult);
+
+        public Task<bool> IsPathTrackedAsync(string worktreePath, string relativePath, CancellationToken token = default)
+            => Task.FromResult(TrackedPaths.Contains(relativePath));
 
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
         public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");

@@ -576,6 +576,25 @@ namespace Armada.Core.Services
                 .ToList();
         }
 
+        /// <inheritdoc />
+        public async Task<bool> IsPathTrackedAsync(string worktreePath, string relativePath, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrEmpty(relativePath)) return false;
+
+            try
+            {
+                string output = await RunGitAsync(worktreePath, token, "ls-files", "--error-unmatch", "--", relativePath).ConfigureAwait(false);
+                return !String.IsNullOrWhiteSpace(output);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not determine tracked status of " + relativePath +
+                    " in " + worktreePath + ": " + ex.Message);
+                return false;
+            }
+        }
+
         /// <summary>
         /// Delete a local branch from a repository.
         /// </summary>
