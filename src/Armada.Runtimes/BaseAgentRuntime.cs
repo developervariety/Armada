@@ -45,12 +45,25 @@ namespace Armada.Runtimes
         /// </summary>
         public event Action<int, int?>? OnProcessExited;
 
+        /// <summary>
+        /// Milliseconds to wait for an agent process to exit gracefully (after closing stdin) before it
+        /// is force-killed during <see cref="StopAsync"/>. Defaults to 10000 (10s) for production. Test
+        /// harnesses lower this so recalling agents does not block on the full graceful window. Clamped to
+        /// a non-negative value on set.
+        /// </summary>
+        public static int GracefulStopTimeoutMs
+        {
+            get => _GracefulStopTimeoutMs;
+            set => _GracefulStopTimeoutMs = value < 0 ? 0 : value;
+        }
+
         #endregion
 
         #region Private-Members
 
         private string _Header = "[BaseAgentRuntime] ";
         private LoggingModule _Logging;
+        private static int _GracefulStopTimeoutMs = 10000;
 
         #endregion
 
@@ -246,8 +259,8 @@ namespace Armada.Runtimes
                         // stdin may already be closed
                     }
 
-                    // Wait up to 10 seconds for graceful exit
-                    bool exited = process.WaitForExit(10000);
+                    // Wait for graceful exit up to the configured window before force-killing.
+                    bool exited = process.WaitForExit(_GracefulStopTimeoutMs);
                     if (!exited)
                     {
                         _Logging.Warn(_Header + "process " + processId + " did not exit gracefully, killing");

@@ -9,6 +9,7 @@ namespace Test.Shared.Infrastructure
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Settings;
+    using Armada.Runtimes;
     using Armada.Server;
     using SyslogLogging;
 
@@ -128,6 +129,13 @@ namespace Test.Shared.Infrastructure
 
         private async Task StartAsync()
         {
+            // Recalling/stopping agents in tests must not block on the full production graceful-exit
+            // window. Any agent processes launched against this in-process server are stopped almost
+            // immediately (a stop-all over several captains otherwise waits ~10s each). Production keeps
+            // the 10s default.
+            BaseAgentRuntime.GracefulStopTimeoutMs = 500;
+
+
             TempDir = TestTemp.NewDirectory("e2e");
 
             string sqlitePath = Path.Combine(TempDir, "armada.db");
