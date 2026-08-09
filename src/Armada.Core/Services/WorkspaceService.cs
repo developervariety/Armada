@@ -501,6 +501,28 @@ namespace Armada.Core.Services
 
             try
             {
+                // Fast guard: only diff when this exact path is the root of a git repository. Without it,
+                // a non-repo path makes `git diff HEAD` walk up to any ancestor repository and scan it
+                // (potentially huge and slow) before failing -- e.g. under a temp directory whose parent
+                // happens to be a repo. rev-parse is fast and lets us fail closed immediately.
+                string topLevel;
+                try
+                {
+                    topLevel = (await RunGitCommandAsync(rootPath, token, "rev-parse", "--show-toplevel").ConfigureAwait(false)).Trim();
+                }
+                catch
+                {
+                    result.Error = "Not a git repository.";
+                    return result;
+                }
+
+                if (String.IsNullOrWhiteSpace(topLevel)
+                    || !String.Equals(Path.GetFullPath(rootPath).TrimEnd('/', '\\'), Path.GetFullPath(topLevel).TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Error = "Not a git repository rooted at this path.";
+                    return result;
+                }
+
                 string diff;
                 if (!String.IsNullOrWhiteSpace(path))
                 {
