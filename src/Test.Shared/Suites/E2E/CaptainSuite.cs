@@ -20,6 +20,13 @@ namespace Test.Shared.Suites.E2E
     /// </summary>
     public sealed class CaptainSuite : IArmadaTestSuite
     {
+        #region Private-Members
+
+        private readonly object _SeedLock = new object();
+        private Task? _SharedCaptainSeed;
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -734,12 +741,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "page-captain-" + i.ToString("D2"));
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains?pageSize=10");
                 EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
@@ -753,12 +756,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "p1-captain-" + i.ToString("D2"));
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains?pageSize=10&pageNumber=1");
                 EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
@@ -771,12 +770,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "p2-captain-" + i.ToString("D2"));
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains?pageSize=10&pageNumber=2");
                 EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
@@ -789,12 +784,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "p3-captain-" + i.ToString("D2"));
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains?pageSize=10&pageNumber=3");
                 EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
@@ -807,12 +798,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "beyond-captain-" + i.ToString("D2"));
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains?pageSize=10&pageNumber=999");
                 EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
@@ -824,12 +811,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "overlap-captain-" + i.ToString("D2"));
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HttpResponseMessage resp1 = await authClient.GetAsync("/api/v1/captains?pageSize=10&pageNumber=1");
                 EnumerationResult<Captain> result1 = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(resp1);
@@ -854,12 +837,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 25; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "accounted-captain-" + i.ToString("D2"));
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HashSet<string> allIds = new HashSet<string>();
 
@@ -880,12 +859,8 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdCaptainIds = new List<string>();
 
-                for (int i = 0; i < 10; i++)
-                {
-                    await CreateCaptainAsync(authClient, createdCaptainIds, "ps5-captain-" + i);
-                }
+                await EnsureCaptainsSeededAsync(authClient);
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains?pageSize=5");
                 EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
@@ -1369,6 +1344,34 @@ namespace Test.Shared.Suites.E2E
         /// <summary>
         /// Creates a captain and returns the deserialized Captain object.
         /// </summary>
+        /// <summary>
+        /// Ensure the shared server holds a reusable set of at least 25 captains, seeding it exactly once
+        /// for the suite. Every case runs against the same in-process fixture and the list/pagination cases
+        /// only assert accumulation-tolerant conditions (a full page, a total at or above a threshold, no
+        /// page overlap, all created IDs present across pages), so they can share one seeded set instead of
+        /// each re-creating 25 captains over sequential HTTP round-trips. The seed Task is memoized: the
+        /// first bulk case to run pays the cost and the rest await the completed Task.
+        /// </summary>
+        /// <param name="authClient">Authenticated client for the shared e2e server.</param>
+        /// <returns>A task that completes once the shared captains exist.</returns>
+        private Task EnsureCaptainsSeededAsync(HttpClient authClient)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedCaptainSeed == null) _SharedCaptainSeed = SeedSharedCaptainsAsync(authClient);
+                return _SharedCaptainSeed;
+            }
+        }
+
+        private static async Task SeedSharedCaptainsAsync(HttpClient authClient)
+        {
+            List<string> seededIds = new List<string>();
+            for (int i = 0; i < 25; i++)
+            {
+                await CreateCaptainAsync(authClient, seededIds, "shared-pag-captain-" + i.ToString("D2")).ConfigureAwait(false);
+            }
+        }
+
         private static async Task<Captain> CreateCaptainAsync(HttpClient client, List<string> createdCaptainIds, string name, string runtime = "ClaudeCode")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
