@@ -370,6 +370,8 @@ namespace Armada.Test.Shared.Suites.Services
             public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
                 => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(true);
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)

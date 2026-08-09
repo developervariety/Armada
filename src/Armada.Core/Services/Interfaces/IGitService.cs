@@ -133,6 +133,15 @@ namespace Armada.Core.Services.Interfaces
         Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default);
 
         /// <summary>
+        /// Get the list of files with unresolved merge conflicts (unmerged paths) in a worktree.
+        /// Returns an empty list when the working tree is clean.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Repository-relative paths of conflicted files.</returns>
+        Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default);
+
+        /// <summary>
         /// Get the HEAD commit hash of a worktree.
         /// </summary>
         /// <param name="worktreePath">Path to the worktree.</param>

@@ -125,6 +125,12 @@ namespace Armada.Test.Shared.Infrastructure
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
             => Task.FromResult(ChangedFilesSinceResult);
 
+        /// <summary>Conflicted files returned by <see cref="GetConflictedFilesAsync"/>.</summary>
+        public IReadOnlyList<string> ConflictedFilesResult { get; set; } = new List<string>();
+
+        public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+            => Task.FromResult(ConflictedFilesResult);
+
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
         public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
         public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)

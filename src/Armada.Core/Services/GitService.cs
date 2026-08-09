@@ -381,6 +381,30 @@ namespace Armada.Core.Services
         /// <summary>
         /// Get the diff of all changes in a worktree against the base branch.
         /// </summary>
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+
+            try
+            {
+                string output = await RunGitAsync(worktreePath, token, "diff", "--name-only", "--diff-filter=U").ConfigureAwait(false);
+                List<string> files = new List<string>();
+                foreach (string line in output.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string trimmed = line.Trim();
+                    if (trimmed.Length > 0) files.Add(trimmed);
+                }
+                return files;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not list conflicted files in " + worktreePath + ": " + ex.Message);
+                return new List<string>();
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));

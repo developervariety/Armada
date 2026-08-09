@@ -50,6 +50,13 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - `ArmadaApiClient` (C# SDK) gained typed methods for project profiles, skills, the Ask assistant, the needs-you inbox, and the workspace terminal/diff endpoints
 - Helm CLI gained `armada inbox` (with `--critical`) and `armada ask "<question>"` commands
 
+### Landing retry conflict capture
+- Added `IGitService.GetConflictedFilesAsync` (git diff --name-only --diff-filter=U) to list unmerged paths
+- When `RetryLandingAsync` fails, the mission's failure reason now records the exact conflicting file list so the operator knows what to fix
+
+### Maintainability
+- Centralized four scattered inline mission-status checks in AdmiralService/CaptainService onto `MissionStateMachine.IsTerminalOrPostWork`, fixing a divergence where a recovery failure could fail a mission whose work already existed
+
 ---
 
 ## v0.9.0

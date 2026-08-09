@@ -2665,6 +2665,8 @@ namespace Armada.Test.Shared.Suites.Services
             /// <inheritdoc />
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
                 => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
 
             /// <inheritdoc />
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
