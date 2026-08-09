@@ -149,7 +149,12 @@ namespace Armada.Core.Services
                     }
                 }
 
-                execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
+                // Share the host-wide slot with DoD gates and merge-queue test runs so two full
+                // build+test suites never run on one host at once. See HostWideCommandLock.
+                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+                {
+                    execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -570,7 +575,10 @@ namespace Armada.Core.Services
 
             try
             {
-                execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
+                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+                {
+                    execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {

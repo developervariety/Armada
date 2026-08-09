@@ -1094,7 +1094,11 @@ namespace Armada.Core.Services
             string testCommand = entry.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
             if (String.IsNullOrEmpty(testCommand)) return;
 
-            TestResult testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
+            TestResult testResult;
+            using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+            {
+                testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
+            }
             if (testResult.ExitCode != 0)
             {
                 _Logging.Warn(_Header + "tests FAILED for " + entryTag + " (exit " + testResult.ExitCode + ")");

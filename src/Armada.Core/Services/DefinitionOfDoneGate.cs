@@ -31,10 +31,6 @@ namespace Armada.Core.Services
         private readonly IContainerRuntimeProbe? _ContainerRuntimeProbe;
         private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
 
-        // Host-wide, not per-instance: every gate in this Admiral shares one execution slot because
-        // the resource they contend for is the machine's CPU and disk, not any single vessel.
-        private static readonly SemaphoreSlim _GateExecutionLock = new SemaphoreSlim(1, 1);
-
         private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
         private const int _MAX_SECTION_CHARS = 7800;
         private const int _MAX_LINE_CHARS = 2000;
@@ -145,17 +141,15 @@ namespace Armada.Core.Services
             // the worktree in between (obj_msg0hlkw - five missions lost their worktrees this way).
             // The lease is held across the queue wait and the command run, and released afterwards;
             // the disk-lifecycle sweep and DockService.ReclaimAsync both honor it.
+            //
+            // Check runs and merge-queue test runs share the same slot, so a gate never overlaps a
+            // check or a merge-queue test either. See HostWideCommandLock.
             DockLeaseRegistry.Acquire(dock.Id);
             try
             {
-                await _GateExecutionLock.WaitAsync(token).ConfigureAwait(false);
-                try
+                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
                 {
                     return await RunGateCommandsAsync(profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
-                }
-                finally
-                {
-                    _GateExecutionLock.Release();
                 }
             }
             finally
