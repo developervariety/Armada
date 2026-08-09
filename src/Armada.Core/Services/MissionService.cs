@@ -1724,7 +1724,19 @@ namespace Armada.Core.Services
                 ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens)
                 : await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
-            content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
+
+            // The metadata module embeds the mission description verbatim. A long accumulated
+            // handoff chain (base brief plus a persona preamble plus prior-stage agent output
+            // plus scoped diff per stage) once rendered a 53 KB metadata module against a
+            // 32 KiB brief budget on a rescue Judge. Bound the embedded copy here so the
+            // module fits the budget regardless of what the persisted description holds; the
+            // full description stays in the mission record for reference. Rendering with a
+            // private parameter copy keeps every later module on the unbound description.
+            Dictionary<string, string> metadataParams = new Dictionary<string, string>(templateParams)
+            {
+                ["MissionDescription"] = BoundMetadataDescription(mission.Description)
+            };
+            content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", metadataParams, token).ConfigureAwait(false));
             content += "\n";
 
             // Objective scope, supplied once when the voyage links an objective: the objective's own
@@ -3408,8 +3420,20 @@ namespace Armada.Core.Services
         // Hard ceiling on a persisted mission description. The per-part caps above bound one handoff block
         // (8,000 chars of agent output plus _MaxReviewDiffChars of diff), but they cannot bound the total
         // once a brief carries a base description, a persona preamble, and a handoff block. This is the
-        // backstop that keeps a runaway brief out of the captain prompt entirely.
-        private const int _MaxMissionDescriptionChars = 90000;
+        // backstop that keeps a runaway brief out of the captain prompt entirely. The value is sized so a
+        // persisted description cannot by itself exceed the captain instruction budget (32 KiB): the
+        // metadata module embeds it, so a description larger than the whole brief would always be cut at
+        // render time. The render-time bound in <see cref="BoundMetadataDescription"/> is the first line of
+        // defense; this backstop keeps the persisted record itself from growing without limit.
+        private const int _MaxMissionDescriptionChars = 20000;
+
+        // Cap on the description embedded in the mission.metadata module. The module also carries the
+        // persona prompt and the mission header, so the embedded description is capped well below the
+        // total captain-instruction budget. Head and tail are both preserved: the head holds the base
+        // brief, and the tail holds the newest handoff block, which carries the diff a reviewing stage
+        // needs. Middle content is elided with a visible marker.
+        internal const int _MaxMetadataDescriptionChars = 12000;
+        internal const int _MaxMetadataDescriptionHeadChars = 4000;
 
         // Opening marker of a prior-stage handoff block, keyed by the upstream mission id. Present so a
         // repeated handoff replaces its own previous block rather than appending a duplicate.
@@ -3537,9 +3561,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Truncates an over-budget mission description from the tail, keeping the head where the actual
-        /// brief lives, and leaves a visible note so the captain knows content was cut and where the whole
-        /// change still is. Returns the input unchanged when it fits.
+        /// Truncates an over-budget mission description, preserving the head (the base brief) and the tail
+        /// (the newest handoff block, which carries the diff a reviewing stage needs) and eliding the middle
+        /// with a visible marker. Returns the input unchanged when it fits. A tail-only cut would drop the
+        /// newest prior-stage block, which is exactly the content the downstream stage must review.
         /// </summary>
         /// <param name="description">Description to bound.</param>
         /// <param name="maxChars">Maximum characters allowed.</param>
@@ -3548,9 +3573,69 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrEmpty(description) || description.Length <= maxChars) return description;
 
-            const string note = "\n\n...(brief truncated to fit the mission description budget; the full change is on the branch above)\n";
-            int allowed = Math.Max(0, maxChars - note.Length);
-            return description.Substring(0, allowed).TrimEnd() + note;
+            const string marker = "\n\n...(brief truncated to fit the mission description budget; the full change is on the branch above)\n";
+            int headChars = Math.Max(0, (maxChars - marker.Length) / 3);
+            return BuildBoundedDescription(description, maxChars, headChars, marker);
+        }
+
+        /// <summary>
+        /// Bounds the description embedded in the mission.metadata module so a single module can never
+        /// exceed the captain instruction budget, whatever the persisted description holds. Preserves the
+        /// head (the base brief) and the tail (the newest handoff block, which carries the diff a
+        /// reviewing stage needs) and elides the middle with a visible marker. Returns the input unchanged
+        /// when it fits, and a default string when the description is null or empty so the module never
+        /// renders a blank Description section.
+        /// </summary>
+        /// <param name="description">Persisted mission description.</param>
+        /// <returns>A bounded copy fit for the metadata module.</returns>
+        internal static string BoundMetadataDescription(string? description)
+        {
+            if (String.IsNullOrEmpty(description)) return "No additional description provided.";
+
+            if (description.Length <= _MaxMetadataDescriptionChars) return description;
+
+            const string marker = "\n\n...(middle of the mission description elided to fit the captain brief; the full description is in the mission record)\n";
+            return BuildBoundedDescription(description, _MaxMetadataDescriptionChars, _MaxMetadataDescriptionHeadChars, marker);
+        }
+
+        /// <summary>
+        /// Shared head-and-tail elision: keeps the first <paramref name="headChars"/> characters and the
+        /// newest tail of the description on line boundaries, joined by a visible marker. The head holds
+        /// the base brief; the tail holds the newest handoff block. Returns the input unchanged when it
+        /// already fits within <paramref name="maxChars"/>.
+        /// </summary>
+        /// <param name="description">Description to bound; assumed non-null and over budget.</param>
+        /// <param name="maxChars">Maximum characters allowed in the result.</param>
+        /// <param name="headChars">Characters kept from the head before eliding.</param>
+        /// <param name="marker">Visible elision marker placed between head and tail.</param>
+        /// <returns>The bounded description.</returns>
+        private static string BuildBoundedDescription(string description, int maxChars, int headChars, string marker)
+        {
+            int tailBudget = Math.Max(0, maxChars - marker.Length - headChars);
+            int head = Math.Min(headChars, description.Length);
+            int tail = Math.Min(tailBudget, description.Length - head);
+
+            // Snap the head cut to a line boundary so the elision never splits a sentence mid-line.
+            int headCut = description.LastIndexOf('\n', Math.Min(head, description.Length - 1)) + 1;
+            if (headCut <= 0 || headCut > head) headCut = head;
+            head = headCut;
+
+            int tailStart = Math.Max(head, description.Length - tail);
+            if (tailStart < description.Length && tailStart > 0)
+            {
+                // Snap the tail start forward to the next line boundary.
+                int newline = description.IndexOf('\n', tailStart);
+                if (newline > 0 && newline < description.Length) tailStart = newline + 1;
+            }
+
+            if (tailStart <= head)
+            {
+                return description.Substring(0, head).TrimEnd() + marker + "(tail unavailable; see the mission record)";
+            }
+
+            return description.Substring(0, head).TrimEnd()
+                + marker
+                + description.Substring(tailStart).TrimStart();
         }
 
         /// <summary>

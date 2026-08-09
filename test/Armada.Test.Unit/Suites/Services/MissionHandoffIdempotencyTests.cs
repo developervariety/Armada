@@ -130,6 +130,68 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await Task.CompletedTask;
             });
+
+            await RunTest("TruncateMissionDescription keeps the newest handoff block, not just the head", async () =>
+            {
+                // A tail-only cut drops the newest prior-stage block, which is exactly the content the
+                // downstream reviewing stage needs. The head+tail elision must keep both ends.
+                string head = "## Mission brief\nBase scope that the whole voyage depends on.\n";
+                string middle = new string('m', 2000);
+                string tail = "\n\n---\n" + MissionService.BuildHandoffMarker(_OtherUpstreamId) + "\n" +
+                    "## Prior Stage Output\n### Diff from prior stage\n```diff\n+the newest diff the judge must see\n```\n";
+
+                string full = head + middle + tail;
+                string bounded = MissionService.TruncateMissionDescription(full, 800);
+
+                AssertTrue(bounded.Length <= 800, "bounded description must fit the budget");
+                AssertContains("Base scope that the whole voyage depends on", bounded, "the head brief must survive");
+                AssertContains("the newest diff the judge must see", bounded, "the newest handoff block must survive the cut");
+                AssertContains(MissionService.BuildHandoffMarker(_OtherUpstreamId), bounded, "the newest handoff marker must survive");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("BoundMetadataDescription leaves a fitting description unchanged", async () =>
+            {
+                string small = "## Mission brief\nA modest scope.";
+                AssertEqual(small, MissionService.BoundMetadataDescription(small), "a description under the metadata cap must be unchanged");
+                AssertEqual("No additional description provided.", MissionService.BoundMetadataDescription(""), "an empty description must render the default, not a blank section");
+                AssertEqual("No additional description provided.", MissionService.BoundMetadataDescription(null), "a null description must render the default, not a blank section");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("BoundMetadataDescription caps an oversized description and keeps head and tail", async () =>
+            {
+                // A long accumulated handoff chain (the rescue-Judge shape) once produced a 53 KB metadata
+                // module against a 32 KiB brief budget. The metadata module must be bounded no matter how
+                // large the persisted description is, and the newest handoff block (the diff) must survive.
+                string head = "## Mission brief\nWire the landed recovery rows through the reset path.\n";
+                string middle = new string('m', 30000);
+                string tail = "\n\n---\n" + MissionService.BuildHandoffMarker(_OtherUpstreamId) + "\n" +
+                    "## Prior Stage Output\n### Diff from prior stage\n```diff\n+recovery rows now reach the runner\n```\n";
+
+                string full = head + middle + tail;
+                string bounded = MissionService.BoundMetadataDescription(full);
+
+                AssertTrue(bounded.Length <= MissionService._MaxMetadataDescriptionChars, "metadata description must fit the module cap");
+                AssertContains("Wire the landed recovery rows through the reset path", bounded, "the head brief must survive");
+                AssertContains("recovery rows now reach the runner", bounded, "the newest handoff diff must survive");
+                AssertContains("elided to fit the captain brief", bounded, "the elision must be visible to the captain");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("BoundMetadataDescription handles a description with no tail split point", async () =>
+            {
+                string noNewline = new string('x', MissionService._MaxMetadataDescriptionChars + 500);
+                string bounded = MissionService.BoundMetadataDescription(noNewline);
+
+                AssertTrue(bounded.Length <= MissionService._MaxMetadataDescriptionChars + 200, "metadata description must stay near the cap");
+                AssertContains("elided to fit the captain brief", bounded, "the elision must be visible");
+
+                await Task.CompletedTask;
+            });
         }
     }
 }
