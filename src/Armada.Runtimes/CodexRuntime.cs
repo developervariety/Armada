@@ -1,10 +1,13 @@
 namespace Armada.Runtimes
 {
-    using Armada.Core.Models;
-    using Armada.Core.Services;
+    using System.Collections.Generic;
     using System.Diagnostics;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using SyslogLogging;
 
     /// <summary>
@@ -91,8 +94,10 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Point THIS captain process at an external provider's OpenAI-compatible endpoint
-        /// when its model resolves to one. The Codex CLI honors <c>OPENAI_BASE_URL</c> and
-        /// <c>OPENAI_API_KEY</c>, so a resolved provider is wired through those variables.
+        /// when its model resolves to one. Codex does not honor base-URL environment
+        /// variables: the endpoint is wired through a <c>--profile</c> config layer
+        /// (see <see cref="EnsureProviderProfile"/>) and the credential through
+        /// <c>ARMADA_PROVIDER_KEY</c>, the profile's <c>env_key</c>.
         /// </summary>
         /// <param name="startInfo">Start info for the captain process being launched.</param>
         /// <param name="captain">Captain being launched; may be null.</param>
@@ -102,12 +107,55 @@ namespace Armada.Runtimes
             ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, captain?.Model ?? model, _ModelProviders);
             if (resolved == null) return;
 
-            startInfo.Environment["OPENAI_BASE_URL"] = resolved.BaseUrl;
-            startInfo.Environment["OPENAI_API_KEY"] = resolved.ApiKey;
+            startInfo.Environment["ARMADA_PROVIDER_KEY"] = resolved.ApiKey;
 
             // An inherited credential would outrank or collide with the routed key, so clear it
             // for this child only; a native captain beside it keeps its own.
             startInfo.Environment.Remove("CODEX_API_KEY");
+        }
+
+        /// <summary>
+        /// Write the codex profile layer that routes a resolved provider captain to its
+        /// endpoint. Codex layers <c>$CODEX_HOME/&lt;name&gt;.config.toml</c> on top of the
+        /// base config via <c>--profile &lt;name&gt;</c>; the profile names the provider,
+        /// its base URL, and the environment variable holding the credential.
+        /// </summary>
+        /// <param name="resolved">Resolved provider for the captain being launched.</param>
+        private void EnsureProviderProfile(ResolvedModelProvider resolved)
+        {
+            if (resolved == null) return;
+
+            string profileName = ProviderProfileName(resolved);
+            string codexHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string codexDir = Path.Combine(codexHome, ".codex");
+            Directory.CreateDirectory(codexDir);
+
+            string path = Path.Combine(codexDir, profileName + ".config.toml");
+            string content =
+                "model_provider = \"" + profileName + "\"\n" +
+                "\n" +
+                "[model_providers." + profileName + "]\n" +
+                "name = \"" + profileName + "\"\n" +
+                "base_url = \"" + resolved.BaseUrl + "\"\n" +
+                "wire_api = \"responses\"\n" +
+                "env_key = \"ARMADA_PROVIDER_KEY\"\n";
+
+            if (!File.Exists(path) || !String.Equals(File.ReadAllText(path), content, StringComparison.Ordinal))
+            {
+                File.WriteAllText(path, content);
+            }
+        }
+
+        /// <summary>
+        /// Resolve the codex profile name for a captain: the registered provider id when
+        /// present, otherwise <c>custom</c> for a custom-endpoint captain.
+        /// </summary>
+        /// <param name="resolved">Resolved provider for the captain being launched.</param>
+        /// <returns>Profile name usable as <c>--profile</c> and as the config file stem.</returns>
+        private static string ProviderProfileName(ResolvedModelProvider resolved)
+        {
+            if (!String.IsNullOrWhiteSpace(resolved.ProviderId)) return resolved.ProviderId;
+            return "custom";
         }
 
         /// <summary>
@@ -125,6 +173,39 @@ namespace Armada.Runtimes
         /// heartbeat/progress detection is preserved because OnOutputReceived still fires for stderr.
         /// </summary>
         protected override bool WriteStderrToLogFile => false;
+
+        /// <summary>
+        /// Start a codex captain process. When the captain's model resolves to an external
+        /// provider, the provider profile layer is written before the CLI launches so the
+        /// <c>--profile</c> argument and the routed credential are both in place.
+        /// </summary>
+        /// <inheritdoc />
+        public override async Task<int> StartAsync(
+            string workingDirectory,
+            string prompt,
+            Dictionary<string, string>? environment = null,
+            string? logFilePath = null,
+            string? finalMessageFilePath = null,
+            string? model = null,
+            Captain? captain = null,
+            CancellationToken token = default)
+        {
+            ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, captain?.Model ?? model, _ModelProviders);
+            if (resolved != null)
+            {
+                EnsureProviderProfile(resolved);
+            }
+
+            return await base.StartAsync(
+                workingDirectory,
+                prompt,
+                environment,
+                logFilePath,
+                finalMessageFilePath,
+                model,
+                captain,
+                token).ConfigureAwait(false);
+        }
 
         /// <summary>
         /// Get the codex CLI command.
@@ -176,6 +257,13 @@ namespace Armada.Runtimes
 
                 args.Add("--model");
                 args.Add(effectiveModel);
+
+                // Codex routes external providers through a --profile config layer, not env vars.
+                if (resolved != null)
+                {
+                    args.Add("--profile");
+                    args.Add(ProviderProfileName(resolved));
+                }
             }
 
             // Forward per-captain reasoning effort to Codex CLI as a per-invocation
