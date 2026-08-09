@@ -148,14 +148,29 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Resolve the codex profile name for a captain: the registered provider id when
-        /// present, otherwise <c>custom</c> for a custom-endpoint captain.
+        /// present, otherwise a host-derived name so custom-endpoint captains on different
+        /// providers never share one profile file (a shared file would let the last
+        /// launcher overwrite the other provider's base URL).
         /// </summary>
         /// <param name="resolved">Resolved provider for the captain being launched.</param>
         /// <returns>Profile name usable as <c>--profile</c> and as the config file stem.</returns>
         private static string ProviderProfileName(ResolvedModelProvider resolved)
         {
             if (!String.IsNullOrWhiteSpace(resolved.ProviderId)) return resolved.ProviderId;
-            return "custom";
+
+            string host = String.Empty;
+            if (Uri.TryCreate(resolved.BaseUrl, UriKind.Absolute, out Uri? uri) && !String.IsNullOrWhiteSpace(uri.Host))
+            {
+                host = uri.Host;
+            }
+            else
+            {
+                host = resolved.BaseUrl;
+            }
+
+            // "https://cun.ai/v1" -> "custom-cun-ai"; "https://api.zyloo.io/v1" -> "custom-api-zyloo-io"
+            string sanitized = host.Replace(".", "-").Replace(":", "-").Replace("/", "-");
+            return "custom-" + sanitized;
         }
 
         /// <summary>

@@ -86,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("gpt-5.6-luna", args[modelIndex + 1], "the plain model id must pass through verbatim");
                 int profileIndex = args.IndexOf("--profile");
                 AssertTrue(profileIndex >= 0, "--profile must be present for a routed captain");
-                AssertEqual("custom", args[profileIndex + 1], "a custom-endpoint captain uses the custom profile layer");
+                AssertEqual("custom-cun-ai", args[profileIndex + 1], "a custom-endpoint captain uses a host-derived profile layer");
                 return Task.CompletedTask;
             });
 
@@ -113,6 +113,27 @@ namespace Armada.Test.Unit.Suites.Services
                 int profileIndex = args.IndexOf("--profile");
                 AssertTrue(profileIndex >= 0, "--profile must be present");
                 AssertEqual("cun-ai", args[profileIndex + 1], "the profile name must be the provider id");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("CustomEndpointCaptains_OnDifferentProviders_UseDistinctProfiles", () =>
+            {
+                // Two custom-endpoint captains on different providers must never share one
+                // profile file: the last launcher would overwrite the other's base URL.
+                CodexRuntime runtime = CreateRuntime();
+                Captain luna = CaptainWithCredential("luna", "gpt-5.6-luna", "k", "https://cun.ai/v1");
+                Captain zyloo = CaptainWithCredential("zyloo-sol", "gpt-5.6-sol", "k", "https://api.zyloo.io/v1");
+
+                List<string> lunaArgs = InvokeBuildArguments(runtime, luna.Model, luna);
+                List<string> zylooArgs = InvokeBuildArguments(runtime, zyloo.Model, zyloo);
+
+                int lunaProfile = lunaArgs.IndexOf("--profile");
+                int zylooProfile = zylooArgs.IndexOf("--profile");
+                AssertTrue(lunaProfile >= 0 && zylooProfile >= 0, "both routed captains must carry a profile");
+                AssertEqual("custom-cun-ai", lunaArgs[lunaProfile + 1], "the cun-ai captain uses its own profile");
+                AssertEqual("custom-api-zyloo-io", zylooArgs[zylooProfile + 1], "the zyloo captain uses its own profile");
+                AssertNotEqual(lunaArgs[lunaProfile + 1], zylooArgs[zylooProfile + 1],
+                    "different providers must not share a profile file");
                 return Task.CompletedTask;
             });
 
