@@ -158,6 +158,17 @@ namespace Armada.Core.Services
         private const string _JudgeCheckExclusionMarker = "[JUDGE-CHECK-EXCLUSION]";
 
         /// <summary>
+        /// Failure reason for a Judge PASS rejected because no green independent Checks are
+        /// attached and no exclusion was documented. It must not instruct the captain to run
+        /// armada_run_check: that tool is operator-only and captains do not receive it, so the
+        /// instruction was a closed loop the captain could not exit (six High papercuts).
+        /// </summary>
+        internal static readonly string JudgeNoChecksFailureReason =
+            "Judge PASS rejected: no green independent Checks attached. Independent Checks are attached by the operator, not by captains. " +
+            "To complete the review without them, document an environmental exclusion with the " +
+            _JudgeCheckExclusionMarker + " marker in the review, or ask the operator to attach Build+UnitTest Checks.";
+
+        /// <summary>
         /// A diff section must exceed this size before it is treated as bulk generated data that
         /// carries no review signal (obj_ms1zc92l). Small data files stay reviewable.
         /// </summary>
@@ -1296,7 +1307,7 @@ namespace Armada.Core.Services
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
-                                mission.FailureReason = "Judge PASS rejected: no green independent Checks attached. Independent Checks are attached by the operator, not by captains. To complete the review without them, document an environmental exclusion with the " + _JudgeCheckExclusionMarker + " marker in the review, or ask the operator to attach Build+UnitTest Checks.";
+                                mission.FailureReason = JudgeNoChecksFailureReason;
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;

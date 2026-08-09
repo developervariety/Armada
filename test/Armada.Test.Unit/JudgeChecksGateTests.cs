@@ -243,6 +243,21 @@ namespace Armada.Test.Unit
                         "A pending mission-scoped Check holds the Judge PASS.");
                 }
             }).ConfigureAwait(false);
+
+            // The NoChecksNoExclusion failure reason must not name a tool captains do not
+            // receive. The old text told the Judge to run armada_run_check, which is
+            // operator-only -- a closed loop the captain could not exit (six High papercuts).
+            await RunTest("JudgeGate_NoChecksFailureReason_DoesNotNameOperatorOnlyTool", () =>
+            {
+                string reason = MissionService.JudgeNoChecksFailureReason;
+                AssertContains("[JUDGE-CHECK-EXCLUSION]", reason,
+                    "the reason still documents the exclusion-marker escape");
+                AssertFalse(reason.Contains("armada_run_check", StringComparison.Ordinal),
+                    "the reason must not instruct the captain to run an operator-only tool");
+                AssertContains("attached by the operator", reason,
+                    "the reason states who attaches Checks instead of ordering the captain to");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
     }
 }
