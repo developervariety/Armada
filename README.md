@@ -163,6 +163,13 @@ armada go "1. Add auth middleware 2. Add login endpoint 3. Add token validation"
 
 If a captain crashes, the Admiral can repair the worktree and relaunch the agent up to `MaxRecoveryAttempts` times (default: 3).
 
+## Contributors
+
+Special thanks to the community that helps build and improve Armada.
+
+- [@kevin-v96](https://github.com/kevin-v96)
+- [@developervariety](https://github.com/developervariety)
+
 ## Quick Start
 
 ### Prerequisites
