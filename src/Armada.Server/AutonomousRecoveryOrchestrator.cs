@@ -1868,7 +1868,13 @@ namespace Armada.Server
                 "rate limit",
                 "recovery exhausted",
                 "blocked by failed dependency",
-                "vessel deleted"
+                "vessel deleted",
+                // A Judge PASS rejected by the real-signal gate (no green independent Checks, a
+                // failed Check, or Checks that never resolved) is an operator-attachment problem,
+                // not a substantive rejection of the work. A rescue Judge on the same branch
+                // re-reviews already-verified green work and cannot attach Checks itself, so it
+                // loops. The operator attaches Checks or the Judge documents the exclusion marker.
+                "judge pass rejected"
             };
 
             return seriousMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal));

@@ -740,6 +740,33 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains(failed.ReviewComment!, rescue.Description ?? "", "Rescue brief must inline the parent's review feedback verbatim.");
             }).ConfigureAwait(false);
 
+            await RunTest("RealSignalGateRejection_NoRescueLoopOnGreenWork", async () =>
+            {
+                // obj_msiccuoc: a standalone Audit Judge whose PASS is rejected ONLY by the
+                // real-signal gate (no green independent Checks attached) is an operator-attachment
+                // problem, not a substantive rejection of the work. A rescue Judge on the same
+                // branch re-reviews already-verified green work and cannot attach Checks itself, so
+                // it must not be dispatched.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_gate", "usr_auto_gate").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_gate", "usr_auto_gate").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                    "Judge PASS rejected: no green independent Checks attached. Independent Checks are attached by the operator, not by captains. To complete the review without them, document an environmental exclusion with the [JUDGE-CHECK-EXCLUSION] marker in the review, or ask the operator to attach Build+UnitTest Checks.").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.AgentOutput = "review body\n[ARMADA:VERDICT] PASS";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A real-signal-gate rejection must not spawn a rescue Judge on green work.");
+            }).ConfigureAwait(false);
+
             await RunTest("ReviseRetestRejudge_JudgeFailure_ChainsReJudgeOntoWorkerRevisionBeforeLanding", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
