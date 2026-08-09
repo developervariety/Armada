@@ -162,8 +162,9 @@ returned job ID.
 
 #### Model pinning
 
-`preferredModel` normally takes a complexity tier (`low`, `mid`, or `high`)
-and Armada picks the best-fit available captain. It also accepts a literal
+`preferredModel` normally takes a complexity tier (`mid` or `high`; the
+legacy `low` value maps to `mid`) and Armada picks the best-fit available
+captain. It also accepts a literal
 model name (for example `claude-opus-5`, `gpt-5.6-sol`,
 `opencode-go/glm-5.2`): the dispatcher first filters idle
 captains by an exact case-insensitive model match, and only then falls back to
@@ -376,7 +377,7 @@ an explicit operator decision.
 
 ## 8. Complete MCP Tool Catalog
 
-The built-in catalog contains 175 names. Some names are compatibility aliases.
+The built-in catalog contains 177 names. Some names are compatibility aliases.
 Some tool families register only when their service is enabled.
 
 Risk labels:

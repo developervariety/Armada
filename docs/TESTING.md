@@ -26,9 +26,9 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mys
 
 | Project | Tests | What It Covers |
 |---------|-------|----------------|
-| `Armada.Test.Automated` | ~781 | REST API, MCP tools, WebSocket, authentication, end-to-end workflows |
-| `Armada.Test.Unit` | ~377 | Database operations, model serialization, service logic |
-| `Armada.Test.Runtimes` | ~35 | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux) |
+| `Armada.Test.Automated` | ~891 | REST API, MCP tools, WebSocket, authentication, end-to-end workflows |
+| `Armada.Test.Unit` | ~3344 | Database operations, model serialization, service logic |
+| `Armada.Test.Runtimes` | ~179 | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) |
 | `Armada.Test.Database` | ~100+ | Database driver CRUD operations across all 4 backends (SQLite, PostgreSQL, SQL Server, MySQL) |
 | `Armada.Test.Common` | — | Shared test infrastructure (TestRunner, TestSuite, TestResult) |
 
@@ -44,24 +44,13 @@ No test framework (xUnit, NUnit, MSTest) is used. Each test project is a console
 
 ```
 ================================================================================
-ARMADA AUTOMATED TEST SUITE
+ARMADA UNIT TEST SUITE
 ================================================================================
-
---- Fleet API Tests ---
-  PASS  Create Fleet (12ms)
-  PASS  Read Fleet (8ms)
-  PASS  Update Fleet (15ms)
-  PASS  Delete Fleet (6ms)
-  ...
-
---- Captain API Tests ---
-  PASS  Create Captain (14ms)
-  ...
-
+...
 ================================================================================
 TEST SUMMARY
 ================================================================================
-Total: 781  Passed: 781  Failed: 0  Runtime: 42150ms
+Total: 3344  Passed: 3344  Failed: 0  Runtime: 239580ms
 
 ================================================================================
 RESULT: PASS

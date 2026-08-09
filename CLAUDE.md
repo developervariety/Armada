@@ -106,8 +106,8 @@ already absorbed the fixes; we previously lost a Cursor-related bug branch
 by cleaning it up before the upstream disposition was settled.
 
 **Whenever a mission merges from `upstream/main` into our `main`, that
-same voyage MUST also update `README.md`'s `## Fork features vs
-upstream` section.** The README delta is part of the upstream-sync
+same voyage MUST also update `README.md`'s `## What This Fork Adds Over
+Upstream` section.** The README delta is part of the upstream-sync
 deliverable, not a follow-up. Either:
 
 - the merge commit itself includes the README edit, OR
@@ -116,15 +116,15 @@ deliverable, not a follow-up. Either:
 
 ### What goes in the section
 
-- A short header: "Last upstream sync: `<merge-commit-sha>` (N upstream
-  commits absorbed)" plus the date.
-- **Fork-only features** subsection: bulleted list of features our fork
-  has that upstream does not. Each bullet ends with the relevant fork
-  commit SHA(s) for git anchor. Keep bullets to 1-3 sentences each.
-- **Upstream features in-tree but not actively wired** subsection:
-  lists features upstream ships that we keep in-tree but don't wire
-  into our orchestration flow yet (e.g. Mux runtime, Planning Sessions
-  UX), each with a one-line "why" (typically: not needed for our
+- A short header: "Last upstream sync: `<date>`, merge-base
+  `<merge-commit-sha>` (N upstream commits absorbed)" plus the upstream
+  branch state if it has moved since.
+- The section groups the fork's additions by subsystem; each bullet
+  ends with the relevant fork commit SHA(s) for git anchor. Keep bullets
+  to 1-3 sentences each.
+- Where upstream ships a feature we keep in-tree but do not wire into
+  the orchestration flow yet (e.g. Mux runtime, Planning Sessions UX),
+  say so with a one-line "why" (typically: not needed for our
   multi-runtime captain pool yet).
 - Section sits in `README.md` immediately after `## Why Armada`'s
   "Who It's For" subsection, before `## Features`.

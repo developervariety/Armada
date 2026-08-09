@@ -56,7 +56,7 @@ Armada is intentionally vocabulary-heavy because the model mirrors the operating
 
 ## What This Fork Adds Over Upstream
 
-This is a private fork of [`jchristn/Armada`](https://github.com/jchristn/Armada). It tracks upstream (last sync: merge-base `e9e3021f`, 21 upstream commits absorbed) and preserves upstream's v0.8.0 delivery-management model, while adding several subsystems that turn Armada from a captain launcher into an autonomous, retrieval-aware delivery platform.
+This is a private fork of [`jchristn/Armada`](https://github.com/jchristn/Armada). It tracks upstream (last sync: 2026-05-24, merge-base `e9e3021f`, 21 upstream commits absorbed) and preserves upstream's v0.8.0 delivery-management model, while adding several subsystems that turn Armada from a captain launcher into an autonomous, retrieval-aware delivery platform. Upstream's in-progress `feature/v0.9.0` branch (HA merge-queue coordination, reliability schema, Touchstone test harness, OpenTelemetry) is not yet absorbed.
 
 The additions below are grouped by subsystem. Except where noted, each subsystem is fork-original — the corresponding services, models, and MCP tools do not exist upstream.
 
@@ -82,9 +82,10 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 
 ### Model-tier routing and preferredModel abstraction
 
-- **Three-tier routing.** Dispatchers pass an abstract `low` / `mid` / `high` tier instead of a concrete model name; a pure selector resolves the tier to an eligible idle captain at dispatch time, with an upward-only fallback chain so strong captains aren't consumed by cheap work. Upstream has no tier concept and pins concrete models only.
+- **Tiered routing.** Dispatchers pass an abstract complexity tier instead of a concrete model name; a pure selector resolves the tier to an eligible idle captain at dispatch time, with an upward-only fallback chain so strong captains aren't consumed by cheap work. There are two effective tiers — `mid` for Worker missions and `high` for specialist personas — and the legacy `low` selector maps to `mid`. Upstream has no tier concept and pins concrete models only.
 - **Config-driven tier membership.** Tier lists live in settings, but classification also matches anchored model-family regexes so routine version bumps auto-register into the right tier without editing config.
 - **Within-tier preference order.** A per-tier ordered list picks the first listed model with an eligible idle captain, falling back to random for unlisted models.
+- **Provider-neutral model routing.** Tier membership and provider routes come from a configurable registry, not hard-coded model names. Each runtime reaches an external provider (for example zyloo) through its own launch mechanism — Codex through a per-endpoint `--profile` config layer, Claude Code through the Anthropic-native provider form, OpenCode through an inline OpenAI-compatible overlay — and per-captain provider credentials override the registry and are masked on the MCP captain surface. Selection prefers an idle non-native (external-provider) captain before native models in any tier, treats unranked models as equal random peers, and counts OpenCode-runtime captains as native for the preference.
 - **Capability-aware selection.** Each model carries a 0–100 capability profile (telemetry richness, audit/reasoning fit, mechanical throughput, cost); a mission's optional capability hint (audit / reasoning-heavy / mechanical / doc-only) re-sorts eligible models by best fit before the preference step. The hint is persisted across all four database backends.
 - **Specialist high-tier reservation.** Specialist personas are reserved to high-tier captains and have their preferred model upgraded at create time; the scheduler additionally holds back reserved high-tier slots from Worker dispatch, with an in-flight-demand deadlock guard so a high-tier-only fleet still primes.
 - **Per-stage overrides.** Each pipeline stage can carry its own preferred model that overrides mission-level routing, so a single dispatched voyage can route different stages to different tiers.
@@ -98,6 +99,10 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 - **Dispatch hardening.** Centralized configurable timeouts for admiral git processes and code-context/index queries, plus a non-blocking dispatch guard, make a stalled dependency, index backend, or pack build fail fast (or warn and proceed) instead of hanging dispatch before a voyage row exists.
 - **Resource-pressure admission.** Dispatch is gated on available memory with OOM classification, so a host under pressure defers work instead of launching captains that die mid-mission (`93e500f3`, `8391b0f7`).
 - **Merge-failure classification and recovery routing.** A pure router maps a classified merge failure plus a per-mission recovery-attempt count to a terminal action — redispatch off a fresh tip, spin up a rebase-captain mission, or surface for human resolution — with a bounded attempt cap for back-pressure.
+- **Host-wide DoD-gate serialization.** The in-dock build/test gate holds a dock lease across a host-wide gate queue, so concurrent mission gates and operator check retries run one at a time instead of crashing the test host.
+- **Checks on rescue voyages.** Rescue voyages carry Build and UnitTest checks from dispatch, and a Judge PASS is rejected with a named failure reason when no green independent check is attached, so a rescued mission cannot land on its own evidence alone.
+- **Rescue-tier resolution.** A rescue mission's model tier resolves against the persona it will actually run as, so a Worker rescue can never sit unassignable waiting on a high-tier-only roster.
+- **No-op completion rejection.** A mission that "completes" within seconds with an empty diff and only a bare completion marker is rejected as `no_op_completion_detected` and re-dispatched to a different captain, so a runtime false-complete cannot pass the pipeline as progress.
 
 ### Delivery: docks, merge queue, and landing
 
@@ -114,6 +119,8 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 - **Self-deploy with supervised restart.** The Admiral can rebuild and restart itself from a landed commit under a supervisor, so a fork change reaches the running server without a manual build step. Off by default (`b817f605`).
 - **One-shot server provisioning.** `bootstrap-server.sh` provisions a fresh host end to end — runtimes, Docker, Postgres, and the Admiral — so a new deployment does not depend on remembered steps (`241e7b1e`).
 - **Live admission and routing settings.** The settings API exposes resource-admission and model-tier policy, and the Admiral hot-reloads the settings file so an operator can correct routing without a restart (`847dbb39`).
+- **Bounded disk lifecycle.** A background scan classifies disk use by owned category; a reconcile pass reclaims only eligible items — past grace period, under allowed roots, not referenced by active state — including stale sibling-worktree leases. A maintenance sweep prunes merged mission branches per the vessel cleanup policy.
+- **Captain papercuts.** Captains report friction on a structured `[ARMADA:PAPERCUT]` line; the Admiral collapses repeated reports by vessel, category, and problem so operator triage starts from an aggregated signal and a distinct-captain count.
 
 ### Captain prompt shaping and context budget
 
@@ -124,14 +131,16 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 - **Shared memory as a prompt module.** A configured `aiMemoryRoot` puts one pointer to the shared memory index into every brief, for every runtime, naming the index only so memory content never inflates the prompt (`1cc521a5`).
 - **Context switches that actually remove text.** Disabling code indexing or learned facts removes their guidance from the brief entirely, and the brief names no MCP tool a captain was not given; dock MCP client seeding is opt-in and off by default (`48be4c36`, `1cc521a5`).
 - **Idempotent stage handoff with a bounded description.** A repeated handoff for the same upstream mission replaces its block instead of appending a second copy, and a persisted mission description is capped with the truncation logged (`7da79de6`).
-- **Bounded three-lens Judge contract.** The Judge reviews through correctness, blast-radius, and source-fidelity lenses, must exhibit a real corpus-present affected case to block, and emits its verdict synchronously so a discarded review cannot silently re-run (`3fe3ea74`, `1c8d6b9d`).
+- **Hard prompt-budget backstop.** When a composed brief would exceed the captain budget, the total-budget backstop elides lower-priority content modules, and the persisted mission description and stage handoff stay under the same budget, so an oversized brief cannot ship silently.
+- **Measured prompt-budget telemetry.** Recorded brief sizes surface on mission status alongside authoritative runtime token usage, so prompt cost is comparable across runtimes without relying on captain self-reports.
+- **Bounded three-lens Judge contract.** The Judge reviews through correctness, blast-radius, and source-fidelity lenses, must exhibit a real corpus-present affected case to block, and emits its verdict synchronously so a discarded review cannot silently re-run (`3fe3ea74`, `1c8d6b9d`). The Judge must emit a verdict line before exit, an explicit agent verdict wins over a non-zero process exit, and a rejected PASS cannot loop into a fresh rescue.
 
 ### Captains, runtimes, and interfaces
 
 - **Multi-runtime captain pool.** Claude Code, Codex, Cursor, Gemini, and OpenCode captains schedule through the same mission, voyage, dock, and merge-queue model. OpenCode is a fork-added runtime with JSONL event parsing, standalone operation, tier registration, custom OpenAI-compatible providers, and a permission-config builder wired into dock provisioning. External-provider Claude captains (for example cun-ai) use Claude Code's Anthropic-native provider form. (The Mux runtime is [jchristn/Mux](https://github.com/jchristn/Mux), a .NET CLI agent driven headless via `mux print`; the image builds it from source in `src/Armada.Server/Dockerfile`. Do **not** install the npm package also named `mux` — that is Coder's unrelated "coder multiplexer" and its incompatible CLI silently breaks captain launches. It remains in-tree but is not part of the fork's default pool — configure it explicitly before relying on it.)
 - **Captain health and quarantine.** Captains are auto-quarantined on provider quota / usage-limit and credit/auth signals (honoring per-provider reset times), and a health monitor detects near-instant crash loops, so tier selection only ever hands out live captains. Upstream has no quarantine state or health monitor.
 - **Cross-runtime hardening.** Role/persona context is injected uniformly into every runtime's prompt, provider usage-limit crash signatures are detected across runtimes, and MSBuild node-reuse is disabled on captain launch.
-- **Expanded MCP surface.** The built-in catalog has 175 operator tool names for planning, code-index retrieval, operational assets, reflection memory, Checks, delivery, incidents, audits, Architect decomposition, AgentWake, long-running jobs, objective scheduling, captain diagnostics, and unlanded branches. Normal discovery fits on one compatibility page, while larger extension catalogs retain standard cursor pagination.
+- **Expanded MCP surface.** The built-in catalog has 177 operator tool names for planning, code-index retrieval, operational assets, reflection memory, Checks, delivery, incidents, audits, Architect decomposition, AgentWake, long-running jobs, objective scheduling, captain diagnostics, and unlanded branches. Normal discovery fits on one compatibility page, while larger extension catalogs retain standard cursor pagination.
 - **Shared REST/MCP dispatch parity.** Voyage dispatch is consolidated onto a single path shared by REST and MCP, mapping validation failures to structured MCP errors so orchestrator agents get the same semantics as REST clients.
 - **Per-captain reasoning effort.** A captain carries a reasoning-effort tier that each runtime translates to its own control: `-c model_reasoning_effort` for Codex, a `MAX_THINKING_TOKENS` budget for Claude Code, `--variant` for OpenCode. A companion flag lets recovery retry a Claude captain without extended thinking (`b5088b0d`, `bc038cf2`).
 - **Readable runtime logs.** A structured formatter resolves real tool names out of each CLI's nested JSON event schema, with redaction and truncation, and a noise filter drops envelope-only lifecycle records at both write and read. Mission logs show named tool activity instead of per-event narration (`4937f277`, `6fcae76d`).
@@ -171,7 +180,7 @@ Personas are stored records, not hardcoded prompt strings. Custom personas and p
 
 Dispatchers can use `preferredModel` as routing guidance:
 
-- `low`, `mid`, and `high` select among available captains in a complexity tier.
+- `mid` and `high` select among available captains in a complexity tier; the legacy `low` value maps to `mid`.
 - Literal model names remain available for direct pins.
 - Pipeline stages can override mission-level routing with their own `PreferredModel`.
 - Specialist personas such as Judge, Architect, TestEngineer, and MemoryConsolidator are reserved for high-tier captains by default.

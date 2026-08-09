@@ -22,6 +22,41 @@ Focus: backlog-first delivery management.
 - Added versioned `v0.7.0 -> v0.8.0` migration handoff scripts with backlog/objective and refinement table guidance for all supported backends
 - Updated schema/version verification coverage for the new backlog schema baseline
 
+### Reflection Memory
+- Added the vessel reflection schema, threshold settings, and auto-dispatch of reflection missions during the audit-queue drain
+- Added the MemoryConsolidator persona, reflection pipelines (single and dual-Judge), output-contract parsing, and consolidate / accept / reject memory-proposal MCP tools
+- Added reorganize mode with soft-validation and a dual-Judge gate, quality metrics, and threshold persistence across vessel APIs
+- Added v2-F1 pack curation: vessel pack-hint schema, pack-usage mining from captain logs, pack-curate briefs and auto-trigger, and a context-pack pre-selection pass
+- Added v2-F2 persona and captain identity memory: persona/captain-learned playbooks, cross-vessel habit-pattern mining, six consolidation modes, and dispatch tooling
+- Added v2-F3 fleet memory: fleet-learned playbook schema, fleet-curate threshold and fan-out, and stale-anchor detection for accepted memory notes
+
+### Model-Tier Routing and Provider Neutrality
+- Reworked preferred-model routing into two effective tiers (`mid` for Worker missions, `high` for specialist personas); the legacy `low` selector maps to `mid`
+- Moved tier membership and provider routes into a configurable registry instead of hard-coded model names
+- Added non-native-first selection: an idle external-provider captain is preferred over native models in any tier, unranked models are equal random peers, and OpenCode-runtime captains count as native for the preference
+- Added Codex external-provider routing through a per-endpoint `--profile` config layer, OpenCode inline provider overlays, per-captain provider credential overrides masked on the MCP surface, and hot-reloadable settings for admission and tier policy
+
+### Captain Prompt Shaping and Budgets
+- Added a hard total-budget backstop that elides lower-priority content modules when a brief exceeds the captain budget; persisted mission descriptions and stage handoffs stay under the same budget
+- Added measured prompt-budget telemetry on mission status alongside authoritative runtime token usage
+- Added no-op completion rejection: a sub-minute empty-diff completion with a bare marker fails with `no_op_completion_detected` and re-dispatches to a different captain
+- Persisted pipeline stage order with barrier parallel stages; the objective-scope brief module is emitted once per dispatch and read-only dispatches stay single-stage
+
+### Recovery, Verification, and Gate Hardening
+- Serialized the in-dock DoD gate host-wide under a dock lease so concurrent gates cannot crash the test host
+- Attached Build and UnitTest checks to rescue voyages; a Judge PASS without green independent checks is rejected with a named failure reason
+- Resolved rescue model tier against the rescue persona so a Worker rescue never strands on a high-tier-only roster
+- Required a Judge verdict line before exit; an explicit agent verdict wins over a non-zero process exit, and a rejected PASS cannot loop into a fresh rescue
+- Added distinct Judge review lenses, data-diff scoping, and an index-staleness sweep
+- Added queryable long-running jobs, unlanded-branch visibility, mission stage-order persistence, and build-drift evaluation
+- Fixed cross-tenant objective-link validation, ISO-8601 timestamp binding in five PostgreSQL drivers, and duplicate-reflection dispatch suppression
+
+### Operations and Platform
+- Added captain papercuts: structured friction reports collapsed by vessel, category, and problem
+- Added a bounded disk-lifecycle scan and reconcile with sibling-worktree leases, and a maintenance sweep that prunes merged mission branches per policy
+- Added per-captain provider credential overrides, papercut triage guidance, and authoritative token-usage telemetry through `/api/v1/events/token-usage`
+- Added one-shot server provisioning (`bootstrap-server.sh`), virtual-CAN recreation on container start, and admiral image hardening (OpenCode and Mux CLIs, dotnet SDK, bounded build cache)
+
 ---
 
 ## v0.7.0
