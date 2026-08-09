@@ -191,7 +191,7 @@ namespace Armada.Core.Services
             string generatedInstructionsPath = GetGeneratedInstructionsRelativePath(captain.Runtime.ToString());
 
             List<string> sections = new List<string>();
-            sections.Add("Role: " + BuildBootstrapRoleSummary(mission.Persona));
+            sections.Add("Role: " + BuildBootstrapRoleSummary(mission.Persona, mission.IsReadOnlyMode, mission.Mode));
             sections.Add("Mission: " + mission.Title);
             sections.Add("Branch: " + (dock.BranchName ?? mission.BranchName ?? vessel.DefaultBranch ?? "main"));
 
@@ -247,8 +247,22 @@ namespace Armada.Core.Services
             return "Read `" + generatedInstructionsPath + "` immediately.";
         }
 
-        private static string BuildBootstrapRoleSummary(string? persona)
+        private static string BuildBootstrapRoleSummary(string? persona, bool readOnly = false, MissionModeEnum mode = MissionModeEnum.Implementation)
         {
+            // A read-only mission must not be greeted with a producing role line: a TestEngineer
+            // told to "include Coverage Added" while the rules block forbids edits, commits, builds
+            // and test runs cannot satisfy both. The role greeting agrees with the mode instead.
+            if (readOnly)
+            {
+                string normalized = PersonaCatalog.NormalizeName(persona);
+                if (normalized == PersonaCatalog.Worker || normalized == PersonaCatalog.TestEngineer)
+                {
+                    return "You are an Armada " + (normalized == PersonaCatalog.TestEngineer ? "test engineer" : "worker") +
+                        " agent on a " + mode + " mission. Your deliverable is a report, not a code change: " +
+                        "do not edit, commit, or push. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.";
+                }
+            }
+
             return PersonaCatalog.NormalizeName(persona) switch
             {
                 PersonaCatalog.Architect => "You are an Armada architect agent. Respond only with real [ARMADA:MISSION] blocks. Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.",

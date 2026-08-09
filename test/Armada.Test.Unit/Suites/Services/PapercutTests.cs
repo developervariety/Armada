@@ -92,6 +92,29 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(PapercutParser.TryParseValue("{\"category\":\"ToolFailure\",\"title\":\"   \"}"));
             });
 
+            await RunTest("TryParseValue TemplateExample ReturnsNull", () =>
+            {
+                // The brief instruction template shows this literal example so captains can see the
+                // report shape. It is not a report: a scan that walks the log instructions directory
+                // counts it 269 times as a phantom MissingDoc, and a captain may echo it verbatim
+                // while testing the format. Neither may reach the store.
+                AssertNull(PapercutParser.TryParseValue(
+                    "{\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"one line\",\"detail\":\"optional\",\"path\":\"optional/file.cs\"}"));
+
+                AssertNull(PapercutParser.TryParseLine(
+                    "[ARMADA:PAPERCUT] {\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"one line\",\"detail\":\"optional\",\"path\":\"optional/file.cs\"}"));
+            });
+
+            await RunTest("TryParseValue RealReportStillParses", () =>
+            {
+                // The placeholder rejection must not catch a genuine report whose wording merely
+                // resembles the example.
+                Papercut? papercut = PapercutParser.TryParseValue(
+                    "{\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"one line README is missing\",\"detail\":\"the real detail\",\"path\":\"README.md\"}");
+                AssertNotNull(papercut);
+                AssertEqual(PapercutCategoryEnum.MissingDoc, papercut!.Category);
+            });
+
             await RunTest("TryParseValue RedactsCredentials", () =>
             {
                 Papercut? papercut = PapercutParser.TryParseValue(

@@ -1296,7 +1296,7 @@ namespace Armada.Core.Services
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
-                                mission.FailureReason = "Judge PASS rejected: no green independent Checks attached. Attach Build+UnitTest checks (armada_run_check with voyageId) or document an environmental exclusion with the " + _JudgeCheckExclusionMarker + " marker in the review.";
+                                mission.FailureReason = "Judge PASS rejected: no green independent Checks attached. Independent Checks are attached by the operator, not by captains. To complete the review without them, document an environmental exclusion with the " + _JudgeCheckExclusionMarker + " marker in the review, or ask the operator to attach Build+UnitTest Checks.";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;

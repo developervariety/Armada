@@ -92,6 +92,13 @@ namespace Armada.Core.Services
                 payload = ParseDelimited(trimmed);
             }
 
+            // The brief's instruction template shows a literal example report with the fields
+            // "one line" / "optional" / "optional/file.cs". A scan that walks the log
+            // instructions directory counts that example as a report; a captain may also echo it
+            // verbatim while testing the format. Either way it is not friction anyone met, so it
+            // must never reach the store or a grouping.
+            if (IsTemplatePlaceholder(payload)) return null;
+
             string title = Sanitize(payload.Title);
             if (String.IsNullOrWhiteSpace(title)) return null;
 
@@ -102,6 +109,21 @@ namespace Armada.Core.Services
             papercut.Detail = Sanitize(payload.Detail);
             papercut.Path = Sanitize(payload.Path);
             return papercut;
+        }
+
+        /// <summary>
+        /// Whether a payload still carries the brief template's literal example values. The
+        /// example exists so captains can see the report shape; it is not a report.
+        /// </summary>
+        /// <param name="payload">Parsed payload.</param>
+        /// <returns>True when every field is the template placeholder.</returns>
+        public static bool IsTemplatePlaceholder(PapercutPayload payload)
+        {
+            if (payload == null) return false;
+
+            return String.Equals(Sanitize(payload.Title), "one line", StringComparison.OrdinalIgnoreCase) &&
+                String.Equals(Sanitize(payload.Detail), "optional", StringComparison.OrdinalIgnoreCase) &&
+                String.Equals(Sanitize(payload.Path), "optional/file.cs", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

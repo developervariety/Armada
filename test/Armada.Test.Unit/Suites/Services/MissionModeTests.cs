@@ -217,6 +217,72 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("An Audit TestEngineer brief never receives a write-tests role line", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LearnedFactsEnabled = true;
+
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    string auditDir = Path.Combine(Path.GetTempPath(), "armada_mode_audit_te_" + Guid.NewGuid().ToString("N"));
+                    string implDir = Path.Combine(Path.GetTempPath(), "armada_mode_impl_te_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(auditDir);
+                    Directory.CreateDirectory(implDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("ModeVessel", "https://github.com/test/repo");
+                        vessel.EnableModelContext = true;
+                        vessel.ModelContext = "Vessel model context.";
+
+                        Mission audit = new Mission();
+                        audit.Title = "Read-only test engineer probe";
+                        audit.Description = "Review the prior stage diff for coverage gaps.";
+                        audit.Persona = "TestEngineer";
+                        audit.Mode = MissionModeEnum.Audit;
+                        await service.GenerateClaudeMdAsync(auditDir, audit, vessel);
+                        string auditBrief = await File.ReadAllTextAsync(Path.Combine(auditDir, "CLAUDE.md"));
+
+                        Mission implementation = new Mission();
+                        implementation.Title = "Test engineer implementation";
+                        implementation.Description = "Write tests for the change.";
+                        implementation.Persona = "TestEngineer";
+                        await service.GenerateClaudeMdAsync(implDir, implementation, vessel);
+                        string implBrief = await File.ReadAllTextAsync(Path.Combine(implDir, "CLAUDE.md"));
+
+                        // The contradiction: the TestEngineer persona template is write-tests language.
+                        // A read-only brief must not carry any of it, while the implementation brief keeps it.
+                        AssertFalse(auditBrief.Contains("Coverage Added", StringComparison.Ordinal),
+                            "an Audit TestEngineer brief must not demand a Coverage Added section");
+                        AssertFalse(auditBrief.Contains("Commit test files only", StringComparison.Ordinal),
+                            "an Audit TestEngineer brief must not order test-file commits");
+                        AssertFalse(auditBrief.Contains("You own validation and test coverage", StringComparison.Ordinal),
+                            "an Audit TestEngineer brief must not assign test authorship");
+                        AssertContains("your deliverable is a report", auditBrief,
+                            "an Audit TestEngineer brief states the report deliverable instead");
+
+                        AssertContains("Coverage Added", implBrief,
+                            "an implementation TestEngineer brief keeps its coverage contract");
+
+                        await Task.CompletedTask;
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(auditDir, true); } catch { }
+                        try { Directory.Delete(implDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("The no-commit gate exempts read-only modes and still catches implementation misses", async () =>
             {
                 // PersonaMustProduceChanges is the persona half of the gate; the mode half is
