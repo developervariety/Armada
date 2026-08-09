@@ -365,13 +365,21 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value));
+                // The schema stores created_utc as ISO-8601 TEXT (matching the other *_utc
+                // columns). Binding a raw DateTime makes PostgreSQL look for a text >= timestamp
+                // operator that does not exist (42883) and the summary/rollback flows fail.
+                parameters.Add(new NpgsqlParameter("@from_utc", ToIso8601(query.FromUtc.Value)));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(new NpgsqlParameter("@to_utc", ToIso8601(query.ToUtc.Value)));
             }
+        }
+
+        private static string ToIso8601(DateTime value)
+        {
+            return value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
         }
     }
 }

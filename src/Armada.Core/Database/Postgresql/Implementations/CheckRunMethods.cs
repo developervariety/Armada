@@ -274,13 +274,20 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value));
+                // created_utc is ISO-8601 TEXT in the Postgres schema; a raw DateTime parameter
+                // yields 'operator does not exist: text >= timestamp' (42883).
+                parameters.Add(new NpgsqlParameter("@from_utc", ToIso8601(query.FromUtc.Value)));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(new NpgsqlParameter("@to_utc", ToIso8601(query.ToUtc.Value)));
             }
+        }
+
+        private static string ToIso8601(DateTime value)
+        {
+            return value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private static void AddParameters(NpgsqlCommand cmd, CheckRun checkRun)
