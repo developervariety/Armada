@@ -25,6 +25,13 @@ namespace Test.Shared.Suites.E2E
     /// </summary>
     public sealed class McpToolSuite : IArmadaTestSuite
     {
+        #region Private-Members
+
+        private readonly object _SeedLock = new object();
+        private Task<string>? _SharedMissionVessel;
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -2605,12 +2612,35 @@ namespace Test.Shared.Suites.E2E
         /// <param name="title">Mission title.</param>
         /// <param name="vesselId">Optional target vessel id.</param>
         /// <returns>The created mission id.</returns>
-        private static async Task<string> RestCreateMissionAsync(HttpClient mcpClient, string sessionId, string title = "McpTestMission", string? vesselId = null)
+        /// <summary>
+        /// Ensure a single fleet+vessel exists for missions that do not need their own, seeding it once for
+        /// the suite. Missions in these cases only need <em>a</em> vessel; creating a fresh fleet + vessel
+        /// (an add_vessel that registers the repo) on every RestCreateMissionAsync call was the dominant
+        /// per-case cost. The vessel id is a server entity, so it is reused across every case's MCP session.
+        /// </summary>
+        /// <param name="mcpClient">Client targeting the MCP port.</param>
+        /// <param name="sessionId">MCP session id of the first caller.</param>
+        /// <returns>The shared vessel id.</returns>
+        private Task<string> EnsureMissionVesselAsync(HttpClient mcpClient, string sessionId)
+        {
+            lock (_SeedLock)
+            {
+                if (_SharedMissionVessel == null) _SharedMissionVessel = CreateSharedMissionVesselAsync(mcpClient, sessionId);
+                return _SharedMissionVessel;
+            }
+        }
+
+        private static async Task<string> CreateSharedMissionVesselAsync(HttpClient mcpClient, string sessionId)
+        {
+            string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "SharedMsnFleet").ConfigureAwait(false);
+            return await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "SharedMsnVessel").ConfigureAwait(false);
+        }
+
+        private async Task<string> RestCreateMissionAsync(HttpClient mcpClient, string sessionId, string title = "McpTestMission", string? vesselId = null)
         {
             if (vesselId == null)
             {
-                string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "MsnFleet").ConfigureAwait(false);
-                vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "MsnVessel").ConfigureAwait(false);
+                vesselId = await EnsureMissionVesselAsync(mcpClient, sessionId).ConfigureAwait(false);
             }
 
             JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_mission", new
