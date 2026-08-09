@@ -1006,6 +1006,16 @@ namespace Armada.Core.Services
             content += "\n";
             content += await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false);
 
+            // Papercuts apply to every mission mode: an audit meets stale docs and dead links exactly as
+            // an implementation does. Judge and Architect are excluded -- a judge reports what it finds
+            // through its verdict, and an architect emits mission blocks only.
+            if (!PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) &&
+                !PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect))
+            {
+                content += "\n";
+                content += BuildPapercutsSection();
+            }
+
             // Model context updates
             if (vessel.EnableModelContext)
             {
@@ -1268,6 +1278,35 @@ namespace Armada.Core.Services
             }
 
             return existing.TrimEnd();
+        }
+
+        /// <summary>
+        /// Builds the papercut directive. A captain that meets broken friction -- a stale doc, a dead
+        /// link, a brief that contradicts itself, a missing sibling repository -- works around it and
+        /// says nothing, so the next captain on the same vessel pays the same cost again. This asks for
+        /// one line per problem and forbids fixing it out of scope, which keeps the report cheap and the
+        /// diff clean.
+        ///
+        /// Built in code rather than added to a template, so an existing stored template row that
+        /// predates this module cannot silently drop it.
+        /// </summary>
+        /// <returns>The papercut section.</returns>
+        internal static string BuildPapercutsSection()
+        {
+            return
+                "## Papercuts\n" +
+                "\n" +
+                "Report friction you meet. Do not work around it silently. One line each, on its own line:\n" +
+                "\n" +
+                "`[ARMADA:PAPERCUT] {\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"one line\",\"detail\":\"optional\",\"path\":\"optional/file.cs\"}`\n" +
+                "\n" +
+                "- Categories: BriefContradiction, ToolFailure, MissingDoc, BrokenLink, RepoFriction, " +
+                "TestFlake, EnvSetup, PlatformBug, Other. Severity: Low, Medium, High.\n" +
+                "- Report it, do not fix it. A fix outside your mission scope is a merge conflict for another captain.\n" +
+                "- Never block on a papercut. Report it and continue the mission.\n" +
+                "- Your own assigned work is not a papercut. Report what made the work harder than it needed to be.\n" +
+                "- Include no credentials, tokens, or absolute host paths.\n" +
+                "- Ten per mission is the limit. Report the ones that cost you time.\n";
         }
 
         /// <summary>

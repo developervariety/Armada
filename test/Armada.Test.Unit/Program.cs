@@ -80,6 +80,7 @@ namespace Armada.Test.Unit
             AddSuite(new EntityResolverTests());
             AddSuite(new MessageTemplateServiceTests());
             AddSuite(new ProgressParserTests());
+            AddSuite(new PapercutTests());
             AddSuite(new SettingsTests());
             AddSuite(new ReleaseVersionTests());
             AddSuite(new StartupScriptTests());
