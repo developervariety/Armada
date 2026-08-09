@@ -154,6 +154,11 @@ namespace Armada.Test.Shared.Infrastructure
             settings.McpPort = McpPort;
             settings.ApiKey = ApiKey;
             settings.HeartbeatIntervalSeconds = 300;
+            // Bind the REST and MCP listeners to IPv4 loopback explicitly. The default "localhost"
+            // makes clients resolve ::1 (IPv6) first on Windows, stalling every connection before it
+            // falls back to 127.0.0.1 -- which massively inflates E2E time and pushes cases toward the
+            // per-case timeout. Pinning to 127.0.0.1 on both ends keeps every connection pure IPv4.
+            settings.Rest.Hostname = "127.0.0.1";
             settings.InitializeDirectories();
 
             _Server = new ArmadaServer(logging, settings, quiet: true);
@@ -173,7 +178,7 @@ namespace Armada.Test.Shared.Infrastructure
             UnauthClient.Timeout = clientTimeout;
 
             McpClient = new HttpClient();
-            McpClient.BaseAddress = new Uri("http://localhost:" + McpPort);
+            McpClient.BaseAddress = new Uri("http://127.0.0.1:" + McpPort);
             McpClient.Timeout = clientTimeout;
 
             await WaitForReadyAsync().ConfigureAwait(false);
