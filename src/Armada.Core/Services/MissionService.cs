@@ -1858,6 +1858,12 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Total-budget backstop: if the assembled brief still exceeds the captain instruction
+            // budget after every per-module cap, elide the largest content modules in place so no
+            // mission ships an over-budget brief. The persona prompt, rules, and metadata skeleton are
+            // never elided -- only the content-bearing modules that repeat vessel or mission context.
+            content = EnforceTotalBriefBudget(content, ledger, _Settings.CaptainInstructionByteBudget);
+
             Directory.CreateDirectory(Path.GetDirectoryName(instructionsPath)!);
             await File.WriteAllTextAsync(instructionsPath, content).ConfigureAwait(false);
 
@@ -3636,6 +3642,105 @@ namespace Armada.Core.Services
             return description.Substring(0, head).TrimEnd()
                 + marker
                 + description.Substring(tailStart).TrimStart();
+        }
+
+        // Modules that carry vessel or mission context and may be elided by the total-budget backstop
+        // when a brief exceeds the captain instruction budget. Never includes the persona prompt, the
+        // rules, or the metadata skeleton -- those are the mission itself.
+        private static readonly string[] _ElidableBriefModules =
+        {
+            "mission.objective_scope",
+            "mission.existing_instructions_wrapper",
+            "mission.project_context_wrapper",
+            "mission.code_style_wrapper",
+            "mission.model_context_wrapper",
+            "mission.playbooks_wrapper"
+        };
+
+        // Per-module cap applied by the total-budget backstop, in characters. A single module is never
+        // elided below this floor: a module that cannot fit within its share is dropped entirely by the
+        // caller instead of shredding it into unreadable fragments.
+        private const int _MinElidedModuleChars = 800;
+
+        // Head budget used when eliding a content module, in characters.
+        private const int _ElidedModuleHeadChars = 600;
+
+        /// <summary>
+        /// Total-budget backstop: when the assembled brief still exceeds the captain instruction budget
+        /// after every per-module cap, elides the largest content-bearing modules in place -- smallest
+        /// first, so the highest-signal modules survive whole -- until the file fits the budget. Modules
+        /// are elided head+tail on line boundaries with a visible marker, and the ledger is updated so
+        /// the budget telemetry reports what was actually written. Returns the bounded content.
+        /// </summary>
+        /// <param name="content">Assembled brief content.</param>
+        /// <param name="ledger">Ledger holding the assembled module texts and sizes.</param>
+        /// <param name="budgetBytes">Captain instruction byte budget; 0 or negative disables the backstop.</param>
+        /// <returns>The bounded content, identical when already within budget.</returns>
+        internal static string EnforceTotalBriefBudget(string content, PromptModuleLedger ledger, int budgetBytes)
+        {
+            if (String.IsNullOrEmpty(content)) return content ?? "";
+            if (budgetBytes <= 0) return content;
+
+            int currentBytes = System.Text.Encoding.UTF8.GetByteCount(content);
+            if (currentBytes <= budgetBytes) return content;
+
+            string working = content;
+            bool changed = true;
+
+            while (changed && System.Text.Encoding.UTF8.GetByteCount(working) > budgetBytes)
+            {
+                changed = false;
+                List<KeyValuePair<string, int>> largestFirst = ledger.GetModulesLargestFirst();
+
+                foreach (KeyValuePair<string, int> entry in largestFirst)
+                {
+                    if (System.Text.Encoding.UTF8.GetByteCount(working) <= budgetBytes) break;
+
+                    string name = entry.Key;
+                    if (!IsElidableBriefModule(name)) continue;
+                    if (entry.Value <= _MinElidedModuleChars) continue;
+
+                    string? moduleText = ledger.GetModuleText(name);
+                    if (String.IsNullOrEmpty(moduleText)) continue;
+
+                    // Elide the module down to fit its share of the remaining budget: head + tail with
+                    // a marker, sized so the module no longer exceeds its proportional allotment.
+                    int overBytes = System.Text.Encoding.UTF8.GetByteCount(working) - budgetBytes;
+                    int currentChars = moduleText.Length;
+                    int targetChars = Math.Max(_MinElidedModuleChars, currentChars - overBytes - 64);
+
+                    string marker = "\n\n...(content elided to fit the captain brief budget; see the mission record)\n";
+                    string bounded = BuildBoundedDescription(moduleText, targetChars, _ElidedModuleHeadChars, marker);
+                    if (bounded.Length >= moduleText.Length) continue;
+
+                    // Replace in the assembled content and in the ledger so both stay in lockstep.
+                    int idx = working.IndexOf(moduleText, StringComparison.Ordinal);
+                    if (idx < 0) continue;
+
+                    working = working.Substring(0, idx) + bounded + working.Substring(idx + moduleText.Length);
+                    ledger.ReplaceModuleText(name, bounded);
+                    changed = true;
+                }
+            }
+
+            return working;
+        }
+
+        /// <summary>
+        /// Reports whether a module may be elided by the total-budget backstop. Content-bearing modules
+        /// that repeat vessel or mission context are elidable; the persona prompt, rules, and metadata
+        /// skeleton are not.
+        /// </summary>
+        /// <param name="moduleName">Ledger module name.</param>
+        /// <returns>True when the module may be elided.</returns>
+        internal static bool IsElidableBriefModule(string? moduleName)
+        {
+            if (String.IsNullOrEmpty(moduleName)) return false;
+            foreach (string elidable in _ElidableBriefModules)
+            {
+                if (String.Equals(moduleName, elidable, StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         /// <summary>

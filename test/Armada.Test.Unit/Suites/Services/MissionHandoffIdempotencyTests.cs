@@ -192,6 +192,75 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await Task.CompletedTask;
             });
+
+            await RunTest("EnforceTotalBriefBudget leaves an in-budget brief unchanged", async () =>
+            {
+                PromptModuleLedger ledger = new PromptModuleLedger();
+                string small = "## Brief\nA small mission.";
+                ledger.Track("mission.metadata", small);
+                AssertEqual(small, MissionService.EnforceTotalBriefBudget(small, ledger, 32768), "an in-budget brief must be unchanged");
+                AssertEqual("", MissionService.EnforceTotalBriefBudget("", ledger, 32768), "an empty brief must stay empty");
+                AssertEqual(small, MissionService.EnforceTotalBriefBudget(small, ledger, 0), "a disabled budget must leave the brief unchanged");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("EnforceTotalBriefBudget elides content modules until the brief fits", async () =>
+            {
+                PromptModuleLedger ledger = new PromptModuleLedger();
+                string persona = "## Captain Instructions\nYou are an Armada worker.\n";
+                string rules = "## Rules\nStay in scope.\n";
+                string objective = "## Objective Scope (Definition of Done)\n" + new string('o', 30000) + "\n";
+                string existing = "## Existing Project Instructions\n" + new string('e', 30000) + "\n";
+
+                string brief = persona + rules + objective + existing;
+                ledger.Track("mission.captain_instructions_wrapper", persona);
+                ledger.Track("mission.rules", rules);
+                ledger.Track("mission.objective_scope", objective);
+                ledger.Track("mission.existing_instructions_wrapper", existing);
+
+                string bounded = MissionService.EnforceTotalBriefBudget(brief, ledger, 32768);
+
+                AssertTrue(System.Text.Encoding.UTF8.GetByteCount(bounded) <= 32768, "the brief must fit the budget after elision");
+                AssertContains("You are an Armada worker", bounded, "the persona must never be elided");
+                AssertContains("Stay in scope", bounded, "the rules must never be elided");
+                AssertContains("elided to fit the captain brief budget", bounded, "the elision must be visible");
+                AssertTrue(bounded.Length < brief.Length, "the brief must shrink");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("EnforceTotalBriefBudget elides largest content module first, keeps small ones whole", async () =>
+            {
+                PromptModuleLedger ledger = new PromptModuleLedger();
+                string smallObjective = "## Objective Scope (Definition of Done)\nSmall scope.\n";
+                string hugeExisting = "## Existing Project Instructions\n" + new string('e', 40000) + "\n";
+
+                string brief = smallObjective + hugeExisting;
+                ledger.Track("mission.objective_scope", smallObjective);
+                ledger.Track("mission.existing_instructions_wrapper", hugeExisting);
+
+                string bounded = MissionService.EnforceTotalBriefBudget(brief, ledger, 32768);
+
+                AssertTrue(System.Text.Encoding.UTF8.GetByteCount(bounded) <= 32768, "the brief must fit the budget after elision");
+                AssertContains("Small scope", bounded, "the small module must survive whole");
+                AssertContains("elided to fit the captain brief budget", bounded, "the large module must be elided");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("IsElidableBriefModule covers content modules and protects the skeleton", async () =>
+            {
+                AssertTrue(MissionService.IsElidableBriefModule("mission.objective_scope"), "objective scope is content");
+                AssertTrue(MissionService.IsElidableBriefModule("mission.existing_instructions_wrapper"), "existing instructions are content");
+                AssertTrue(MissionService.IsElidableBriefModule("mission.project_context_wrapper"), "project context is content");
+                AssertFalse(MissionService.IsElidableBriefModule("mission.persona"), "the persona is never elidable");
+                AssertFalse(MissionService.IsElidableBriefModule("mission.rules"), "the rules are never elidable");
+                AssertFalse(MissionService.IsElidableBriefModule("mission.metadata"), "the metadata skeleton is never elidable");
+                AssertFalse(MissionService.IsElidableBriefModule(null), "a null module name is never elidable");
+
+                await Task.CompletedTask;
+            });
         }
     }
 }

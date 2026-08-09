@@ -36,6 +36,7 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private readonly Dictionary<string, int> _Modules = new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _ModuleTexts = new Dictionary<string, string>(StringComparer.Ordinal);
         private int _TotalBytes = 0;
 
         #endregion
@@ -44,7 +45,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Records the size of one module and returns the text unchanged, so a call site can wrap an
-        /// existing append without restructuring it.
+        /// existing append without restructuring it. The text is retained per module so an over-budget
+        /// brief can be elided in place after assembly.
         /// </summary>
         /// <param name="name">Stable module name, for example "mission.rules".</param>
         /// <param name="text">Module text about to be appended; null or empty is tracked as zero.</param>
@@ -53,14 +55,55 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrEmpty(name)) throw new ArgumentNullException(nameof(name));
 
-            int bytes = String.IsNullOrEmpty(text) ? 0 : System.Text.Encoding.UTF8.GetByteCount(text);
+            string effective = text ?? "";
+            int bytes = System.Text.Encoding.UTF8.GetByteCount(effective);
 
             if (_Modules.ContainsKey(name)) _Modules[name] = _Modules[name] + bytes;
             else _Modules[name] = bytes;
 
+            if (_ModuleTexts.ContainsKey(name)) _ModuleTexts[name] = _ModuleTexts[name] + effective;
+            else _ModuleTexts[name] = effective;
+
             _TotalBytes = _TotalBytes + bytes;
 
-            return text ?? "";
+            return effective;
+        }
+
+        /// <summary>
+        /// Returns the assembled text of one module, or null when the module was never tracked.
+        /// </summary>
+        /// <param name="name">Stable module name.</param>
+        /// <returns>The tracked text, or null.</returns>
+        public string? GetModuleText(string name)
+        {
+            if (String.IsNullOrEmpty(name)) return null;
+            return _ModuleTexts.TryGetValue(name, out string? text) ? text : null;
+        }
+
+        /// <summary>
+        /// Replaces the tracked text of one module after assembly and adjusts the recorded sizes to
+        /// match, so the budget telemetry reports what was actually written. Returns the new text.
+        /// </summary>
+        /// <param name="name">Stable module name.</param>
+        /// <param name="newText">The replacement text.</param>
+        /// <returns>The new text.</returns>
+        public string ReplaceModuleText(string name, string newText)
+        {
+            if (String.IsNullOrEmpty(name)) throw new ArgumentNullException(nameof(name));
+            string effective = newText ?? "";
+
+            if (_ModuleTexts.TryGetValue(name, out string? old))
+            {
+                _TotalBytes = Math.Max(0, _TotalBytes - System.Text.Encoding.UTF8.GetByteCount(old));
+                _Modules[name] = Math.Max(0, (_Modules.TryGetValue(name, out int oldBytes) ? oldBytes : 0)
+                    - System.Text.Encoding.UTF8.GetByteCount(old));
+            }
+
+            int bytes = System.Text.Encoding.UTF8.GetByteCount(effective);
+            _ModuleTexts[name] = effective;
+            _Modules[name] = bytes;
+            _TotalBytes = _TotalBytes + bytes;
+            return effective;
         }
 
         /// <summary>
