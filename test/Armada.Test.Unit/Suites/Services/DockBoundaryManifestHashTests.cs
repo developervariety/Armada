@@ -11,7 +11,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// Tests that SHA-256 content digests in manifest/lockfile contexts are NOT flagged as
     /// secrets by the dock boundary scanner, while genuine secrets remain blocked.
     /// Bare hex tokens outside hash contexts are also no longer flagged: the
-    /// base64-chunk entropy gate (obj_msfid367) suppresses every hex-alphabet run
+    /// base64-chunk entropy gate suppresses every hex-alphabet run
     /// because hex runs are IDs or digests, not base64 secrets.
     /// </summary>
     public sealed class DockBoundaryManifestHashTests : TestSuite
@@ -219,7 +219,7 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // -----------------------------------------------------------------------
-            // Bare hex token outside hash context -- policy since obj_msfid367: NOT flagged
+            // Bare hex token outside hash context -- policy: NOT flagged
             //
             // A 64-char hex string on a line that has no hash-field keyword and is not in a
             // known manifest/lockfile is suppressed by the base64-chunk entropy gate, which
@@ -231,7 +231,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Bare 64-hex token in non-manifest non-hash context is NOT flagged (hex-run suppression)", () =>
             {
                 // A 64-char hex string on a plain source line with no hash-field keyword.
-                // Policy since obj_msfid367: hex runs are IDs/digests, never base64 secrets.
+                // Policy: hex runs are IDs/digests, never base64 secrets.
                 string line = "token = \"" + _SyntheticHexDigest + "\"";
                 string diff = MakeDiff("src/Config.cs", line);
                 DockBoundaryScanResult result = scanner.Scan(

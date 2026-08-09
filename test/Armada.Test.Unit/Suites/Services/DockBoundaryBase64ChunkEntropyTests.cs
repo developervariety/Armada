@@ -9,7 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Regression coverage for the CORE_RULE_5_base64_chunk entropy gate (obj_msfid367).
+    /// Regression coverage for the CORE_RULE_5_base64_chunk entropy gate.
     /// The raw regex matches any double-quoted 40+ char base64-alphabet run, which
     /// false-positived on long CamelCase identifiers, slash-joined path lists, and
     /// hex-ID runs inside single-line JSON catalogs (source-glossary

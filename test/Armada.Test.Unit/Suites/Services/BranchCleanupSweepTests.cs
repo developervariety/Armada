@@ -16,7 +16,7 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Tests for the branch-cleanup maintenance sweep (obj_mqlpoxqz): merged armada/* branches are
+    /// Tests for the branch-cleanup maintenance sweep: merged armada/* branches are
     /// pruned per policy, unmerged branches are never touched, and None-policy vessels are skipped.
     /// Uses real git repositories so the merged-only ancestry guard is genuinely exercised.
     /// </summary>

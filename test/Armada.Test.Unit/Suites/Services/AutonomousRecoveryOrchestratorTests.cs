@@ -742,7 +742,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("RealSignalGateRejection_NoRescueLoopOnGreenWork", async () =>
             {
-                // obj_msiccuoc: a standalone Audit Judge whose PASS is rejected ONLY by the
+                // A standalone Audit Judge whose PASS is rejected ONLY by the
                 // real-signal gate (no green independent Checks attached) is an operator-attachment
                 // problem, not a substantive rejection of the work. A rescue Judge on the same
                 // branch re-reviews already-verified green work and cannot attach Checks itself, so

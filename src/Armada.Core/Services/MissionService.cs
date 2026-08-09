@@ -170,7 +170,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// A diff section must exceed this size before it is treated as bulk generated data that
-        /// carries no review signal (obj_ms1zc92l). Small data files stay reviewable.
+        /// carries no review signal. Small data files stay reviewable.
         /// </summary>
         private const int _GeneratedDataElideThresholdChars = 12000;
 
@@ -3763,7 +3763,7 @@ namespace Armada.Core.Services
         /// so the reviewer still sees WHICH files changed and by how much, without the overflowing content.
         /// Bulk generated data files (large JSON/CSV/XML under an output/export/bundle path) are ALWAYS elided
         /// to a summary regardless of budget: a snapshot-regeneration voyage changes hundreds of data rows that
-        /// carry no review signal, and feeding them to a Judge overflows its context (obj_ms1zc92l). The reviewer
+        /// carry no review signal, and feeding them to a Judge overflows its context. The reviewer
         /// gets the file list, the line counts, and the manifest/code diffs instead.
         /// </summary>
         internal static string BuildReviewDiff(string diff, int maxChars)

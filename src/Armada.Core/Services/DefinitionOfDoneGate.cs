@@ -138,7 +138,7 @@ namespace Armada.Core.Services
             //
             // A queued gate must keep its dock alive for the whole wait: the host-wide lock can sit
             // this gate behind another gate's full build+test run, and dock reclamation would delete
-            // the worktree in between (obj_msg0hlkw - five missions lost their worktrees this way).
+            // the worktree in between.
             // The lease is held across the queue wait and the command run, and released afterwards;
             // the disk-lifecycle sweep and DockService.ReclaimAsync both honor it.
             //

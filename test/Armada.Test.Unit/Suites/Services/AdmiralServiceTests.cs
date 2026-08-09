@@ -382,7 +382,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            // Dispatch ergonomics (obj_ms6vvefn): a read-only dispatch (all missions Audit/Research)
+            // Dispatch ergonomics: a read-only dispatch (all missions Audit/Research)
             // must NOT inherit a multi-stage vessel default pipeline -- a four-mission diagnostic
             // probe once expanded to sixteen missions. An explicitly requested pipeline still wins.
             await RunTest("DispatchVoyageAsync ReadOnlyMissionsSkipVesselDefaultPipeline", async () =>
@@ -1255,7 +1255,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            // FD#3 regression (obj_mrwvb10w): a mission that failed with a non-zero exit but whose
+            // A mission that failed with a non-zero exit but whose
             // captain branch exists in the vessel bare repo holds RECOVERABLE committed work. The
             // branch must be preserved (no reap), the voyage must NOT be cascade-cancelled, and only
             // the missions that directly depend on the failed mission are cancelled. Independent

@@ -47,7 +47,7 @@ namespace Armada.Test.Unit
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            // Perspective-diverse pool (obj_mrzqhz1u AC1): a Judge with an assigned primary lens
+            // Perspective-diverse pool: a Judge with an assigned primary lens
             // leads with that lens and keeps the bounded rule; a Judge without one keeps the
             // combined three-lens instruction.
             await RunTest("JudgeWithPrimaryLens_LeadsWithItAndKeepsBoundedRule", () =>
@@ -68,7 +68,7 @@ namespace Armada.Test.Unit
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            // Perspective-diverse pool (obj_mrzqhz1u AC1 + AC3): parallel Judges on one voyage and
+            // Perspective-diverse pool: parallel Judges on one voyage and
             // stage get DISTINCT primary lenses, a solo Judge gets none, and the assignment is
             // recorded as a mission.judge_lens event.
             await RunTest("ParallelJudges_GetDistinctLenses_RecordedAsEvents", async () =>

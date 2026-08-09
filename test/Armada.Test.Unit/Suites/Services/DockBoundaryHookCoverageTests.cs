@@ -267,7 +267,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         // One single-line JSON row in the certified-command-catalog.json shape:
                         // CamelCase command identifiers, slash-joined paths, hex IDs. Previously
-                        // this blocked every landing (obj_msfid367); the entropy gate must pass it.
+                        // this blocked every landing; the entropy gate must pass it.
                         string catalogLine = "{\"certifiedCommands\":[{\"commandName\":\"" +
                             "Cummins" + "Request" + "AndVerify" + "Response" + "Step" + "J1939" +
                             "\",\"flowPath\":\"" + "ActionRequests" + "/" + "RequestWriteDataByLocalIdentifier" + "/" + "KLine" + "/" + "Step" +

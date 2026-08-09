@@ -7,7 +7,7 @@ namespace Armada.Test.Unit.Suites.Recovery
 
     /// <summary>
     /// Unit tests for the pure provider-stall classifier and the in-memory progress tracker
-    /// (obj_ms5na8gc: harden OpenCode captains against silent provider stalls on long tool loops).
+    /// (harden OpenCode captains against silent provider stalls on long tool loops).
     /// </summary>
     public class ProviderStallClassifierTests : TestSuite
     {

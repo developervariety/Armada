@@ -14,7 +14,7 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Verifies non-landing code-index staleness handling (obj_mrzqk3se): the fleet-wide staleness
+    /// Verifies non-landing code-index staleness handling: the fleet-wide staleness
     /// summary reads persisted metadata plus one rev-parse per vessel and never clones, and the
     /// staleness sweep schedules a reindex when a vessel's repository HEAD moved outside an Armada
     /// landing (direct push / manual merge / reconciliation).

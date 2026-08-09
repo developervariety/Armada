@@ -7,7 +7,7 @@ namespace Armada.Core.Services
     /// In-memory, reference-counted leases that pin a dock's worktree against reclamation while a
     /// long-running operation still needs it. The definition-of-done gate takes a lease for the
     /// whole evaluation - including its host-wide queue wait - so a gate queued behind another
-    /// gate cannot lose its worktree to dock reclamation before it executes (obj_msg0hlkw).
+    /// gate cannot lose its worktree to dock reclamation before it executes.
     /// <para>
     /// The disk-lifecycle orphan sweep and <see cref="DockService.ReclaimAsync"/> both consult
     /// the registry and defer a dock whose lease is held. Leases live in process memory by

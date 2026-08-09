@@ -118,7 +118,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     // A dock directory whose mission is WorkProduced (mid-gate) with an old
                     // timestamp: protected by the mission-status loop even though the dock row is
-                    // inactive (obj_msg0hlkw regression).
+                    // inactive.
                     string producedDockPath = Path.Combine(Path.GetDirectoryName(layout.ActiveDockPath)!, "msn_produced");
                     Directory.CreateDirectory(producedDockPath);
                     File.WriteAllText(Path.Combine(producedDockPath, ".git"), "gitdir: /tmp/nowhere\n");
@@ -136,7 +136,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.Missions.CreateAsync(produced).ConfigureAwait(false);
 
                     // A dock directory pinned by a definition-of-done gate lease, also old:
-                    // protected only by the lease (obj_msg0hlkw regression).
+                    // protected only by the lease.
                     string leasedDockPath = Path.Combine(Path.GetDirectoryName(layout.ActiveDockPath)!, "msn_leased");
                     Directory.CreateDirectory(leasedDockPath);
                     File.WriteAllText(Path.Combine(leasedDockPath, ".git"), "gitdir: /tmp/nowhere\n");

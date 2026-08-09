@@ -303,7 +303,7 @@ namespace Armada.Core.Services
 
                     // Dock directories are named by dock id (docks/<Vessel>/<dockId>). A lease held
                     // by a definition-of-done gate pins the worktree even when the DB row has not yet
-                    // been updated (obj_msg0hlkw: gates queued behind another gate lost their docks).
+                    // been updated.
                     if (DockLeaseRegistry.IsHeld(Path.GetFileName(full)))
                     {
                         RecordAction(report, category, full, "protected", "dock lease held by an active gate");

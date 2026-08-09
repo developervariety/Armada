@@ -14,7 +14,7 @@ namespace Armada.Test.Unit.Suites.Services
     ///
     /// These tests complement <c>DockBoundaryManifestHashTests</c> by exercising:
     /// per-line and per-file suppression granularity in multi-line/multi-file diffs;
-    /// the hex-run suppression policy of the base64-chunk entropy gate (obj_msfid367);
+    /// the hex-run suppression policy of the base64-chunk entropy gate;
     /// case-insensitive hash-field keywords; additional known manifest/lockfile
     /// filenames; null/empty input guards; and the SRI-form recognition branch, which
     /// the standard base64_chunk trigger does not reach through the Scan path (see
@@ -167,7 +167,7 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // -----------------------------------------------------------------------
-            // Hex-run policy since obj_msfid367: every hex-alphabet chunk is suppressed
+            // Hex-run policy: every hex-alphabet chunk is suppressed
             // by the entropy gate, whatever its case or length. These two cases were the
             // old "conservative default" and are now explicitly reversed by the objective
             // acceptance criterion "hex-ID runs no longer match".

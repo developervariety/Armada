@@ -7,7 +7,7 @@ namespace Armada.Test.Unit
     using Armada.Test.Common;
 
     /// <summary>
-    /// Verifies the review-diff scoping (obj_ms1zc92l): bulk generated data files (large JSON/CSV
+    /// Verifies the review-diff scoping: bulk generated data files (large JSON/CSV
     /// under an output/export/bundle path) are always elided to a summary so a snapshot-regeneration
     /// voyage cannot overflow a Judge's context with hundreds of data rows, while small data files
     /// and code diffs stay reviewable.

@@ -138,7 +138,7 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
-            // Judge-level gate (obj_mrzqhz12): the pure classifier behind a Judge PASS.
+            // Judge-level gate: the pure classifier behind a Judge PASS.
             await RunTest("JudgeGate_Classify_PureCases", () =>
             {
                 CheckRun passed = new CheckRun { Status = CheckRunStatusEnum.Passed };

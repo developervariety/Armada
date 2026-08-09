@@ -81,7 +81,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            // Objective scope (obj_ms6vucr2): a voyage that links an objective must carry the
+            // Objective scope: a voyage that links an objective must carry the
             // objective's scope, acceptance criteria, and non-goals once in the generated brief,
             // and the mission description must appear exactly once.
             await RunTest("GenerateClaudeMdAsync includes Objective Scope once when the voyage links an objective", async () =>

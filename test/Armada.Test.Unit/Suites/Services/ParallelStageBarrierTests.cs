@@ -147,7 +147,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            // End-to-end proof of the parallel-review design (obj_mrzqhyzl): two same-order Judges
+            // End-to-end proof of the parallel-review design: two same-order Judges
             // sharing one upstream dependency BOTH dispatch while the other is in flight -- the
             // reviewer fan-out runs concurrently, and only the barrier at the next order serializes.
             await RunTest("ParallelSiblings_BothDispatchConcurrently", async () =>

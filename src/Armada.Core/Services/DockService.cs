@@ -315,7 +315,7 @@ namespace Armada.Core.Services
             }
 
             // A definition-of-done gate (including its host-wide queue wait) holds a lease on the dock
-            // so a queued gate cannot lose its worktree to reclamation before it executes (obj_msg0hlkw).
+            // so a queued gate cannot lose its worktree to reclamation before it executes.
             // The gate releases the lease before the completion handler reclaims normally, so this only
             // defers reclamation while the gate genuinely still needs the worktree.
             if (DockLeaseRegistry.IsHeld(dockId))
