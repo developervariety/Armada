@@ -5407,19 +5407,26 @@ namespace Armada.Core.Services
             }
 
             // Prefer external-provider-served captains over native ones: a captain carrying
-            // its own provider base URL consumes the alternate (cheaper) subscription, so it
-            // wins the tie for an equal model and saves the native provider's usage. Native
-            // captains remain the fallback when no external captain is idle. Applied to the
-            // model-filtered set so both the no-persona shortcut and the persona path honor it.
+            // its own provider base URL on a non-OpenCode runtime consumes the alternate
+            // (cheaper) subscription, so it wins the tie for an equal model and saves the
+            // native provider's usage. OpenCode-runtime captains are treated as native.
+            // Native captains remain the fallback when no external captain is idle. Applied
+            // to the model-filtered set so both the no-persona shortcut and the persona
+            // path honor it.
             {
                 List<Captain> external = new List<Captain>();
                 List<Captain> native = new List<Captain>();
                 foreach (Captain captain in idleCaptains)
                 {
-                    if (!String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
+                    if (captain.Runtime != AgentRuntimeEnum.OpenCode &&
+                        !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
+                    {
                         external.Add(captain);
+                    }
                     else
+                    {
                         native.Add(captain);
+                    }
                 }
                 idleCaptains = external;
                 idleCaptains.AddRange(native);

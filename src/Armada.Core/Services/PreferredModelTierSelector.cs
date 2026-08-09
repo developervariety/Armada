@@ -435,6 +435,22 @@ namespace Armada.Core.Services
                 if (eligibleModels.Count == 0)
                     continue;
 
+                // Non-native-first: when any idle eligible captain for a model is
+                // external-provider served (non-OpenCode runtime carrying its own base URL),
+                // models with external availability are selected before native-only models.
+                // OpenCode-runtime captains are treated as native. Native models remain equal
+                // random peers among themselves, and so do the external ones.
+                List<string> externalEligible = new List<string>();
+                List<string> nativeEligible = new List<string>();
+                foreach (string model in eligibleModels)
+                {
+                    if (HasExternalIdleCaptain(idleCaptains, model, persona))
+                        externalEligible.Add(model);
+                    else
+                        nativeEligible.Add(model);
+                }
+                List<string> selectionPool = externalEligible.Count > 0 ? externalEligible : nativeEligible;
+
                 IReadOnlyList<string>? preferenceOrder = null;
                 bool hasPreferenceOrder = TryGetWithinTierPreferenceOrder(tier, withinTierPreferenceOrder, out preferenceOrder);
 
@@ -449,7 +465,7 @@ namespace Armada.Core.Services
                     if (TryGetCapabilityDimension(settings.CapabilityHintDimensionMap, resolvedHint, out dimension)
                         && !String.IsNullOrWhiteSpace(dimension))
                     {
-                        List<string> scored = SortByCapabilityScore(eligibleModels, dimension, settings.ModelCapabilityProfiles, preferenceOrder);
+                        List<string> scored = SortByCapabilityScore(selectionPool, dimension, settings.ModelCapabilityProfiles, preferenceOrder);
 
                         // Equal models are equal: when several models tie for the top score and
                         // share an identical capability profile, pick randomly among them instead
@@ -472,21 +488,21 @@ namespace Armada.Core.Services
 
                 if (hasPreferenceOrder && preferenceOrder != null && preferenceOrder.Count > 0)
                 {
-                    List<string> ordered = OrderModelsByPreference(eligibleModels, preferenceOrder);
+                    List<string> ordered = OrderModelsByPreference(selectionPool, preferenceOrder);
                     if (ordered.Count > 0)
                         return ordered[0];
 
                     // No listed model has an eligible captain. Unlisted models are equivalent
                     // (the operator chose not to rank them), so pick randomly among them rather
                     // than deterministically favoring the first enumerated captain.
-                    if (eligibleModels.Count > 0)
-                        return eligibleModels[randomPick(eligibleModels.Count)];
+                    if (selectionPool.Count > 0)
+                        return selectionPool[randomPick(selectionPool.Count)];
 
                     continue;
                 }
 
-                int idx = randomPick(eligibleModels.Count);
-                return eligibleModels[idx];
+                int idx = randomPick(selectionPool.Count);
+                return selectionPool[idx];
             }
 
             return null;
@@ -495,6 +511,45 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Returns true when a captain is external-provider served: it carries its own
+        /// base URL and runs on a non-OpenCode runtime. OpenCode-runtime captains are
+        /// treated as native, whatever their model or overlay.
+        /// </summary>
+        /// <param name="captain">Captain to classify.</param>
+        /// <returns>True when the captain should win the non-native preference.</returns>
+        private static bool IsExternalServedCaptain(Captain captain)
+        {
+            if (captain == null) return false;
+            if (captain.Runtime == Armada.Core.Enums.AgentRuntimeEnum.OpenCode) return false;
+            return !String.IsNullOrWhiteSpace(captain.ApiBaseUrl);
+        }
+
+        /// <summary>
+        /// Returns true when at least one idle, persona-eligible captain for the model is
+        /// external-provider served. Drives the non-native-first model selection.
+        /// </summary>
+        /// <param name="idleCaptains">All currently idle captains.</param>
+        /// <param name="model">Model to test.</param>
+        /// <param name="persona">Optional persona the mission requires.</param>
+        /// <returns>True when an external captain for the model is idle and eligible.</returns>
+        private static bool HasExternalIdleCaptain(IReadOnlyList<Captain> idleCaptains, string model, string? persona)
+        {
+            foreach (Captain captain in idleCaptains)
+            {
+                if (captain == null)
+                    continue;
+                if (!String.Equals(captain.Model, model, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!IsPersonaEligible(captain, persona))
+                    continue;
+                if (IsExternalServedCaptain(captain))
+                    return true;
+            }
+
+            return false;
+        }
 
         private static ModelTierSettings CreateDefaultSettings()
         {
