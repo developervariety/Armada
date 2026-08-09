@@ -13,13 +13,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Proxy", "Armada.Prox
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Helm", "Armada.Helm\Armada.Helm.csproj", "{81A514DE-5C3A-4921-AB8A-158BC9255CF7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Test.Shared", "..\test\Armada.Test.Shared\Armada.Test.Shared.csproj", "{217B9DF6-2E82-480B-B31E-F23F1DAE52CA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test.Shared", "Test.Shared\Test.Shared.csproj", "{217B9DF6-2E82-480B-B31E-F23F1DAE52CA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Test.Xunit", "..\test\Armada.Test.Xunit\Armada.Test.Xunit.csproj", "{4CC6ECDA-194E-4457-93D1-39366254646A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test.Xunit", "Test.Xunit\Test.Xunit.csproj", "{4CC6ECDA-194E-4457-93D1-39366254646A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Test.Nunit", "..\test\Armada.Test.Nunit\Armada.Test.Nunit.csproj", "{57366F67-6DC2-4218-81D0-753AA5D1E61B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test.Nunit", "Test.Nunit\Test.Nunit.csproj", "{57366F67-6DC2-4218-81D0-753AA5D1E61B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Test.Automated", "..\test\Armada.Test.Automated\Armada.Test.Automated.csproj", "{546E0BEB-25B3-478F-9BF8-FBF9504036B3}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test.Automated", "Test.Automated\Test.Automated.csproj", "{546E0BEB-25B3-478F-9BF8-FBF9504036B3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -170,9 +170,12 @@ dotnet build src/Armada.sln
 
 ## Test
 ```bash
-dotnet run --project test/Armada.Test.Automated --framework net10.0
-dotnet run --project test/Armada.Test.Unit --framework net10.0
-dotnet run --project test/Armada.Test.Runtimes --framework net10.0
+# Console runner (all suites; net8.0 or net10.0)
+dotnet run --project src/Test.Automated --framework net10.0
+
+# Same suites via the xUnit / NUnit adapters
+dotnet test src/Test.Xunit --framework net10.0
+dotnet test src/Test.Nunit --framework net10.0
 ```
 
 ## Architecture

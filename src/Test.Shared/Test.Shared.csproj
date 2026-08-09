@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1998;CS8604;CS8632</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Touchstone.Core" Version="0.1.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Armada.Core\Armada.Core.csproj" />
+    <ProjectReference Include="..\Armada.Runtimes\Armada.Runtimes.csproj" />
+    <ProjectReference Include="..\Armada.Server\Armada.Server.csproj" />
+    <ProjectReference Include="..\Armada.Proxy\Armada.Proxy.csproj" />
+  </ItemGroup>
+
+</Project>

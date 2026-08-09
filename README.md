@@ -841,7 +841,7 @@ armada go "your task here"
 ### Run Tests
 
 ```bash
-dotnet run --project test/Armada.Test.Unit
+dotnet run --project src/Test.Automated --framework net10.0
 ```
 
 ## Running Locally (with Docker)
