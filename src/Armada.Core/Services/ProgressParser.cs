@@ -11,6 +11,7 @@ namespace Armada.Core.Services
     ///   [ARMADA:RESULT] COMPLETE
     ///   [ARMADA:VERDICT] PASS
     ///   [ARMADA:MESSAGE] Running unit tests now
+    ///   [ARMADA:PAPERCUT] {"category":"MissingDoc","severity":"Low","title":"..."}
     /// </summary>
     public static class ProgressParser
     {
@@ -55,12 +56,40 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Try to parse a progress signal from an agent output line.
-        /// Returns null if the line does not contain a signal.
+        /// Try to parse a progress signal from an agent output record.
+        /// Returns null if the record does not contain a signal.
         /// </summary>
-        /// <param name="line">Agent output line.</param>
+        /// <remarks>
+        /// A runtime record is not always a single line: a Codex <c>agent_message</c> or a Claude
+        /// assistant text block can carry several physical lines in one record, and a captain's
+        /// final answer commonly contains a protocol marker followed by prose. The marker only
+        /// counts when it STARTS a physical line -- a signal embedded in the middle of a prose
+        /// line is not a signal (for example an instruction file that documents the format).
+        /// When a record holds several markers, a papercut wins: it is a report that must reach
+        /// the store, while the other markers (result, status) are also re-detected from the
+        /// mission log file at exit.
+        /// </remarks>
+        /// <param name="line">Agent output record.</param>
         /// <returns>Parsed signal or null.</returns>
         public static ProgressSignal? TryParse(string line)
+        {
+            if (String.IsNullOrEmpty(line)) return null;
+
+            ProgressSignal? first = null;
+            ProgressSignal? papercut = null;
+            foreach (string physicalLine in line.Split('\n'))
+            {
+                ProgressSignal? parsed = TryParsePhysicalLine(physicalLine);
+                if (parsed == null) continue;
+
+                if (first == null) first = parsed;
+                if (String.Equals(parsed.Type, "papercut", StringComparison.Ordinal)) papercut = parsed;
+            }
+
+            return papercut ?? first;
+        }
+
+        private static ProgressSignal? TryParsePhysicalLine(string line)
         {
             if (String.IsNullOrEmpty(line)) return null;
 

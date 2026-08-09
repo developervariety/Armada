@@ -91,6 +91,7 @@ namespace Armada.Server.Mcp
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, captainToolService);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
+            McpPapercutTools.Register(register, database);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue);
@@ -156,6 +157,7 @@ namespace Armada.Server.Mcp
             RegisterCatalogGroup("Armada MCP / Captains", register => McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle));
             RegisterCatalogGroup("Armada MCP / Signals", register => McpSignalTools.Register(register, database));
             RegisterCatalogGroup("Armada MCP / Events", register => McpEventTools.Register(register, database));
+            RegisterCatalogGroup("Armada MCP / Papercuts", register => McpPapercutTools.Register(register, database));
             RegisterCatalogGroup("Armada MCP / Docks", register => McpDockTools.Register(register, database, dockService));
 
             if (logging != null) RegisterCatalogGroup("Armada MCP / Playbooks", register => McpPlaybookTools.Register(register, database, logging));
