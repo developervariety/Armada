@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Diagnostics;
     using System.Linq;
     using SyslogLogging;
+    using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -612,6 +613,188 @@ namespace Armada.Core.Services
                     " in " + worktreePath + ": " + ex.Message);
                 return false;
             }
+        }
+
+        /// <inheritdoc />
+        public async Task<string?> GetRevisionShaAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) return null;
+            if (String.IsNullOrEmpty(revision)) return null;
+
+            try
+            {
+                string output = await RunGitAsync(repoPath, token, "rev-parse", "--short", revision).ConfigureAwait(false);
+                string trimmed = output.Trim();
+                return String.IsNullOrEmpty(trimmed) ? null : trimmed;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not resolve revision " + revision + " in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<GitAnchorCommit>> GetCommitsTouchingPathAsync(
+            string worktreePath,
+            string relativePath,
+            int maxCount,
+            CancellationToken token = default)
+        {
+            List<GitAnchorCommit> commits = new List<GitAnchorCommit>();
+
+            if (String.IsNullOrEmpty(worktreePath)) return commits;
+            if (String.IsNullOrEmpty(relativePath)) return commits;
+            if (maxCount <= 0) return commits;
+
+            // Unit separator between fields: a commit subject can hold any punctuation, so a printable
+            // delimiter would split the wrong line eventually.
+            string output = await RunGitAsync(
+                worktreePath,
+                token,
+                "log",
+                "-n",
+                maxCount.ToString(),
+                "--format=%h%x1f%s%x1f%ad",
+                "--date=short",
+                "--",
+                relativePath).ConfigureAwait(false);
+
+            string[] lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                string[] fields = line.Split('\u001f');
+                if (fields.Length < 3) continue;
+
+                GitAnchorCommit commit = new GitAnchorCommit();
+                commit.Sha = fields[0].Trim();
+                commit.Subject = fields[1];
+                commit.DateUtc = fields[2].Trim();
+                commits.Add(commit);
+            }
+
+            return commits;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> PathExistsOnRevisionAsync(
+            string worktreePath,
+            string revision,
+            string relativePath,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) return false;
+            if (String.IsNullOrEmpty(relativePath)) return false;
+
+            string effectiveRevision = String.IsNullOrEmpty(revision) ? "HEAD" : revision;
+
+            try
+            {
+                string output = await RunGitAsync(
+                    worktreePath,
+                    token,
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    effectiveRevision,
+                    "--",
+                    relativePath).ConfigureAwait(false);
+
+                return !String.IsNullOrWhiteSpace(output);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not test path " + relativePath + " on " + effectiveRevision +
+                    " in " + worktreePath + ": " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<GitAnchorPriorArt> SearchTrackedContentAsync(
+            string worktreePath,
+            string term,
+            int maxSamples,
+            CancellationToken token = default)
+        {
+            GitAnchorPriorArt result = new GitAnchorPriorArt();
+            result.Term = term ?? "";
+
+            if (String.IsNullOrEmpty(worktreePath)) return result;
+            if (String.IsNullOrWhiteSpace(term)) return result;
+
+            // git grep exits 1 when nothing matches, which RunGitAsync surfaces as a thrown
+            // InvalidOperationException. The caller establishes that the repository answers git before
+            // calling this, so a throw here means no match rather than a broken checkout. Without that
+            // ordering a failed search would render as "verified absent", which is a false fact and
+            // exactly the kind a captain acts on without re-checking.
+            List<string> matchingFiles = new List<string>();
+
+            try
+            {
+                string fileOutput = await RunGitAsync(
+                    worktreePath,
+                    token,
+                    "grep",
+                    "--files-with-matches",
+                    "-I",
+                    "--fixed-strings",
+                    "--",
+                    term).ConfigureAwait(false);
+
+                string[] fileLines = fileOutput.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string fileLine in fileLines)
+                {
+                    string trimmed = fileLine.Trim();
+                    if (!String.IsNullOrEmpty(trimmed)) matchingFiles.Add(trimmed.Replace('\\', '/'));
+                }
+            }
+            catch (Exception)
+            {
+                return result;
+            }
+
+            if (matchingFiles.Count == 0) return result;
+
+            result.Found = true;
+            result.MatchingFileCount = matchingFiles.Count;
+
+            if (maxSamples <= 0) return result;
+
+            try
+            {
+                string lineOutput = await RunGitAsync(
+                    worktreePath,
+                    token,
+                    "grep",
+                    "--line-number",
+                    "-I",
+                    "--fixed-strings",
+                    "--max-count=1",
+                    "--",
+                    term).ConfigureAwait(false);
+
+                string[] hitLines = lineOutput.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string hitLine in hitLines)
+                {
+                    // "path:line:content" -- keep the location, drop the content. The content is the
+                    // captain's to read from the file if the location looks relevant.
+                    int firstColon = hitLine.IndexOf(':');
+                    if (firstColon <= 0) continue;
+                    int secondColon = hitLine.IndexOf(':', firstColon + 1);
+                    if (secondColon <= firstColon) continue;
+
+                    result.SampleLocations.Add(hitLine.Substring(0, secondColon).Replace('\\', '/'));
+                    if (result.SampleLocations.Count >= maxSamples) break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not sample match locations for '" + term +
+                    "' in " + worktreePath + ": " + ex.Message);
+            }
+
+            return result;
         }
 
         /// <summary>

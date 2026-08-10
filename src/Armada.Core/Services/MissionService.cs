@@ -1728,6 +1728,18 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // Git anchors: the base commit, the recent history of the paths this mission names, and
+            // whether its subject terms already exist here. Every mission mode gets them, including
+            // read-only ones -- establishing what already exists IS most of an Audit's work, so an
+            // audit captain benefits from them at least as much as an implementing one.
+            GitAnchors gitAnchors = await ResolveGitAnchorsAsync(worktreePath, mission, vessel, token).ConfigureAwait(false);
+            string gitAnchorsSection = BuildGitAnchorsSection(gitAnchors);
+            if (!String.IsNullOrEmpty(gitAnchorsSection))
+            {
+                content += ledger.Track("mission.git_anchors", gitAnchorsSection);
+                content += "\n";
+            }
+
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             // A read-only mission takes the mode-aware output contract instead of the persona template.
             // The producing templates carry implementation language of their own -- commit your scoped
@@ -2083,6 +2095,235 @@ namespace Armada.Core.Services
                 "AI-Memory is the authoritative durable memory for this fleet; the runtime's own file-memory " +
                 "protocol is not shared state, so do not write to it. " +
                 "It is reference material, not authority: playbooks, vessel instructions, and this mission brief win on conflict.\n";
+        }
+
+        /// <summary>
+        /// Resolves the git facts a captain would otherwise discover itself: where its branch starts,
+        /// what recently touched the paths the mission names, and whether the mission's subject terms
+        /// already exist on the checkout.
+        ///
+        /// Resolution runs against the provisioned dock, which is a full worktree of the vessel
+        /// repository at the mission's base. It never throws: an unresolved block states why it is
+        /// empty, because a silently missing anchors section reads as "no prior art exists", which is
+        /// a stronger claim than the admiral is entitled to make.
+        ///
+        /// The repository is probed once with a cheap command before any search runs. A search that
+        /// cannot run and a search that found nothing are indistinguishable at the git exit code, so
+        /// the probe is what separates them; without it a broken checkout would render as a
+        /// "verified absent" line, which is a false fact stated with full confidence.
+        /// </summary>
+        /// <param name="worktreePath">Provisioned dock path.</param>
+        /// <param name="mission">Mission whose subjects are resolved.</param>
+        /// <param name="vessel">Vessel supplying the target branch.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Resolved anchors, or an unresolved instance carrying the reason.</returns>
+        private async Task<GitAnchors> ResolveGitAnchorsAsync(
+            string worktreePath,
+            Mission mission,
+            Vessel vessel,
+            CancellationToken token)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+
+            if (_Git == null) return GitAnchors.Unresolved("no git service is configured on this admiral");
+            if (String.IsNullOrEmpty(worktreePath)) return GitAnchors.Unresolved("no dock path was available");
+
+            GitAnchors anchors = new GitAnchors();
+            anchors.TargetBranch = vessel.DefaultBranch ?? "";
+
+            try
+            {
+                string? head = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(head))
+                {
+                    return GitAnchors.Unresolved("the dock did not answer git rev-parse HEAD");
+                }
+
+                // At brief-generation time the dock has just been provisioned, so its HEAD is the
+                // commit this mission's work starts from.
+                anchors.BaseCommit = head!;
+
+                // The target tip is resolved separately and is not always the same commit: a dock cut
+                // from an older base lands through the merge queue against a target that has since
+                // moved, which is how sibling commits have been dropped before. A captain that can see
+                // both values can see that gap.
+                if (!String.IsNullOrEmpty(anchors.TargetBranch))
+                {
+                    string? tip = await _Git.GetRevisionShaAsync(worktreePath, anchors.TargetBranch, token).ConfigureAwait(false);
+                    anchors.TargetTip = tip ?? "";
+                }
+
+                string missionText = (mission.Title ?? "") + "\n" + (mission.Description ?? "");
+                List<string> paths = MissionSubjectExtractor.ExtractPaths(missionText);
+                List<string> terms = MissionSubjectExtractor.ExtractTerms(missionText);
+
+                foreach (string path in paths)
+                {
+                    GitAnchorFileHistory history = new GitAnchorFileHistory();
+                    history.Path = path;
+                    history.ExistsOnRevision = await _Git.PathExistsOnRevisionAsync(
+                        worktreePath, "HEAD", path, token).ConfigureAwait(false);
+
+                    IReadOnlyList<GitAnchorCommit> commits = await _Git.GetCommitsTouchingPathAsync(
+                        worktreePath, path, MaxAnchorCommitsPerPath, token).ConfigureAwait(false);
+
+                    history.Commits = new List<GitAnchorCommit>(commits);
+                    anchors.Files.Add(history);
+                }
+
+                foreach (string term in terms)
+                {
+                    GitAnchorPriorArt priorArt = await _Git.SearchTrackedContentAsync(
+                        worktreePath, term, MaxAnchorSampleLocations, token).ConfigureAwait(false);
+
+                    anchors.PriorArt.Add(priorArt);
+                }
+
+                return anchors;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve git anchors for mission " + mission.Id + ": " + ex.Message);
+
+                // Keep whatever resolved before the failure and mark the block incomplete. Discarding
+                // it would throw away correct facts, and the renderer states the shortfall rather than
+                // presenting a half-finished block as a finished one.
+                anchors.ResolutionError = "git anchor resolution failed: " + ex.Message;
+                return anchors;
+            }
+        }
+
+        /// <summary>
+        /// Renders the git anchors block. The block states facts and points at locations; it never
+        /// pastes file content, because the captain can read a named file far more cheaply than the
+        /// brief can carry it.
+        ///
+        /// A negative prior-art result is rendered as explicitly as a positive one. Proving that
+        /// something is absent is several turns of searching, and a captain that cannot prove it
+        /// either duplicates landed work or stops to ask.
+        /// </summary>
+        /// <param name="anchors">Resolved anchors.</param>
+        /// <returns>The git anchors section, or an empty string when there is nothing to state.</returns>
+        internal static string BuildGitAnchorsSection(GitAnchors anchors)
+        {
+            if (anchors == null) return "";
+
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            builder.Append("## Git Anchors\n");
+            builder.Append("Resolved by the admiral at dispatch. These are facts about this checkout, ");
+            builder.Append("supplied so you do not spend turns deriving them. Verify anything you intend to rely on.\n\n");
+
+            // Nothing resolved: emit nothing. A block that says only "this failed" spends brief bytes
+            // to leave the captain exactly where it started, and the absence of the section is the
+            // state every captain already handles. The reason goes to the log and the budget
+            // telemetry, where the operator reads it.
+            if (!anchors.HasContent) return "";
+
+            if (!String.IsNullOrEmpty(anchors.TargetBranch))
+                builder.Append("- Target branch: `" + anchors.TargetBranch + "`\n");
+            if (!String.IsNullOrEmpty(anchors.BaseCommit))
+                builder.Append("- Your work starts at (this checkout's HEAD): `" + anchors.BaseCommit + "`\n");
+            if (!String.IsNullOrEmpty(anchors.TargetTip))
+            {
+                builder.Append("- Target branch tip at dispatch: `" + anchors.TargetTip + "`\n");
+
+                if (!String.IsNullOrEmpty(anchors.BaseCommit) &&
+                    !String.Equals(anchors.BaseCommit, anchors.TargetTip, StringComparison.OrdinalIgnoreCase))
+                {
+                    builder.Append("  - These differ: your checkout is not at the target tip. ");
+                    builder.Append("Expect the landing to rebase or merge, and do not assume the tip's content is present here.\n");
+                }
+            }
+
+            if (anchors.Files.Count > 0)
+            {
+                builder.Append("\n### Recent history of the paths this mission names\n");
+                foreach (GitAnchorFileHistory file in anchors.Files)
+                {
+                    if (!file.ExistsOnRevision)
+                    {
+                        builder.Append("- `" + file.Path + "` does not exist on this checkout. It is new work, not an edit.\n");
+                        continue;
+                    }
+
+                    builder.Append("- `" + file.Path + "`\n");
+                    if (file.Commits.Count == 0)
+                    {
+                        builder.Append("  - no commit history found for this path\n");
+                        continue;
+                    }
+
+                    foreach (GitAnchorCommit commit in file.Commits)
+                    {
+                        builder.Append("  - " + commit.ToBriefLine() + "\n");
+                    }
+                }
+            }
+
+            if (anchors.PriorArt.Count > 0)
+            {
+                builder.Append("\n### Prior art for this mission's subject terms\n");
+                foreach (GitAnchorPriorArt priorArt in anchors.PriorArt)
+                {
+                    if (!priorArt.Found)
+                    {
+                        // Named against the commit the search actually ran on, which is this
+                        // checkout's HEAD. Attributing it to the target tip would overstate the
+                        // claim whenever the dock was cut from an older base.
+                        builder.Append("- `" + priorArt.Term + "`: VERIFIED ABSENT from tracked content as of `" +
+                            (String.IsNullOrEmpty(anchors.BaseCommit) ? "this checkout" : anchors.BaseCommit) +
+                            "`.\n");
+                        continue;
+                    }
+
+                    builder.Append("- `" + priorArt.Term + "`: present in " + priorArt.MatchingFileCount +
+                        (priorArt.MatchingFileCount == 1 ? " file" : " files"));
+
+                    if (priorArt.SampleLocations.Count > 0)
+                    {
+                        builder.Append("; for example " + String.Join(", ", priorArt.SampleLocations));
+                    }
+
+                    builder.Append("\n");
+                }
+            }
+
+            // A partial resolution must say so. Without this line the captain reads a block that
+            // resolved paths but never finished searching as a complete one, and "no absent line for
+            // my term" then reads as "my term is present" -- the exact wrong conclusion.
+            if (!String.IsNullOrEmpty(anchors.ResolutionError))
+            {
+                builder.Append("\nINCOMPLETE: anchor resolution stopped early (" + anchors.ResolutionError + "). ");
+                builder.Append("What is listed above is accurate. What is missing was never checked, ");
+                builder.Append("so treat any subject absent from this block as unknown, not as absent from the repository.\n");
+            }
+
+            return BoundGitAnchorsSection(builder.ToString());
+        }
+
+        /// <summary>
+        /// Caps the anchors block on a line boundary with a visible marker. The block is an aid, so it
+        /// must never be the module that pushes a brief over budget; a truncated aid that says it was
+        /// truncated is safe, while a silently cut one implies the list it shows is complete.
+        /// </summary>
+        /// <param name="section">Rendered section.</param>
+        /// <returns>The section, capped.</returns>
+        internal static string BoundGitAnchorsSection(string section)
+        {
+            if (String.IsNullOrEmpty(section)) return section ?? "";
+            if (section.Length <= MaxGitAnchorsSectionChars) return section;
+
+            string head = section.Substring(0, MaxGitAnchorsSectionChars);
+            int lastNewline = head.LastIndexOf('\n');
+            if (lastNewline > 0) head = head.Substring(0, lastNewline + 1);
+
+            return head + "[git anchors truncated at " + MaxGitAnchorsSectionChars +
+                " characters; run git log or git grep yourself for the rest]\n";
         }
 
         /// <summary>
@@ -3485,6 +3726,14 @@ namespace Armada.Core.Services
         // total captain-instruction budget. Head and tail are both preserved: the head holds the base
         // brief, and the tail holds the newest handoff block, which carries the diff a reviewing stage
         // needs. Middle content is elided with a visible marker.
+        // Bounds on the git anchors module. The module exists to SAVE a captain context, so it must
+        // stay small enough that it never competes with the source the captain came to read: a few
+        // commits per path is enough to show who last worked there, and a few sample locations is
+        // enough to decide whether to open a file.
+        internal const int MaxAnchorCommitsPerPath = 5;
+        internal const int MaxAnchorSampleLocations = 3;
+        internal const int MaxGitAnchorsSectionChars = 4000;
+
         internal const int _MaxMetadataDescriptionChars = 12000;
         internal const int _MaxMetadataDescriptionHeadChars = 4000;
 

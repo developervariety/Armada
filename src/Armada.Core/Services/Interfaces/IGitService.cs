@@ -1,6 +1,7 @@
 namespace Armada.Core.Services.Interfaces
 {
     using System.Collections.Generic;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Git operations for repository and worktree management.
@@ -189,6 +190,78 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>The full SHA-1 commit hash, or null if it cannot be determined.</returns>
         Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default);
+
+        // Mission-brief anchor queries. These enrich a brief; they are never required for a dispatch
+        // to proceed, so each carries a default that reports "nothing resolved". An implementation
+        // that cannot answer them degrades to a brief without anchors, which the renderer states
+        // explicitly rather than passing off as an empty result.
+
+        /// <summary>
+        /// Resolve a revision to its abbreviated commit hash.
+        /// </summary>
+        /// <param name="repoPath">Repository or worktree path.</param>
+        /// <param name="revision">Revision to resolve, for example a branch name.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The abbreviated hash, or null when it cannot be resolved.</returns>
+        Task<string?> GetRevisionShaAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        /// <summary>
+        /// List the most recent commits that touched a path, newest first.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="relativePath">Repository-relative path.</param>
+        /// <param name="maxCount">Maximum commits to return; zero or less returns none.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Commits touching the path, newest first; empty when there are none.</returns>
+        Task<IReadOnlyList<GitAnchorCommit>> GetCommitsTouchingPathAsync(
+            string worktreePath,
+            string relativePath,
+            int maxCount,
+            CancellationToken token = default)
+        {
+            return Task.FromResult<IReadOnlyList<GitAnchorCommit>>(Array.Empty<GitAnchorCommit>());
+        }
+
+        /// <summary>
+        /// Report whether a path exists on a revision.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="revision">Revision to test; defaults to HEAD when empty.</param>
+        /// <param name="relativePath">Repository-relative path.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the path exists on the revision.</returns>
+        Task<bool> PathExistsOnRevisionAsync(
+            string worktreePath,
+            string revision,
+            string relativePath,
+            CancellationToken token = default)
+        {
+            return Task.FromResult(false);
+        }
+
+        /// <summary>
+        /// Search tracked content for a fixed term and report how many files contain it, with a few
+        /// sample locations. A caller must establish that the repository answers git before calling
+        /// this, because a search that cannot run is reported the same way as one that found nothing.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="term">Fixed string to search for.</param>
+        /// <param name="maxSamples">Maximum sample locations to collect.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The search result; never null.</returns>
+        Task<GitAnchorPriorArt> SearchTrackedContentAsync(
+            string worktreePath,
+            string term,
+            int maxSamples,
+            CancellationToken token = default)
+        {
+            GitAnchorPriorArt empty = new GitAnchorPriorArt();
+            empty.Term = term ?? "";
+            return Task.FromResult(empty);
+        }
 
         /// <summary>
         /// List repository-relative files changed during a mission since the worktree was provisioned.

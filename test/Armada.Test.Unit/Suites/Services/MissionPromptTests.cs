@@ -1831,6 +1831,147 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("## Some Playbook", section, "playbook content must be preserved");
             });
 
+            // Git anchors: the facts a captain would otherwise spend its opening turns deriving.
+
+            await RunTest("GitAnchors Section Is Omitted When Nothing Resolved", () =>
+            {
+                GitAnchors anchors = GitAnchors.Unresolved("no git service is configured on this admiral");
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertEqual("", section, "an unresolved block must cost the brief nothing");
+            });
+
+            await RunTest("GitAnchors Section States A Negative Prior-Art Result Explicitly", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.TargetBranch = "main";
+                anchors.BaseCommit = "abc1234";
+                anchors.TargetTip = "abc1234";
+
+                GitAnchorPriorArt absent = new GitAnchorPriorArt();
+                absent.Term = "ExampleWidgetDecoder";
+                absent.Found = false;
+                anchors.PriorArt.Add(absent);
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("VERIFIED ABSENT", section, "absence must be stated, not implied by silence");
+                AssertContains("ExampleWidgetDecoder", section, "the searched term must be named");
+                AssertContains("abc1234", section, "absence must be anchored to the commit it was proven against");
+            });
+
+            await RunTest("GitAnchors Section Reports Present Terms With Sample Locations", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.BaseCommit = "abc1234";
+
+                GitAnchorPriorArt present = new GitAnchorPriorArt();
+                present.Term = "MissionPromptBuilder";
+                present.Found = true;
+                present.MatchingFileCount = 3;
+                present.SampleLocations.Add("src/Armada.Core/Services/MissionPromptBuilder.cs:13");
+                anchors.PriorArt.Add(present);
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("present in 3 files", section, "the file count must be reported");
+                AssertContains("MissionPromptBuilder.cs:13", section, "a sample location must be given");
+                AssertFalse(section.Contains("VERIFIED ABSENT"), "a found term must not be reported as absent");
+            });
+
+            await RunTest("GitAnchors Section Flags A New File Rather Than Listing No History", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.BaseCommit = "abc1234";
+
+                GitAnchorFileHistory missing = new GitAnchorFileHistory();
+                missing.Path = "src/New/Thing.cs";
+                missing.ExistsOnRevision = false;
+                anchors.Files.Add(missing);
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("does not exist on this checkout", section, "a new path must be named as new work");
+                AssertContains("new work, not an edit", section, "the captain must not hunt for history that cannot exist");
+            });
+
+            await RunTest("GitAnchors Section Marks A Partial Resolution Incomplete", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.BaseCommit = "abc1234";
+
+                GitAnchorFileHistory history = new GitAnchorFileHistory();
+                history.Path = "src/Thing.cs";
+                history.ExistsOnRevision = true;
+                anchors.Files.Add(history);
+
+                anchors.ResolutionError = "git anchor resolution failed: timeout";
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("INCOMPLETE", section, "a partial block must say it is partial");
+                AssertContains("unknown, not as absent", section, "silence in a partial block must not read as absence");
+                AssertContains("src/Thing.cs", section, "facts resolved before the failure must be kept");
+            });
+
+            await RunTest("GitAnchors Section Truncates On A Line Boundary With A Marker", () =>
+            {
+                string oversized = new string('x', MissionService.MaxGitAnchorsSectionChars + 500);
+                string bounded = MissionService.BoundGitAnchorsSection("- line one\n" + oversized + "\n");
+
+                AssertContains("[git anchors truncated at", bounded, "a cut block must say it was cut");
+                AssertTrue(
+                    bounded.Length <= MissionService.MaxGitAnchorsSectionChars + 200,
+                    "the bounded block must respect its cap plus the marker");
+            });
+
+            await RunTest("GitAnchors Section Names Both Commits When The Dock Is Behind The Target", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.TargetBranch = "main";
+                anchors.BaseCommit = "aaa1111";
+                anchors.TargetTip = "bbb2222";
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("aaa1111", section, "the captain must see where its work starts");
+                AssertContains("bbb2222", section, "the captain must see the target tip");
+                AssertContains("These differ", section, "a dock cut from an older base must be called out");
+            });
+
+            await RunTest("MissionSubjectExtractor Finds Paths And Identifiers And Caps Both", () =>
+            {
+                // Placeholder subjects only. A test fixture that quotes a real vessel's paths or
+                // symbols carries that repository's private context into this one, where it is
+                // neither needed nor reviewable.
+                string text =
+                    "Port ExampleWidgetDecoder onto the shared parameter seam. " +
+                    "Touch src/Example/Example.Core/Widgets/WidgetMessageData.cs and " +
+                    "src/Example/Example.Core/Widgets/WidgetMessageDataEmitter.cs. " +
+                    "Tracked under obj_exampleid0000.";
+
+                List<string> paths = MissionSubjectExtractor.ExtractPaths(text);
+                List<string> terms = MissionSubjectExtractor.ExtractTerms(text);
+
+                AssertTrue(paths.Contains("src/Example/Example.Core/Widgets/WidgetMessageData.cs"),
+                    "a named source path must be extracted");
+                AssertTrue(terms.Contains("ExampleWidgetDecoder"), "a named identifier must be extracted");
+                AssertTrue(paths.Count <= MissionSubjectExtractor.MaxPaths, "paths must respect their cap");
+                AssertTrue(terms.Count <= MissionSubjectExtractor.MaxTerms, "terms must respect their cap");
+
+                foreach (string term in terms)
+                {
+                    AssertFalse(term.StartsWith("obj_", StringComparison.Ordinal),
+                        "an Armada record id names nothing in vessel source and must not become a search term");
+                }
+            });
+
+            await RunTest("MissionSubjectExtractor Returns Nothing For Empty Mission Text", () =>
+            {
+                AssertEqual(0, MissionSubjectExtractor.ExtractPaths(null).Count, "null text yields no paths");
+                AssertEqual(0, MissionSubjectExtractor.ExtractTerms("   ").Count, "blank text yields no terms");
+            });
+
         }
 
         private static int CountOccurrences(string haystack, string needle)
