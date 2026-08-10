@@ -1747,6 +1747,90 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("follow it exactly", prompt);
                 }
             });
+            await RunTest("LaunchPrompt ReadOnly Mission Uses ReportOnly Completion Clause", async () =>
+            {
+                Mission mission = new Mission("vsl_test");
+                mission.Mode = MissionModeEnum.Research;
+                mission.Title = "Context probe: test";
+                mission.Persona = "Worker";
+                Vessel vessel = new Vessel { Id = "vsl_test", Name = "test", DefaultBranch = "main" };
+                Captain captain = new Captain { Name = "captain-1", Runtime = AgentRuntimeEnum.Codex };
+                string worktree = Path.Combine(Path.GetTempPath(), "armada-launch-wt-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(worktree);
+                try
+                {
+                    Dock dock = new Dock("vsl_test");
+                    dock.WorktreePath = worktree;
+                    dock.BranchName = "armada/branch";
+                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(mission, vessel, captain, dock, null).ConfigureAwait(false);
+                    AssertContains("report-only Research mission", prompt, "Read-only launch must state the report-only completion contract");
+                    AssertFalse(prompt.Contains("For an Implementation mission"), "Read-only launch must not carry the implementation completion clause");
+                }
+                finally
+                {
+                    if (Directory.Exists(worktree))
+                    {
+                        try { Directory.Delete(worktree, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("LaunchPrompt Implementation Mission Keeps Completion Clause", async () =>
+            {
+                Mission mission = new Mission("vsl_test");
+                mission.Mode = MissionModeEnum.Implementation;
+                mission.Title = "Implement a thing";
+                mission.Persona = "Worker";
+                Vessel vessel = new Vessel { Id = "vsl_test", Name = "test", DefaultBranch = "main" };
+                Captain captain = new Captain { Name = "captain-1", Runtime = AgentRuntimeEnum.Codex };
+                string worktree = Path.Combine(Path.GetTempPath(), "armada-launch-wt-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(worktree);
+                try
+                {
+                    Dock dock = new Dock("vsl_test");
+                    dock.WorktreePath = worktree;
+                    dock.BranchName = "armada/branch";
+                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(mission, vessel, captain, dock, null).ConfigureAwait(false);
+                    AssertContains("For an Implementation mission", prompt, "Implementation launch must keep the completion clause");
+                    AssertFalse(prompt.Contains("report-only Research mission"), "Implementation launch must not carry report-only framing");
+                }
+                finally
+                {
+                    if (Directory.Exists(worktree))
+                    {
+                        try { Directory.Delete(worktree, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("SanitizeLaunchText Maps Typographic Characters To Ascii", () =>
+            {
+                string input = "Probe \u2014 title\uFEFF with \u2018quotes\u2019 and \u201Cdouble\u201D \u2026 \u00A0\u2022";
+                string output = MissionPromptBuilder.SanitizeLaunchText(input);
+                bool allAscii = output.All(c => c <= 0x7E);
+                AssertTrue(allAscii, "Sanitized output must be pure ASCII");
+                AssertFalse(output.Contains('\u2014'), "em dash must be replaced");
+                AssertFalse(output.Contains('\uFEFF'), "byte-order mark must be removed");
+                AssertContains("-", output, "em dash must map to hyphen");
+            });
+
+            await RunTest("AiMemorySection States Authoritative Precedence", () =>
+            {
+                string section = MissionService.BuildAiMemorySection("/srv/armada/AI-Memory");
+                AssertContains("authoritative durable memory", section, "AI-Memory precedence must be stated");
+                AssertContains("do not write to it", section, "runtime file-memory write must be forbidden");
+            });
+
+            await RunTest("ReadOnlyPlaybooksWrapper Demotes Playbooks To Reference", () =>
+            {
+                string section = MissionService.BuildReadOnlyPlaybooksWrapperSection("## Some Playbook\nContent\n");
+                AssertContains("report-only mission", section, "wrapper must name the read-only mode");
+                AssertContains("mission rules win on conflict", section, "wrapper must state precedence");
+                AssertContains("## Some Playbook", section, "playbook content must be preserved");
+            });
+
         }
 
         private static int CountOccurrences(string haystack, string needle)

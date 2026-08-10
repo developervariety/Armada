@@ -1486,6 +1486,13 @@ namespace Armada.Server
                 if (mission == null || !IsLiveMissionStatus(mission.Status))
                     continue;
 
+                // Startup grace: never nudge a mission that began within the stall threshold.
+                // The per-captain provider-progress tracker can carry stale progress from a prior
+                // mission, which classifies a freshly launched captain as a silent stall within
+                // seconds (probe run 2026-08-10: healthy captain nudged 12s after launch).
+                if (ProviderStallClassifier.IsWithinStartupGrace(mission.StartedUtc, nowUtc, thresholdMinutes))
+                    continue;
+
                 if (await HasRecentAutoNudgeAsync(captain, token).ConfigureAwait(false))
                     continue;
 

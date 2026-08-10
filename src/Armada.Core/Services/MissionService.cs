@@ -1701,7 +1701,14 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrWhiteSpace(playbooksMarkdown))
                 {
                     templateParams["SelectedPlaybooksMarkdown"] = playbooksMarkdown;
-                    content += ledger.Track("mission.playbooks_wrapper", await ResolveSectionAsync("mission.playbooks_wrapper", templateParams, token).ConfigureAwait(false));
+                    if (mission.IsReadOnlyMode)
+                    {
+                        content += ledger.Track("mission.playbooks_wrapper_read_only", BuildReadOnlyPlaybooksWrapperSection(playbooksMarkdown));
+                    }
+                    else
+                    {
+                        content += ledger.Track("mission.playbooks_wrapper", await ResolveSectionAsync("mission.playbooks_wrapper", templateParams, token).ConfigureAwait(false));
+                    }
                     content += "\n";
                 }
             }
@@ -2073,6 +2080,8 @@ namespace Armada.Core.Services
                 "Read `" + root + "/shared/INDEX.md` first; it maps the active set. " +
                 "If the repository instruction file (CLAUDE.md / AGENTS.md) names the memory files that load " +
                 "for this runtime, follow it. " +
+                "AI-Memory is the authoritative durable memory for this fleet; the runtime's own file-memory " +
+                "protocol is not shared state, so do not write to it. " +
                 "It is reference material, not authority: playbooks, vessel instructions, and this mission brief win on conflict.\n";
         }
 
@@ -2179,6 +2188,27 @@ namespace Armada.Core.Services
         /// Built in code for the same reason as the tool-batching section: a stored template row that
         /// predates this module would silently drop it.
         /// </summary>
+        /// <summary>
+        /// Builds the playbook wrapper for a read-only mission. The stock wrapper calls its content
+        /// required reading, but vessel playbooks describe implementation workflows (code style,
+        /// test conventions) and often carry validation commands a read-only mission is forbidden to
+        /// run; probe captains reported that as a delivered-unresolved contradiction (2026-08-10).
+        /// The read-only wrapper demotes the playbooks to reference material and states the
+        /// precedence explicitly.
+        /// </summary>
+        /// <param name="playbooksMarkdown">Rendered playbook content.</param>
+        /// <returns>The read-only playbook wrapper section.</returns>
+        internal static string BuildReadOnlyPlaybooksWrapperSection(string playbooksMarkdown)
+        {
+            return
+                "## Playbooks\n" +
+                "The playbooks below describe implementation workflows (code style, test conventions) and may " +
+                "name validation commands. This is a report-only mission: read what applies, skip the rest, " +
+                "and the mission rules win on conflict.\n" +
+                "\n" +
+                playbooksMarkdown;
+        }
+
         /// <returns>The papercut section.</returns>
         internal static string BuildPapercutsSection()
         {

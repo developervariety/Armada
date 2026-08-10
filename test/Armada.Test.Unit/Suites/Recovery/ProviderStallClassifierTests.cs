@@ -150,6 +150,17 @@ namespace Armada.Test.Unit.Suites.Recovery
                 AssertFalse(tracker.TryGet("", out _), "blank captain id must never be recorded");
                 await Task.CompletedTask;
             });
+
+            await RunTest("StartupGraceSkipsRecentlyStartedMission", () =>
+            {
+                DateTime now = DateTime.UtcNow;
+                AssertTrue(ProviderStallClassifier.IsWithinStartupGrace(now.AddSeconds(-30), now, 1.0),
+                    "30 seconds after start must be inside a 1-minute grace");
+                AssertFalse(ProviderStallClassifier.IsWithinStartupGrace(now.AddMinutes(-5), now, 1.0),
+                    "5 minutes after start must be outside the grace");
+                AssertFalse(ProviderStallClassifier.IsWithinStartupGrace(null, now, 1.0),
+                    "a mission with no recorded start is never in grace");
+            });
         }
     }
 }

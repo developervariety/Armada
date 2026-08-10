@@ -13,6 +13,45 @@ namespace Armada.Core.Services
     public static class MissionPromptBuilder
     {
         private const int MaxLaunchPromptChars = 6000;
+
+        /// <summary>
+        /// Normalize launch-prompt text to ASCII. Mission titles and descriptions are operator
+        /// text and routinely carry typographic punctuation (em dashes, curly quotes) and the
+        /// occasional byte-order mark, while the mission rules demand ASCII-only output from the
+        /// captain; a title that cannot be quoted verbatim without violating the rules is a
+        /// contradiction probe captains reported (2026-08-10). The sanitizer is lossy by design:
+        /// common typographic characters map to their ASCII equivalents and the rest are dropped.
+        /// </summary>
+        /// <param name="text">Launch-prompt text.</param>
+        /// <returns>ASCII-only text.</returns>
+        internal static string SanitizeLaunchText(string? text)
+        {
+            if (String.IsNullOrEmpty(text)) return text ?? String.Empty;
+
+            char[] buffer = new char[text.Length];
+            int write = 0;
+            foreach (char current in text)
+            {
+                char mapped = current switch
+                {
+                    '\uFEFF' or '\u00A0' => ' ',
+                    '\u2013' or '\u2014' => '-',
+                    '\u2018' or '\u2019' => '\'',
+                    '\u201C' or '\u201D' => '"',
+                    '\u2026' => '.',
+                    '\u2022' => '-',
+                    _ => current
+                };
+
+                if (mapped > 0x7E)
+                    continue;
+
+                buffer[write++] = mapped;
+            }
+
+            return new String(buffer, 0, write);
+        }
+
         private const int MaxPersonaSummaryChars = 320;
         private const int MaxCaptainInstructionChars = 800;
         private const int MaxMissionDescriptionChars = 3500;
@@ -210,18 +249,26 @@ namespace Armada.Core.Services
             }
             else
             {
+                // The completion clause is mission-mode aware. The generic Implementation text
+                // ("COMPLETE valid only after changes are saved") is a contradiction on a
+                // report-only mission whose success condition is producing no change, and probe
+                // captains reported it as delivered-unresolved (papercuts, 2026-08-10).
+                string completionClause = mission.IsReadOnlyMode
+                    ? "This is a report-only " + mission.Mode + " mission: producing no repository change is the expected outcome, not a failure. Deliver the report in your final message."
+                    : "For an Implementation mission, a standalone COMPLETE line is valid only after the requested work is complete and the required changes are saved.";
+
                 sections.Add(
                     instructionDirective + " " +
-                    "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly. After reading it, perform the mission now; do not stop after acknowledging or summarizing the instructions. For an Implementation mission, a standalone COMPLETE line is valid only after the requested work is complete and the required changes are saved.");
+                    "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly. After reading it, perform the mission now; do not stop after acknowledging or summarizing the instructions. " + completionClause);
             }
 
-            string prompt = String.Join(" ", sections.Select(s => s.Replace("\r", " ").Replace("\n", " ").Trim())).Trim();
+            string prompt = SanitizeLaunchText(String.Join(" ", sections.Select(s => s.Replace("\r", " ").Replace("\n", " ").Trim())).Trim());
             if (prompt.Length <= MaxLaunchPromptChars)
                 return prompt;
 
             string overflowMessage = "\n\n" + instructionDirective + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
             int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
-            return prompt.Substring(0, allowed).TrimEnd() + overflowMessage;
+            return SanitizeLaunchText(prompt.Substring(0, allowed).TrimEnd() + overflowMessage);
         }
 
         private static string BuildInstructionDirective(

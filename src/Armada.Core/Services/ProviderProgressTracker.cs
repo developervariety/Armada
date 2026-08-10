@@ -159,5 +159,24 @@ namespace Armada.Core.Services
 
             return ProviderStallKind.None;
         }
+
+        /// <summary>
+        /// Startup-grace check for stall nudging. The provider-progress tracker is keyed per
+        /// captain, so a progress timestamp left over from a PRIOR mission can classify a
+        /// freshly launched mission as a silent stall within seconds of launch; the probe run
+        /// of 2026-08-10 nudged a healthy captain 12 seconds after launch. A mission that
+        /// started less than the threshold ago is never nudged, whatever the tracker says.
+        /// </summary>
+        /// <param name="missionStartedUtc">Mission start time, if recorded.</param>
+        /// <param name="nowUtc">Reference "now" timestamp.</param>
+        /// <param name="thresholdMinutes">Stall threshold in minutes.</param>
+        /// <returns>True when the mission is still inside its startup grace window.</returns>
+        public static bool IsWithinStartupGrace(DateTime? missionStartedUtc, DateTime nowUtc, double thresholdMinutes)
+        {
+            if (!missionStartedUtc.HasValue) return false;
+
+            double effectiveThreshold = thresholdMinutes > 0 ? thresholdMinutes : 1.0;
+            return (nowUtc - missionStartedUtc.Value).TotalMinutes < effectiveThreshold;
+        }
     }
 }
