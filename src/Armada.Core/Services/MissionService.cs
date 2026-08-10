@@ -3672,7 +3672,13 @@ namespace Armada.Core.Services
             // re-prepend a persona preamble that is already present. Without this, a handoff that runs
             // twice for the same pair (batch path plus the lazy self-heal path, or a rescue re-prepare)
             // duplicates the entire block, which can multiply a brief several times over.
-            string existingDescription = StripHandoffBlock(nextMission.Description ?? "", completedMission.Id);
+            // Strip this upstream's own previous block first, so a repeated handoff replaces rather than
+            // duplicates it. Then shrink every OTHER handoff block that is already present. What remains
+            // is the base brief plus short references to earlier stages, and the new block below is the
+            // only one carried in full. Without the second step the total cap is spent on the oldest
+            // stage's diff, and the newest stage's diff is what gets cut.
+            string existingDescription = CompactOlderHandoffBlocks(
+                StripHandoffBlock(nextMission.Description ?? "", completedMission.Id));
 
             string handoffDescription = personaPreamble.Length > 0 && !ContainsPersonaPreamble(existingDescription, personaPreamble)
                 ? personaPreamble + existingDescription + handoffContext
@@ -3842,6 +3848,126 @@ namespace Armada.Core.Services
 
             return description.Substring(0, blockStart) + description.Substring(nextBlockStart);
         }
+
+        /// <summary>
+        /// Shrinks every handoff block already present in a description down to a short reference.
+        ///
+        /// A pipeline of four stages leaves three handoff blocks in the last stage's description. Each one
+        /// can hold thousands of characters of agent output and tens of thousands of characters of diff.
+        /// Only the newest block is worth carrying in full: it holds the work the next stage must act on.
+        /// The older blocks describe work that is already on the branch, where the captain can read it in
+        /// full and at no cost to its context.
+        ///
+        /// Without this, the total cap is still respected, but it is spent on the OLDEST content, and the
+        /// newest block is what gets cut. That is the wrong way round.
+        ///
+        /// The caller runs this before it appends the new block, so the result is: newest block in full,
+        /// every older block a reference line. A block that is already compact is left alone, so running
+        /// this twice changes nothing.
+        /// </summary>
+        /// <param name="description">Existing mission description; may be null or empty.</param>
+        /// <returns>The description with every existing handoff block reduced to a reference.</returns>
+        internal static string CompactOlderHandoffBlocks(string? description)
+        {
+            if (String.IsNullOrEmpty(description)) return description ?? "";
+            if (!description.Contains(_HandoffMarkerPrefix, StringComparison.Ordinal)) return description;
+
+            const string separator = "\n\n---\n";
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            int cursor = 0;
+
+            while (true)
+            {
+                int markerIndex = description.IndexOf(_HandoffMarkerPrefix, cursor, StringComparison.Ordinal);
+                if (markerIndex < 0)
+                {
+                    builder.Append(description.Substring(cursor));
+                    break;
+                }
+
+                int suffixIndex = description.IndexOf(_HandoffMarkerSuffix, markerIndex, StringComparison.Ordinal);
+                if (suffixIndex < 0)
+                {
+                    // A marker with no terminator is malformed. Copy the rest verbatim rather than
+                    // guessing where the block ends; losing real brief text is worse than a large brief.
+                    builder.Append(description.Substring(cursor));
+                    break;
+                }
+
+                int idStart = markerIndex + _HandoffMarkerPrefix.Length;
+                string missionId = description.Substring(idStart, suffixIndex - idStart);
+                int markerEnd = suffixIndex + _HandoffMarkerSuffix.Length;
+
+                int blockStart = markerIndex;
+                if (markerIndex >= separator.Length &&
+                    String.CompareOrdinal(description, markerIndex - separator.Length, separator, 0, separator.Length) == 0)
+                {
+                    blockStart = markerIndex - separator.Length;
+                }
+
+                int nextMarkerIndex = description.IndexOf(_HandoffMarkerPrefix, markerEnd, StringComparison.Ordinal);
+                int blockEnd = nextMarkerIndex < 0 ? description.Length : nextMarkerIndex;
+                if (nextMarkerIndex >= separator.Length &&
+                    nextMarkerIndex >= 0 &&
+                    String.CompareOrdinal(description, nextMarkerIndex - separator.Length, separator, 0, separator.Length) == 0)
+                {
+                    blockEnd = nextMarkerIndex - separator.Length;
+                }
+
+                builder.Append(description.Substring(cursor, blockStart - cursor));
+                builder.Append(BuildCompactHandoffBlock(missionId, description.Substring(blockStart, blockEnd - blockStart)));
+                cursor = blockEnd;
+            }
+
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// Builds the short reference that replaces one older handoff block. It keeps the facts a later
+        /// stage needs to FIND the work — the upstream mission id and the branch — and drops the pasted
+        /// agent output and diff, which are both still on the branch.
+        /// </summary>
+        /// <param name="missionId">Upstream mission id taken from the block marker.</param>
+        /// <param name="block">The full block text, including its leading separator when present.</param>
+        /// <returns>The compact replacement block, or the original when it is already compact.</returns>
+        private static string BuildCompactHandoffBlock(string missionId, string block)
+        {
+            if (block.Contains(_CompactedHandoffHeading, StringComparison.Ordinal)) return block;
+
+            string branch = "unknown";
+            string persona = "prior";
+
+            string[] lines = block.Split('\n');
+            foreach (string line in lines)
+            {
+                if (line.StartsWith("Branch: ", StringComparison.Ordinal))
+                {
+                    branch = line.Substring("Branch: ".Length).Trim();
+                }
+                else if (line.StartsWith("The previous pipeline stage (", StringComparison.Ordinal))
+                {
+                    int open = line.IndexOf('(');
+                    int close = line.IndexOf(')', open + 1);
+                    if (open >= 0 && close > open) persona = line.Substring(open + 1, close - open - 1);
+                }
+            }
+
+            string compacted = "\n\n---\n" +
+                BuildHandoffMarker(missionId) + "\n" +
+                _CompactedHandoffHeading + "\n" +
+                "Stage: " + persona + ". Mission: " + missionId + ". Branch: " + branch + ".\n" +
+                "Its full output and diff are not repeated here. They are on that branch, " +
+                "and the mission record holds the complete log. Read them only if this stage needs them.\n";
+
+            // A stage that produced very little leaves a block smaller than this reference. Replacing it
+            // would add bytes to save bytes, and would also throw away real content to do it. Keep
+            // whichever is shorter; the point of this method is a smaller brief, not a compacted one.
+            return compacted.Length < block.Length ? compacted : block;
+        }
+
+        // Heading that marks an already-compacted handoff block. Present so compaction is idempotent and
+        // so a reader can tell a shortened block from a stage that simply produced little output.
+        private const string _CompactedHandoffHeading = "## Prior Stage (compacted)";
 
         /// <summary>
         /// Reports whether a description already carries a persona preamble, so a repeated handoff does not

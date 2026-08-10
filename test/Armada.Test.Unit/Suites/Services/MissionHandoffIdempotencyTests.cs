@@ -21,16 +21,30 @@ namespace Armada.Test.Unit.Suites.Services
 
         /// <summary>
         /// Composes a description exactly as the handoff does: strip any prior block for this upstream,
-        /// prepend the persona preamble only when absent, then append a fresh block.
+        /// shrink every older block that remains, prepend the persona preamble only when absent, then
+        /// append a fresh block. The compaction step must stay here, or this helper stops matching the
+        /// production path and the suite starts proving behaviour that no longer exists.
         /// </summary>
         private string ApplyHandoff(string description, string upstreamId, string blockBody)
         {
-            string stripped = MissionService.StripHandoffBlock(description, upstreamId);
+            string stripped = MissionService.CompactOlderHandoffBlocks(
+                MissionService.StripHandoffBlock(description, upstreamId));
             string block = "\n\n---\n" + MissionService.BuildHandoffMarker(upstreamId) + "\n" + blockBody;
 
             return MissionService.ContainsPersonaPreamble(stripped, _Preamble)
                 ? stripped + block
                 : _Preamble + stripped + block;
+        }
+
+        /// <summary>
+        /// Builds a prior-stage block body of realistic size. A real block carries agent output and a
+        /// diff and runs to thousands of characters. A toy body is smaller than the compact reference
+        /// that would replace it, so compaction correctly leaves it alone and the test proves nothing.
+        /// </summary>
+        private string LargeBody(string tag)
+        {
+            return "## Prior Stage Output\n" + tag + "\n" +
+                "### Diff from prior stage\n```diff\n" + new string('+', 4000) + "\n```\n";
         }
 
         private int CountOccurrences(string haystack, string needle)
@@ -64,30 +78,72 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
-            await RunTest("Handoff from a second upstream keeps both blocks", async () =>
+            await RunTest("Handoff from a second upstream compacts the older block and keeps the newest in full", async () =>
             {
-                string first = ApplyHandoff("Base brief.", _UpstreamId, "## Prior Stage Output\nfrom one\n");
-                string both = ApplyHandoff(first, _OtherUpstreamId, "## Prior Stage Output\nfrom two\n");
+                string first = ApplyHandoff("Base brief.", _UpstreamId, LargeBody("from one"));
+                string both = ApplyHandoff(first, _OtherUpstreamId, LargeBody("from two"));
 
-                AssertEqual(1, CountOccurrences(both, MissionService.BuildHandoffMarker(_UpstreamId)), "first upstream block must remain");
+                AssertEqual(1, CountOccurrences(both, MissionService.BuildHandoffMarker(_UpstreamId)), "first upstream must still be referenced");
                 AssertEqual(1, CountOccurrences(both, MissionService.BuildHandoffMarker(_OtherUpstreamId)), "second upstream block must be added");
-                AssertContains("from one", both, "first upstream content must remain");
-                AssertContains("from two", both, "second upstream content must be present");
+
+                // The older stage keeps a reference, not its body. Its output is on its branch, where
+                // reading it costs the captain nothing until it decides it needs it.
+                AssertContains("## Prior Stage (compacted)", both, "the older block must be reduced to a reference");
+                AssertContains(_UpstreamId, both, "the reference must still name the upstream mission");
+                AssertFalse(both.Contains("from one", StringComparison.Ordinal), "the older block body must not be carried");
+
+                AssertContains("from two", both, "the newest block must be carried in full");
+                AssertContains("Base brief.", both, "the base brief must survive");
 
                 await Task.CompletedTask;
             });
 
+            await RunTest("Compaction is idempotent and leaves a description with no handoff block alone", () =>
+            {
+                string plain = "Base brief with no handoff block.";
+                AssertEqual(plain, MissionService.CompactOlderHandoffBlocks(plain), "a description with no block must be untouched");
+                AssertEqual("", MissionService.CompactOlderHandoffBlocks(""), "an empty description must stay empty");
+                AssertEqual("", MissionService.CompactOlderHandoffBlocks(null), "a null description must become empty");
+
+                string withBlock = "Base brief." +
+                    "\n\n---\n" + MissionService.BuildHandoffMarker(_UpstreamId) + "\n" +
+                    "## Prior Stage Output\nThe previous pipeline stage (Worker) completed mission x.\n" +
+                    "Branch: armada/example/msn_upstream_one\n" +
+                    "### Diff from prior stage\n```diff\n" + new string('+', 4000) + "\n```\n";
+
+                string once = MissionService.CompactOlderHandoffBlocks(withBlock);
+                string twice = MissionService.CompactOlderHandoffBlocks(once);
+
+                AssertEqual(once, twice, "compacting an already-compact description must change nothing");
+                AssertContains("Branch: armada/example/msn_upstream_one", once, "the branch must survive so the work can still be found");
+                AssertContains("Stage: Worker", once, "the upstream persona must survive");
+                AssertFalse(once.Contains(new string('+', 4000), StringComparison.Ordinal), "the diff body must be dropped");
+                AssertTrue(once.Length < withBlock.Length, "compaction must make the description smaller");
+
+                // A stage that produced almost nothing leaves a block shorter than the reference would be.
+                // Replacing it would add bytes to save bytes, so the original is kept.
+                string tinyBlock = "Base brief." +
+                    "\n\n---\n" + MissionService.BuildHandoffMarker(_UpstreamId) + "\nok\n";
+
+                AssertEqual(tinyBlock, MissionService.CompactOlderHandoffBlocks(tinyBlock),
+                    "a block already smaller than its reference must be left alone");
+            });
+
             await RunTest("Replacing the first of two blocks leaves the later block intact", async () =>
             {
-                string first = ApplyHandoff("Base brief.", _UpstreamId, "## Prior Stage Output\nfrom one\n");
-                string both = ApplyHandoff(first, _OtherUpstreamId, "## Prior Stage Output\nfrom two\n");
-                string replaced = ApplyHandoff(both, _UpstreamId, "## Prior Stage Output\nfrom one again\n");
+                string first = ApplyHandoff("Base brief.", _UpstreamId, LargeBody("from one"));
+                string both = ApplyHandoff(first, _OtherUpstreamId, LargeBody("from two"));
+                string replaced = ApplyHandoff(both, _UpstreamId, LargeBody("from one again"));
 
                 AssertEqual(1, CountOccurrences(replaced, MissionService.BuildHandoffMarker(_UpstreamId)), "replaced marker must appear once");
-                AssertEqual(1, CountOccurrences(replaced, MissionService.BuildHandoffMarker(_OtherUpstreamId)), "untouched marker must survive");
-                AssertContains("from one again", replaced, "replacement content must be present");
-                AssertContains("from two", replaced, "the other upstream block must survive");
+                AssertEqual(1, CountOccurrences(replaced, MissionService.BuildHandoffMarker(_OtherUpstreamId)), "the other upstream must still be referenced");
+                AssertContains("from one again", replaced, "the newest block must be carried in full");
                 AssertFalse(replaced.Contains("from one\n", StringComparison.Ordinal), "the superseded first block must be gone");
+
+                // The other upstream is now the older stage, so it is reduced to a reference in turn.
+                // Which block stays full follows recency, not the order the upstreams arrived in.
+                AssertContains("## Prior Stage (compacted)", replaced, "the now-older block must be reduced to a reference");
+                AssertFalse(replaced.Contains("from two", StringComparison.Ordinal), "the now-older block body must not be carried");
 
                 await Task.CompletedTask;
             });
