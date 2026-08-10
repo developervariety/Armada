@@ -1,6 +1,7 @@
 import type { RefObject } from 'react';
 import type { PlanningSessionMessage } from '../../types/models';
 import StatusBadge from '../shared/StatusBadge';
+import Markdown from '../shared/Markdown';
 
 interface PlanningTranscriptCardProps {
   t: (value: string, vars?: Record<string, string | number>) => string;
@@ -157,9 +158,13 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
               </div>
 
               <div className="planning-chat-bubble">
-                <pre className="planning-chat-content">
-                  {message.content || (isAssistant ? t('Waiting for response...') : '')}
-                </pre>
+                {isAssistant && message.content.trim().length > 0 ? (
+                  <Markdown className="planning-chat-content">{message.content}</Markdown>
+                ) : (
+                  <pre className="planning-chat-content">
+                    {message.content || (isAssistant ? t('Waiting for response...') : '')}
+                  </pre>
+                )}
               </div>
 
               {isAssistant && message.content.trim().length > 0 && (

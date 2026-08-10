@@ -4,6 +4,7 @@ import { askArmada } from '../api/client';
 import type { AskLink } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import ErrorModal from '../components/shared/ErrorModal';
+import Markdown from '../components/shared/Markdown';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -74,7 +75,9 @@ export default function AskArmada() {
                 <div className="text-dim" style={{ fontSize: '0.7rem', marginBottom: '0.2rem' }}>
                   {turn.role === 'user' ? t('You') : t('Armada')}
                 </div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{turn.text}</div>
+                {turn.role === 'assistant'
+                  ? <Markdown>{turn.text}</Markdown>
+                  : <div style={{ whiteSpace: 'pre-wrap' }}>{turn.text}</div>}
                 {turn.links && turn.links.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem' }}>
                     {turn.links.map((link, j) => (

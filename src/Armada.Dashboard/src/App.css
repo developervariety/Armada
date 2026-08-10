@@ -4489,6 +4489,26 @@ tr.clickable { cursor: pointer; }
 .modal-vessel-edit { max-width: 900px; }
 /* Mux captains expose many more fields; give their config modal 50% more width (440px -> 660px). */
 .modal-mux { max-width: 660px; }
+
+/* Rendered markdown (chat/assistant content): compact, readable spacing. */
+.markdown { line-height: 1.5; overflow-wrap: anywhere; }
+.markdown > *:first-child { margin-top: 0; }
+.markdown > *:last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 0.6rem; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 0.8rem 0 0.4rem; line-height: 1.25; }
+.markdown h1 { font-size: 1.3rem; }
+.markdown h2 { font-size: 1.15rem; }
+.markdown h3 { font-size: 1.05rem; }
+.markdown ul, .markdown ol { margin: 0 0 0.6rem; padding-left: 1.4rem; }
+.markdown li { margin: 0.15rem 0; }
+.markdown code { font-family: var(--font-mono, monospace); font-size: 0.85em; background: var(--bg-muted, rgba(127,127,127,0.15)); padding: 0.1em 0.35em; border-radius: 4px; }
+.markdown pre { background: var(--bg-muted, rgba(127,127,127,0.12)); border: 1px solid var(--border); border-radius: var(--radius, 6px); padding: 0.75rem; overflow-x: auto; margin: 0 0 0.6rem; }
+.markdown pre code { background: none; padding: 0; font-size: 0.85em; }
+.markdown blockquote { margin: 0 0 0.6rem; padding-left: 0.8rem; border-left: 3px solid var(--border); color: var(--text-dim, inherit); }
+.markdown a { color: var(--accent, #5078ff); text-decoration: underline; }
+.markdown table { border-collapse: collapse; margin: 0 0 0.6rem; display: block; overflow-x: auto; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 0.3rem 0.55rem; text-align: left; }
+.markdown img { max-width: 100%; }
 .modal-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1.5rem; }
 .modal-large { max-width: 730px; min-height: 400px; padding: 2rem; }
 .modal-large textarea { min-height: 180px; }
