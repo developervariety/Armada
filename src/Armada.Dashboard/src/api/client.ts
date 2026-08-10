@@ -929,6 +929,8 @@ export const updateSettings = (data: SettingsData) => put<SettingsData>('/api/v1
 
 // ==================== Server ====================
 export const stopServer = () => post<void>('/api/v1/server/stop');
+
+export const restartServer = () => post<void>('/api/v1/server/restart');
 export const resetServer = () => post<void>('/api/v1/server/reset');
 
 // ==================== Backup / Restore ====================

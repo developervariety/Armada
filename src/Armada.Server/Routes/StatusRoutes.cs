@@ -31,6 +31,7 @@ namespace Armada.Server.Routes
         private readonly LoggingModule _logging;
         private readonly Func<RemoteTunnelStatus>? _getRemoteTunnelStatus;
         private readonly Func<Task>? _onRemoteControlSettingsChanged;
+        private const string _HeaderRestart = "[ArmadaServer] restart: ";
 
         /// <summary>
         /// Instantiate.
@@ -316,6 +317,40 @@ namespace Armada.Server.Routes
                 .WithDescription("Initiates a graceful shutdown of the Admiral server.")
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/server/restart", async (ApiRequest req) =>
+            {
+                if (_settings.RequireAuthForShutdown)
+                {
+                    AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                    if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                    {
+                        req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                    }
+                }
+
+                if (!LaunchReplacementProcess())
+                {
+                    req.Http.Response.StatusCode = 500;
+                    return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = "Unable to launch a replacement Admiral process; server was not restarted." };
+                }
+
+                _logging.Info(_Header + "restart requested via API; replacement process launched");
+                _ = Task.Run(async () =>
+                {
+                    // Give the replacement a moment to spawn and register the predecessor wait, then stop
+                    // this instance so the port frees for the replacement to bind.
+                    await Task.Delay(500).ConfigureAwait(false);
+                    _stopCallback();
+                });
+                return new { Status = "restarting" };
+            },
+            api => api
+                .WithTag("Status")
+                .WithSummary("Restart the Admiral server")
+                .WithDescription("Launches a replacement Admiral process that waits for this instance to exit, then gracefully stops this instance so the replacement can bind the listening port.")
+                .WithSecurity("ApiKey"));
+
             // Settings
             app.Get("/api/v1/settings", async (ApiRequest req) =>
             {
@@ -443,6 +478,57 @@ namespace Armada.Server.Routes
                 .WithSummary("Factory reset")
                 .WithDescription("Deletes database, logs, docks, and repos directories. Preserves settings file.")
                 .WithSecurity("ApiKey"));
+        }
+
+        private bool LaunchReplacementProcess()
+        {
+            string? executablePath = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+            {
+                _logging.Warn(_HeaderRestart + "cannot determine current executable path; restart aborted");
+                return false;
+            }
+
+            try
+            {
+                ProcessStartInfo startInfo;
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    startInfo = new ProcessStartInfo
+                    {
+                        FileName = executablePath,
+                        UseShellExecute = true,
+                        WindowStyle = ProcessWindowStyle.Minimized
+                    };
+                }
+                else
+                {
+                    startInfo = new ProcessStartInfo
+                    {
+                        FileName = executablePath,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                }
+
+                startInfo.WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Environment.CurrentDirectory;
+                startInfo.Environment[ArmadaConstants.RestartWaitPidEnvVar] = Environment.ProcessId.ToString();
+
+                Process? replacement = Process.Start(startInfo);
+                if (replacement == null)
+                {
+                    _logging.Warn(_HeaderRestart + "Process.Start returned null; restart aborted");
+                    return false;
+                }
+
+                _logging.Info(_HeaderRestart + "launched replacement Admiral process " + replacement.Id + " from " + executablePath);
+                return true;
+            }
+            catch (Exception e)
+            {
+                _logging.Warn(_HeaderRestart + "failed to launch replacement process: " + e.Message);
+                return false;
+            }
         }
 
         private object BuildSettingsResponse()

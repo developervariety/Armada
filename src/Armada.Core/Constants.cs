@@ -55,6 +55,14 @@ namespace Armada.Core
         public static readonly string DefaultRemoteTunnelUrl = "http://proxy.armadago.ai:7893/tunnel";
 
         /// <summary>
+        /// Environment variable set on a replacement Admiral process during an in-place restart. Its value
+        /// is the process id of the outgoing Admiral; the replacement waits for that process to exit (which
+        /// frees the listening port) before it binds, so a self-triggered restart cannot race the old
+        /// instance for the port.
+        /// </summary>
+        public static readonly string RestartWaitPidEnvVar = "ARMADA_RESTART_WAIT_PID";
+
+        /// <summary>
         /// Default heartbeat interval in seconds.
         /// </summary>
         public static readonly int DefaultHeartbeatIntervalSeconds = 30;
