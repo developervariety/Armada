@@ -3750,9 +3750,27 @@ tr.clickable { cursor: pointer; }
 }
 
 .playbook-filter-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 200px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
+}
+
+/* The free-text search box is the elastic element; selects, date inputs, labels,
+   and buttons keep their natural width so a search + N filters share one row. */
+.playbook-filter-row > input[type="text"],
+.playbook-filter-row > input[type="search"],
+.playbook-filter-row > input:not([type]) {
+    flex: 1 1 240px;
+    min-width: 200px;
+}
+
+.playbook-filter-row > select,
+.playbook-filter-row > button,
+.playbook-filter-row > label,
+.playbook-filter-row > input[type="date"],
+.playbook-filter-row > input[type="datetime-local"] {
+    flex: 0 0 auto;
 }
 
 .playbook-empty-state {
@@ -4222,8 +4240,11 @@ tr.clickable { cursor: pointer; }
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .playbook-filter-row {
-        grid-template-columns: 1fr;
+    .playbook-filter-row > input[type="text"],
+    .playbook-filter-row > input[type="search"],
+    .playbook-filter-row > input:not([type]),
+    .playbook-filter-row > select {
+        flex: 1 1 100%;
     }
 
     .playbook-voyage-item,
