@@ -1014,7 +1014,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_skills_tenant ON skills(tenant_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category);",
                     @"CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);"
-                )
+                ),
+                new SchemaMigration(47, "Name the default admin credential",
+                    @"UPDATE credentials SET name = 'Default Admin Credential' WHERE id = 'default' AND (name IS NULL OR name = '');")
             };
         }
 

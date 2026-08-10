@@ -90,6 +90,7 @@ namespace Test.Shared.Suites.Database
                     AssertEqual(Constants.DefaultTenantId, cred.TenantId);
                     AssertEqual(Constants.DefaultUserId, cred.UserId);
                     AssertEqual(Constants.DefaultBearerToken, cred.BearerToken);
+                    AssertEqual(Constants.DefaultCredentialName, cred.Name);
                     AssertTrue(cred.Active);
                 }
             }));

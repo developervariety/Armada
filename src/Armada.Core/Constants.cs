@@ -367,6 +367,11 @@ namespace Armada.Core
         public static readonly string DefaultCredentialId = "default";
 
         /// <summary>
+        /// Display name for the credential seeded during first-boot setup.
+        /// </summary>
+        public static readonly string DefaultCredentialName = "Default Admin Credential";
+
+        /// <summary>
         /// Default bearer token.
         /// </summary>
         public static readonly string DefaultBearerToken = "default";

@@ -188,6 +188,7 @@ namespace Armada.Core.Database.Postgresql
 
                 Credential defaultCred = new Credential();
                 defaultCred.Id = Constants.DefaultCredentialId;
+                defaultCred.Name = Constants.DefaultCredentialName;
                 defaultCred.TenantId = Constants.DefaultTenantId;
                 defaultCred.UserId = Constants.DefaultUserId;
                 defaultCred.BearerToken = Constants.DefaultBearerToken;
