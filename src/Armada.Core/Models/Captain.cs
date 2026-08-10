@@ -104,6 +104,14 @@ namespace Armada.Core.Models
         public string? RuntimeOptionsJson { get; set; } = null;
 
         /// <summary>
+        /// Optional direct API endpoint URL for this captain (for example, a model-runner or agent
+        /// service the captain is backed by). When set, the Admiral periodically health-checks this URL
+        /// and records the recent results so the dashboard can show a health histogram. A single health
+        /// check runs per distinct captain and endpoint URL. Null disables health checking for the captain.
+        /// </summary>
+        public string? ApiEndpointUrl { get; set; } = null;
+
+        /// <summary>
         /// Current state of the captain.
         /// </summary>
         public CaptainStateEnum State { get; set; } = CaptainStateEnum.Idle;

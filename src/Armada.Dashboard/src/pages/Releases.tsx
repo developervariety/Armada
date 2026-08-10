@@ -28,6 +28,7 @@ export default function Releases() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ReleaseStatus>('all');
   const [vesselFilter, setVesselFilter] = useState('all');
+  const [colFilters, setColFilters] = useState({ title: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -75,8 +76,9 @@ export default function Releases() {
 
     const matchesStatus = statusFilter === 'all' || release.status === statusFilter;
     const matchesVessel = vesselFilter === 'all' || release.vesselId === vesselFilter;
-    return matchesSearch && matchesStatus && matchesVessel;
-  }), [releases, search, statusFilter, vesselFilter]);
+    const matchesColFilters = (!colFilters.title || release.title.toLowerCase().includes(colFilters.title.toLowerCase()));
+    return matchesSearch && matchesStatus && matchesVessel && matchesColFilters;
+  }), [colFilters, releases, search, statusFilter, vesselFilter]);
 
   const shippedCount = releases.filter((release) => release.status === 'Shipped').length;
   const candidateCount = releases.filter((release) => release.status === 'Candidate').length;
@@ -191,6 +193,16 @@ export default function Releases() {
                 <th>{t('Published')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

@@ -119,6 +119,7 @@ export default function CheckRuns() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'Passed' | 'Failed' | 'Running' | 'Pending' | 'Canceled'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'Armada' | 'External'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | CheckRunType>('all');
+  const [colFilters, setColFilters] = useState({ label: '', environmentName: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
 
   const [showRunModal, setShowRunModal] = useState(false);
@@ -253,8 +254,10 @@ export default function CheckRuns() {
     const matchesStatus = statusFilter === 'all' || run.status === statusFilter;
     const matchesSource = sourceFilter === 'all' || run.source === sourceFilter;
     const matchesType = typeFilter === 'all' || run.type === typeFilter;
-    return matchesVessel && matchesStatus && matchesSource && matchesType;
-  }), [runs, sourceFilter, statusFilter, typeFilter, vesselFilter]);
+    const matchesColFilters = (!colFilters.label || (run.label || run.type || '').toLowerCase().includes(colFilters.label.toLowerCase()))
+      && (!colFilters.environmentName || (run.environmentName ?? '').toLowerCase().includes(colFilters.environmentName.toLowerCase()));
+    return matchesVessel && matchesStatus && matchesSource && matchesType && matchesColFilters;
+  }), [colFilters, runs, sourceFilter, statusFilter, typeFilter, vesselFilter]);
   const comparisonMap = useMemo(() => buildCheckRunComparisonMap(runs), [runs]);
 
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
@@ -535,6 +538,16 @@ export default function CheckRuns() {
                 <th>{t('Duration')}</th>
                 <th>{t('Created')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.label} onChange={e => setColFilters(f => ({ ...f, label: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td><input type="text" className="col-filter" value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

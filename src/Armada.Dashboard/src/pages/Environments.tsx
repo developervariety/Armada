@@ -28,6 +28,7 @@ export default function Environments() {
   const [kindFilter, setKindFilter] = useState<'all' | EnvironmentKind>('all');
   const [vesselFilter, setVesselFilter] = useState('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [colFilters, setColFilters] = useState({ name: '', baseUrl: '', health: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -76,8 +77,12 @@ export default function Environments() {
       || (activeFilter === 'active' && environment.active)
       || (activeFilter === 'inactive' && !environment.active);
 
-    return matchesSearch && matchesKind && matchesVessel && matchesActive;
-  }), [activeFilter, environments, kindFilter, search, vesselFilter]);
+    const matchesColFilters = (!colFilters.name || environment.name.toLowerCase().includes(colFilters.name.toLowerCase()))
+      && (!colFilters.baseUrl || (environment.baseUrl ?? '').toLowerCase().includes(colFilters.baseUrl.toLowerCase()))
+      && (!colFilters.health || (environment.healthEndpoint ?? '').toLowerCase().includes(colFilters.health.toLowerCase()));
+
+    return matchesSearch && matchesKind && matchesVessel && matchesActive && matchesColFilters;
+  }), [activeFilter, colFilters, environments, kindFilter, search, vesselFilter]);
 
   const activeCount = environments.filter((environment) => environment.active).length;
   const defaultCount = environments.filter((environment) => environment.isDefault).length;
@@ -207,6 +212,16 @@ export default function Environments() {
                 <th>{t('Policy')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td><input type="text" className="col-filter" value={colFilters.baseUrl} onChange={e => setColFilters(f => ({ ...f, baseUrl: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td><input type="text" className="col-filter" value={colFilters.health} onChange={e => setColFilters(f => ({ ...f, health: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

@@ -61,6 +61,7 @@ export default function Deployments() {
   const [statusFilter, setStatusFilter] = useState<'all' | DeploymentStatus>('all');
   const [verificationFilter, setVerificationFilter] = useState<'all' | DeploymentVerificationStatus>('all');
   const [vesselFilter, setVesselFilter] = useState('all');
+  const [colFilters, setColFilters] = useState({ title: '', environmentName: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -112,8 +113,10 @@ export default function Deployments() {
     const matchesStatus = statusFilter === 'all' || deployment.status === statusFilter;
     const matchesVerification = verificationFilter === 'all' || deployment.verificationStatus === verificationFilter;
     const matchesVessel = vesselFilter === 'all' || deployment.vesselId === vesselFilter;
-    return matchesSearch && matchesStatus && matchesVerification && matchesVessel;
-  }), [deployments, search, statusFilter, verificationFilter, vesselFilter]);
+    const matchesColFilters = (!colFilters.title || deployment.title.toLowerCase().includes(colFilters.title.toLowerCase()))
+      && (!colFilters.environmentName || (deployment.environmentName ?? '').toLowerCase().includes(colFilters.environmentName.toLowerCase()));
+    return matchesSearch && matchesStatus && matchesVerification && matchesVessel && matchesColFilters;
+  }), [colFilters, deployments, search, statusFilter, verificationFilter, vesselFilter]);
 
   const pendingApprovalCount = deployments.filter((deployment) => deployment.status === 'PendingApproval').length;
   const runningCount = deployments.filter((deployment) => deployment.status === 'Running' || deployment.status === 'RollingBack').length;
@@ -240,6 +243,17 @@ export default function Deployments() {
                 <th>{t('Checks')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td><input type="text" className="col-filter" value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

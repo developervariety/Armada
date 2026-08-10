@@ -62,6 +62,7 @@ export default function Objectives() {
   const [ownerFilter, setOwnerFilter] = useState('');
   const [targetVersionFilter, setTargetVersionFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState<BacklogGroupKey>('all');
+  const [colFilters, setColFilters] = useState({ title: '' });
   const [sortBy, setSortBy] = useState<BacklogSortKey>('rank');
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
@@ -143,6 +144,7 @@ export default function Objectives() {
       if (vesselFilter !== 'all' && !objective.vesselIds.includes(vesselFilter)) return false;
       if (ownerFilter.trim() && !(objective.owner || '').toLowerCase().includes(ownerFilter.trim().toLowerCase())) return false;
       if (targetVersionFilter.trim() && !(objective.targetVersion || '').toLowerCase().includes(targetVersionFilter.trim().toLowerCase())) return false;
+      if (colFilters.title && !(objective.title || '').toLowerCase().includes(colFilters.title.toLowerCase())) return false;
       if (!normalizedSearch) return true;
 
       return (
@@ -159,6 +161,7 @@ export default function Objectives() {
     });
   }, [
     backlogStateFilter,
+    colFilters,
     effortFilter,
     fleetFilter,
     groupFilter,
@@ -567,6 +570,15 @@ export default function Objectives() {
                 <th>{t('Scope')}</th>
                 <th>{t('Due / Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td></td>
+                <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

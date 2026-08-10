@@ -1306,7 +1306,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);"
                 ),
                 new SchemaMigration(47, "Name the default admin credential",
-                    @"UPDATE credentials SET name = 'Default Admin Credential' WHERE id = 'default' AND (name IS NULL OR name = '');")
+                    @"UPDATE credentials SET name = 'Default Admin Credential' WHERE id = 'default' AND (name IS NULL OR name = '');"),
+
+                new SchemaMigration(48, "Add api_endpoint_url to captains for direct-endpoint health checks",
+                    @"ALTER TABLE captains ADD COLUMN api_endpoint_url TEXT;")
             };
         }
 

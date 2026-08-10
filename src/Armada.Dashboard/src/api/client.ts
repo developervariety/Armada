@@ -1,4 +1,5 @@
 import type {
+  CaptainHealthResponse,
   AuthenticateRequest,
   AuthenticateResult,
   WhoAmIResult,
@@ -651,6 +652,7 @@ export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; 
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
 export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`);
+export const getCaptainHealth = (id: string) => get<CaptainHealthResponse>(`/api/v1/captains/${id}/health`);
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);

@@ -45,6 +45,7 @@ export default function Runbooks() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [colFilters, setColFilters] = useState({ title: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -105,8 +106,9 @@ export default function Runbooks() {
     const matchesActive = activeFilter === 'all'
       || (activeFilter === 'active' && runbook.active)
       || (activeFilter === 'inactive' && !runbook.active);
-    return matchesSearch && matchesActive;
-  }), [activeFilter, runbooks, search]);
+    const matchesColFilters = (!colFilters.title || runbook.title.toLowerCase().includes(colFilters.title.toLowerCase()));
+    return matchesSearch && matchesActive && matchesColFilters;
+  }), [activeFilter, colFilters, runbooks, search]);
 
   function handleDelete(runbook: Runbook) {
     setConfirm({
@@ -224,6 +226,14 @@ export default function Runbooks() {
                 <th>{t('Executions')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

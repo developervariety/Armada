@@ -84,6 +84,7 @@ namespace Armada.Server
         private GitHubIntegrationService _GitHubIntegrationService = null!;
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
+        private CaptainHealthCheckService _CaptainHealthCheckService = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -174,6 +175,7 @@ namespace Armada.Server
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
             _HistoricalTimelineService = new HistoricalTimelineService(_Database);
+            _CaptainHealthCheckService = new CaptainHealthCheckService();
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             _RemoteDashboardRelay = new RemoteDashboardRelayService(_Logging, _Settings, _RemoteTunnel.PublishEventAsync);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
@@ -594,7 +596,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions)
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions, _CaptainHealthCheckService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
@@ -1071,6 +1073,15 @@ namespace Armada.Server
                     // Drive the merge queue so auto-enqueued entries land without a manual trigger.
                     try { await _MergeQueue.ProcessQueueAsync(token).ConfigureAwait(false); }
                     catch (Exception mqEx) { _Logging.Warn(_Header + "merge queue processing error: " + mqEx.Message); }
+
+                    // Health-check captains that expose a direct API endpoint (deduped per distinct
+                    // captain and endpoint URL) so the dashboard can render a recent-history histogram.
+                    try
+                    {
+                        List<Captain> allCaptains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+                        await _CaptainHealthCheckService.RunCycleAsync(allCaptains, token).ConfigureAwait(false);
+                    }
+                    catch (Exception hcEx) { _Logging.Warn(_Header + "captain endpoint health check error: " + hcEx.Message); }
 
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;

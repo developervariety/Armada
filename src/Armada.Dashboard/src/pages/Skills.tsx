@@ -22,6 +22,7 @@ export default function Skills() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [colFilters, setColFilters] = useState({ name: '', category: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false, title: '', message: '', onConfirm: () => {},
@@ -56,8 +57,10 @@ export default function Skills() {
       || (skill.description || '').toLowerCase().includes(search.toLowerCase())
       || skill.id.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = categoryFilter === 'all' || skill.category === categoryFilter;
-    return matchesSearch && matchesCategory;
-  }), [skills, search, categoryFilter]);
+    const matchesColumns = (!colFilters.name || (skill.name ?? '').toLowerCase().includes(colFilters.name.toLowerCase()))
+      && (!colFilters.category || (skill.category ?? '').toLowerCase().includes(colFilters.category.toLowerCase()));
+    return matchesSearch && matchesCategory && matchesColumns;
+  }), [skills, search, categoryFilter, colFilters]);
 
   function handleDelete(skill: Skill) {
     setConfirm({
@@ -150,6 +153,13 @@ export default function Skills() {
                 <th>{t('Status')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td><input type="text" className="col-filter" value={colFilters.category} onChange={e => setColFilters(f => ({ ...f, category: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

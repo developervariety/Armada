@@ -51,6 +51,7 @@ export default function Incidents() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
   const [severityFilter, setSeverityFilter] = useState<'all' | IncidentSeverity>('all');
+  const [colFilters, setColFilters] = useState({ title: '', environmentName: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -104,8 +105,10 @@ export default function Incidents() {
       || incident.id.toLowerCase().includes(normalizedSearch);
     const matchesStatus = statusFilter === 'all' || incident.status === statusFilter;
     const matchesSeverity = severityFilter === 'all' || incident.severity === severityFilter;
-    return matchesSearch && matchesStatus && matchesSeverity;
-  }), [incidents, search, severityFilter, statusFilter]);
+    const matchesColFilters = (!colFilters.title || incident.title.toLowerCase().includes(colFilters.title.toLowerCase()))
+      && (!colFilters.environmentName || (incident.environmentName ?? '').toLowerCase().includes(colFilters.environmentName.toLowerCase()));
+    return matchesSearch && matchesStatus && matchesSeverity && matchesColFilters;
+  }), [colFilters, incidents, search, severityFilter, statusFilter]);
 
   const openCount = incidents.filter((incident) => incident.status === 'Open').length;
   const monitoringCount = incidents.filter((incident) => incident.status === 'Monitoring').length;
@@ -225,6 +228,16 @@ export default function Incidents() {
                 <th>{t('Release')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td><input type="text" className="col-filter" value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

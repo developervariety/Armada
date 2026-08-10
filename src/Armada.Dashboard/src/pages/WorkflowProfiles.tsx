@@ -46,6 +46,7 @@ export default function WorkflowProfiles() {
   const [search, setSearch] = useState('');
   const [scopeFilter, setScopeFilter] = useState<'all' | 'Global' | 'Fleet' | 'Vessel'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [colFilters, setColFilters] = useState({ name: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -84,8 +85,10 @@ export default function WorkflowProfiles() {
       || (statusFilter === 'active' && profile.active)
       || (statusFilter === 'inactive' && !profile.active);
 
-    return matchesSearch && matchesScope && matchesStatus;
-  }), [profiles, scopeFilter, search, statusFilter]);
+    const matchesColumns = !colFilters.name || (profile.name ?? '').toLowerCase().includes(colFilters.name.toLowerCase());
+
+    return matchesSearch && matchesScope && matchesStatus && matchesColumns;
+  }), [profiles, scopeFilter, search, statusFilter, colFilters]);
 
   const defaultCount = profiles.filter((profile) => profile.isDefault).length;
   const activeCount = profiles.filter((profile) => profile.active).length;
@@ -207,6 +210,15 @@ export default function WorkflowProfiles() {
                 <th>{t('Status')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

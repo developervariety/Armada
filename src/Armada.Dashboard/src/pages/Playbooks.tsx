@@ -23,6 +23,7 @@ export default function Playbooks() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [colFilters, setColFilters] = useState({ fileName: '', description: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -60,7 +61,10 @@ export default function Playbooks() {
       || (statusFilter === 'active' && playbook.active)
       || (statusFilter === 'inactive' && !playbook.active);
 
-    return matchesSearch && matchesStatus;
+    const matchesColumns = (!colFilters.fileName || (playbook.fileName ?? '').toLowerCase().includes(colFilters.fileName.toLowerCase()))
+      && (!colFilters.description || (playbook.description ?? '').toLowerCase().includes(colFilters.description.toLowerCase()));
+
+    return matchesSearch && matchesStatus && matchesColumns;
   });
 
   const activeCount = playbooks.filter((playbook) => playbook.active).length;
@@ -177,6 +181,14 @@ export default function Playbooks() {
                 <th>{t('Content')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
+              </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.fileName} onChange={e => setColFilters(f => ({ ...f, fileName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => setColFilters(f => ({ ...f, description: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
               </tr>
             </thead>
             <tbody>

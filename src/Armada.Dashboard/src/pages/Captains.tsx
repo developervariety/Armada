@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools } from '../api/client';
-import type { Captain, CaptainToolAccessResult } from '../types/models';
+import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, getCaptainHealth } from '../api/client';
+import type { Captain, CaptainToolAccessResult, CaptainHealthResponse } from '../types/models';
+import CaptainHealthHistogram from '../components/captains/CaptainHealthHistogram';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -25,6 +26,7 @@ type CaptainFormState = {
   runtime: string;
   systemInstructions: string;
   model: string;
+  apiEndpointUrl: string;
 } & MuxCaptainFormFields;
 
 export default function Captains() {
@@ -38,7 +40,7 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', apiEndpointUrl: '', ...EMPTY_MUX_CAPTAIN_FORM });
   const [saving, setSaving] = useState(false);
 
   // JSON viewer
@@ -68,6 +70,10 @@ export default function Captains() {
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
+  // Endpoint health
+  const [healthMap, setHealthMap] = useState<Record<string, CaptainHealthResponse>>({});
+  const [healthView, setHealthView] = useState<{ open: boolean; captain: Captain | null; data: CaptainHealthResponse | null; loading: boolean }>({ open: false, captain: null, data: null, loading: false });
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -82,6 +88,35 @@ export default function Captains() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Fetch recent endpoint health for captains that expose a direct API endpoint, for the row histogram.
+  useEffect(() => {
+    const withEndpoint = captains.filter((c) => !!c.apiEndpointUrl);
+    if (withEndpoint.length === 0) return;
+    let cancelled = false;
+    void Promise.all(withEndpoint.map((c) =>
+      getCaptainHealth(c.id).then((data) => ({ id: c.id, data })).catch(() => null),
+    )).then((entries) => {
+      if (cancelled) return;
+      setHealthMap((current) => {
+        const next = { ...current };
+        for (const entry of entries) if (entry) next[entry.id] = entry.data;
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [captains]);
+
+  const openHealth = useCallback(async (c: Captain) => {
+    setHealthView({ open: true, captain: c, data: healthMap[c.id] ?? null, loading: true });
+    try {
+      const data = await getCaptainHealth(c.id);
+      setHealthMap((m) => ({ ...m, [c.id]: data }));
+      setHealthView((v) => (v.captain?.id === c.id ? { ...v, data, loading: false } : v));
+    } catch {
+      setHealthView((v) => (v.captain?.id === c.id ? { ...v, loading: false } : v));
+    }
+  }, [healthMap]);
 
   // Filtered rows
   const filtered = useMemo(() => {
@@ -139,7 +174,7 @@ export default function Captains() {
 
   // CRUD
   function openCreate() {
-    setForm({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+    setForm({ name: '', runtime: '', systemInstructions: '', model: '', apiEndpointUrl: '', ...EMPTY_MUX_CAPTAIN_FORM });
     setEditing(null);
     setShowForm(true);
   }
@@ -150,6 +185,7 @@ export default function Captains() {
       runtime: c.runtime,
       systemInstructions: c.systemInstructions ?? '',
       model: c.model ?? '',
+      apiEndpointUrl: c.apiEndpointUrl ?? '',
       ...muxFormFromCaptain(c),
     });
     setEditing(c);
@@ -169,6 +205,7 @@ export default function Captains() {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.apiEndpointUrl = form.apiEndpointUrl.trim() ? form.apiEndpointUrl.trim() : null;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
       delete payload.muxConfigDirectory;
       delete payload.muxEndpoint;
@@ -395,6 +432,10 @@ export default function Captains() {
               {t('System Instructions')}
               <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
             </label>
+            <label title={t('Optional direct API endpoint URL for this captain. When set, the Admiral periodically health-checks it and shows a health histogram on the Captains table.')}>
+              {t('API Endpoint URL')}
+              <input type="url" value={form.apiEndpointUrl} onChange={e => setForm({ ...form, apiEndpointUrl: e.target.value })} placeholder="https://host:port/health" />
+            </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
@@ -413,6 +454,63 @@ export default function Captains() {
         data={toolViewer.data}
         onClose={() => setToolViewer({ open: false, captainName: '', loading: false, error: '', data: null })}
       />
+
+      {/* View Health Modal */}
+      {healthView.open && (
+        <div className="modal-overlay" onClick={() => setHealthView({ open: false, captain: null, data: null, loading: false })}>
+          <div className="modal modal-large" onClick={e => e.stopPropagation()}>
+            <h3>{t('Endpoint Health')}: {healthView.captain?.name}</h3>
+            <p className="text-dim mono" style={{ marginTop: 0, wordBreak: 'break-all' }}>{healthView.captain?.apiEndpointUrl}</p>
+            {healthView.loading && !healthView.data ? (
+              <p className="text-dim">{t('Loading...')}</p>
+            ) : (
+              <>
+                <div className="captain-health-summary">
+                  <div><span>{t('Recent checks')}</span><strong>{healthView.data?.totalChecks ?? 0}</strong></div>
+                  <div><span>{t('Healthy')}</span><strong>{healthView.data?.healthyChecks ?? 0}</strong></div>
+                  <div>
+                    <span>{t('Success rate')}</span>
+                    <strong>{healthView.data && healthView.data.totalChecks > 0 ? `${Math.round((healthView.data.healthyChecks / healthView.data.totalChecks) * 100)}%` : '-'}</strong>
+                  </div>
+                </div>
+                <div style={{ margin: '0.75rem 0' }}>
+                  <CaptainHealthHistogram data={healthView.data} bars={50} />
+                </div>
+                <div className="table-wrap" style={{ maxHeight: '320px', overflow: 'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>{t('When')}</th>
+                        <th>{t('Result')}</th>
+                        <th>{t('Status')}</th>
+                        <th>{t('Latency')}</th>
+                        <th>{t('Error')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(healthView.data?.results ?? []).slice().reverse().map((r, i) => (
+                        <tr key={`${r.checkedUtc}-${i}`}>
+                          <td className="text-dim" title={formatDateTime(r.checkedUtc)}>{formatRelativeTime(r.checkedUtc)}</td>
+                          <td><StatusBadge status={r.healthy ? 'Healthy' : 'Unhealthy'} /></td>
+                          <td className="text-dim">{r.statusCode ?? '-'}</td>
+                          <td className="text-dim">{r.latencyMs.toFixed(0)} ms</td>
+                          <td className="text-dim">{r.error ?? '-'}</td>
+                        </tr>
+                      ))}
+                      {(healthView.data?.results ?? []).length === 0 && (
+                        <tr><td colSpan={5} className="text-dim">{t('No health checks recorded yet. The Admiral checks configured endpoints periodically.')}</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn" onClick={() => setHealthView({ open: false, captain: null, data: null, loading: false })}>{t('Close')}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
@@ -444,6 +542,7 @@ export default function Captains() {
                   <th className="sortable" onClick={() => handleSort('state')} title={t('State -- click to sort')}>
                     {t('State')}{sortIcon('state')}
                   </th>
+                  <th>{t('Health')}</th>
                   <th>{t('Current Mission')}</th>
                   <th>{t('Heartbeat')}</th>
                   <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created date -- click to sort')}>
@@ -457,6 +556,7 @@ export default function Captains() {
                   <td></td>
                   <td><input type="text" className="col-filter" value={colFilters.runtime} onChange={e => { setColFilters(f => ({ ...f, runtime: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td><input type="text" className="col-filter" value={colFilters.state} onChange={e => { setColFilters(f => ({ ...f, state: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -478,6 +578,11 @@ export default function Captains() {
                     </td>
                     <td className="text-dim">{c.runtime}</td>
                     <td><StatusBadge status={c.state} /></td>
+                    <td onClick={e => e.stopPropagation()}>
+                      {c.apiEndpointUrl
+                        ? <CaptainHealthHistogram data={healthMap[c.id]} onClick={() => void openHealth(c)} />
+                        : <span className="text-dim">-</span>}
+                    </td>
                     <td className="mono text-dim" onClick={e => e.stopPropagation()}>
                       {c.currentMissionId ? (
                         <a href="#" onClick={e => { e.preventDefault(); navigate(`/missions/${c.currentMissionId}`); }}>
@@ -494,6 +599,7 @@ export default function Captains() {
                         { label: 'Edit', onClick: () => openEdit(c) },
                         { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
                         { label: 'View Tools', onClick: () => void handleViewTools(c) },
+                        ...(c.apiEndpointUrl ? [{ label: 'View Health', onClick: () => void openHealth(c) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
@@ -504,7 +610,7 @@ export default function Captains() {
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={9} className="text-dim">{t('No captains match the current filters.')}</td></tr>
+                  <tr><td colSpan={10} className="text-dim">{t('No captains match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

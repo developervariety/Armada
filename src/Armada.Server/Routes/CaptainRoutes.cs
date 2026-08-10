@@ -31,6 +31,7 @@ namespace Armada.Server.Routes
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly PlanningSessionCoordinator? _planningSessions;
         private readonly ObjectiveRefinementCoordinator? _objectiveRefinementSessions;
+        private readonly CaptainHealthCheckService? _captainHealthChecks;
 
         /// <summary>
         /// Instantiate.
@@ -55,7 +56,8 @@ namespace Armada.Server.Routes
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             JsonSerializerOptions jsonOptions,
             PlanningSessionCoordinator? planningSessions = null,
-            ObjectiveRefinementCoordinator? objectiveRefinementSessions = null)
+            ObjectiveRefinementCoordinator? objectiveRefinementSessions = null,
+            CaptainHealthCheckService? captainHealthChecks = null)
         {
             _database = database;
             _admiral = admiral;
@@ -67,6 +69,7 @@ namespace Armada.Server.Routes
             _jsonOptions = jsonOptions;
             _planningSessions = planningSessions;
             _objectiveRefinementSessions = objectiveRefinementSessions;
+            _captainHealthChecks = captainHealthChecks;
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -517,6 +520,7 @@ namespace Armada.Server.Routes
 
                 // Remove dependents (telemetry events + planning sessions) that referenced this captain.
                 await CascadeCleanup.RemoveDependentsForCaptainAsync(_database, id).ConfigureAwait(false);
+                _captainHealthChecks?.Forget(id);
 
                 req.Http.Response.StatusCode = 204;
                 return null;
@@ -529,6 +533,43 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(409, OpenApiJson.For<object>("Captain cannot be deleted while active"))
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/captains/{id}/health", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Captain? captain = ctx.IsAdmin
+                    ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (captain == null) { req.Http.Response.StatusCode = 404; return (object)new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
+
+                List<CaptainHealthCheckResult> history = _captainHealthChecks?.GetHistory(id) ?? new List<CaptainHealthCheckResult>();
+                int healthy = history.Count(item => item.Healthy);
+                return (object)new CaptainHealthResponse
+                {
+                    CaptainId = id,
+                    EndpointUrl = captain.ApiEndpointUrl,
+                    TotalChecks = history.Count,
+                    HealthyChecks = healthy,
+                    Results = history
+                };
+            },
+            api => api
+                .WithTag("Captains")
+                .WithSummary("Get captain endpoint health history")
+                .WithDescription("Returns the recent in-memory health-check history for a captain's direct API endpoint, oldest first.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<CaptainHealthResponse>("Captain endpoint health history"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             app.Post<DeleteMultipleRequest>("/api/v1/captains/delete/multiple", async (ApiRequest req) =>

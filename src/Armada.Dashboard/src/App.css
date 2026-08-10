@@ -4645,6 +4645,47 @@ tr.clickable { cursor: pointer; }
 }
 .collapsible-caret { color: var(--text-dim); font-size: 0.8rem; width: 1rem; flex-shrink: 0; }
 .collapsible-title { font-size: 1.05rem; font-weight: 600; }
+.captain-health-histogram {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 22px;
+    padding: 2px 4px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.captain-health-histogram.is-empty {
+    height: auto;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.72rem;
+}
+.captain-health-bar {
+    width: 4px;
+    height: 100%;
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+.captain-health-bar.ok { background: var(--green, #30a46c); }
+.captain-health-bar.bad { background: var(--red, #e5484d); }
+.captain-health-summary {
+    display: flex;
+    gap: 1.5rem;
+    margin: 0.5rem 0 0.25rem;
+}
+.captain-health-summary > div {
+    display: flex;
+    flex-direction: column;
+}
+.captain-health-summary span {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+.captain-health-summary strong {
+    font-size: 1.2rem;
+}
+
 .filter-active-pill {
     font-size: 0.68rem;
     font-weight: 600;
