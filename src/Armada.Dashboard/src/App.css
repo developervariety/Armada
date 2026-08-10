@@ -624,6 +624,41 @@ body {
 }
 .top-bar-health:hover { color: var(--text); }
 
+/* Collapse toggle: first child of the top bar, pushed to the far left (just right of the
+   sidebar/workspace divider) via margin-right:auto so everything else stays right-aligned. */
+.top-bar-collapse-btn {
+    margin-right: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 6px);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    transition: color 0.15s, border-color 0.15s;
+}
+.top-bar-collapse-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+/* Logout: icon-only, far right of the top bar. */
+.top-bar-logout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.15s;
+}
+.top-bar-logout-btn:hover { color: var(--red, #e5484d); }
+
 .github-link {
     color: var(--text-dim);
     display: inline-flex;

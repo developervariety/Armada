@@ -808,27 +808,24 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="sidebar-footer">
-          <button
-            className="sidebar-toggle-btn"
-            onClick={() => setCollapsed((prev) => !prev)}
-            title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
-          >
-            <span aria-hidden="true">{collapsed ? '\u25B6' : '\u25C0'}</span>
-          </button>
-          {!collapsed && (
-            <>
-              <button className="btn btn-sm" onClick={logout} title={t('Sign out')}>
-                {t('Logout')}
-              </button>
-              <span style={{ fontSize: '0.7em', color: 'var(--text-dim)', opacity: 0.5 }}>v{__APP_VERSION__}</span>
-            </>
-          )}
-        </div>
+        {!collapsed && (
+          <div className="sidebar-footer">
+            <span style={{ fontSize: '0.7em', color: 'var(--text-dim)', opacity: 0.5 }}>v{__APP_VERSION__}</span>
+          </div>
+        )}
         </aside>
 
         <div className="main-content-area">
           <div className="top-bar">
+            <button
+              className="top-bar-collapse-btn"
+              onClick={() => setCollapsed((prev) => !prev)}
+              title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
+              aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
+            >
+              <span aria-hidden="true">{collapsed ? '»' : '«'}</span>
+            </button>
+
             <NavLink to="/doctor" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
               <span
                 className={`status-dot ${
@@ -872,11 +869,13 @@ export default function Layout() {
               </svg>
             </a>
 
-            {collapsed && (
-              <button className="btn btn-sm" onClick={logout} title={t('Sign out')}>
-                {t('Logout')}
-              </button>
-            )}
+            <button className="top-bar-logout-btn" onClick={logout} title={t('Sign out')} aria-label={t('Sign out')}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
           </div>
 
           <main className="main">
