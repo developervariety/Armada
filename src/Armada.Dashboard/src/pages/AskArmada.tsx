@@ -4,6 +4,7 @@ import type { Captain, CaptainChatMessage, CaptainChatMetrics } from '../types/m
 import { useLocale } from '../context/LocaleContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import Markdown from '../components/shared/Markdown';
+import ChatMetricsBar from '../components/shared/ChatMetricsBar';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -15,30 +16,6 @@ interface ChatTurn {
 // Direct chat is available for Mux captains (they carry a model endpoint); CLI runtimes do not.
 function isChattable(captain: Captain): boolean {
   return captain.runtime === 'Mux';
-}
-
-function fmtMs(ms: number | null | undefined): string {
-  if (ms == null) return '-';
-  if (ms >= 1000) return (ms / 1000).toFixed(2) + 's';
-  return Math.round(ms) + 'ms';
-}
-
-function MetricsBar({ metrics }: { metrics: CaptainChatMetrics }) {
-  const { t } = useLocale();
-  const items: Array<[string, string]> = [
-    [t('time to first token'), fmtMs(metrics.timeToFirstTokenMs)],
-    [t('streaming'), fmtMs(metrics.streamingMs)],
-    [t('tokens/sec'), metrics.tokensPerSecond != null ? metrics.tokensPerSecond.toFixed(1) : '-'],
-    [t('tokens'), metrics.completionTokens != null ? String(metrics.completionTokens) : '-'],
-    [t('total'), fmtMs(metrics.totalMs)],
-  ];
-  return (
-    <div className="chat-metrics text-dim">
-      {items.map(([label, value]) => (
-        <span key={label} className="chat-metric"><span className="chat-metric-value">{value}</span> {label}</span>
-      ))}
-    </div>
-  );
 }
 
 export default function AskArmada() {
@@ -131,7 +108,7 @@ export default function AskArmada() {
                     {turn.role === 'assistant'
                       ? <Markdown>{turn.text}</Markdown>
                       : <div style={{ whiteSpace: 'pre-wrap' }}>{turn.text}</div>}
-                    {turn.role === 'assistant' && turn.metrics && <MetricsBar metrics={turn.metrics} />}
+                    {turn.role === 'assistant' && turn.metrics && <ChatMetricsBar metrics={turn.metrics} />}
                   </div>
                 </div>
               ))

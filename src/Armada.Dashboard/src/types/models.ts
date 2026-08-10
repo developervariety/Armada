@@ -558,6 +558,7 @@ export interface PlanningSessionMessage {
   isSelectedForDispatch: boolean;
   createdUtc: string;
   lastUpdateUtc: string;
+  metrics?: CaptainChatMetrics | null;
 }
 
 export interface PlanningSessionDetail {

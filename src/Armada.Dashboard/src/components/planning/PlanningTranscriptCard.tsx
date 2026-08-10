@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import type { PlanningSessionMessage } from '../../types/models';
 import StatusBadge from '../shared/StatusBadge';
 import Markdown from '../shared/Markdown';
+import ChatMetricsBar from '../shared/ChatMetricsBar';
 
 interface PlanningTranscriptCardProps {
   t: (value: string, vars?: Record<string, string | number>) => string;
@@ -166,6 +167,8 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
                   </pre>
                 )}
               </div>
+
+              {isAssistant && message.metrics && <ChatMetricsBar metrics={message.metrics} />}
 
               {isAssistant && message.content.trim().length > 0 && (
                 <div className="planning-chat-message-actions">

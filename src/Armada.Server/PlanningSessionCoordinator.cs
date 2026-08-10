@@ -687,6 +687,8 @@ namespace Armada.Server
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
+                DateTime turnStartUtc = DateTime.UtcNow;
+                DateTime? firstOutputUtc = null;
 
                 runtime.OnOutputReceived += (processId, line) =>
                 {
@@ -697,6 +699,7 @@ namespace Armada.Server
                     string updatedContent;
                     lock (outputLock)
                     {
+                        if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
                         BoundedTextBuffer.AppendLine(output, line, _MaxPlanningOutputChars);
                         updatedContent = output.ToString();
                     }
@@ -751,6 +754,7 @@ namespace Armada.Server
 
                 assistantMessage.Content = finalContent.Trim();
                 assistantMessage.LastUpdateUtc = DateTime.UtcNow;
+                assistantMessage.Metrics = BuildTurnMetrics(turnStartUtc, firstOutputUtc, DateTime.UtcNow, assistantMessage.Content);
                 await _Database.PlanningSessionMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
                 BroadcastMessageUpdated(assistantMessage);
 
@@ -1300,6 +1304,37 @@ namespace Armada.Server
             {
                 _StopOperations.TryRemove(sessionId, out _);
             }
+        }
+
+        /// <summary>
+        /// Build per-turn statistics for a planning reply from wall-clock timing and a character-based
+        /// token estimate. Planning drives a runtime CLI rather than a direct model client, so exact
+        /// provider token usage is not available here; time to first token and total time are measured
+        /// directly, and tokens (and tokens/sec) are estimated from the reply length (~3.5 chars/token).
+        /// </summary>
+        /// <param name="startUtc">When the turn was launched.</param>
+        /// <param name="firstOutputUtc">When the first non-protocol output line arrived, if any.</param>
+        /// <param name="endUtc">When the turn finished.</param>
+        /// <param name="content">The final reply text.</param>
+        /// <returns>The per-turn metrics.</returns>
+        private static CaptainChatMetrics BuildTurnMetrics(DateTime startUtc, DateTime? firstOutputUtc, DateTime endUtc, string content)
+        {
+            CaptainChatMetrics metrics = new CaptainChatMetrics();
+            metrics.TotalMs = (endUtc - startUtc).TotalMilliseconds;
+
+            if (firstOutputUtc.HasValue)
+            {
+                metrics.TimeToFirstTokenMs = (firstOutputUtc.Value - startUtc).TotalMilliseconds;
+
+                double streamingMs = (endUtc - firstOutputUtc.Value).TotalMilliseconds;
+                metrics.StreamingMs = streamingMs;
+
+                int estimatedTokens = (int)Math.Round((content?.Length ?? 0) / 3.5);
+                metrics.CompletionTokens = estimatedTokens;
+                if (streamingMs > 0) metrics.TokensPerSecond = estimatedTokens / (streamingMs / 1000.0);
+            }
+
+            return metrics;
         }
 
         private Armada.Runtimes.Interfaces.IAgentRuntime CreatePlanningRuntime(Captain captain)
