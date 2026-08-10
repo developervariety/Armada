@@ -338,6 +338,18 @@ namespace Armada.Runtimes
             if (String.Equals(evt.Type, "item.completed", StringComparison.Ordinal) && evt.Item != null)
                 return RenderItem(evt.Item);
 
+            // Event-level errors (provider/transport failures, quota exhaustion) carry the
+            // payload on the event itself, not on an item. Persist the message so an operator
+            // can tell "out of usage" from "broken" instead of seeing the bare event type.
+            if (String.Equals(evt.Type, "error", StringComparison.Ordinal))
+            {
+                string? message = !String.IsNullOrEmpty(evt.Message) ? evt.Message : evt.Error?.Message;
+                return String.IsNullOrEmpty(message)
+                    ? "[ARMADA:ACTIVITY] codex error"
+                    : "[ARMADA:ACTIVITY] codex error " + StructuredRuntimeLogFormatter.RedactSecretValues(
+                        StructuredRuntimeLogFormatter.TruncateActivityText(message, StructuredRuntimeLogFormatter.CommandDetailLimit));
+            }
+
             // Item lifecycle and thread/turn bookkeeping carry no operator value; the completed
             // item records the same work with its arguments. Any other event type keeps a generic
             // activity record so failures and new CLI events stay visible.
@@ -483,6 +495,18 @@ namespace Armada.Runtimes
 
             [JsonPropertyName("usage")]
             public CodexUsage? Usage { get; set; }
+
+            [JsonPropertyName("message")]
+            public string? Message { get; set; }
+
+            [JsonPropertyName("error")]
+            public CodexErrorPayload? Error { get; set; }
+        }
+
+        private sealed class CodexErrorPayload
+        {
+            [JsonPropertyName("message")]
+            public string? Message { get; set; }
         }
 
         private sealed class CodexItem

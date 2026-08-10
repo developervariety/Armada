@@ -67,6 +67,27 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("[ARMADA:PROGRESS] 50", runtime.TransformLine("{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"[ARMADA:PROGRESS] 50\"}}"));
             });
 
+            await RunTest("ErrorEvent WithMessage PersistsProviderErrorText", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                string line = runtime.TransformLine("{\"type\":\"error\",\"message\":\"Request failed with status code 429: insufficient balance\"}");
+                AssertContains("[ARMADA:ACTIVITY] codex error", line, "Error event must keep its activity marker");
+                AssertContains("status code 429", line, "Error event must persist the provider error payload, not reduce it to the bare event type");
+            });
+
+            await RunTest("ErrorEvent WithNestedErrorPayload PersistsMessage", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                string line = runtime.TransformLine("{\"type\":\"error\",\"error\":{\"message\":\"model not found: gpt-5.6-sol\"}}");
+                AssertContains("model not found", line, "Nested error payload must be persisted");
+            });
+
+            await RunTest("ErrorEvent WithoutMessage FallsBackToBareType", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                AssertEqual("[ARMADA:ACTIVITY] codex error", runtime.TransformLine("{\"type\":\"error\"}"));
+            });
+
             await RunTest("TurnCompleted PublishesExactUsage", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
