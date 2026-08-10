@@ -570,6 +570,22 @@ export default function Planning() {
     }
   }
 
+  async function handleDeleteSessionById(session: PlanningSession) {
+    try {
+      setError('');
+      await deletePlanningSession(session.id);
+      setSessions((current) => removeSession(current, session.id));
+      if (currentSession?.id === session.id) {
+        setDetail(null);
+        setSelectedMessageId('');
+        navigate('/planning');
+      }
+      pushToast('warning', t('Planning session deleted.'));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to delete planning session.'));
+    }
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -656,6 +672,7 @@ export default function Planning() {
           resolvePipelineName={resolvePipelineName}
           onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
           onEndSession={requestEndSession}
+          onDeleteSession={handleDeleteSessionById}
         />
 
         {!id ? (
