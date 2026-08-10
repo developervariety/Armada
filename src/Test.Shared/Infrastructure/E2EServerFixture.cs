@@ -1,6 +1,7 @@
 namespace Test.Shared.Infrastructure
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Net;
     using System.Net.Http;
@@ -72,6 +73,31 @@ namespace Test.Shared.Infrastructure
         private static readonly SemaphoreSlim _Gate = new SemaphoreSlim(1, 1);
         private static E2EServerFixture? _Current;
         private static object? _CurrentKey;
+
+        // A single persistent server shared by isolation-safe, read-mostly suites. Sharing one boot
+        // across this whole group (instead of one boot per suite) is safe precisely because none of
+        // these suites create a captain or rely on mission dispatch: with no captain present, no mission
+        // is ever assigned, launched, or stopped, so a suite can only ever accumulate CRUD data -- which
+        // every suite in the group already asserts against tolerantly (>=, full page, filtered, or by
+        // its own ids). Dispatch/captain suites are NOT in this set and keep their own fresh server.
+        private static readonly SemaphoreSlim _SharedGate = new SemaphoreSlim(1, 1);
+        private static E2EServerFixture? _Shared;
+
+        private static readonly HashSet<string> _SharedSuiteTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "FleetSuite",
+            "VesselSuite",
+            "DockSuite",
+            "EnvironmentSuite",
+            "DeploymentSuite",
+            "IncidentSuite",
+            "ReleaseSuite",
+            "WorkflowProfileCheckRunSuite",
+            "MergeQueueSuite",
+            "AuthApiSuite",
+            "GitHubIntegrationSuite"
+        };
+
         private ArmadaServer _Server = null!;
 
         #endregion
@@ -83,12 +109,13 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Acquire the server for the given suite. Each e2e suite gets its own fresh in-process
-        /// server: the first case in a suite boots one, subsequent cases in the same suite reuse
-        /// it (preserving intra-suite state), and when a different suite starts the previous
-        /// suite's server is torn down. This isolates suites from one another (no shared-server
-        /// state bleed or order dependence) while keeping only one server alive at a time, since
-        /// the runners execute a suite's cases consecutively.
+        /// Acquire the in-process server for the given suite. Isolation-safe, read-mostly suites (see
+        /// <see cref="_SharedSuiteTypes"/>) share one persistent server booted once for the whole group;
+        /// they never create a captain or rely on dispatch, so they can only accumulate CRUD data that
+        /// their assertions already tolerate. Every other suite gets its own fresh server: the first
+        /// case boots it, later cases in the same suite reuse it (preserving intra-suite state), and it
+        /// is torn down when a different isolated suite starts -- so at most one isolated server plus the
+        /// shared server is alive at a time, since the runners execute a suite's cases consecutively.
         /// </summary>
         /// <param name="suiteKey">A stable per-suite key (pass the suite instance, <c>this</c>).</param>
         /// <returns>The initialized fixture for this suite.</returns>
@@ -96,6 +123,14 @@ namespace Test.Shared.Infrastructure
         {
             if (suiteKey == null) throw new ArgumentNullException(nameof(suiteKey));
 
+            // Isolation-safe read-mostly suites share one persistent server, booted once for the group.
+            if (_SharedSuiteTypes.Contains(suiteKey.GetType().Name))
+            {
+                return await AcquireSharedAsync().ConfigureAwait(false);
+            }
+
+            // Every other suite gets its own fresh server, torn down when a different isolated suite
+            // starts, so exactly one isolated server (plus the shared one) is alive at a time.
             E2EServerFixture? current = _Current;
             if (current != null && ReferenceEquals(_CurrentKey, suiteKey)) return current;
 
@@ -120,6 +155,27 @@ namespace Test.Shared.Infrastructure
             finally
             {
                 _Gate.Release();
+            }
+        }
+
+        private static async Task<E2EServerFixture> AcquireSharedAsync()
+        {
+            E2EServerFixture? shared = _Shared;
+            if (shared != null) return shared;
+
+            await _SharedGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_Shared != null) return _Shared;
+
+                E2EServerFixture fixture = new E2EServerFixture();
+                await fixture.StartAsync().ConfigureAwait(false);
+                _Shared = fixture;
+                return fixture;
+            }
+            finally
+            {
+                _SharedGate.Release();
             }
         }
 
