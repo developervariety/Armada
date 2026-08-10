@@ -2290,6 +2290,7 @@ tr.clickable { cursor: pointer; }
     display: inline-flex;
     align-items: center;
     gap: 0.2rem;
+    margin-bottom: 0.85rem;
     padding: 0.2rem;
     border: 1px solid var(--border);
     border-radius: 999px;

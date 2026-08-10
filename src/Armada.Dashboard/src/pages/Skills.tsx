@@ -104,6 +104,25 @@ export default function Skills() {
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
 
+      <div className="playbook-overview-grid">
+        <div className="card playbook-overview-card">
+          <span>{t('Total Skills')}</span>
+          <strong>{skills.length}</strong>
+        </div>
+        <div className="card playbook-overview-card">
+          <span>{t('Active')}</span>
+          <strong>{skills.filter((skill) => skill.active).length}</strong>
+        </div>
+        <div className="card playbook-overview-card">
+          <span>{t('Inactive')}</span>
+          <strong>{skills.filter((skill) => !skill.active).length}</strong>
+        </div>
+        <div className="card playbook-overview-card">
+          <span>{t('Categories')}</span>
+          <strong>{categories.length}</strong>
+        </div>
+      </div>
+
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="playbook-filter-row">
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search by name, description, or ID...')} />

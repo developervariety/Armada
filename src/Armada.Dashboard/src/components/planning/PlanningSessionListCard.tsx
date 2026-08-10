@@ -62,7 +62,7 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
                   <th>{t('Pipeline')}</th>
                   <th>{t('Status')}</th>
                   <th>{t('Updated')}</th>
-                  <th>{t('Actions')}</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,8 +98,8 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
                       <td>{resolvePipelineName(session.pipelineId)}</td>
                       <td><StatusBadge status={session.status} /></td>
                       <td>{formatRelativeTime(session.lastUpdateUtc)}</td>
-                      <td>
-                        <div className="planning-session-actions">
+                      <td className="text-right">
+                        <div className="planning-session-actions" style={{ justifyContent: 'flex-end' }}>
                           <ActionMenu id={`planning-session-${session.id}`} items={items} />
                         </div>
                       </td>
