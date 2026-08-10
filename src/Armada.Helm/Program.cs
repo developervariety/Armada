@@ -231,6 +231,8 @@ namespace Armada.Helm
                         .WithDescription("Check Admiral server health");
                     server.AddCommand<ServerStopCommand>("stop")
                         .WithDescription("Stop the Admiral server");
+                    server.AddCommand<ServerRestartCommand>("restart")
+                        .WithDescription("Restart the Admiral server");
                 });
 
                 config.AddBranch("config", cfg =>
