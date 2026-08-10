@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deleteSkill, listSkills } from '../api/client';
+import { createSkill, deleteSkill, listSkills } from '../api/client';
 import type { Skill } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -28,7 +28,41 @@ export default function Skills() {
     open: false, title: '', message: '', onConfirm: () => {},
   });
 
+  // Create modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState<{ name: string; category: string; description: string; content: string; active: boolean }>({
+    name: 'Untitled Skill', category: '', description: '', content: '', active: true,
+  });
+
   const canManage = isAdmin || isTenantAdmin;
+
+  function openCreate() {
+    setCreateForm({ name: 'Untitled Skill', category: '', description: '', content: '', active: true });
+    setShowCreate(true);
+  }
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      const created = await createSkill({
+        name: createForm.name,
+        description: createForm.description || null,
+        category: createForm.category || null,
+        content: createForm.content,
+        active: createForm.active,
+      });
+      setShowCreate(false);
+      pushToast('success', t('Skill "{{name}}" created.', { name: created.name }));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     try {
@@ -92,7 +126,7 @@ export default function Skills() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh skills')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/skills/new')}>+ {t('Skill')}</button>
+            <button className="btn btn-primary" onClick={openCreate}>+ {t('Skill')}</button>
           )}
         </div>
       </div>
@@ -106,6 +140,34 @@ export default function Skills() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(e) => e.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Skill')}</h3>
+            <label>{t('Name')}
+              <input type="text" value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} required />
+            </label>
+            <label>{t('Category')}
+              <input type="text" value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} placeholder="engineering" />
+            </label>
+            <label>{t('Description')}
+              <input type="text" value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
+            </label>
+            <label>{t('Content')}
+              <textarea rows={12} value={createForm.content} onChange={(e) => setCreateForm({ ...createForm, content: e.target.value })} spellCheck={false} placeholder={t('Markdown or plain text injected into mission prompts for projects that attach this skill.')} />
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={createForm.active} onChange={(e) => setCreateForm({ ...createForm, active: e.target.checked })} />
+              <span>{t('Active')}</span>
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Skill')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">

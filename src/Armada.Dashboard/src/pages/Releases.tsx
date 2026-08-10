@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deleteRelease, listReleases, listVessels, listWorkflowProfiles } from '../api/client';
-import type { Release, ReleaseStatus, Vessel, WorkflowProfile } from '../types/models';
+import { createRelease, deleteRelease, listReleases, listVessels, listWorkflowProfiles } from '../api/client';
+import type { Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -13,6 +13,13 @@ import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
 
 const RELEASE_STATUSES: ReleaseStatus[] = ['Draft', 'Candidate', 'Shipped', 'Failed', 'RolledBack'];
+
+function splitList(value: string): string[] {
+  return value
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
 export default function Releases() {
   const navigate = useNavigate();
@@ -38,6 +45,59 @@ export default function Releases() {
   });
 
   const canManage = isAdmin || isTenantAdmin;
+
+  const EMPTY_CREATE_FORM = {
+    vesselId: '',
+    workflowProfileId: '',
+    title: 'Draft Release',
+    version: '',
+    tagName: '',
+    summary: '',
+    notes: '',
+    status: 'Draft' as ReleaseStatus,
+    voyageIds: '',
+    missionIds: '',
+    checkRunIds: '',
+  };
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
+
+  function openCreate() {
+    setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    try {
+      setSaving(true);
+      const payload: ReleaseUpsertRequest = {
+        vesselId: createForm.vesselId || null,
+        workflowProfileId: createForm.workflowProfileId || null,
+        title: createForm.title.trim() || null,
+        version: createForm.version.trim() || null,
+        tagName: createForm.tagName.trim() || null,
+        summary: createForm.summary.trim() || null,
+        notes: createForm.notes.trim() || null,
+        status: createForm.status,
+        voyageIds: splitList(createForm.voyageIds),
+        missionIds: splitList(createForm.missionIds),
+        checkRunIds: splitList(createForm.checkRunIds),
+        objectiveIds: [],
+      };
+      const created = await createRelease(payload);
+      setShowCreate(false);
+      pushToast('success', t('Release "{{title}}" created.', { title: created.title }));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     try {
@@ -114,7 +174,7 @@ export default function Releases() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh releases')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/releases/new')}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('Release')}
             </button>
           )}
@@ -130,6 +190,65 @@ export default function Releases() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Release')}</h3>
+            <label>{t('Title')}
+              <input value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
+            </label>
+            <label>{t('Status')}
+              <select value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as ReleaseStatus }))}>
+                {RELEASE_STATUSES.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Vessel')}
+              <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
+                <option value="">{t('Resolve from linked work or select a vessel...')}</option>
+                {vessels.map((vessel) => (
+                  <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Workflow Profile')}
+              <select value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))}>
+                <option value="">{t('Resolved default')}</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Version')}
+              <input value={createForm.version} onChange={(event) => setCreateForm((current) => ({ ...current, version: event.target.value }))} placeholder="1.2.3" />
+            </label>
+            <label>{t('Tag Name')}
+              <input value={createForm.tagName} onChange={(event) => setCreateForm((current) => ({ ...current, tagName: event.target.value }))} placeholder="v1.2.3" />
+            </label>
+            <label>{t('Summary')}
+              <textarea rows={3} value={createForm.summary} onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))} />
+            </label>
+            <label>{t('Notes')}
+              <textarea rows={6} value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            <label>{t('Voyage IDs')}
+              <textarea rows={3} value={createForm.voyageIds} onChange={(event) => setCreateForm((current) => ({ ...current, voyageIds: event.target.value }))} placeholder="voy_..." />
+            </label>
+            <label>{t('Mission IDs')}
+              <textarea rows={3} value={createForm.missionIds} onChange={(event) => setCreateForm((current) => ({ ...current, missionIds: event.target.value }))} placeholder="mis_..." />
+            </label>
+            <label>{t('Check Run IDs')}
+              <textarea rows={3} value={createForm.checkRunIds} onChange={(event) => setCreateForm((current) => ({ ...current, checkRunIds: event.target.value }))} placeholder="chk_..." />
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Release')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">

@@ -32,7 +32,48 @@ export default function Playbooks() {
     onConfirm: () => {},
   });
 
+  // Create modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState<{ fileName: string; description: string; content: string; active: boolean }>({
+    fileName: 'NEW_PLAYBOOK.md',
+    description: '',
+    content: '# Playbook\n\nDescribe the rules the model must follow.\n',
+    active: true,
+  });
+
   const canManage = isAdmin || isTenantAdmin;
+
+  function openCreate() {
+    setCreateForm({
+      fileName: 'NEW_PLAYBOOK.md',
+      description: '',
+      content: '# Playbook\n\nDescribe the rules the model must follow.\n',
+      active: true,
+    });
+    setShowCreate(true);
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      const created = await createPlaybook({
+        fileName: createForm.fileName,
+        description: createForm.description.trim() || null,
+        content: createForm.content,
+        active: createForm.active,
+      });
+      setShowCreate(false);
+      pushToast('success', t('Playbook "{{name}}" created.', { name: created.fileName }));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     try {
@@ -111,7 +152,7 @@ export default function Playbooks() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh playbooks')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/playbooks/new')}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('Playbook')}
             </button>
           )}
@@ -127,6 +168,31 @@ export default function Playbooks() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Playbook')}</h3>
+            <label>{t('File Name')}
+              <input type="text" value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} placeholder={t('CSHARP_BACKEND_ARCHITECTURE.md')} required />
+            </label>
+            <label>{t('Description')}
+              <input type="text" value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} placeholder={t('Optional summary shown during playbook selection')} />
+            </label>
+            <label>{t('Markdown Content')}
+              <textarea rows={16} value={createForm.content} onChange={(event) => setCreateForm({ ...createForm, content: event.target.value })} spellCheck={false} />
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
+              <span>{t('Active and selectable during dispatch')}</span>
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Playbook')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">

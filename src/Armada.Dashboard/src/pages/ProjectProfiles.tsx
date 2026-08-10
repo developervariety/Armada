@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deleteProjectProfile, listProjectProfiles } from '../api/client';
-import type { ProjectProfile } from '../types/models';
+import { createProjectProfile, deleteProjectProfile, listFleets, listProjectProfiles, listVessels } from '../api/client';
+import type { Fleet, ProjectProfile, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -12,12 +12,18 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
 
+function splitList(value: string): string[] {
+  return value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
+}
+
 export default function ProjectProfiles() {
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
   const [profiles, setProfiles] = useState<ProjectProfile[]>([]);
+  const [fleets, setFleets] = useState<Fleet[]>([]);
+  const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -33,6 +39,23 @@ export default function ProjectProfiles() {
   });
 
   const canManage = isAdmin || isTenantAdmin;
+
+  const EMPTY_CREATE_FORM = {
+    name: 'Default Project Profile',
+    description: '',
+    scope: 'Global' as 'Global' | 'Fleet' | 'Vessel',
+    fleetId: '',
+    vesselId: '',
+    isDefault: false,
+    active: true,
+    defaultPipelineId: '',
+    workflowProfileId: '',
+    skills: '',
+  };
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
   async function load() {
     try {
@@ -50,6 +73,45 @@ export default function ProjectProfiles() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    void listFleets().then((r) => setFleets(r.objects || [])).catch(() => {});
+    void listVessels().then((r) => setVessels(r.objects || [])).catch(() => {});
+  }, []);
+
+  function openCreate() {
+    setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    try {
+      setSaving(true);
+      const payload: Partial<ProjectProfile> = {
+        name: createForm.name,
+        description: createForm.description || null,
+        scope: createForm.scope,
+        fleetId: createForm.scope === 'Fleet' ? (createForm.fleetId || null) : null,
+        vesselId: createForm.scope === 'Vessel' ? (createForm.vesselId || null) : null,
+        isDefault: createForm.isDefault,
+        active: createForm.active,
+        defaultPipelineId: createForm.defaultPipelineId || null,
+        workflowProfileId: createForm.workflowProfileId || null,
+        personaOverrides: [],
+        skills: splitList(createForm.skills),
+      };
+      const created = await createProjectProfile(payload);
+      setShowCreate(false);
+      pushToast('success', t('Project profile "{{name}}" created.', { name: created.name }));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const filtered = useMemo(() => profiles.filter((profile) => {
     const matchesSearch = search.trim().length === 0
@@ -101,7 +163,7 @@ export default function ProjectProfiles() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh project profiles')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/project-profiles/new')}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('Project Profile')}
             </button>
           )}
@@ -117,6 +179,64 @@ export default function ProjectProfiles() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Project Profile')}</h3>
+            <label>{t('Name')}
+              <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
+            </label>
+            <label>{t('Description')}
+              <input value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
+            </label>
+            <label>{t('Scope')}
+              <select value={createForm.scope} onChange={(event) => setCreateForm((current) => ({ ...current, scope: event.target.value as 'Global' | 'Fleet' | 'Vessel' }))}>
+                <option value="Global">{t('Global')}</option>
+                <option value="Fleet">{t('Fleet')}</option>
+                <option value="Vessel">{t('Vessel')}</option>
+              </select>
+            </label>
+            {createForm.scope === 'Fleet' && (
+              <label>{t('Fleet')}
+                <select value={createForm.fleetId} onChange={(event) => setCreateForm((current) => ({ ...current, fleetId: event.target.value }))}>
+                  <option value="">{t('Select a fleet...')}</option>
+                  {fleets.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </label>
+            )}
+            {createForm.scope === 'Vessel' && (
+              <label>{t('Vessel')}
+                <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
+                  <option value="">{t('Select a vessel...')}</option>
+                  {vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </label>
+            )}
+            <label>{t('Default Pipeline ID')}
+              <input value={createForm.defaultPipelineId} onChange={(event) => setCreateForm((current) => ({ ...current, defaultPipelineId: event.target.value }))} placeholder="ppl_..." />
+            </label>
+            <label>{t('Workflow Profile ID')}
+              <input value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))} placeholder="wfp_..." />
+            </label>
+            <label>{t('Skills')}
+              <textarea rows={4} value={createForm.skills} onChange={(event) => setCreateForm((current) => ({ ...current, skills: event.target.value }))} placeholder={'dotnet\ntdd'} />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
+              <span>{t('Default for scope')}</span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
+              <span>{t('Active')}</span>
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Project Profile')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">

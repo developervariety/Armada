@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createWorkflowProfile, deleteWorkflowProfile, listWorkflowProfiles } from '../api/client';
-import type { WorkflowProfile } from '../types/models';
+import { createWorkflowProfile, deleteWorkflowProfile, listFleets, listVessels, listWorkflowProfiles } from '../api/client';
+import type { Fleet, Vessel, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -12,6 +12,13 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
+
+function splitList(value: string): string[] {
+  return value
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
 function countProfileCapabilities(profile: WorkflowProfile): number {
   const commands = [
@@ -41,6 +48,8 @@ export default function WorkflowProfiles() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
+  const [fleets, setFleets] = useState<Fleet[]>([]);
+  const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -56,6 +65,28 @@ export default function WorkflowProfiles() {
   });
 
   const canManage = isAdmin || isTenantAdmin;
+
+  const EMPTY_CREATE_FORM = {
+    name: 'Default Workflow',
+    description: '',
+    scope: 'Global' as 'Global' | 'Fleet' | 'Vessel',
+    fleetId: '',
+    vesselId: '',
+    isDefault: false,
+    active: true,
+    languageHints: '',
+    expectedArtifacts: '',
+    lintCommand: '',
+    buildCommand: '',
+    unitTestCommand: '',
+    integrationTestCommand: '',
+    e2eTestCommand: '',
+    packageCommand: '',
+  };
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
   async function load() {
     try {
@@ -73,6 +104,54 @@ export default function WorkflowProfiles() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    void listFleets({ pageSize: 9999 }).then((r) => setFleets(r.objects || [])).catch(() => {});
+    void listVessels({ pageSize: 9999 }).then((r) => setVessels(r.objects || [])).catch(() => {});
+  }, []);
+
+  const fleetOptions = useMemo(() => fleets.filter((fleet) => fleet.active !== false), [fleets]);
+  const vesselOptions = useMemo(() => vessels.filter((vessel) => vessel.active !== false), [vessels]);
+
+  function openCreate() {
+    setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    try {
+      setSaving(true);
+      const payload: Partial<WorkflowProfile> = {
+        name: createForm.name.trim(),
+        description: createForm.description.trim() || null,
+        scope: createForm.scope,
+        fleetId: createForm.scope === 'Fleet' ? createForm.fleetId || null : null,
+        vesselId: createForm.scope === 'Vessel' ? createForm.vesselId || null : null,
+        isDefault: createForm.isDefault,
+        active: createForm.active,
+        languageHints: splitList(createForm.languageHints),
+        expectedArtifacts: splitList(createForm.expectedArtifacts),
+        lintCommand: createForm.lintCommand.trim() || null,
+        buildCommand: createForm.buildCommand.trim() || null,
+        unitTestCommand: createForm.unitTestCommand.trim() || null,
+        integrationTestCommand: createForm.integrationTestCommand.trim() || null,
+        e2eTestCommand: createForm.e2eTestCommand.trim() || null,
+        packageCommand: createForm.packageCommand.trim() || null,
+        requiredInputs: [],
+        environments: [],
+      };
+      const created = await createWorkflowProfile(payload);
+      setShowCreate(false);
+      pushToast('success', t('Workflow profile "{{name}}" created.', { name: created.name }));
+      navigate(`/workflow-profiles/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const filtered = useMemo(() => profiles.filter((profile) => {
     const matchesSearch = search.trim().length === 0
@@ -133,7 +212,7 @@ export default function WorkflowProfiles() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh workflow profiles')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/workflow-profiles/new')}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('Workflow Profile')}
             </button>
           )}
@@ -149,6 +228,82 @@ export default function WorkflowProfiles() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Workflow Profile')}</h3>
+            <p className="text-dim" style={{ marginTop: 0 }}>
+              {t('Set the core details here. Required inputs, environment commands, and the remaining commands can be configured after creation.')}
+            </p>
+            <label>{t('Name')}
+              <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
+            </label>
+            <label>{t('Description')}
+              <input value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
+            </label>
+            <label>{t('Scope')}
+              <select value={createForm.scope} onChange={(event) => setCreateForm((current) => ({ ...current, scope: event.target.value as 'Global' | 'Fleet' | 'Vessel' }))}>
+                <option value="Global">{t('Global')}</option>
+                <option value="Fleet">{t('Fleet')}</option>
+                <option value="Vessel">{t('Vessel')}</option>
+              </select>
+            </label>
+            {createForm.scope === 'Fleet' && (
+              <label>{t('Fleet')}
+                <select value={createForm.fleetId} onChange={(event) => setCreateForm((current) => ({ ...current, fleetId: event.target.value }))}>
+                  <option value="">{t('Select a fleet...')}</option>
+                  {fleetOptions.map((fleet) => <option key={fleet.id} value={fleet.id}>{fleet.name}</option>)}
+                </select>
+              </label>
+            )}
+            {createForm.scope === 'Vessel' && (
+              <label>{t('Vessel')}
+                <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
+                  <option value="">{t('Select a vessel...')}</option>
+                  {vesselOptions.map((vessel) => <option key={vessel.id} value={vessel.id}>{vessel.name}</option>)}
+                </select>
+              </label>
+            )}
+            <label>{t('Language / Runtime Hints')}
+              <textarea rows={3} value={createForm.languageHints} onChange={(event) => setCreateForm((current) => ({ ...current, languageHints: event.target.value }))} placeholder={t('dotnet\nreact\npostgres')} />
+            </label>
+            <label>{t('Expected Artifacts')}
+              <textarea rows={3} value={createForm.expectedArtifacts} onChange={(event) => setCreateForm((current) => ({ ...current, expectedArtifacts: event.target.value }))} placeholder={t('bin/Release/app.zip\ncoverage/summary.xml')} />
+            </label>
+            <label>{t('Lint Command')}
+              <textarea rows={2} value={createForm.lintCommand} onChange={(event) => setCreateForm((current) => ({ ...current, lintCommand: event.target.value }))} />
+            </label>
+            <label>{t('Build Command')}
+              <textarea rows={2} value={createForm.buildCommand} onChange={(event) => setCreateForm((current) => ({ ...current, buildCommand: event.target.value }))} />
+            </label>
+            <label>{t('Unit Test Command')}
+              <textarea rows={2} value={createForm.unitTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, unitTestCommand: event.target.value }))} />
+            </label>
+            <label>{t('Integration Test Command')}
+              <textarea rows={2} value={createForm.integrationTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, integrationTestCommand: event.target.value }))} />
+            </label>
+            <label>{t('E2E Test Command')}
+              <textarea rows={2} value={createForm.e2eTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, e2eTestCommand: event.target.value }))} />
+            </label>
+            <label>{t('Package Command')}
+              <textarea rows={2} value={createForm.packageCommand} onChange={(event) => setCreateForm((current) => ({ ...current, packageCommand: event.target.value }))} />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
+              <span>{t('Default for this scope')}</span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
+              <span>{t('Active')}</span>
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Workflow Profile')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">

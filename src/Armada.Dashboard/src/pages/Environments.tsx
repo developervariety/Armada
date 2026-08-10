@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createEnvironment, deleteEnvironment, listEnvironments, listVessels } from '../api/client';
-import type { DeploymentEnvironment, EnvironmentKind, Vessel } from '../types/models';
+import type { DeploymentEnvironment, DeploymentEnvironmentUpsertRequest, EnvironmentKind, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -37,7 +37,90 @@ export default function Environments() {
     onConfirm: () => {},
   });
 
+  // Create modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState<{
+    vesselId: string;
+    name: string;
+    kind: EnvironmentKind;
+    configurationSource: string;
+    baseUrl: string;
+    healthEndpoint: string;
+    description: string;
+    accessNotes: string;
+    deploymentRules: string;
+    requiresApproval: boolean;
+    isDefault: boolean;
+    active: boolean;
+  }>({
+    vesselId: '',
+    name: 'Environment',
+    kind: 'Development',
+    configurationSource: '',
+    baseUrl: '',
+    healthEndpoint: '',
+    description: '',
+    accessNotes: '',
+    deploymentRules: '',
+    requiresApproval: false,
+    isDefault: false,
+    active: true,
+  });
+
   const canManage = isAdmin || isTenantAdmin;
+
+  function openCreate() {
+    setCreateForm({
+      vesselId: '',
+      name: 'Environment',
+      kind: 'Development',
+      configurationSource: '',
+      baseUrl: '',
+      healthEndpoint: '',
+      description: '',
+      accessNotes: '',
+      deploymentRules: '',
+      requiresApproval: false,
+      isDefault: false,
+      active: true,
+    });
+    setShowCreate(true);
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      const payload: DeploymentEnvironmentUpsertRequest = {
+        vesselId: createForm.vesselId || null,
+        name: createForm.name.trim() || null,
+        description: createForm.description.trim() || null,
+        kind: createForm.kind,
+        configurationSource: createForm.configurationSource.trim() || null,
+        baseUrl: createForm.baseUrl.trim() || null,
+        healthEndpoint: createForm.healthEndpoint.trim() || null,
+        accessNotes: createForm.accessNotes.trim() || null,
+        deploymentRules: createForm.deploymentRules.trim() || null,
+        verificationDefinitions: [],
+        rolloutMonitoringWindowMinutes: 60,
+        rolloutMonitoringIntervalSeconds: 300,
+        alertOnRegression: true,
+        requiresApproval: createForm.requiresApproval,
+        isDefault: createForm.isDefault,
+        active: createForm.active,
+      };
+      const created = await createEnvironment(payload);
+      setShowCreate(false);
+      pushToast('success', t('Environment "{{name}}" created.', { name: created.name }));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     try {
@@ -128,7 +211,7 @@ export default function Environments() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh environments')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/environments/new')}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('Environment')}
             </button>
           )}
@@ -144,6 +227,68 @@ export default function Environments() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Environment')}</h3>
+            <label>{t('Vessel')}
+              <select value={createForm.vesselId} onChange={(event) => setCreateForm({ ...createForm, vesselId: event.target.value })}>
+                <option value="">{t('Select a vessel')}</option>
+                {vessels.map((vessel) => (
+                  <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Name')}
+              <input type="text" value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} required />
+            </label>
+            <label>{t('Kind')}
+              <select value={createForm.kind} onChange={(event) => setCreateForm({ ...createForm, kind: event.target.value as EnvironmentKind })}>
+                {ENVIRONMENT_KINDS.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Configuration Source')}
+              <input type="text" value={createForm.configurationSource} onChange={(event) => setCreateForm({ ...createForm, configurationSource: event.target.value })} placeholder={t('e.g. Helm values, appsettings.Production.json, Azure slot config')} />
+            </label>
+            <label>{t('Base URL')}
+              <input type="text" value={createForm.baseUrl} onChange={(event) => setCreateForm({ ...createForm, baseUrl: event.target.value })} placeholder="https://service.example.com" />
+            </label>
+            <label>{t('Health Endpoint')}
+              <input type="text" value={createForm.healthEndpoint} onChange={(event) => setCreateForm({ ...createForm, healthEndpoint: event.target.value })} placeholder="/health or https://service.example.com/health" />
+            </label>
+            <label>{t('Description')}
+              <textarea rows={3} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} />
+            </label>
+            <label>{t('Access Notes')}
+              <textarea rows={3} value={createForm.accessNotes} onChange={(event) => setCreateForm({ ...createForm, accessNotes: event.target.value })} placeholder={t('How do operators reach or authenticate to this environment?')} />
+            </label>
+            <label>{t('Deployment Rules')}
+              <textarea rows={3} value={createForm.deploymentRules} onChange={(event) => setCreateForm({ ...createForm, deploymentRules: event.target.value })} placeholder={t('Document freeze windows, approval policy, maintenance constraints, or rollout notes.')} />
+            </label>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                <input type="checkbox" checked={createForm.requiresApproval} onChange={(event) => setCreateForm({ ...createForm, requiresApproval: event.target.checked })} />
+                <span>{t('Requires approval')}</span>
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                <input type="checkbox" checked={createForm.isDefault} onChange={(event) => setCreateForm({ ...createForm, isDefault: event.target.checked })} />
+                <span>{t('Default environment for vessel')}</span>
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
+                <span>{t('Active')}</span>
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Environment')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">

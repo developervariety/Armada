@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  createDeployment,
   deleteDeployment,
   listDeployments,
   listEnvironments,
   listReleases,
   listVessels,
+  listWorkflowProfiles,
 } from '../api/client';
 import type {
   Deployment,
   DeploymentEnvironment,
   DeploymentStatus,
+  DeploymentUpsertRequest,
   DeploymentVerificationStatus,
   Release,
   Vessel,
+  WorkflowProfile,
 } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -55,6 +59,7 @@ export default function Deployments() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [environments, setEnvironments] = useState<DeploymentEnvironment[]>([]);
   const [releases, setReleases] = useState<Release[]>([]);
+  const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -72,19 +77,40 @@ export default function Deployments() {
 
   const canManage = isAdmin || isTenantAdmin;
 
+  const EMPTY_CREATE_FORM = {
+    vesselId: '',
+    workflowProfileId: '',
+    environmentId: '',
+    environmentName: '',
+    releaseId: '',
+    sourceRef: '',
+    missionId: '',
+    voyageId: '',
+    title: 'Deployment',
+    summary: '',
+    notes: '',
+    autoExecute: true,
+  };
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
+
   async function load() {
     try {
       setLoading(true);
-      const [deploymentResult, vesselResult, environmentResult, releaseResult] = await Promise.all([
+      const [deploymentResult, vesselResult, environmentResult, releaseResult, profileResult] = await Promise.all([
         listDeployments({ pageSize: 9999 }),
         listVessels({ pageSize: 9999 }),
         listEnvironments({ pageSize: 9999 }),
         listReleases({ pageSize: 9999 }),
+        listWorkflowProfiles({ pageSize: 9999 }),
       ]);
       setDeployments(deploymentResult.objects || []);
       setVessels(vesselResult.objects || []);
       setEnvironments(environmentResult.objects || []);
       setReleases(releaseResult.objects || []);
+      setProfiles(profileResult.objects || []);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load deployments.'));
@@ -96,6 +122,69 @@ export default function Deployments() {
   useEffect(() => {
     load();
   }, []);
+
+  function openCreate() {
+    setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  function handleEnvironmentChange(environmentId: string) {
+    const selected = environments.find((environment) => environment.id === environmentId);
+    setCreateForm((current) => ({
+      ...current,
+      environmentId,
+      environmentName: selected ? selected.name : current.environmentName,
+      vesselId: !current.vesselId && selected?.vesselId ? selected.vesselId : current.vesselId,
+    }));
+  }
+
+  function handleReleaseChange(releaseId: string) {
+    const selected = releases.find((release) => release.id === releaseId);
+    setCreateForm((current) => ({
+      ...current,
+      releaseId,
+      vesselId: !current.vesselId && selected?.vesselId ? selected.vesselId : current.vesselId,
+    }));
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    try {
+      setSaving(true);
+      const payload: DeploymentUpsertRequest = {
+        vesselId: createForm.vesselId || null,
+        workflowProfileId: createForm.workflowProfileId || null,
+        environmentId: createForm.environmentId || null,
+        environmentName: createForm.environmentName.trim() || null,
+        releaseId: createForm.releaseId || null,
+        missionId: createForm.missionId.trim() || null,
+        voyageId: createForm.voyageId.trim() || null,
+        title: createForm.title.trim() || null,
+        sourceRef: createForm.sourceRef.trim() || null,
+        summary: createForm.summary.trim() || null,
+        notes: createForm.notes.trim() || null,
+        autoExecute: createForm.autoExecute,
+      };
+      const created = await createDeployment(payload);
+      setShowCreate(false);
+      pushToast('success', t('Deployment "{{title}}" created.', { title: created.title }));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const filteredEnvironments = useMemo(
+    () => environments.filter((environment) => !createForm.vesselId || environment.vesselId === createForm.vesselId),
+    [environments, createForm.vesselId],
+  );
+  const filteredReleases = useMemo(
+    () => releases.filter((release) => !createForm.vesselId || release.vesselId === createForm.vesselId),
+    [releases, createForm.vesselId],
+  );
 
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
   const environmentMap = useMemo(() => new Map(environments.map((environment) => [environment.id, environment.name])), [environments]);
@@ -153,7 +242,7 @@ export default function Deployments() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh deployments')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/deployments/new')}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('Deployment')}
             </button>
           )}
@@ -169,6 +258,75 @@ export default function Deployments() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Deployment')}</h3>
+            <label>{t('Vessel')}
+              <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
+                <option value="">{t('Select a vessel')}</option>
+                {vessels.map((vessel) => (
+                  <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Workflow Profile')}
+              <select value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))}>
+                <option value="">{t('Resolved default')}</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Environment')}
+              <select value={createForm.environmentId} onChange={(event) => handleEnvironmentChange(event.target.value)}>
+                <option value="">{t('Resolve by environment name')}</option>
+                {filteredEnvironments.map((environment) => (
+                  <option key={environment.id} value={environment.id}>{environment.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Environment Name')}
+              <input value={createForm.environmentName} onChange={(event) => setCreateForm((current) => ({ ...current, environmentName: event.target.value }))} placeholder={t('staging, production, customer-a')} />
+            </label>
+            <label>{t('Release')}
+              <select value={createForm.releaseId} onChange={(event) => handleReleaseChange(event.target.value)}>
+                <option value="">{t('No linked release')}</option>
+                {filteredReleases.map((release) => (
+                  <option key={release.id} value={release.id}>{release.title}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Source Ref')}
+              <input value={createForm.sourceRef} onChange={(event) => setCreateForm((current) => ({ ...current, sourceRef: event.target.value }))} placeholder={t('branch, tag, or commit')} />
+            </label>
+            <label>{t('Mission ID')}
+              <input value={createForm.missionId} onChange={(event) => setCreateForm((current) => ({ ...current, missionId: event.target.value }))} placeholder="mis_..." />
+            </label>
+            <label>{t('Voyage ID')}
+              <input value={createForm.voyageId} onChange={(event) => setCreateForm((current) => ({ ...current, voyageId: event.target.value }))} placeholder="voy_..." />
+            </label>
+            <label>{t('Title')}
+              <input value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
+            </label>
+            <label>{t('Summary')}
+              <textarea rows={3} value={createForm.summary} onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))} />
+            </label>
+            <label>{t('Notes')}
+              <textarea rows={4} value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" checked={createForm.autoExecute} onChange={(event) => setCreateForm((current) => ({ ...current, autoExecute: event.target.checked }))} />
+              <span>{t('Execute immediately when approval is not required')}</span>
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Deployment')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
