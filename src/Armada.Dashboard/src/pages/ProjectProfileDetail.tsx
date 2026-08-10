@@ -14,7 +14,10 @@ import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import JsonViewer from '../components/shared/JsonViewer';
+import StatusBadge from '../components/shared/StatusBadge';
 
 const KNOWN_PERSONAS = ['Product Manager', 'Architect', 'Worker', 'Test Engineer', 'Judge', 'Usability Engineer'];
 
@@ -54,6 +57,7 @@ export default function ProjectProfileDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
 
   const [previewPersona, setPreviewPersona] = useState('Architect');
   const [preview, setPreview] = useState<PersonaPromptPreview | null>(null);
@@ -158,27 +162,25 @@ export default function ProjectProfileDetail() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{createMode ? t('New Project Profile') : name}</h2>
+      <div className="breadcrumb">
+        <Link to="/project-profiles">{t('Project Profiles')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Project Profile') : name}</span>
+      </div>
+
+      <div className="detail-header">
+        <h2>{createMode ? t('Create Project Profile') : name}</h2>
+        <div className="inline-actions">
+          {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
           {!createMode && profile && (
-            <p className="text-dim view-subtitle mono">{profile.id} · {t('Updated')} {formatDateTime(profile.lastUpdateUtc)}</p>
+            <button className="btn btn-sm" onClick={() => setJsonOpen(true)}>{t('View JSON')}</button>
           )}
-        </div>
-        <div className="view-actions">
-          <Link className="btn" to="/project-profiles">{t('Back')}</Link>
-          {canManage && !createMode && (
-            <button className="btn btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
-          )}
-          {canManage && (
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? t('Saving...') : t('Save')}
-            </button>
+          {!createMode && canManage && (
+            <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
           )}
         </div>
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      <JsonViewer open={jsonOpen} title={profile?.name || t('Project Profile')} data={profile} onClose={() => setJsonOpen(false)} />
       <ConfirmDialog
         open={confirmOpen}
         title={t('Delete Project Profile')}
@@ -186,6 +188,36 @@ export default function ProjectProfileDetail() {
         onConfirm={handleDelete}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      {!canManage && (
+        <div className="alert alert-error" style={{ marginBottom: '1rem' }}>
+          {t('You can view this project profile, but only tenant administrators can change it.')}
+        </div>
+      )}
+
+      {!createMode && profile && (
+        <div className="detail-grid" style={{ marginBottom: '1rem' }}>
+          <div className="detail-field">
+            <span className="detail-label">{t('ID')}</span>
+            <span className="id-display">
+              <span className="mono">{profile.id}</span>
+              <CopyButton text={profile.id} />
+            </span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Created')}</span>
+            <span>{formatDateTime(profile.createdUtc)}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Last Updated')}</span>
+            <span>{formatDateTime(profile.lastUpdateUtc)}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Status')}</span>
+            <StatusBadge status={active ? 'Active' : 'Inactive'} />
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="form-grid">
@@ -327,6 +359,15 @@ export default function ProjectProfileDetail() {
           )}
         </div>
       )}
+
+      <div className="inline-actions" style={{ marginTop: '1rem' }}>
+        {canManage && (
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? t('Saving...') : createMode ? t('Create Project Profile') : t('Save Changes')}
+          </button>
+        )}
+        <button className="btn" onClick={() => navigate('/project-profiles')}>{t('Back')}</button>
+      </div>
     </div>
   );
 }

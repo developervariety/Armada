@@ -6,7 +6,10 @@ import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import JsonViewer from '../components/shared/JsonViewer';
+import StatusBadge from '../components/shared/StatusBadge';
 
 export default function SkillDetail() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +31,7 @@ export default function SkillDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
 
   useEffect(() => {
     if (createMode) return;
@@ -91,27 +95,25 @@ export default function SkillDetail() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{createMode ? t('New Skill') : name}</h2>
+      <div className="breadcrumb">
+        <Link to="/skills">{t('Skills')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Skill') : name}</span>
+      </div>
+
+      <div className="detail-header">
+        <h2>{createMode ? t('Create Skill') : name}</h2>
+        <div className="inline-actions">
+          {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
           {!createMode && skill && (
-            <p className="text-dim view-subtitle mono">{skill.id} · {t('Updated')} {formatDateTime(skill.lastUpdateUtc)}</p>
+            <button className="btn btn-sm" onClick={() => setJsonOpen(true)}>{t('View JSON')}</button>
           )}
-        </div>
-        <div className="view-actions">
-          <Link className="btn" to="/skills">{t('Back')}</Link>
-          {canManage && !createMode && (
-            <button className="btn btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
-          )}
-          {canManage && (
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? t('Saving...') : t('Save')}
-            </button>
+          {!createMode && canManage && (
+            <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
           )}
         </div>
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      <JsonViewer open={jsonOpen} title={skill?.name || t('Skill')} data={skill} onClose={() => setJsonOpen(false)} />
       <ConfirmDialog
         open={confirmOpen}
         title={t('Delete Skill')}
@@ -119,6 +121,36 @@ export default function SkillDetail() {
         onConfirm={handleDelete}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      {!canManage && (
+        <div className="alert alert-error" style={{ marginBottom: '1rem' }}>
+          {t('You can view this skill, but only tenant administrators can change it.')}
+        </div>
+      )}
+
+      {!createMode && skill && (
+        <div className="detail-grid" style={{ marginBottom: '1rem' }}>
+          <div className="detail-field">
+            <span className="detail-label">{t('ID')}</span>
+            <span className="id-display">
+              <span className="mono">{skill.id}</span>
+              <CopyButton text={skill.id} />
+            </span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Created')}</span>
+            <span>{formatDateTime(skill.createdUtc)}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Last Updated')}</span>
+            <span>{formatDateTime(skill.lastUpdateUtc)}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Status')}</span>
+            <StatusBadge status={active ? 'Active' : 'Inactive'} />
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="form-grid">
@@ -141,10 +173,28 @@ export default function SkillDetail() {
         </div>
       </div>
 
-      <div className="card" style={{ padding: '1rem' }}>
-        <h3>{t('Content')}</h3>
-        <p className="text-dim" style={{ marginTop: 0 }}>{t('Markdown or plain text injected into mission prompts for projects that attach this skill.')}</p>
-        <textarea rows={16} value={content} onChange={(e) => setContent(e.target.value)} disabled={!canManage} style={{ width: '100%', fontFamily: 'monospace' }} />
+      <div className="card playbook-editor-card">
+        <label className="playbook-editor-field">
+          <span>{t('Content')}</span>
+          <p className="text-dim" style={{ margin: '0 0 0.35rem' }}>{t('Markdown or plain text injected into mission prompts for projects that attach this skill.')}</p>
+          <textarea
+            className="playbook-editor-textarea"
+            rows={16}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            disabled={!canManage}
+            spellCheck={false}
+          />
+        </label>
+
+        <div className="playbook-editor-actions">
+          <button className="btn btn-primary" disabled={!canManage || saving} onClick={handleSave}>
+            {saving ? t('Saving...') : createMode ? t('Create Skill') : t('Save Changes')}
+          </button>
+          <button className="btn" onClick={() => navigate('/skills')}>
+            {t('Back')}
+          </button>
+        </div>
       </div>
     </div>
   );
