@@ -6,7 +6,6 @@ namespace Armada.Helm.Commands
     using System.Threading;
     using Spectre.Console.Cli;
     using SyslogLogging;
-    using System.Text.Json;
     using Voltaic;
     using Voltaic.Core;
     using Voltaic.Mcp;
@@ -27,7 +26,7 @@ namespace Armada.Helm.Commands
     public class McpStdioCommand : AsyncCommand<McpStdioSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, McpStdioSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, McpStdioSettings settings, CancellationToken cancellationToken)
         {
             // Load settings using Armada's configured serializer/options so camelCase settings.json is honored.
             ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
@@ -102,7 +101,7 @@ namespace Armada.Helm.Commands
             // Adapt Armada's JsonElement-based tool handlers to Voltaic 0.6.0's RpcParameters API.
             void RegisterAdapted(string name, string description, object inputSchema, Func<JsonElement?, Task<object>> handler)
             {
-                mcpServer.RegisterTool(name, description, inputSchema, (RpcParameters parameters) =>
+                mcpServer.RegisterTool(name, description, inputSchema, (RpcParameters? parameters) =>
                 {
                     JsonElement? args = null;
                     if (parameters != null && parameters.HasValue && !string.IsNullOrEmpty(parameters.RawJson))

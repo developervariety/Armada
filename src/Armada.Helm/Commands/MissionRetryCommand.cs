@@ -17,7 +17,7 @@ namespace Armada.Helm.Commands
     public class MissionRetryCommand : BaseCommand<MissionRetrySettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, MissionRetrySettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, MissionRetrySettings settings, CancellationToken cancellationToken)
         {
             // Resolve mission
             Mission? mission = null;

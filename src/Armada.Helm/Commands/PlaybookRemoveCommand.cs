@@ -12,7 +12,7 @@ namespace Armada.Helm.Commands
     public class PlaybookRemoveCommand : BaseCommand<PlaybookRemoveSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, PlaybookRemoveSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, PlaybookRemoveSettings settings, CancellationToken cancellationToken)
         {
             Playbook? playbook = await ResolvePlaybookAsync(settings.Id).ConfigureAwait(false);
             if (playbook == null)

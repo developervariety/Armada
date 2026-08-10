@@ -16,7 +16,7 @@ namespace Armada.Helm.Commands
     public class ServerStatusCommand : BaseCommand<ServerStatusSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, ServerStatusSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, ServerStatusSettings settings, CancellationToken cancellationToken)
         {
             try
             {

@@ -17,7 +17,7 @@ namespace Armada.Helm.Commands
     public class CaptainListCommand : BaseCommand<CaptainListSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, CaptainListSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, CaptainListSettings settings, CancellationToken cancellationToken)
         {
             string path = AppendPagination("/api/v1/captains", settings);
             EnumerationResult<Captain>? result = await GetAsync<EnumerationResult<Captain>>(path).ConfigureAwait(false);

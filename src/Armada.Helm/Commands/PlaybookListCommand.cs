@@ -13,7 +13,7 @@ namespace Armada.Helm.Commands
     public class PlaybookListCommand : BaseCommand<PlaybookListSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, PlaybookListSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, PlaybookListSettings settings, CancellationToken cancellationToken)
         {
             string path = AppendPagination("/api/v1/playbooks", settings);
             EnumerationResult<Playbook>? result = await GetAsync<EnumerationResult<Playbook>>(path).ConfigureAwait(false);
