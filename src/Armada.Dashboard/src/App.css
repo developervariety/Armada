@@ -653,10 +653,11 @@ body {
     height: 28px;
     border: none;
     background: transparent;
-    color: var(--text-dim);
+    color: var(--text);
     cursor: pointer;
     transition: color 0.15s;
 }
+.top-bar-logout-btn svg { display: block; }
 .top-bar-logout-btn:hover { color: var(--red, #e5484d); }
 
 .github-link {
