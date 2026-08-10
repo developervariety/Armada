@@ -39,6 +39,7 @@ export default function Captains() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
   const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [saving, setSaving] = useState(false);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -157,12 +158,14 @@ export default function Captains() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     try {
       if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
         setError(t('Mux captains require a named Mux endpoint.'));
         return;
       }
 
+      setSaving(true);
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
@@ -184,6 +187,8 @@ export default function Captains() {
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -363,7 +368,7 @@ export default function Captains() {
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className={`modal${isMuxRuntime(form.runtime) ? ' modal-mux' : ''}`} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Captain') : t('Create Captain')}</h3>
             <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
             <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
@@ -391,8 +396,8 @@ export default function Captains() {
               <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
