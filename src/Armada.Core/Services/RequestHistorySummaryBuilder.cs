@@ -82,9 +82,14 @@ namespace Armada.Core.Services
 
         private static DateTime FloorToBucket(DateTime value, int bucketMinutes)
         {
+            // Floor on the absolute epoch grid so bucket boundaries match the dashboard's
+            // Math.floor(timeMs / bucketMs) * bucketMs alignment for every bucket width. Flooring
+            // only the minute-of-hour breaks widths >= 60 minutes (e.g. last week/last month), where
+            // adjacent hourly buckets would collide or be dropped when the client re-buckets them.
             DateTime utc = value.ToUniversalTime();
-            int minute = utc.Minute - (utc.Minute % bucketMinutes);
-            return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, minute, 0, DateTimeKind.Utc);
+            long bucketTicks = (long)Math.Max(1, bucketMinutes) * TimeSpan.TicksPerMinute;
+            long flooredTicks = (utc.Ticks / bucketTicks) * bucketTicks;
+            return new DateTime(flooredTicks, DateTimeKind.Utc);
         }
     }
 }

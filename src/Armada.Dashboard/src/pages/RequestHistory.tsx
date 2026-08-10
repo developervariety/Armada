@@ -340,6 +340,8 @@ export default function RequestHistory() {
   }), []);
 
   const [filters, setFilters] = useState<FiltersState>(defaultFilters);
+  // Filters are a supporting control surface, not the primary content, so the section starts collapsed.
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [activityRange, setActivityRange] = useState<ActivityRangeId>('lastDay');
   const [entries, setEntries] = useState<RequestHistoryEntry[]>([]);
   const [summary, setSummary] = useState<RequestHistorySummaryResult | null>(null);
@@ -609,14 +611,30 @@ export default function RequestHistory() {
 
       <div className="card request-history-filters-card">
         <div className="request-card-header">
-          <div>
-            <h3>{t('Filters')}</h3>
-            <p className="text-dim">{t('Constrain the paginated request table without leaving the dashboard.')}</p>
-          </div>
-          <button className="btn btn-sm" onClick={() => { setFilters(defaultFilters); setPageNumber(1); }}>
-            {t('Reset')}
+          <button
+            type="button"
+            className="collapsible-header"
+            onClick={() => setFiltersExpanded((current) => !current)}
+            aria-expanded={filtersExpanded}
+          >
+            <span className="collapsible-caret" aria-hidden="true">{filtersExpanded ? '▾' : '▸'}</span>
+            <span className="collapsible-title">{t('Filters')}</span>
+            {hasActiveFilters && <span className="filter-active-pill">{t('Active')}</span>}
+            <span className="text-dim" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+              {t('Constrain the paginated request table without leaving the dashboard.')}
+            </span>
           </button>
+          {filtersExpanded && (
+            <button
+              className="btn btn-sm"
+              onClick={() => { setFilters(defaultFilters); setPageNumber(1); }}
+              style={{ marginLeft: '0.75rem' }}
+            >
+              {t('Reset')}
+            </button>
+          )}
         </div>
+        {filtersExpanded && (
         <div className="request-card-body">
           <div className="request-filter-grid">
             <label className="request-filter-field">
@@ -676,6 +694,7 @@ export default function RequestHistory() {
             </label>
           </div>
         </div>
+        )}
       </div>
 
       <Pagination
