@@ -945,7 +945,7 @@ namespace Armada.Server
         /// </summary>
         private void RegisterAdaptedTool(string name, string description, object inputSchema, Func<System.Text.Json.JsonElement?, Task<object>> handler)
         {
-            _McpServer.RegisterTool(name, description, inputSchema, (RpcParameters parameters) =>
+            _McpServer.RegisterTool(name, description, inputSchema, (RpcParameters? parameters) =>
             {
                 System.Text.Json.JsonElement? args = null;
                 if (parameters != null && parameters.HasValue && !string.IsNullOrEmpty(parameters.RawJson))

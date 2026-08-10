@@ -19,7 +19,6 @@ namespace Armada.Core.Services
     {
         #region Private-Members
 
-        private readonly string _Header = "[ProjectProfileService] ";
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
 

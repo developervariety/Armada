@@ -53,12 +53,17 @@ namespace Test.Shared.Infrastructure
         /// Module initializer: sweep stale artifacts from prior runs and arm the process-exit cleanup.
         /// Runs exactly once when the test assembly is loaded.
         /// </summary>
+        // CA2255: a module initializer is exactly the right tool here -- this is a test-support assembly,
+        // and the whole point is to sweep stale temp artifacts once, automatically, when the test host
+        // loads it, without every suite having to opt in.
+#pragma warning disable CA2255
         [ModuleInitializer]
         public static void Initialize()
         {
             Sweep();
             EnsureExitHook();
         }
+#pragma warning restore CA2255
 
         /// <summary>
         /// Create a fresh, uniquely-named temp directory under the system temp directory and register it
