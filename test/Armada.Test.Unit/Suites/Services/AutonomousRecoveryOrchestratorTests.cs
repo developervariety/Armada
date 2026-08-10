@@ -1434,6 +1434,23 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(1, incidentPage.Objects.Count, "A non-rescue failure must still open a recovery incident (no over-suppression).");
             }).ConfigureAwait(false);
+
+            // The rescue-brief tests below were written as plain methods and never registered here, so
+            // none of them ran. TestSuite has no reflection-based discovery: a test executes only when
+            // RunTest is called for it. That included the cap test guarding the Azure content_filter
+            // fix, which has therefore never proved anything since it was written.
+            await RunTest("SanitizeOriginalDescriptionForRescue returns a short description verbatim",
+                SanitizeOriginalDescriptionForRescue_ShortDescription_ReturnsVerbatim).ConfigureAwait(false);
+            await RunTest("SanitizeOriginalDescriptionForRescue marks a null or empty description",
+                SanitizeOriginalDescriptionForRescue_NullOrEmpty_ReturnsNoDescriptionMarker).ConfigureAwait(false);
+            await RunTest("SanitizeOriginalDescriptionForRescue splits scope from diagnostics and truncates both",
+                SanitizeOriginalDescriptionForRescue_LongDescriptionWithDiagnostics_TruncatesAndSplits).ConfigureAwait(false);
+            await RunTest("SanitizeOriginalDescriptionForRescue truncates a scope-only description",
+                SanitizeOriginalDescriptionForRescue_LongDescriptionWithoutDiagnostics_TruncatesScope).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription keeps a large embedded failure log under the cap",
+                BuildRescueDescription_LargeEmbeddedFailureLog_StaysUnderCap).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription reduces older handoff blocks so the newest survives",
+                BuildRescueDescription_OlderHandoffBlocks_AreReducedSoTheNewestSurvives).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(
@@ -1693,6 +1710,54 @@ namespace Armada.Test.Unit.Suites.Services
             await Task.CompletedTask;
         }
 
+        public async Task BuildRescueDescription_OlderHandoffBlocks_AreReducedSoTheNewestSurvives()
+        {
+            // The rescue cap keeps the HEAD of the description, and handoff blocks sit at the end. An
+            // oversized description therefore loses every prior-stage block, including the newest one --
+            // the context the rescued mission was actually working from. Reducing the OLDER blocks first
+            // buys back the room for the newest one to survive the cut.
+            string baseBrief = "title: port the widget decoder\n" + new string('b', 1500);
+
+            string olderBlock =
+                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_upstream_older") + "\n" +
+                "## Prior Stage Output\nThe previous pipeline stage (Worker) completed mission older.\n" +
+                "Branch: armada/example/older\n" +
+                "### Diff from prior stage\n```diff\n" + new string('o', 6000) + "\n```\n";
+
+            string newestBlock =
+                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_upstream_newest") + "\n" +
+                "## Prior Stage Output\nThe previous pipeline stage (TestEngineer) completed mission newest.\n" +
+                "Branch: armada/example/newest\n" +
+                "NEWEST-STAGE-FACT the rescue must still see\n";
+
+            Mission failed = new Mission
+            {
+                Id = "msn_test_handoff",
+                Title = "test mission",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "captain runtime error",
+                Description = baseBrief + olderBlock + newestBlock,
+                BranchName = "armada/test/msn_test_handoff",
+            };
+            Incident incident = new Incident
+            {
+                Id = "inc_test_handoff",
+                Title = "test incident",
+                Summary = "test summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+            };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+            AssertTrue(brief.Contains("NEWEST-STAGE-FACT the rescue must still see"),
+                "The newest prior-stage block must survive into the rescue brief.");
+            AssertFalse(brief.Contains(new string('o', 6000)),
+                "The older prior-stage diff must not be carried into the rescue brief.");
+            AssertTrue(brief.Contains("msn_upstream_older"),
+                "The older stage must still be named, so the rescue can find its work if needed.");
+            await Task.CompletedTask;
+        }
 
     }
 }

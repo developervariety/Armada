@@ -1638,6 +1638,13 @@ namespace Armada.Server
             sb.AppendLine();
             sb.AppendLine("Original mission description:");
             string originalDescription = failedMission.Description ?? "(no description recorded)";
+
+            // Shrink the older prior-stage blocks before the size cap is applied. The cap keeps the HEAD
+            // of the description, and handoff blocks sit at the end, so an oversized description loses
+            // every one of them. Reducing the older blocks to references first means the newest one --
+            // the context the rescued mission was actually working from -- can still fit.
+            originalDescription = MissionService.CompactOlderHandoffBlocks(originalDescription, keepNewestFull: true);
+
             string sanitized = SanitizeOriginalDescriptionForRescue(originalDescription);
             sb.AppendLine(sanitized);
             return sb.ToString();

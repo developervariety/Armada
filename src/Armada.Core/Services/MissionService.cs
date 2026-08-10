@@ -3866,13 +3866,24 @@ namespace Armada.Core.Services
         /// this twice changes nothing.
         /// </summary>
         /// <param name="description">Existing mission description; may be null or empty.</param>
-        /// <returns>The description with every existing handoff block reduced to a reference.</returns>
-        internal static string CompactOlderHandoffBlocks(string? description)
+        /// <param name="keepNewestFull">
+        /// When true, the last block in the description is left at full size and only the ones before it
+        /// are reduced. The pipeline handoff passes false, because it is about to append a newer block of
+        /// its own. A rescue passes true, because no newer block is coming and the last block is the most
+        /// recent context the rescued mission had.
+        /// </param>
+        /// <returns>The description with existing handoff blocks reduced to references.</returns>
+        public static string CompactOlderHandoffBlocks(string? description, bool keepNewestFull = false)
         {
             if (String.IsNullOrEmpty(description)) return description ?? "";
             if (!description.Contains(_HandoffMarkerPrefix, StringComparison.Ordinal)) return description;
 
             const string separator = "\n\n---\n";
+
+            int newestMarkerIndex = keepNewestFull
+                ? description.LastIndexOf(_HandoffMarkerPrefix, StringComparison.Ordinal)
+                : -1;
+
             System.Text.StringBuilder builder = new System.Text.StringBuilder();
             int cursor = 0;
 
@@ -3915,7 +3926,12 @@ namespace Armada.Core.Services
                 }
 
                 builder.Append(description.Substring(cursor, blockStart - cursor));
-                builder.Append(BuildCompactHandoffBlock(missionId, description.Substring(blockStart, blockEnd - blockStart)));
+
+                string blockText = description.Substring(blockStart, blockEnd - blockStart);
+                builder.Append(markerIndex == newestMarkerIndex
+                    ? blockText
+                    : BuildCompactHandoffBlock(missionId, blockText));
+
                 cursor = blockEnd;
             }
 
