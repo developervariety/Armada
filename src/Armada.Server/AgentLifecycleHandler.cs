@@ -36,9 +36,20 @@ namespace Armada.Server
         private const int _MaxMissionOutputChars = 262144;
 
         /// <summary>
+        /// Bounds how many papercuts one mission can store. A captain is asked for ten at most,
+        /// so the store never receives more than the brief requested.
+        /// </summary>
+        private const int _MaxPapercutsPerMission = 10;
+
+        /// <summary>
         /// Accumulates agent stdout per mission for pipeline handoff.
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder> _MissionOutput = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder>();
+
+        /// <summary>
+        /// Tracks how many papercuts each mission has stored, so a runaway reporter is capped.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<string, int> _MissionPapercutCounts = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
 
         /// <summary>
         /// Throttles mission heartbeat persistence so verbose logs do not rewrite mission/voyage rows on every output line.
@@ -138,6 +149,7 @@ namespace Armada.Server
         public string? GetAndClearMissionOutput(string missionId)
         {
             if (String.IsNullOrEmpty(missionId)) return null;
+            _MissionPapercutCounts.TryRemove(missionId, out _);
             string? streamedOutput = null;
             if (_MissionOutput.TryRemove(missionId, out System.Text.StringBuilder? sb))
             {
@@ -627,6 +639,14 @@ namespace Armada.Server
 
             if (String.IsNullOrEmpty(captainId)) return;
 
+            // A papercut is a report about the work, not a report of progress. It takes its own path so
+            // it never transitions a mission and never lands in the progress signal stream.
+            if (String.Equals(signal.Type, PapercutParser.SignalType, StringComparison.OrdinalIgnoreCase))
+            {
+                HandlePapercutSignal(captainId, missionId, signal.Value);
+                return;
+            }
+
             _Logging.Info(_Header + "progress signal from captain " + captainId + ": [" + signal.Type + "] " + signal.Value);
 
             string capturedCaptainId = captainId;
@@ -663,6 +683,88 @@ namespace Armada.Server
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error processing progress signal: " + ex.Message);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Store one captain-reported papercut as an event. Never throws into the output path: a
+        /// malformed complaint must not disturb the mission that reported it.
+        /// </summary>
+        /// <param name="captainId">Reporting captain identifier.</param>
+        /// <param name="missionId">Mission identifier, when the process is mapped to one.</param>
+        /// <param name="value">Marker value that followed [ARMADA:PAPERCUT].</param>
+        private void HandlePapercutSignal(string captainId, string? missionId, string value)
+        {
+            Papercut? parsed = PapercutParser.TryParseValue(value);
+            if (parsed == null)
+            {
+                _Logging.Debug(_Header + "unparseable papercut from captain " + captainId);
+                return;
+            }
+
+            string capturedCaptainId = captainId;
+            string? capturedMissionId = missionId;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    string? targetMissionId = capturedMissionId;
+                    if (String.IsNullOrEmpty(targetMissionId))
+                    {
+                        Captain? owner = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
+                        targetMissionId = owner?.CurrentMissionId;
+                    }
+
+                    Mission? mission = null;
+                    if (!String.IsNullOrEmpty(targetMissionId))
+                    {
+                        mission = await _Database.Missions.ReadAsync(targetMissionId!).ConfigureAwait(false);
+                    }
+
+                    // A judge reviews the work under review and already has a verdict channel for what
+                    // it finds there. Letting it file papercuts as well splits review feedback across two
+                    // surfaces, and the operator reads only one of them.
+                    if (mission != null && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
+                    {
+                        _Logging.Debug(_Header + "ignoring papercut from judge mission " + mission.Id);
+                        return;
+                    }
+
+                    if (!String.IsNullOrEmpty(targetMissionId))
+                    {
+                        int stored = _MissionPapercutCounts.AddOrUpdate(targetMissionId!, 1, (_, existing) => existing + 1);
+                        if (stored > _MaxPapercutsPerMission)
+                        {
+                            if (stored == _MaxPapercutsPerMission + 1)
+                            {
+                                _Logging.Info(_Header + "mission " + targetMissionId +
+                                    " reached the papercut cap of " + _MaxPapercutsPerMission + "; later reports are dropped");
+                            }
+
+                            return;
+                        }
+                    }
+
+                    Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
+
+                    parsed.CaptainId = capturedCaptainId;
+                    parsed.MissionId = targetMissionId;
+                    parsed.VesselId = mission?.VesselId;
+                    parsed.VoyageId = mission?.VoyageId;
+                    parsed.Persona = mission?.Persona;
+                    parsed.Runtime = captain?.Runtime.ToString();
+                    parsed.ReportedUtc = DateTime.UtcNow;
+
+                    await _Database.Events.CreateAsync(PapercutService.ToEvent(parsed)).ConfigureAwait(false);
+
+                    _Logging.Info(_Header + "papercut from captain " + capturedCaptainId + " [" +
+                        parsed.Category + "/" + parsed.Severity + "] " + parsed.Title);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error storing papercut: " + ex.Message);
                 }
             });
         }

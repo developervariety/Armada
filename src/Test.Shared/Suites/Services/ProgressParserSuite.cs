@@ -175,6 +175,46 @@ namespace Test.Shared.Suites.Services
                 AssertNull(ProgressParser.TryParse("[ARMADA PROGRESS] 40"));
             }));
 
+            // ----- Multi-line records: a runtime record can carry several physical lines -----
+
+            cases.Add(Case("multi_line_record_finds_signal_on_own_line", "a signal on its own line in a multi-line record is found", TestTags.Positive, () =>
+            {
+                // A runtime record is not always one physical line: a Codex agent_message or Claude
+                // assistant text block can carry a marker followed by prose in a single record.
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse(
+                    "[ARMADA:RESULT] COMPLETE\nWired the recovery rows, passed 25 focused tests, committed d152a300.");
+                AssertNotNull(result);
+                AssertEqual("result", result!.Type);
+                AssertEqual("COMPLETE", result.Value);
+            }));
+
+            cases.Add(Case("multi_line_record_papercut_wins", "a papercut wins over other markers in the same record", TestTags.Positive, () =>
+            {
+                // A papercut is a report that must reach the store, so it wins over the other
+                // markers in the same record. This is the exact shape that was silently dropped
+                // before the fix: a final answer that opens with a papercut and ends with RESULT.
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse(
+                    "[ARMADA:PAPERCUT] {\"category\":\"RepoFriction\",\"severity\":\"Low\",\"title\":\"Worker branch lagged landed M2\"}\n\n[ARMADA:RESULT] COMPLETE\nWired the rows.");
+                AssertNotNull(result);
+                AssertEqual("papercut", result!.Type);
+            }));
+
+            cases.Add(Case("multi_line_record_prose_prefix_still_null", "a marker mid-prose in a multi-line record is not a signal", TestTags.Negative, () =>
+            {
+                // A marker in the MIDDLE of a prose line is not a signal, in a single-line or a
+                // multi-line record alike: an instruction file documents the format this way.
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse(
+                    "Some prefix text [ARMADA:PROGRESS] 30\ncontinued prose");
+                AssertNull(result);
+            }));
+
+            cases.Add(Case("multi_line_record_blank_and_prose_only_null", "a multi-line record of only prose returns null", TestTags.Negative, () =>
+            {
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse(
+                    "Wired the recovery rows into TryGet.\n\nPassed 25 focused tests.");
+                AssertNull(result);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.ProgressParser",
                 displayName: "Progress Parser",

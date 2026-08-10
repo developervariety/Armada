@@ -779,6 +779,50 @@ If you are working from source, MCP helper entrypoints are available under `scri
 
 Once installed, your MCP client can call tools like `status`, `dispatch`, `enumerate`, `voyage_status`, and `cancel_voyage`. There are also MCP tools for structured delivery and operations such as `run_check`, `get_check_run`, `retry_check_run`, `create_release`, `get_release`, `create_objective`, `get_objective`, `create_deployment`, `get_deployment`, `approve_deployment`, `verify_deployment`, `rollback_deployment`, `get_runbook`, `get_runbook_execution`, and `start_runbook_execution`, plus tool groups for playbook, persona, pipeline, and prompt-template management.
 
+### Papercuts
+
+Captains report friction they meet on an `[ARMADA:PAPERCUT]` line: a stale
+document, a dead link, a brief that contradicts itself, a missing sibling
+repository, a test that fails under load. Armada stores each report as a
+`papercut` event with the reporting mission, captain, vessel, and voyage, and
+the `papercut_summary` MCP tool reads them back collapsed into groups of
+the same vessel, category, and problem.
+
+Read them on a schedule. A report that nobody reads is worse than no report:
+the captain paid to write it and the next captain still pays the same cost.
+
+1. Run `papercut_summary` after a voyage closes, and again in the weekly
+   sweep with `sinceHours: 168`.
+2. Read the count and the distinct-captain count first. One captain reporting
+   a problem is an anecdote. Several captains reporting it is a defect with
+   evidence.
+3. Route the group by category:
+
+   | Category | Owner |
+   | --- | --- |
+   | `MissingDoc`, `BrokenLink`, `RepoFriction`, `TestFlake` | Backlog item on that vessel |
+   | `EnvSetup` | Dock or workflow-profile fix, then a Check to prove it |
+   | `BriefContradiction`, `PlatformBug` | Armada objective, direct-edit only |
+   | `ToolFailure` | Read the mission log before you accept it; a captain calling a tool it never received is a `BriefContradiction` |
+
+4. Quote the group in the record you create: the count, the distinct-captain
+   count, the sample title, and the sample mission IDs. Those missions are the
+   evidence.
+5. Keep the promotion manual. A high count is not authority to dispatch.
+
+Two signals need a different response than a repository fix:
+
+- **A `BriefContradiction` group is a captain-quality defect, not a vessel
+  defect.** It means the brief asks for something the captain cannot do. Fix
+  the instruction module, not the repository.
+- **A category that one runtime reports and no other runtime reports** is
+  usually about that runtime, not about the vessel. Compare the reports before
+  you change vessel code.
+
+Judge missions do not file papercuts. A judge reports what it finds through
+its verdict, and splitting review feedback across two surfaces means the
+operator reads only one of them.
+
 ### AI-Powered Orchestration
 
 If you connect Claude Code, Codex, or another MCP-capable client to Armada, that client can act as the orchestrator. Armada handles the worktrees, state, and process management underneath.

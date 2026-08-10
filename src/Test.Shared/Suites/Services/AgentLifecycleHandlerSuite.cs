@@ -316,6 +316,126 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("handle_agent_output_stores_papercut_marker_as_event", "HandleAgentOutput stores a papercut marker as an event", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+
+                    Vessel vessel = new Vessel("PapercutVessel", "https://github.com/test/papercut");
+                    Voyage voyage = new Voyage("Papercut voyage");
+                    Captain captain = new Captain("papercut-captain", AgentRuntimeEnum.Cursor);
+                    Mission mission = new Mission("Papercut mission");
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = voyage.Id;
+                    mission.Persona = "Worker";
+                    mission.CaptainId = captain.Id;
+                    captain.CurrentMissionId = mission.Id;
+
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    int processId = 828282;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+
+                    handler.HandleAgentOutput(
+                        processId,
+                        "[ARMADA:PAPERCUT] {\"category\":\"MissingDoc\",\"severity\":\"Medium\",\"title\":\"README names a build command that does not exist\",\"path\":\"README.md\"}");
+
+                    List<Papercut> stored = await WaitForPapercutEventsAsync(testDb.Driver, 1).ConfigureAwait(false);
+
+                    AssertEqual(1, stored.Count, "The marker line should produce exactly one papercut event");
+
+                    Papercut papercut = stored[0];
+                    AssertEqual(PapercutCategoryEnum.MissingDoc, papercut.Category, "Stored papercut category");
+                    AssertEqual(PapercutSeverityEnum.Medium, papercut.Severity, "Stored papercut severity");
+                    AssertEqual("README.md", papercut.Path, "Stored papercut path");
+
+                    // The admiral supplies the context, never the captain.
+                    AssertEqual(mission.Id, papercut.MissionId, "Admiral-supplied mission id");
+                    AssertEqual(captain.Id, papercut.CaptainId, "Admiral-supplied captain id");
+                    AssertEqual(vessel.Id, papercut.VesselId, "Admiral-supplied vessel id");
+                    AssertEqual(voyage.Id, papercut.VoyageId, "Admiral-supplied voyage id");
+                    AssertEqual("Cursor", papercut.Runtime, "Admiral-supplied runtime");
+
+                    // A papercut is not progress: it must not reach the progress signal stream.
+                    List<Signal> signals = await testDb.Driver.Signals.EnumerateRecentAsync(50).ConfigureAwait(false);
+                    AssertEqual(0, signals.Count, "A papercut must not be recorded as a progress signal");
+                }
+            }));
+
+            cases.Add(CaseAsync("handle_agent_output_ignores_papercut_from_judge_mission", "HandleAgentOutput ignores a papercut from a judge mission", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+
+                    Vessel vessel = new Vessel("PapercutJudgeVessel", "https://github.com/test/papercut-judge");
+                    Captain captain = new Captain("papercut-judge-captain", AgentRuntimeEnum.Cursor);
+                    Mission mission = new Mission("Judge mission");
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "Judge";
+                    mission.CaptainId = captain.Id;
+                    captain.CurrentMissionId = mission.Id;
+
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    int processId = 838383;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+
+                    handler.HandleAgentOutput(
+                        processId,
+                        "[ARMADA:PAPERCUT] {\"category\":\"RepoFriction\",\"severity\":\"Low\",\"title\":\"the code under review is hard to follow\"}");
+
+                    await Task.Delay(750).ConfigureAwait(false);
+
+                    List<Papercut> stored = await CurrentPapercutEventsAsync(testDb.Driver).ConfigureAwait(false);
+
+                    AssertEqual(0, stored.Count, "A judge reports through its verdict, not through papercuts");
+                }
+            }));
+
+            cases.Add(CaseAsync("handle_agent_output_caps_stored_papercuts_per_mission", "HandleAgentOutput caps stored papercuts per mission", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+
+                    Vessel vessel = new Vessel("PapercutCapVessel", "https://github.com/test/papercut-cap");
+                    Captain captain = new Captain("papercut-cap-captain", AgentRuntimeEnum.Cursor);
+                    Mission mission = new Mission("Capped mission");
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "Worker";
+                    mission.CaptainId = captain.Id;
+                    captain.CurrentMissionId = mission.Id;
+
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    int processId = 848484;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+
+                    for (int i = 0; i < 18; i++)
+                    {
+                        handler.HandleAgentOutput(
+                            processId,
+                            "[ARMADA:PAPERCUT] {\"category\":\"Other\",\"severity\":\"Low\",\"title\":\"complaint number " + i + "\"}");
+                    }
+
+                    await WaitForPapercutEventsAsync(testDb.Driver, 10).ConfigureAwait(false);
+                    await Task.Delay(500).ConfigureAwait(false);
+
+                    List<Papercut> stored = await CurrentPapercutEventsAsync(testDb.Driver).ConfigureAwait(false);
+
+                    AssertEqual(10, stored.Count, "The per-mission cap must bound how many reports one mission can store");
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Agent Lifecycle Handler",
@@ -486,6 +606,51 @@ namespace Test.Shared.Suites.Services
 
             return Process.Start(startInfo)
                 ?? throw new InvalidOperationException("Failed to start silent heartbeat test process");
+        }
+
+        /// <summary>
+        /// Enumerate the papercuts currently stored as events, reading each candidate back through
+        /// <see cref="PapercutService.TryFromEvent"/> so only genuine papercut events are counted.
+        /// </summary>
+        /// <param name="database">Database driver to read events from.</param>
+        /// <returns>The papercuts read back from stored events.</returns>
+        private static async Task<List<Papercut>> CurrentPapercutEventsAsync(DatabaseDriver database)
+        {
+            List<ArmadaEvent> events = await database.Events
+                .EnumerateByTypeAsync(PapercutParser.EventType, 50)
+                .ConfigureAwait(false);
+
+            List<Papercut> papercuts = new List<Papercut>();
+            foreach (ArmadaEvent evt in events)
+            {
+                Papercut? papercut = PapercutService.TryFromEvent(evt);
+                if (papercut != null) papercuts.Add(papercut);
+            }
+
+            return papercuts;
+        }
+
+        /// <summary>
+        /// Poll until at least the expected number of papercut events are stored, then return them.
+        /// The handler writes papercuts on a background task, so a read taken immediately after the
+        /// output line races the write.
+        /// </summary>
+        /// <param name="database">Database driver to read events from.</param>
+        /// <param name="expected">Minimum number of papercuts to wait for.</param>
+        /// <returns>The papercuts read back from stored events.</returns>
+        private static async Task<List<Papercut>> WaitForPapercutEventsAsync(DatabaseDriver database, int expected)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            List<Papercut> stored = new List<Papercut>();
+
+            while (DateTime.UtcNow < deadline)
+            {
+                stored = await CurrentPapercutEventsAsync(database).ConfigureAwait(false);
+                if (stored.Count >= expected) return stored;
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+
+            return stored;
         }
 
         private static async Task WaitForConditionAsync(Func<Task<bool>> predicate, TimeSpan? timeout = null)
