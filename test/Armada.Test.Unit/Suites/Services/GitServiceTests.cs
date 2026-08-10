@@ -59,6 +59,67 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertThrowsAsync<ArgumentNullException>(() => service.CreateWorktreeAsync("/tmp/repo", "/tmp/wt", null!));
             });
 
+            await RunTest("CreateWorktreeAsync ExistingBranch Attaches At Remote Tip Not Stale Local Ref", async () =>
+            {
+                // Regression: a downstream pipeline stage must start from the prior stage's
+                // pushed commit, not the stale base-time local ref. The upstream stage pushes
+                // to origin; the bare repo's local refs/heads/<branch> still points at the
+                // base commit; the new worktree must attach at refs/remotes/origin/<branch>.
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string firstWorktreeDir = Path.Combine(rootDir, "first-wt");
+                string secondWorktreeDir = Path.Combine(rootDir, "second-wt");
+                const string branchName = "armada/stage-branch";
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+
+                    // Stage 1: provision the branch at the base commit (local ref created at base).
+                    await service.CreateWorktreeAsync(bareDir, firstWorktreeDir, branchName, "main").ConfigureAwait(false);
+
+                    // Upstream stage commits and pushes to origin: the branch now exists on the
+                    // remote at a new commit while the bare repo's local ref stays at base.
+                    await RunGitAsync(sourceDir, "checkout", "-b", branchName).ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "stage1.txt"), "upstream work\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "stage1.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Upstream stage work").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "fetch", "origin").ConfigureAwait(false);
+
+                    // Release the branch from the first worktree before the downstream provisions.
+                    await service.RemoveWorktreeAsync(firstWorktreeDir).ConfigureAwait(false);
+
+                    // Stage 2: provision the same branch again. Must attach at the REMOTE tip,
+                    // not the stale local ref (base commit).
+                    await service.CreateWorktreeAsync(bareDir, secondWorktreeDir, branchName, "main").ConfigureAwait(false);
+
+                    string expected = (await RunGitAsync(bareDir, "rev-parse", "refs/remotes/origin/" + branchName).ConfigureAwait(false)).Trim();
+                    string actual = (await RunGitAsync(secondWorktreeDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertTrue(String.Equals(expected, actual, StringComparison.OrdinalIgnoreCase),
+                        "Downstream worktree must attach at the remote tip (expected " + expected + ", got " + actual + ")");
+                    AssertTrue(File.Exists(Path.Combine(secondWorktreeDir, "stage1.txt")),
+                        "Downstream worktree must contain the upstream stage's file");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("RemoveWorktreeAsync NullPath Throws", async () =>
             {
                 GitService service = CreateService();

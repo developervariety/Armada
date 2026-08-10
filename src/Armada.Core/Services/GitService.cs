@@ -90,7 +90,17 @@ namespace Armada.Core.Services
                     // Detached path: check out at the named ref without binding HEAD to a branch.
                     // This allows a second worktree to point at a branch already checked out elsewhere.
                     bool refExists = await BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
-                    if (!refExists)
+                    if (refExists)
+                    {
+                        // A pre-existing local ref may predate the latest push from a prior
+                        // pipeline stage (it is created at the base commit when the first
+                        // stage provisions). Sync from origin/<branch> so a downstream stage
+                        // never starts behind the upstream stage's pushed commit; the sync
+                        // refuses when the local ref is ahead and skips when the branch is
+                        // checked out in another live worktree.
+                        await SyncLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false);
+                    }
+                    else
                     {
                         refExists = await SyncLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false);
                     }
@@ -101,7 +111,16 @@ namespace Armada.Core.Services
                 else
                 {
                     bool branchExists = await BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
-                    if (!branchExists)
+                    if (branchExists)
+                    {
+                        // Same stage-lag guard as the detached path: fast-forward the local ref
+                        // from origin/<branch> when the remote is ahead, so a downstream stage
+                        // attaches at the prior stage's pushed commit rather than the stale
+                        // base-time ref. SyncLocalBranchFromRemoteAsync never discards local-only
+                        // commits and skips branches checked out in another live worktree.
+                        await SyncLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false);
+                    }
+                    else
                     {
                         branchExists = await SyncLocalBranchFromRemoteAsync(repoPath, branchName).ConfigureAwait(false);
                     }
