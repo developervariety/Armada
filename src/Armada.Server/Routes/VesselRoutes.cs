@@ -508,7 +508,13 @@ namespace Armada.Server.Routes
                 }
                 try { await _database.Missions.DeleteAsync(mission.Id).ConfigureAwait(false); }
                 catch (Exception ex) { errors.Add("Mission " + mission.Id + ": " + ex.Message); }
+                try { await CascadeCleanup.RemoveEventsForMissionAsync(_database, mission.Id).ConfigureAwait(false); }
+                catch (Exception ex) { errors.Add("Mission events " + mission.Id + ": " + ex.Message); }
             }
+
+            // Remove telemetry events that referenced this vessel so they do not dangle.
+            try { await CascadeCleanup.RemoveEventsForVesselAsync(_database, vessel.Id).ConfigureAwait(false); }
+            catch (Exception ex) { errors.Add("Vessel events " + vessel.Id + ": " + ex.Message); }
 
             // Purge docks
             List<Dock> docks = await _database.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);

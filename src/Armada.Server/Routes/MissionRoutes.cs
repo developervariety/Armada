@@ -872,6 +872,9 @@ namespace Armada.Server.Routes
                 else
                     await _database.Missions.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
 
+                // Remove telemetry events that referenced this mission so they do not dangle.
+                await CascadeCleanup.RemoveEventsForMissionAsync(_database, id).ConfigureAwait(false);
+
                 await _emitEvent("mission.deleted", "Mission " + id + " permanently deleted",
                     "mission", id, null, null, null, null).ConfigureAwait(false);
 

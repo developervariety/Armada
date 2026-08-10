@@ -11,6 +11,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
@@ -513,6 +514,10 @@ namespace Armada.Server.Routes
                     await _database.Captains.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 else
                     await _database.Captains.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+
+                // Remove dependents (telemetry events + planning sessions) that referenced this captain.
+                await CascadeCleanup.RemoveDependentsForCaptainAsync(_database, id).ConfigureAwait(false);
+
                 req.Http.Response.StatusCode = 204;
                 return null;
             },

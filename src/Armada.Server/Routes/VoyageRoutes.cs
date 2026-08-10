@@ -353,14 +353,18 @@ namespace Armada.Server.Routes
                     return (object)new { Error = "Conflict", Message = "Cannot delete voyage with " + activeMissions.Count + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
                 }
 
-                // Cascade delete all missions in this voyage
+                // Cascade delete all missions in this voyage, and the telemetry events that referenced them.
                 foreach (Mission m in missions)
                 {
                     await _database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
+                    await CascadeCleanup.RemoveEventsForMissionAsync(_database, m.Id).ConfigureAwait(false);
                 }
 
                 // Delete the voyage itself
                 await _database.Voyages.DeleteAsync(id).ConfigureAwait(false);
+
+                // Remove telemetry events that referenced this voyage so they do not dangle.
+                await CascadeCleanup.RemoveEventsForVoyageAsync(_database, id).ConfigureAwait(false);
 
                 await _emitEvent("voyage.deleted", "Voyage " + id + " permanently deleted with " + missions.Count + " missions",
                     "voyage", id, null, null, null, null).ConfigureAwait(false);
