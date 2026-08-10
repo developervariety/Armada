@@ -112,6 +112,23 @@ namespace Test.Shared.Suites.Runtimes
                 AssertFalse(args.Contains("--approval-policy"));
             }));
 
+            cases.Add(Case("is_protocol_event_line_detects_run_started", "IsProtocolEventLine Detects Protocol Events", TestTags.Positive, () =>
+            {
+                string runStarted = "{\"contractVersion\":1,\"eventType\":\"run_started\",\"runId\":\"625b9b8b\",\"endpointName\":\"gpt-oss:20b\",\"adapterType\":\"Ollama\"}";
+                AssertTrue(MuxRuntime.IsProtocolEventLine(runStarted), "A run_started event line should be detected");
+                AssertTrue(MuxRuntime.IsProtocolEventLine("  {\"eventType\":\"run_completed\",\"contractVersion\":1}  "), "Whitespace-padded events should be detected");
+            }));
+
+            cases.Add(Case("is_protocol_event_line_ignores_assistant_text", "IsProtocolEventLine Ignores Assistant Text", TestTags.Negative, () =>
+            {
+                AssertFalse(MuxRuntime.IsProtocolEventLine("Here is your answer."), "Plain text is not an event");
+                AssertFalse(MuxRuntime.IsProtocolEventLine("## Heading\n\n- a markdown list"), "Markdown is not an event");
+                AssertFalse(MuxRuntime.IsProtocolEventLine("{\"foo\":\"bar\"}"), "JSON without an eventType field is not a protocol event");
+                AssertFalse(MuxRuntime.IsProtocolEventLine("{ not valid json"), "Malformed JSON is not an event");
+                AssertFalse(MuxRuntime.IsProtocolEventLine(""), "Empty is not an event");
+                AssertFalse(MuxRuntime.IsProtocolEventLine(null), "Null is not an event");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Mux Runtime",

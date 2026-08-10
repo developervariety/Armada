@@ -690,6 +690,10 @@ namespace Armada.Server
 
                 runtime.OnOutputReceived += (processId, line) =>
                 {
+                    // Mux streams structured protocol events (run_started, run_completed, ...) on the same
+                    // stdout as the assistant text; skip those so the chat shows the reply, not raw JSON.
+                    if (captain.Runtime == AgentRuntimeEnum.Mux && MuxRuntime.IsProtocolEventLine(line)) return;
+
                     string updatedContent;
                     lock (outputLock)
                     {
@@ -1002,6 +1006,9 @@ namespace Armada.Server
 
             runtime.OnOutputReceived += (processId, line) =>
             {
+                // Drop Mux structured protocol events so only assistant/summary text is captured.
+                if (captain.Runtime == AgentRuntimeEnum.Mux && MuxRuntime.IsProtocolEventLine(line)) return;
+
                 lock (outputLock)
                 {
                     BoundedTextBuffer.AppendLine(output, line, _MaxPlanningOutputChars);

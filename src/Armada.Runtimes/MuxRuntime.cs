@@ -1,5 +1,7 @@
 namespace Armada.Runtimes
 {
+    using System;
+    using System.Text.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using SyslogLogging;
@@ -75,6 +77,36 @@ namespace Armada.Runtimes
         {
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
             return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options);
+        }
+
+        /// <summary>
+        /// Determine whether an output line is a Mux structured protocol event (for example
+        /// <c>run_started</c> / <c>run_completed</c>) rather than assistant text. Mux emits these as
+        /// single-line JSON objects carrying an <c>eventType</c> field; consumers that render the
+        /// captain's reply should skip them so the raw protocol JSON does not leak into the chat.
+        /// </summary>
+        /// <param name="line">A single output line from the Mux CLI.</param>
+        /// <returns>True if the line is a Mux protocol event; otherwise false.</returns>
+        public static bool IsProtocolEventLine(string? line)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return false;
+
+            string trimmed = line.Trim();
+            if (trimmed.Length < 2 || trimmed[0] != '{' || trimmed[trimmed.Length - 1] != '}') return false;
+
+            try
+            {
+                using (JsonDocument document = JsonDocument.Parse(trimmed))
+                {
+                    return document.RootElement.ValueKind == JsonValueKind.Object
+                        && document.RootElement.TryGetProperty("eventType", out JsonElement eventType)
+                        && eventType.ValueKind == JsonValueKind.String;
+                }
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
         }
 
         #endregion
