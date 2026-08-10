@@ -4509,6 +4509,11 @@ tr.clickable { cursor: pointer; }
 .markdown table { border-collapse: collapse; margin: 0 0 0.6rem; display: block; overflow-x: auto; }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 0.3rem 0.55rem; text-align: left; }
 .markdown img { max-width: 100%; }
+
+/* Per-turn chat metrics strip (time to first token, streaming time, tokens/sec, ...). */
+.chat-metrics { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px solid var(--border); font-size: 0.7rem; }
+.chat-metric { white-space: nowrap; }
+.chat-metric-value { font-weight: 600; color: var(--text, inherit); }
 .modal-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1.5rem; }
 .modal-large { max-width: 730px; min-height: 400px; padding: 2rem; }
 .modal-large textarea { min-height: 180px; }

@@ -846,6 +846,34 @@ export interface AskResponse {
   links: AskLink[];
 }
 
+export interface CaptainChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface CaptainChatMetrics {
+  timeToFirstTokenMs: number | null;
+  streamingMs: number | null;
+  totalMs: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  tokensPerSecond: number | null;
+}
+
+export interface CaptainChatRequest {
+  message: string;
+  history: CaptainChatMessage[];
+}
+
+export interface CaptainChatResponse {
+  success: boolean;
+  reply: string;
+  model: string | null;
+  metrics: CaptainChatMetrics;
+  error: string | null;
+}
+
 export interface WorkspaceExecRequest {
   command: string;
   timeoutSeconds?: number;

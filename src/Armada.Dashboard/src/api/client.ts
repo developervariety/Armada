@@ -67,6 +67,8 @@ import type {
   PersonaPromptPreview,
   Skill,
   AskResponse,
+  CaptainChatRequest,
+  CaptainChatResponse,
   InboxItem,
   CheckRun,
   CheckRunImportRequest,
@@ -796,6 +798,8 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 
 // Ask Armada
 export const askArmada = (message: string) => post<AskResponse>('/api/v1/ask', { message });
+export const chatWithCaptain = (captainId: string, body: CaptainChatRequest) =>
+  post<CaptainChatResponse>('/api/v1/captains/' + captainId + '/chat', body);
 
 // Needs-you inbox
 export const getInbox = () => get<InboxItem[]>('/api/v1/inbox');
