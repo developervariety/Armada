@@ -5760,10 +5760,23 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 /* Login page (React-specific multi-step flow) */
 .login-container {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
     background: var(--bg);
+}
+.login-default-creds {
+    margin: 14px 0 0;
+    font-size: 12px;
+    color: var(--text-dim);
+    opacity: 0.6;
+    text-align: center;
+}
+.login-default-creds code {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    opacity: 0.9;
 }
 .login-card {
     background: var(--bg-card);
