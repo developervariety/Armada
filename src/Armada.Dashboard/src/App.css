@@ -3830,6 +3830,9 @@ tr.clickable { cursor: pointer; }
 .playbook-filter-row > input[type="date"],
 .playbook-filter-row > input[type="datetime-local"] {
     flex: 0 0 auto;
+    /* Override the global `input, select, textarea { width: 100% }` so these controls size to
+       their content and sit next to the search box instead of each taking a full-width row. */
+    width: auto;
 }
 
 .playbook-empty-state {
@@ -4517,6 +4520,18 @@ tr.clickable { cursor: pointer; }
 }
 .filter-bar > * {
     flex: 0 0 auto;
+}
+/* Override the global `input, select, textarea { width: 100% }` so filter-bar controls size to
+   their content and share one row instead of each stacking full-width. */
+.filter-bar > select,
+.filter-bar > input,
+.filter-bar > label {
+    width: auto;
+}
+.filter-bar > input[type="text"],
+.filter-bar > input[type="search"] {
+    flex: 1 1 220px;
+    min-width: 180px;
 }
 
 /* Alerts */
