@@ -314,6 +314,17 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task ForceUpdateBranchRefAsync(string repoPath, string branchName, string commitSha, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+            if (String.IsNullOrEmpty(commitSha)) throw new ArgumentNullException(nameof(commitSha));
+
+            _Logging.Info(_Header + "force-updating ref refs/heads/" + branchName + " to " + commitSha + " in " + repoPath);
+            await RunGitAsync(repoPath, "update-ref", "refs/heads/" + branchName, commitSha).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
         public async Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));

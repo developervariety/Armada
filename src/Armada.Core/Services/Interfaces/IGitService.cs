@@ -102,6 +102,21 @@ namespace Armada.Core.Services.Interfaces
         Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default);
 
         /// <summary>
+        /// Force-update a local branch ref to a specific commit without moving the worktree.
+        /// Executes: git update-ref refs/heads/{branchName} {commitSha}
+        /// </summary>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="branchName">Branch name whose ref is force-updated.</param>
+        /// <param name="commitSha">Commit SHA the branch ref is pointed at.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task ForceUpdateBranchRefAsync(string repoPath, string branchName, string commitSha, CancellationToken token = default)
+        {
+            // Optional stage-lag hardening. A stub that does not exercise the ref move still
+            // satisfies the contract; the real GitService performs the update-ref.
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
         /// Get the symbolic ref currently stored in repository HEAD.
         /// </summary>
         /// <param name="repoPath">Path to the repository (bare or worktree).</param>

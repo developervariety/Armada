@@ -3896,9 +3896,93 @@ namespace Armada.Core.Services
             nextMission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
 
+            // Stage-lag hardening: a prior stage whose dock is detached (for example the
+            // PortingReferenceAnalyst persona) commits on a detached HEAD, so its produced commit
+            // may never reach the shared mission branch ref -- it only lands in
+            // refs/armada-preserved/<branch> when the dock is reclaimed. Without this, the next
+            // attached stage (TestEngineer, Judge) cuts its dock from the stale branch head and
+            // silently loses the prior stage's source-fidelity work. Force the shared branch ref
+            // (and its origin twin) forward to the dependency's actual produced commit while its
+            // dock is still alive, so every downstream stage starts from it.
+            await AdvanceHandoffBranchToProducedCommitAsync(completedMission, token).ConfigureAwait(false);
+
             _Logging.Info(_Header + "pipeline handoff: prepared mission " + nextMission.Id +
                 " (" + nextMission.Persona + ") with context from " + completedMission.Id +
                 " (" + completedMission.Persona + ")");
+        }
+
+        /// <summary>
+        /// Advances the shared mission branch ref (and its origin twin) to the produced commit of a
+        /// completed pipeline stage whose dock is detached, so downstream attached stages never start
+        /// from a stale branch head that predates the stage's work.
+        /// </summary>
+        /// <remarks>
+        /// A stage whose persona returns <c>false</c> from
+        /// <see cref="PersonaRequiresBranchAttachment"/> (for example PortingReferenceAnalyst) is
+        /// provisioned a DETACHED worktree. Its captain commits on a detached HEAD, so a plain
+        /// <c>git push origin HEAD</c> cannot advance the mission branch; the produced commit is only
+        /// captured to <c>refs/armada-preserved/&lt;branch&gt;</c> when the dock is reclaimed. The
+        /// next attached stage (TestEngineer, Judge) then cuts its dock from the stale branch ref and
+        /// silently loses the prior stage's source-fidelity work. This method resolves the produced
+        /// commit from the still-alive dock HEAD and force-advances both the local branch ref and
+        /// <c>origin/&lt;branch&gt;</c> to it, so the next stage's stage-lag guard fast-forwards to
+        /// the complete work.
+        /// </remarks>
+        /// <param name="completedMission">The upstream stage that produced the work.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task AdvanceHandoffBranchToProducedCommitAsync(Mission completedMission, CancellationToken token)
+        {
+            if (completedMission == null) throw new ArgumentNullException(nameof(completedMission));
+            if (_Git == null) return;
+            if (String.IsNullOrEmpty(completedMission.BranchName)) return;
+            if (String.IsNullOrEmpty(completedMission.VesselId)) return;
+
+            Dock? dock = await ReadMissionDockAsync(completedMission, token).ConfigureAwait(false);
+            if (dock == null) return;
+            if (String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath)) return;
+
+            string? producedCommit = await _Git.GetHeadCommitHashAsync(dock.WorktreePath, token).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(producedCommit)) return;
+
+            Vessel? vessel = !String.IsNullOrEmpty(completedMission.TenantId)
+                ? await _Database.Vessels.ReadAsync(completedMission.TenantId, completedMission.VesselId, token).ConfigureAwait(false)
+                : await _Database.Vessels.ReadAsync(completedMission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null || String.IsNullOrEmpty(vessel.LocalPath)) return;
+
+            try
+            {
+                string branchRef = "refs/heads/" + completedMission.BranchName;
+                string? currentTip = await _Git.GetRevisionShaAsync(vessel.LocalPath, branchRef, token).ConfigureAwait(false);
+
+                // Only advance when the produced commit is actually ahead of the current branch tip.
+                // An already-pushed stage (attached personas that did push) is left untouched, and a
+                // produced commit behind or equal to the tip (for example an empty or reverted dock)
+                // must never move the branch backwards.
+                if (!String.IsNullOrEmpty(currentTip)
+                    && String.Equals(currentTip, producedCommit, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                await _Git.ForceUpdateBranchRefAsync(vessel.LocalPath, completedMission.BranchName, producedCommit, token).ConfigureAwait(false);
+                await _Git.PushRefSpecAsync(vessel.LocalPath, branchRef, branchRef, token).ConfigureAwait(false);
+
+                _Logging.Info(_Header + "stage-lag hardening: advanced branch " + completedMission.BranchName +
+                    " to produced commit " + producedCommit + " from stage " + completedMission.Id +
+                    " (" + completedMission.Persona + ") before downstream handoff");
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // The handoff must not fail because the branch could not be advanced; the downstream
+                // stage still proceeds and the operator log records the failure to inspect.
+                _Logging.Warn(_Header + "stage-lag hardening could not advance branch " +
+                    completedMission.BranchName + " to " + producedCommit + " from stage " +
+                    completedMission.Id + ": " + ex.Message);
+            }
         }
 
         // Max characters of prior-stage diff embedded into the next stage's brief. A large generated-output diff

@@ -117,6 +117,15 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
+        public List<string> ForceUpdateBranchRefCalls { get; } = new List<string>();
+
+        public Task ForceUpdateBranchRefAsync(string repoPath, string branchName, string commitSha, CancellationToken token = default)
+        {
+            ForceUpdateBranchRefCalls.Add(repoPath + ":" + branchName + ":" + commitSha);
+            OperationCalls.Add("force-update-ref:" + branchName + ":" + commitSha);
+            return Task.CompletedTask;
+        }
+
         public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default)
         {
             RepositoryHeadCalls.Add("get-head:" + repoPath);
@@ -181,7 +190,8 @@ namespace Armada.Test.Unit.TestHelpers
             => Task.FromResult(TrackedPaths.Contains(relativePath));
 
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
-        public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
+        public string? HeadCommitHashResult { get; set; } = "abc123def456";
+        public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>(HeadCommitHashResult);
         public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
         {
             if (ExistingBranches.Contains(branchName)) return Task.FromResult(true);
