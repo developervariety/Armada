@@ -74,6 +74,7 @@ const History = lazy(() => import('./pages/History'));
 const Configuration = lazy(() => import('./pages/Configuration'));
 const Activity = lazy(() => import('./pages/Activity'));
 const ServerHub = lazy(() => import('./pages/ServerHub'));
+const VesselsHub = lazy(() => import('./pages/VesselsHub'));
 
 function RouteFallback() {
   return (
@@ -104,13 +105,13 @@ export default function App() {
                       <Route path="objectives" element={<Objectives />} />
                       <Route path="objectives/:id" element={<ObjectiveDetail />} />
 
-                      <Route path="fleets" element={<Fleets />} />
+                      <Route path="fleets" element={<Navigate to="/vessels?tab=fleets" replace />} />
                       <Route path="fleets/:id" element={<FleetDetail />} />
 
-                      <Route path="vessels" element={<Vessels />} />
+                      <Route path="vessels" element={<VesselsHub />} />
                       <Route path="vessels/:id" element={<VesselDetail />} />
                       <Route path="vessels/:id/onboarding" element={<VesselOnboarding />} />
-                      <Route path="workspace" element={<Workspace />} />
+                      <Route path="workspace" element={<Navigate to="/vessels?tab=workspace" replace />} />
                       <Route path="workspace/:vesselId" element={<Workspace />} />
                       <Route path="workspace/:vesselId/:panel" element={<Workspace />} />
 

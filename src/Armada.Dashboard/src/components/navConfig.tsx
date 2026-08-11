@@ -77,12 +77,10 @@ export const navSections: NavSection[] = [
   },
   {
     key: 'fleet',
-    label: 'FLEET',
+    label: 'BUILD',
     matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],
     items: [
-      { to: '/fleets', label: 'Fleets', tooltip: 'Collections of vessels grouped together', icon: icons.fleets },
-      { to: '/workspace', label: 'Workspace', tooltip: 'Open a vessel as a browsable, editable repository workspace', icon: icons.workspace },
-      { to: '/vessels', label: 'Vessels', tooltip: 'Registered git repositories and vessel configuration', icon: icons.vessels },
+      { to: '/vessels', label: 'Vessels', tooltip: 'Repositories grouped by fleet, plus the vessel workspace, on one surface', icon: icons.vessels },
       { to: '/captains', label: 'Captains', tooltip: 'AI coding agents that execute missions', icon: icons.captains },
     ],
   },
