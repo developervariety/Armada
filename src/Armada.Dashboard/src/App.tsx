@@ -72,6 +72,7 @@ const Workspace = lazy(() => import('./pages/Workspace'));
 const RequestHistory = lazy(() => import('./pages/RequestHistory'));
 const ApiExplorer = lazy(() => import('./pages/ApiExplorer'));
 const History = lazy(() => import('./pages/History'));
+const Configuration = lazy(() => import('./pages/Configuration'));
 
 function RouteFallback() {
   return (
@@ -135,20 +136,21 @@ export default function App() {
                       <Route path="merge-queue" element={<MergeQueue />} />
                       <Route path="merge-queue/:id" element={<MergeQueueDetail />} />
 
-                      <Route path="personas" element={<Personas />} />
+                      <Route path="configuration" element={<Configuration />} />
+                      <Route path="personas" element={<Navigate to="/configuration?tab=personas" replace />} />
                       <Route path="personas/:name" element={<PersonaDetail />} />
-                      <Route path="pipelines" element={<Pipelines />} />
+                      <Route path="pipelines" element={<Navigate to="/configuration?tab=pipelines" replace />} />
                       <Route path="pipelines/:name" element={<PipelineDetail />} />
-                      <Route path="prompt-templates" element={<PromptTemplates />} />
+                      <Route path="prompt-templates" element={<Navigate to="/configuration?tab=prompts" replace />} />
                       <Route path="prompt-templates/create" element={<PromptTemplateDetail />} />
                       <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
-                      <Route path="playbooks" element={<Playbooks />} />
+                      <Route path="playbooks" element={<Navigate to="/configuration?tab=playbooks" replace />} />
                       <Route path="playbooks/:id" element={<PlaybookDetail />} />
-                      <Route path="workflow-profiles" element={<WorkflowProfiles />} />
+                      <Route path="workflow-profiles" element={<Navigate to="/configuration?tab=workflow-profiles" replace />} />
                       <Route path="workflow-profiles/:id" element={<WorkflowProfileDetail />} />
-                      <Route path="project-profiles" element={<ProjectProfiles />} />
+                      <Route path="project-profiles" element={<Navigate to="/configuration?tab=project-profiles" replace />} />
                       <Route path="project-profiles/:id" element={<ProjectProfileDetail />} />
-                      <Route path="skills" element={<Skills />} />
+                      <Route path="skills" element={<Navigate to="/configuration?tab=skills" replace />} />
                       <Route path="skills/:id" element={<SkillDetail />} />
                       <Route path="ask" element={<AskArmada />} />
                       <Route path="inbox" element={<Inbox />} />

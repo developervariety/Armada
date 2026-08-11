@@ -39,7 +39,7 @@ it is checked and its acceptance criteria are ticked.
 | # | Phase | Depends on | Status | Owner | PR / Branch | Verified |
 |---|---|---|---|---|---|---|
 | 0 | Foundations (shared Tabs, bell, palette, route redirects) | — | Done | | feature/v0.9.0 | build+tests green |
-| 1 | Configuration hub (7 config pages → 1 tabbed hub) | 0 | Not started | | | |
+| 1 | Configuration hub (7 config pages → 1 tabbed hub) | 0 | Done | | feature/v0.9.0 | build+tests green |
 | 2 | Activity log (History + Requests + Events + Signals → 1) | 0 | Not started | | | |
 | 3 | Quick demotions (Notifications bell, Doctor → Server, Docks → Agents) | 0, 2 | Not started | | | |
 | 4 | Vessels hub (Fleets folded in + Workspace drill-in) | 0 | Not started | | | |
