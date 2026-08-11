@@ -14,9 +14,7 @@ import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
-
-type SortDir = 'asc' | 'desc';
-type SortField = 'title' | 'status' | 'createdUtc';
+import { useResourceTable } from '../lib/useResourceTable';
 
 export default function Voyages() {
   const navigate = useNavigate();
@@ -41,15 +39,18 @@ export default function Voyages() {
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('createdUtc');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ title: '', status: '' });
+  const table = useResourceTable({
+    rows: voyages,
+    getId: (v) => v.id,
+    columnValues: {
+      title: (v) => v.title.toLowerCase(),
+      status: (v) => (v.status ?? '').toLowerCase(),
+      createdUtc: (v) => v.createdUtc,
+    },
+    initialSortField: 'createdUtc',
+    initialSortDir: 'desc',
+    initialPageSize: 25,
+  });
 
   const load = useCallback(async () => {
     try {
@@ -67,49 +68,6 @@ export default function Voyages() {
   }, [pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Client-side filter + sort
-  const filtered = useMemo(() => {
-    return voyages.filter(v =>
-      (!colFilters.title || v.title.toLowerCase().includes(colFilters.title.toLowerCase())) &&
-      (!colFilters.status || (v.status ?? '').toLowerCase().includes(colFilters.status.toLowerCase()))
-    );
-  }, [voyages, colFilters]);
-
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string = '';
-      let vb: string = '';
-      switch (sortField) {
-        case 'title': va = a.title.toLowerCase(); vb = b.title.toLowerCase(); break;
-        case 'status': va = (a.status ?? '').toLowerCase(); vb = (b.status ?? '').toLowerCase(); break;
-        case 'createdUtc': va = a.createdUtc; vb = b.createdUtc; break;
-      }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
-
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === sorted.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(sorted.map(v => v.id)); }
-  function clearSelection() { setSelected([]); }
 
   // Actions
   function handleCancel(id: string, title: string) {
@@ -148,11 +106,11 @@ export default function Voyages() {
     setConfirm({
       open: true,
       title: t('Cancel Selected Voyages'),
-      message: t('Cancel {{count}} selected voyage(s)?', { count: selected.length }),
+      message: t('Cancel {{count}} selected voyage(s)?', { count: table.selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        const ids = [...selected];
-        setSelected([]);
+        const ids = [...table.selected];
+        table.setSelected([]);
         let failed = 0;
         for (const id of ids) {
           try { await cancelVoyage(id); } catch { failed++; }
@@ -183,9 +141,9 @@ export default function Voyages() {
         subtitle={t('Batches of related missions dispatched together')}
         actions={(
           <>
-            {selected.length > 0 && (
+            {table.selected.length > 0 && (
               <button className="btn btn-sm btn-danger" onClick={handleBulkCancel}>
-                {t('Cancel Selected')} ({selected.length})
+                {t('Cancel Selected')} ({table.selected.length})
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
@@ -223,14 +181,14 @@ export default function Voyages() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all voyages')} />
+                    <input type="checkbox" checked={table.allSelected} onChange={e => e.target.checked ? table.selectAll() : table.clearSelection()} title={t('Select all voyages')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('title')} title={t('Voyage title -- click to sort')}>
-                    {t('Title')}{sortIcon('title')}
+                  <th className="sortable" onClick={() => table.handleSort('title')} title={t('Voyage title -- click to sort')}>
+                    {t('Title')}{table.sortIcon('title')}
                   </th>
                   <th>{t('ID')}</th>
-                  <th className="sortable" onClick={() => handleSort('status')} title={t('Status -- click to sort')}>
-                    {t('Status')}{sortIcon('status')}
+                  <th className="sortable" onClick={() => table.handleSort('status')} title={t('Status -- click to sort')}>
+                    {t('Status')}{table.sortIcon('status')}
                   </th>
                   <th>{t('Auto Push')}</th>
                   <th>{t('Auto Create PRs')}</th>
@@ -239,9 +197,9 @@ export default function Voyages() {
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.title ?? ''} onChange={e => table.setColFilter('title', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.status ?? ''} onChange={e => table.setColFilter('status', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -249,10 +207,10 @@ export default function Voyages() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(v => (
+                {table.sorted.map(v => (
                   <tr key={v.id} className="clickable" onClick={() => setViewRecord(v as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title={t('Select this voyage')} />
+                      <input type="checkbox" checked={table.selected.includes(v.id)} onChange={() => table.toggleSelect(v.id)} title={t('Select this voyage')} />
                     </td>
                     <td className="truncate-cell" title={v.title}>
                       <strong className="truncate-text">{v.title}</strong>
@@ -278,7 +236,7 @@ export default function Voyages() {
                     </td>
                   </tr>
                 ))}
-                {sorted.length === 0 && (
+                {table.sorted.length === 0 && (
                   <tr><td colSpan={8} className="text-dim">{t('No voyages match the current filters.')}</td></tr>
                 )}
               </tbody>

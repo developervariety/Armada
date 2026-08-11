@@ -15,9 +15,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildVesselDuplicatePayload } from '../lib/duplicates';
-
-type SortDir = 'asc' | 'desc';
-type SortField = 'name' | 'fleetId' | 'defaultBranch' | 'createdUtc';
+import { useResourceTable } from '../lib/useResourceTable';
 
 interface VesselForm {
   name: string;
@@ -68,19 +66,9 @@ export default function Vessels() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ name: '', fleetId: '', repoUrl: '', landingMode: '' });
-
-  // Pagination
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  // Select-based column filters (equality; applied before the shared table hook)
+  const [fleetFilter, setFleetFilter] = useState('');
+  const [landingModeFilter, setLandingModeFilter] = useState('');
 
   const fleetMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -92,6 +80,28 @@ export default function Vessels() {
     if (!id) return '';
     return fleetMap.get(id) ?? id.substring(0, 8);
   }
+
+  const baseRows = useMemo(() => {
+    return vessels.filter(v =>
+      (!fleetFilter || v.fleetId === fleetFilter) &&
+      (!landingModeFilter || (v.landingMode ?? '') === landingModeFilter)
+    );
+  }, [vessels, fleetFilter, landingModeFilter]);
+
+  const table = useResourceTable({
+    rows: baseRows,
+    getId: (v) => v.id,
+    columnValues: {
+      name: (v) => v.name.toLowerCase(),
+      repoUrl: (v) => (v.repoUrl ?? '').toLowerCase(),
+      fleetId: (v) => fleetName(v.fleetId).toLowerCase(),
+      defaultBranch: (v) => (v.defaultBranch ?? 'main').toLowerCase(),
+      createdUtc: (v) => v.createdUtc,
+    },
+    initialSortField: 'name',
+    initialSortDir: 'asc',
+    initialPageSize: 25,
+  });
 
   const load = useCallback(async () => {
     try {
@@ -121,60 +131,6 @@ export default function Vessels() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Filtered
-  const filtered = useMemo(() => {
-    return vessels.filter(v =>
-      (!colFilters.name || v.name.toLowerCase().includes(colFilters.name.toLowerCase())) &&
-      (!colFilters.fleetId || v.fleetId === colFilters.fleetId) &&
-      (!colFilters.repoUrl || (v.repoUrl ?? '').toLowerCase().includes(colFilters.repoUrl.toLowerCase())) &&
-      (!colFilters.landingMode || (v.landingMode ?? '') === colFilters.landingMode)
-    );
-  }, [vessels, colFilters, fleetMap]);
-
-  // Sorted
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string = '';
-      let vb: string = '';
-      switch (sortField) {
-        case 'fleetId': va = fleetName(a.fleetId).toLowerCase(); vb = fleetName(b.fleetId).toLowerCase(); break;
-        case 'defaultBranch': va = (a.defaultBranch ?? 'main').toLowerCase(); vb = (b.defaultBranch ?? 'main').toLowerCase(); break;
-        case 'createdUtc': va = a.createdUtc; vb = b.createdUtc; break;
-        default: va = a.name.toLowerCase(); vb = b.name.toLowerCase();
-      }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir, fleetMap]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
-
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(filtered.map(v => v.id)); }
-  function clearSelection() { setSelected([]); }
 
   // CRUD
   function openCreate() { setForm({ ...emptyForm }); setEditing(null); setShowForm(true); }
@@ -261,11 +217,11 @@ export default function Vessels() {
     setConfirm({
       open: true,
       title: t('Delete Selected Vessels'),
-      message: t('Delete {{count}} selected vessel(s)? This cannot be undone.', { count: selected.length }),
+      message: t('Delete {{count}} selected vessel(s)? This cannot be undone.', { count: table.selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        const ids = [...selected];
-        setSelected([]);
+        const ids = [...table.selected];
+        table.setSelected([]);
         let failed = 0;
         for (const id of ids) {
           try { await deleteVessel(id); } catch { failed++; }
@@ -311,9 +267,9 @@ export default function Vessels() {
             <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
               {t('Workspace')}
             </button>
-            {selected.length > 0 && (
+            {table.selected.length > 0 && (
               <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-                {t('Delete Selected')} ({selected.length})
+                {t('Delete Selected')} ({table.selected.length})
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
@@ -461,27 +417,27 @@ export default function Vessels() {
 
       {vessels.length > 0 && (
         <>
-          <Pagination pageNumber={currentPage} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={sorted.length}
-            onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
+          <Pagination pageNumber={table.currentPage} pageSize={table.pageSize} totalPages={table.totalPages}
+            totalRecords={table.sorted.length}
+            onPageChange={p => table.setPageNumber(p)} onPageSizeChange={s => { table.setPageSize(s); table.setPageNumber(1); }} />
 
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all vessels')} />
+                    <input type="checkbox" checked={table.allSelected} onChange={e => e.target.checked ? table.selectAll() : table.clearSelection()} title={t('Select all vessels')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('name')} title={t('Vessel name -- click to sort')}>
-                    {t('Name')}{sortIcon('name')}
+                  <th className="sortable" onClick={() => table.handleSort('name')} title={t('Vessel name -- click to sort')}>
+                    {t('Name')}{table.sortIcon('name')}
                   </th>
                   <th>{t('ID')}</th>
-                  <th className="sortable" onClick={() => handleSort('fleetId')} title={t('Fleet -- click to sort')}>
-                    {t('Fleet')}{sortIcon('fleetId')}
+                  <th className="sortable" onClick={() => table.handleSort('fleetId')} title={t('Fleet -- click to sort')}>
+                    {t('Fleet')}{table.sortIcon('fleetId')}
                   </th>
                   <th title={t('Remote git repository URL')}>{t('Repo URL')}</th>
-                  <th className="sortable" onClick={() => handleSort('defaultBranch')} title={t('Default branch -- click to sort')}>
-                    {t('Branch')}{sortIcon('defaultBranch')}
+                  <th className="sortable" onClick={() => table.handleSort('defaultBranch')} title={t('Default branch -- click to sort')}>
+                    {t('Branch')}{table.sortIcon('defaultBranch')}
                   </th>
                   <th title={t('How completed mission work is integrated (LocalMerge, PullRequest, MergeQueue, None)')}>{t('Landing Mode')}</th>
                   <th title={t('Commits ahead and behind the remote default branch')}>{t('Sync')}</th>
@@ -489,18 +445,18 @@ export default function Vessels() {
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title={t('Filter vessels by fleet')} value={colFilters.fleetId} onChange={e => { setColFilters(f => ({ ...f, fleetId: e.target.value })); setPageNumber(1); }}>
+                    <select className="col-filter" title={t('Filter vessels by fleet')} value={fleetFilter} onChange={e => { setFleetFilter(e.target.value); table.setPageNumber(1); }}>
                       <option value="">{t('All Fleets')}</option>
                       {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
                   </td>
-                  <td><input type="text" className="col-filter" value={colFilters.repoUrl} onChange={e => { setColFilters(f => ({ ...f, repoUrl: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.repoUrl ?? ''} onChange={e => table.setColFilter('repoUrl', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title={t('Filter vessels by landing mode')} value={colFilters.landingMode} onChange={e => { setColFilters(f => ({ ...f, landingMode: e.target.value })); setPageNumber(1); }}>
+                    <select className="col-filter" title={t('Filter vessels by landing mode')} value={landingModeFilter} onChange={e => { setLandingModeFilter(e.target.value); table.setPageNumber(1); }}>
                       <option value="">{t('All Modes')}</option>
                       <option value="LocalMerge">LocalMerge</option>
                       <option value="PullRequest">PullRequest</option>
@@ -513,10 +469,10 @@ export default function Vessels() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map(v => (
+                {table.paginated.map(v => (
                   <tr key={v.id} className="clickable" onClick={() => setViewRecord(v as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title={t('Select this vessel')} />
+                      <input type="checkbox" checked={table.selected.includes(v.id)} onChange={() => table.toggleSelect(v.id)} title={t('Select this vessel')} />
                     </td>
                     <td><strong>{v.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
@@ -576,7 +532,7 @@ export default function Vessels() {
                     </td>
                   </tr>
                 ))}
-                {paginated.length === 0 && (
+                {table.paginated.length === 0 && (
                   <tr><td colSpan={9} className="text-dim">{t('No vessels match the current filters.')}</td></tr>
                 )}
               </tbody>
