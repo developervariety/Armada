@@ -317,12 +317,15 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
   }, [loadResources]);
 
   useEffect(() => {
+    // Highlights map to consolidated nav destinations: Fleets/Workspace fold
+    // into Vessels, Backlog into Dispatch, config pages into Configuration, and
+    // Environments/Checks into Delivery.
     const highlightsByStep: Record<number, string[]> = {
-      1: ['/fleets'],
+      1: ['/vessels'],
       2: ['/vessels'],
       3: ['/captains'],
       4: ['/dispatch'],
-      5: ['/vessels', '/workspace', '/backlog', '/planning', '/workflow-profiles', '/environments', '/checks', '/playbooks'],
+      5: ['/vessels', '/dispatch', '/planning', '/configuration', '/delivery'],
     };
 
     onHighlightChange?.(highlightsByStep[current] || []);

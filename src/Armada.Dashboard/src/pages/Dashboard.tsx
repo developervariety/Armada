@@ -305,6 +305,28 @@ export default function Dashboard() {
         )}
       />
 
+      {/* Ask Armada lead band -- the primary workflow interface */}
+      <div className="ask-hero">
+        <div className="ask-hero-copy">
+          <h2 className="ask-hero-title">{t('Ask Armada')}</h2>
+          <p className="ask-hero-sub">{t('Ask about fleet state in plain language and dispatch work straight from the conversation.')}</p>
+        </div>
+        <div className="ask-hero-actions">
+          <button className="btn btn-primary" onClick={() => navigate('/ask')}>
+            {t('Ask Armada')} &rarr;
+          </button>
+          <button className="btn btn-sm" onClick={() => navigate('/inbox')} title={t('Reviews, failures, and stalls awaiting you')}>
+            {t('Needs You')}
+          </button>
+          <button className="btn btn-sm" onClick={() => navigate('/dispatch')} title={t('Send work to vessels')}>
+            {t('Dispatch')}
+          </button>
+          <button className="btn btn-sm" onClick={() => navigate('/server?tab=diagnostics')} title={t('System health diagnostics')}>
+            {t('Diagnostics')}
+          </button>
+        </div>
+      </div>
+
       <ErrorModal error={error} onClose={() => setError('')} />
       <ConfirmDialog
         open={confirm.open}
@@ -354,7 +376,7 @@ export default function Dashboard() {
 
         <div
           className="card clickable"
-          onClick={() => navigate('/voyages')}
+          onClick={() => navigate('/missions?tab=voyages')}
           title={t('Click to view all voyages')}
         >
           <div className="card-label">{t('Active Voyages')}</div>

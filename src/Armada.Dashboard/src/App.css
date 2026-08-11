@@ -7129,3 +7129,34 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     color: var(--text-dim);
     font-size: 0.85rem;
 }
+
+/* ── Dashboard: Ask Armada lead band ── */
+.ask-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.35rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+}
+.ask-hero-title {
+    margin: 0;
+    font-size: 1.15rem;
+    color: var(--accent);
+}
+.ask-hero-sub {
+    margin: 0.2rem 0 0;
+    color: var(--text-dim);
+    font-size: 0.86rem;
+    max-width: 60ch;
+}
+.ask-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
