@@ -44,7 +44,7 @@ Backlog detail now keeps the same item linked through:
 - releases
 - deployments
 - incidents
-- `Activity > History`
+- `Activity` (All Activity)
 
 ## Refinement Vs Planning
 
@@ -170,4 +170,4 @@ The same backlog item remains the system-of-record link through:
 - incident
 - history
 
-`Activity > History` and `GET /api/v1/history` can filter by `objectiveId` to reconstruct the delivery story of one backlog item. Timeline entries for backlog refinement sessions link back to `/backlog/{objectiveId}` so the transcript and downstream delivery context remain discoverable from one place.
+`Activity` (All Activity) and `GET /api/v1/history` can filter by `objectiveId` to reconstruct the delivery story of one backlog item. Timeline entries for backlog refinement sessions link back to `/backlog/{objectiveId}` so the transcript and downstream delivery context remain discoverable from one place.

@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 Focus: stickiness -- making Armada a daily driver through per-project customization.
 
+### Dashboard navigation consolidation
+- Regrouped the dashboard from ~35 nav destinations across 6 sections to ~13 workflow-grouped destinations, without removing any capability: every folded page is reachable as a tab, a filter, the notification bell, or the command palette, and every old route redirects.
+- Ask Armada is now a standalone top-level nav item directly under Dashboard (the primary workflow interface), also reachable via a new Cmd/Ctrl+K command palette.
+- New shared primitives: a URL-synced `Tabs` component, a top-bar `NotificationBell` (replacing the standalone Notifications page, which now redirects to Needs You), and the command palette.
+- Consolidated surfaces: `Configuration` (Workflow Profiles, Project Profiles, Skills, Personas, Pipelines, Prompts, Playbooks), `Activity` (History, Requests, Events, Signals via a source filter, preserving the request inspector), `Delivery` (Deployments, Environments, Releases, Incidents, Checks, Runbooks), `Vessels` (Fleets and Workspace folded in), `Captains` (Docks tab), `Missions` (Voyages and Merge Queue tabs), and `Dispatch` (Backlog intake tab). Doctor moved to a Server > Diagnostics tab. Sidebar widened to 220px.
+
 ### Project profiles (foundation)
 - Added the `ProjectProfile` entity (`ppf_`): a scoped aggregate (Global -> Fleet -> Vessel) that binds a project's pipeline, workflow profile, per-persona prompt overrides (`PersonaOverride`), and skills in one place, resolved with the same vessel/fleet/global precedence as workflow profiles
 - `ProjectProfileService` validation and layered resolution; full REST CRUD under `/api/v1/project-profiles` (plus `/enumerate`, `/validate`, `/resolve/vessels/{vesselId}`) and MCP `enumerate` support for `project_profiles`

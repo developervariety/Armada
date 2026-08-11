@@ -3249,7 +3249,7 @@ Delete a refinement session and its transcript. Active sessions are stopped firs
 
 ### Workflow Profiles
 
-Workflow profiles define how a vessel or fleet builds, tests, versions, deploys, rolls back, and verifies itself. These routes back `Delivery > Workflow Profiles` and the preflight/resolution logic used by structured checks.
+Workflow profiles define how a vessel or fleet builds, tests, versions, deploys, rolls back, and verifies itself. These routes back `Configuration > Workflow Profiles` and the preflight/resolution logic used by structured checks.
 
 #### GET /api/v1/workflow-profiles
 
@@ -3798,7 +3798,7 @@ Delete one runbook execution.
 
 ### History
 
-`Activity > History` is backed by a cross-entity timeline that spans current Armada lifecycle entities such as objectives, releases, deployments, incidents, runbook executions, missions, voyages, planning sessions, merge entries, check runs, events, and request history.
+`Activity` (All Activity) is backed by a cross-entity timeline that spans current Armada lifecycle entities such as objectives, releases, deployments, incidents, runbook executions, missions, voyages, planning sessions, merge entries, check runs, events, and request history.
 
 #### GET /api/v1/history
 

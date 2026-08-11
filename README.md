@@ -45,14 +45,14 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 - **Less project-switch overhead.** Leave one repo, work somewhere else, then come back to a current view of what happened.
 - **A queryable memory layer.** Logs, diffs, status history, and agent output stay available through the dashboard, API, and MCP instead of vanishing into scrollback.
-- **Integrated API tooling.** `System > Requests` preserves request history, while `System > API Explorer` lets you execute live OpenAPI-backed requests and replay captured traffic without leaving the dashboard.
-- **A first-class repository workspace.** `Workspace` gives you a vessel-aware file tree, in-browser editing, search, git-aware status, and direct handoff into planning, dispatch, and context curation.
-- **Project-specific delivery profiles.** `Delivery > Workflow Profiles` lets each vessel or fleet declare how it lints, builds, tests, packages, versions, deploys, rolls back, and verifies itself.
+- **Integrated API tooling.** `Activity` preserves request history (filter by the Requests source), while `API Explorer` lets you execute live OpenAPI-backed requests and replay captured traffic without leaving the dashboard.
+- **A first-class repository workspace.** The `Vessels > Workspace` tab gives you a vessel-aware file tree, in-browser editing, search, git-aware status, and direct handoff into planning, dispatch, and context curation.
+- **Project-specific delivery profiles.** `Configuration > Workflow Profiles` lets each vessel or fleet declare how it lints, builds, tests, packages, versions, deploys, rolls back, and verifies itself.
 - **Structured check execution.** `Delivery > Checks` turns build, test, deploy, and verification runs into queryable records with logs, artifacts, retry, branch/commit metadata, and links back to missions and voyages.
-- **Scoped objectives and delivery memory.** `Operations > Objectives` captures acceptance criteria, non-goals, linked vessels, and evidence so work can be scoped before dispatch without falling back to external notes.
+- **Scoped objectives and delivery memory.** `Dispatch > Backlog` captures acceptance criteria, non-goals, linked vessels, and evidence so work can be scoped before dispatch without falling back to external notes.
 - **Pull-based GitHub delivery context.** Objectives can import GitHub issue or PR scope, deployments can sync GitHub Actions into `Delivery > Checks`, and mission or release detail can show GitHub PR review/check evidence without exposing raw tokens on reads.
-- **First-class delivery records and timeline history.** `Delivery > Environments`, `Deployments`, and `Releases` group rollout targets, approvals, verification evidence, linked voyages, missions, checks, versions, notes, and artifacts, while `Activity > History` lets you reconstruct the current cross-entity delivery story from one place.
-- **Operational incident and runbook support.** `Activity > Incidents` and `System > Runbooks` carry rollback context, hotfix handoff, step-by-step execution, and deployment-linked operational guidance inside Armada itself.
+- **First-class delivery records and timeline history.** `Delivery > Environments`, `Deployments`, and `Releases` group rollout targets, approvals, verification evidence, linked voyages, missions, checks, versions, notes, and artifacts, while `Activity` (All Activity) lets you reconstruct the current cross-entity delivery story from one place.
+- **Operational incident and runbook support.** `Delivery > Incidents` and `Delivery > Runbooks` carry rollback context, hotfix handoff, step-by-step execution, and deployment-linked operational guidance inside Armada itself.
 - **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
 - **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
@@ -147,7 +147,7 @@ Each step is a **persona** with its own prompt template. A sequence of personas 
 
 You can set a default pipeline per repository and override it on a single dispatch when needed. If the built-in roles are not enough, define your own personas and compose them into custom pipelines for security review, documentation, migration planning, release checks, architecture review, or any other project-specific step.
 
-Armada also lets each project define its own delivery commands. `Delivery > Workflow Profiles` stores the repo-specific commands for build, test, package, publish, deploy, rollback, smoke-test, and health-check flows, and `Delivery > Checks` executes those commands as durable records you can inspect and retry later.
+Armada also lets each project define its own delivery commands. `Configuration > Workflow Profiles` stores the repo-specific commands for build, test, package, publish, deploy, rollback, smoke-test, and health-check flows, and `Delivery > Checks` executes those commands as durable records you can inspect and retry later.
 
 ### Parallel Tasks
 
@@ -344,7 +344,7 @@ For the full pipeline reference, see [docs/PIPELINES.md](docs/PIPELINES.md).
 
 Playbooks are tenant-scoped markdown instruction documents that you can manage in the dashboard and attach to work at dispatch time.
 
-- Create, edit, delete, and browse playbooks from the `Playbooks` area in the dashboard.
+- Create, edit, delete, and browse playbooks from `Configuration > Playbooks` in the dashboard.
 - Select any number of playbooks when creating a voyage or standalone mission.
 - Choose delivery per selection: `InlineFullContent`, `InstructionWithReference`, or `AttachIntoWorktree`.
 - Armada snapshots the exact playbook content, filename, order, and resolved delivery mode used for a mission so later edits do not change historical execution context.
@@ -662,7 +662,7 @@ For GitHub-backed integrations, Armada supports a server-global `GitHubToken` in
 
 Armada currently uses that token resolution for three pull-based GitHub workflows:
 
-- importing a GitHub issue or pull request into `Operations > Objectives`
+- importing a GitHub issue or pull request into `Dispatch > Backlog`
 - syncing recent GitHub Actions workflow runs into `Delivery > Checks`
 - loading GitHub pull-request review, comment, and required-check evidence for mission and release detail views
 
@@ -743,18 +743,18 @@ Armada also ships first-class REST surfaces for:
 - Mux runtime endpoint discovery helpers under `/api/v1/runtimes/mux/endpoints...`
 - live OpenAPI discovery at `/openapi.json` and `/swagger`
 
-The React dashboard exposes that API surface through first-class `Delivery` and `System` tools:
+The React dashboard exposes that API surface through consolidated, workflow-grouped tools:
 
-- `Operations > Objectives` for internal-first intake, acceptance criteria, scope capture, and lifecycle linkage before dispatch.
-- `Delivery > Workflow Profiles` for project-specific build/test/release/deploy command definitions and validation.
+- `Dispatch > Backlog` for internal-first intake, acceptance criteria, scope capture, and lifecycle linkage before dispatch.
+- `Configuration > Workflow Profiles` for project-specific build/test/release/deploy command definitions and validation.
 - `Delivery > Checks` for running, retrying, and inspecting structured validation and delivery commands.
 - `Delivery > Environments` and `Delivery > Deployments` for named rollout targets, approvals, verification, rollback, and linked evidence.
 - `Delivery > Releases` for drafting, curating, and inspecting release records linked to voyages, missions, checks, versions, notes, and artifacts.
-- `Activity > Incidents` for operational incident records, hotfix handoff, and rollback/postmortem context.
-- `Activity > History` for a cross-entity operational timeline spanning objectives, planning, dispatch, checks, releases, deployments, incidents, merge activity, events, and request history.
-- `System > Requests` for persisted request history, filtering, payload inspection, and replay.
-- `System > API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.
-- `System > Runbooks` for playbook-backed operational runbooks with parameters, step tracking, and deployment/incident linkage.
+- `Delivery > Incidents` for operational incident records, hotfix handoff, and rollback/postmortem context.
+- `Delivery > Runbooks` for playbook-backed operational runbooks with parameters, step tracking, and deployment/incident linkage.
+- `Activity` (All Activity source) for a cross-entity operational timeline spanning objectives, planning, dispatch, checks, releases, deployments, incidents, merge activity, events, and request history.
+- `Activity` (Requests source) for persisted request history, filtering, payload inspection, and replay.
+- `API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.
 
 For the current internal-first operator workflow across releases, deployments, rollback, incidents, and runbooks, see [docs/DELIVERY_OPERATIONS.md](docs/DELIVERY_OPERATIONS.md).
 

@@ -49,7 +49,7 @@ it is checked and its acceptance criteria are ticked.
 | 8 | Delivery hub (all tabs, no gating) | 0 | Done | | feature/v0.9.0 | build+tests green |
 | 9 | Dashboard home as command center + guided understanding | 1-8 | Done | | feature/v0.9.0 | build+tests green |
 | 10 | Test review | 1-9 | Done | | feature/v0.9.0 | dashboard 54 tests + backend 2244 tests green |
-| 11 | Documentation review | 1-9 | Not started | | | |
+| 11 | Documentation review | 1-9 | Done | | feature/v0.9.0 | README/docs updated; CHANGELOG entry added |
 | 12 | Script review | 1-9 | Not started | | | |
 | 13 | Final acceptance + visual QA sign-off | 10-12 | Not started | | | |
 

@@ -17,9 +17,9 @@ Armada currently supports:
 - `Delivery > Releases` for release drafting, notes, artifacts, and linked work
 - `Delivery > Environments` for named rollout targets and rollout-monitoring settings
 - `Delivery > Deployments` for deploy, verify, approve, deny, and rollback flows
-- `Activity > Incidents` for incident records, hotfix handoff, rollback context, and postmortem notes
-- `System > Runbooks` for step-by-step operational runbooks linked to deployments and incidents
-- `Activity > History` for reconstructing what happened across releases, deployments, incidents, checks, requests, and runbook executions
+- `Delivery > Incidents` for incident records, hotfix handoff, rollback context, and postmortem notes
+- `Delivery > Runbooks` for step-by-step operational runbooks linked to deployments and incidents
+- `Activity` (All Activity) for reconstructing what happened across releases, deployments, incidents, checks, requests, and runbook executions
 
 Armada does not yet support:
 
@@ -46,9 +46,9 @@ Minimum workflow-profile coverage for delivery work:
 
 Use:
 
-- `Fleet > Workspace`
-- `Fleet > Vessels`
-- `Delivery > Workflow Profiles`
+- `Vessels > Workspace`
+- `Vessels`
+- `Configuration > Workflow Profiles`
 - `Delivery > Checks`
 
 to confirm the vessel is ready before operating on releases or deployments.
@@ -58,7 +58,7 @@ to confirm the vessel is ready before operating on releases or deployments.
 You can start a release from:
 
 - `Activity > Objectives`
-- `Operations > Voyages`
+- `Missions > Voyages`
 - `Delivery > Checks`
 - `Delivery > Releases > New`
 
@@ -118,7 +118,7 @@ After deployment starts or completes, use deployment detail to inspect:
 
 Use `Verify` when you need to re-run the deployment verification path without re-running the original deployment command.
 
-Use `Activity > History` and `Activity > Requests` when you need supporting evidence beyond the deployment record itself.
+Use `Activity` (All Activity) and `Activity` (Requests) when you need supporting evidence beyond the deployment record itself.
 
 ## 5. Roll Back A Failed Release
 
@@ -141,7 +141,7 @@ That means the deployment detail page is the authoritative record for:
 
 ## 6. Record The Incident
 
-Use `Activity > Incidents` or launch from deployment or environment detail when a deployment needs incident tracking.
+Use `Delivery > Incidents` or launch from deployment or environment detail when a deployment needs incident tracking.
 
 Recommended operator flow:
 
@@ -164,7 +164,7 @@ The incident record should be the durable answer to:
 
 ## 7. Use Runbooks For Repeated Operations
 
-Use `System > Runbooks` when the same release, deploy, rollback, migration, or incident response steps should be guided and repeatable.
+Use `Delivery > Runbooks` when the same release, deploy, rollback, migration, or incident response steps should be guided and repeatable.
 
 Recommended uses:
 
@@ -180,12 +180,12 @@ Runbook execution history is preserved and appears in the broader delivery timel
 
 When you need to understand what happened after the fact, use:
 
-- `Activity > History` for cross-entity chronology
-- `Activity > Requests` for API- and server-level request evidence
+- `Activity` (All Activity) for cross-entity chronology
+- `Activity` (Requests) for API- and server-level request evidence
 - `Delivery > Checks` for execution logs, parsed results, and artifacts
 - `Delivery > Releases` for what was intended to ship
 - `Delivery > Deployments` for what actually rolled out
-- `Activity > Incidents` for failure, recovery, and postmortem context
+- `Delivery > Incidents` for failure, recovery, and postmortem context
 
 ## Recommended Minimum Discipline
 
