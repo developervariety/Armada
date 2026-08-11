@@ -47,7 +47,7 @@ export default function Doctor() {
   return (
     <div>
       <PageHeader
-        title={t('Doctor')}
+        title={t('Diagnostics')}
         subtitle={t('System health diagnostics and checks.')}
         actions={(
           <>

@@ -496,6 +496,7 @@ export default function Captains() {
                         { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
                         { label: 'View Tools', onClick: () => void handleViewTools(c) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
+                        { label: 'View Notifications', onClick: () => navigate('/inbox') },
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
                         { label: 'Restart', onClick: () => handleRestart(c.id, c.name) },

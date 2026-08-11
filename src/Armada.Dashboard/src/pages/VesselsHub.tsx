@@ -1,7 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import PageHeader from '../components/shared/PageHeader';
 import Tabs, { type TabDef } from '../components/shared/Tabs';
-import { useLocale } from '../context/LocaleContext';
 
 const Vessels = lazy(() => import('./Vessels'));
 const Fleets = lazy(() => import('./Fleets'));
@@ -18,21 +16,11 @@ function panel(node: ReactNode): ReactNode {
  * Keeps Armada's nautical vocabulary: the nav item and route stay `/vessels`.
  */
 export default function VesselsHub() {
-  const { t } = useLocale();
-
   const tabs: TabDef[] = [
     { key: 'vessels', label: 'Vessels', render: () => panel(<Vessels />) },
     { key: 'fleets', label: 'Fleets', render: () => panel(<Fleets />) },
     { key: 'workspace', label: 'Workspace', render: () => panel(<Workspace />) },
   ];
 
-  return (
-    <div>
-      <PageHeader
-        title={t('Vessels')}
-        subtitle={t('Registered repositories, the fleets that group them, and the vessel workspace.')}
-      />
-      <Tabs tabs={tabs} defaultTabKey="vessels" ariaLabel="Vessel sections" />
-    </div>
-  );
+  return <Tabs tabs={tabs} defaultTabKey="vessels" ariaLabel="Vessel sections" />;
 }

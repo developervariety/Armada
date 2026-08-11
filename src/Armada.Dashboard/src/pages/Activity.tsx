@@ -1,7 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import PageHeader from '../components/shared/PageHeader';
 import Tabs, { type TabDef } from '../components/shared/Tabs';
-import { useLocale } from '../context/LocaleContext';
 
 const History = lazy(() => import('./History'));
 const RequestHistory = lazy(() => import('./RequestHistory'));
@@ -22,8 +20,6 @@ function panel(node: ReactNode): ReactNode {
  * pre-filtered.
  */
 export default function Activity() {
-  const { t } = useLocale();
-
   const tabs: TabDef[] = [
     { key: 'history', label: 'All Activity', render: () => panel(<History />) },
     { key: 'requests', label: 'Requests', render: () => panel(<RequestHistory />) },
@@ -31,13 +27,5 @@ export default function Activity() {
     { key: 'signals', label: 'Signals', render: () => panel(<Signals />) },
   ];
 
-  return (
-    <div>
-      <PageHeader
-        title={t('Activity')}
-        subtitle={t('One log across requests, events, signals, and cross-entity history. Filter by source.')}
-      />
-      <Tabs tabs={tabs} param="source" defaultTabKey="history" ariaLabel="Activity sources" />
-    </div>
-  );
+  return <Tabs tabs={tabs} param="source" defaultTabKey="history" ariaLabel="Activity sources" />;
 }

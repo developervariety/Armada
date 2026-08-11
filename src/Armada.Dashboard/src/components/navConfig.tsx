@@ -95,20 +95,10 @@ export const navSections: NavSection[] = [
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/api-explorer'],
+    matchers: ['/server', '/doctor', '/settings', '/admin', '/api-explorer'],
     items: [
       { to: '/api-explorer', label: 'API Explorer', tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses', icon: icons.apiExplorer },
-      { to: '/server', label: 'Server', tooltip: 'Admiral server settings, configuration, and health diagnostics', icon: icons.server },
-    ],
-  },
-  {
-    key: 'security',
-    label: 'SECURITY',
-    matchers: ['/admin/tenants', '/admin/users', '/admin/credentials'],
-    items: [
-      { to: '/admin/tenants', label: 'Tenants', tooltip: 'Multi-tenant organizations within Armada', icon: icons.tenants },
-      { to: '/admin/users', label: 'Users', tooltip: 'User accounts and role assignments', icon: icons.users },
-      { to: '/admin/credentials', label: 'Credentials', tooltip: 'API tokens and bearer credentials for authentication', icon: icons.credentials },
+      { to: '/server', label: 'Settings', tooltip: 'Server settings, diagnostics, and tenant/user/credential administration', icon: icons.server },
     ],
   },
 ];
@@ -116,12 +106,11 @@ export const navSections: NavSection[] = [
 /** Section keys whose collapse-state defaults to open on first paint (daily drivers). */
 export const DEFAULT_EXPANDED_SECTIONS: Record<string, boolean> = {
   operations: true,
-  delivery: false,
+  delivery: true,
   fleet: true,
-  configuration: false,
+  configuration: true,
   activity: true,
-  system: false,
-  security: true,
+  system: true,
 };
 
 /**

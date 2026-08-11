@@ -23,13 +23,12 @@ describe('navConfig', () => {
       '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
       '/delivery', '/vessels', '/captains', '/configuration', '/activity',
       '/api-explorer', '/server',
-      '/admin/tenants', '/admin/users', '/admin/credentials',
     ];
     for (const target of present) {
       expect(allTargets).toContain(target);
     }
-    // 13 operator destinations + 3 admin = 16 total.
-    expect(commands).toHaveLength(16);
+    // 13 top-level destinations; admin (Tenants/Users/Credentials) live as tabs under Settings.
+    expect(commands).toHaveLength(13);
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {
@@ -40,6 +39,7 @@ describe('navConfig', () => {
       '/pipelines', '/prompt-templates', '/playbooks',
       '/voyages', '/merge-queue', '/backlog',
       '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks',
+      '/admin/tenants', '/admin/users', '/admin/credentials',
     ];
     for (const target of removed) {
       expect(allTargets).not.toContain(target);

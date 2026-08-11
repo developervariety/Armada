@@ -1,7 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import PageHeader from '../components/shared/PageHeader';
 import Tabs, { type TabDef } from '../components/shared/Tabs';
-import { useLocale } from '../context/LocaleContext';
 
 const WorkflowProfiles = lazy(() => import('./WorkflowProfiles'));
 const ProjectProfiles = lazy(() => import('./ProjectProfiles'));
@@ -23,8 +21,6 @@ function panel(node: ReactNode): ReactNode {
  * existing page component; their detail routes are unchanged.
  */
 export default function Configuration() {
-  const { t } = useLocale();
-
   const tabs: TabDef[] = [
     { key: 'workflow-profiles', label: 'Workflow Profiles', render: () => panel(<WorkflowProfiles />) },
     { key: 'project-profiles', label: 'Project Profiles', render: () => panel(<ProjectProfiles />) },
@@ -35,13 +31,5 @@ export default function Configuration() {
     { key: 'playbooks', label: 'Playbooks', render: () => panel(<Playbooks />) },
   ];
 
-  return (
-    <div>
-      <PageHeader
-        title={t('Configuration')}
-        subtitle={t('How work gets done: profiles, skills, personas, pipelines, prompts, and playbooks.')}
-      />
-      <Tabs tabs={tabs} defaultTabKey="workflow-profiles" ariaLabel="Configuration sections" />
-    </div>
-  );
+  return <Tabs tabs={tabs} defaultTabKey="workflow-profiles" ariaLabel="Configuration sections" />;
 }

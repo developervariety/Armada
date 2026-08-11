@@ -22,6 +22,7 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import RefreshButton from '../components/shared/RefreshButton';
+import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -155,6 +156,7 @@ function HistoryChart({
 }) {
   const [tooltip, setTooltip] = useState<HistoryChartTooltipState | null>(null);
   const buckets = normalizeSummaryBuckets(summary, rangeId);
+  const windowTotal = buckets.reduce((sum, bucket) => sum + bucket.totalCount, 0);
   const maxCount = Math.max(...buckets.map((bucket) => bucket.totalCount), 1);
   const labels = useMemo(() => {
     if (buckets.length === 0) return [];
@@ -177,6 +179,14 @@ function HistoryChart({
         align: position === 0 ? 'start' : position === values.length - 1 ? 'end' : 'center',
       }));
   }, [buckets, rangeId]);
+
+  if (windowTotal === 0) {
+    return (
+      <div className="request-history-empty">
+        {t('No requests in this time range. Widen the range above to see older traffic.')}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -262,26 +272,30 @@ function RequestDetailBlock({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2);
+  const hasContent = !!text && text !== '{}' && text !== '(empty)';
   return (
     <div className="request-detail-block">
-      <button
-        type="button"
-        className="request-detail-block-toggle"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <div className="request-detail-block-header">
-          <div className="request-detail-block-title">
-            <span className={`request-detail-block-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">
-              <svg viewBox="0 0 16 16" focusable="false">
-                <path d="M5 3.5 10 8l-5 4.5" />
-              </svg>
-            </span>
-            <h4>{title}</h4>
+      <div className="request-detail-block-row">
+        <button
+          type="button"
+          className="request-detail-block-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <div className="request-detail-block-header">
+            <div className="request-detail-block-title">
+              <span className={`request-detail-block-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">
+                <svg viewBox="0 0 16 16" focusable="false">
+                  <path d="M5 3.5 10 8l-5 4.5" />
+                </svg>
+              </span>
+              <h4>{title}</h4>
+            </div>
+            {note && <span className="request-detail-block-note">{note}</span>}
           </div>
-          {note && <span className="request-detail-block-note">{note}</span>}
-        </div>
-      </button>
+        </button>
+        {hasContent && <CopyButton text={text} title={`Copy ${title}`} />}
+      </div>
       {expanded && <pre className="request-detail-code">{text || '(empty)'}</pre>}
     </div>
   );

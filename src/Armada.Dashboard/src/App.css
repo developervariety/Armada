@@ -2387,6 +2387,7 @@ tr.clickable { cursor: pointer; }
 
 .request-chart-column {
     position: relative;
+    height: 100%;
     display: flex;
     align-items: flex-end;
     justify-content: center;
@@ -6954,19 +6955,27 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     height: 32px;
     border: none;
     background: transparent;
-    color: var(--text-dim);
+    color: var(--text);
     border-radius: var(--radius);
     cursor: pointer;
     transition: color 0.15s ease, background 0.15s ease;
 }
+.notif-bell-btn svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    flex: 0 0 auto;
+    stroke: currentColor;
+}
 .notif-bell-btn:hover {
-    color: var(--text);
+    color: var(--accent);
     background: var(--bg-hover);
 }
 .notif-bell-btn .notif-badge {
     position: absolute;
-    top: 1px;
-    right: 1px;
+    top: -3px;
+    right: -3px;
 }
 .notif-dropdown {
     position: absolute;
@@ -6995,7 +7004,7 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 }
 .notif-dropdown-actions {
     display: flex;
-    gap: 0.6rem;
+    gap: 1.1rem;
 }
 .notif-dropdown-list {
     list-style: none;
@@ -7159,4 +7168,15 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+}
+
+/* Request detail block: toggle + copy button on one row */
+.request-detail-block-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.request-detail-block-row .request-detail-block-toggle {
+    flex: 1;
+    min-width: 0;
 }

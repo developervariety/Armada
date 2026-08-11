@@ -13,9 +13,9 @@ interface ChatTurn {
   model?: string | null;
 }
 
-// Direct chat is available for Mux captains (they carry a model endpoint); CLI runtimes do not.
-function isChattable(captain: Captain): boolean {
-  return captain.runtime === 'Mux';
+// Ask Armada is available with any captain.
+function isChattable(_captain: Captain): boolean {
+  return true;
 }
 
 export default function AskArmada() {
@@ -76,7 +76,7 @@ export default function AskArmada() {
           <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem' }}>
             {t('Captain')}
             <select value={captainId} onChange={(e) => setCaptainId(e.target.value)} disabled={busy}>
-              {captains.length === 0 && <option value="">{t('No chattable captains')}</option>}
+              {captains.length === 0 && <option value="">{t('No captains available')}</option>}
               {captains.map((c) => (
                 <option key={c.id} value={c.id}>{c.name} ({c.model || c.runtime})</option>
               ))}
@@ -89,7 +89,7 @@ export default function AskArmada() {
 
       {captains.length === 0 ? (
         <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
-          <p className="text-dim">{t('No captains with a chat endpoint are configured. Create a Mux captain with a model endpoint to chat here.')}</p>
+          <p className="text-dim">{t('No captains are configured yet. Create a captain to Ask Armada.')}</p>
         </div>
       ) : (
         <>

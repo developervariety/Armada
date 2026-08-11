@@ -182,9 +182,9 @@ export default function App() {
 
                       <Route path="notifications" element={<Navigate to="/inbox" replace />} />
 
-                      <Route path="admin/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
-                      <Route path="admin/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
-                      <Route path="admin/credentials" element={<ProtectedRoute><Credentials /></ProtectedRoute>} />
+                      <Route path="admin/tenants" element={<Navigate to="/server?tab=tenants" replace />} />
+                      <Route path="admin/users" element={<Navigate to="/server?tab=users" replace />} />
+                      <Route path="admin/credentials" element={<Navigate to="/server?tab=credentials" replace />} />
 
                       <Route path="server" element={<ServerHub />} />
                       <Route path="doctor" element={<Navigate to="/server?tab=diagnostics" replace />} />

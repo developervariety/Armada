@@ -1,7 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import PageHeader from '../components/shared/PageHeader';
 import Tabs, { type TabDef } from '../components/shared/Tabs';
-import { useLocale } from '../context/LocaleContext';
 
 const Missions = lazy(() => import('./Missions'));
 const Voyages = lazy(() => import('./Voyages'));
@@ -18,21 +16,11 @@ function panel(node: ReactNode): ReactNode {
  * merge entries also surface in Needs You (backend inbox).
  */
 export default function MissionsHub() {
-  const { t } = useLocale();
-
   const tabs: TabDef[] = [
     { key: 'missions', label: 'Missions', render: () => panel(<Missions />) },
     { key: 'voyages', label: 'Voyages', render: () => panel(<Voyages />) },
     { key: 'merge-queue', label: 'Merge Queue', render: () => panel(<MergeQueue />) },
   ];
 
-  return (
-    <div>
-      <PageHeader
-        title={t('Missions')}
-        subtitle={t('Work units, the voyages that batch them, and the merge queue that lands them.')}
-      />
-      <Tabs tabs={tabs} defaultTabKey="missions" ariaLabel="Mission sections" />
-    </div>
-  );
+  return <Tabs tabs={tabs} defaultTabKey="missions" ariaLabel="Mission sections" />;
 }

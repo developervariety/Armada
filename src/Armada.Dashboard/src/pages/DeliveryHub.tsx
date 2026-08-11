@@ -1,7 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import PageHeader from '../components/shared/PageHeader';
 import Tabs, { type TabDef } from '../components/shared/Tabs';
-import { useLocale } from '../context/LocaleContext';
 
 const Deployments = lazy(() => import('./Deployments'));
 const Environments = lazy(() => import('./Environments'));
@@ -21,8 +19,6 @@ function panel(node: ReactNode): ReactNode {
  * six tabs are shown to everyone this pass (per-tenant gating can layer on later).
  */
 export default function DeliveryHub() {
-  const { t } = useLocale();
-
   const tabs: TabDef[] = [
     { key: 'deployments', label: 'Deployments', render: () => panel(<Deployments />) },
     { key: 'environments', label: 'Environments', render: () => panel(<Environments />) },
@@ -32,13 +28,5 @@ export default function DeliveryHub() {
     { key: 'runbooks', label: 'Runbooks', render: () => panel(<Runbooks />) },
   ];
 
-  return (
-    <div>
-      <PageHeader
-        title={t('Delivery')}
-        subtitle={t('Environments, deployments, releases, incidents, checks, and runbooks.')}
-      />
-      <Tabs tabs={tabs} defaultTabKey="deployments" ariaLabel="Delivery sections" />
-    </div>
-  );
+  return <Tabs tabs={tabs} defaultTabKey="deployments" ariaLabel="Delivery sections" />;
 }
