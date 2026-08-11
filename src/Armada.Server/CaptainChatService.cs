@@ -3,6 +3,7 @@ namespace Armada.Server
     using System;
     using System.IO;
     using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -97,11 +98,47 @@ namespace Armada.Server
                 DateTime startUtc = DateTime.UtcNow;
                 DateTime? firstOutputUtc = null;
 
+                // Per-turn telemetry harvested from the captain's own output. Mux emits JSONL protocol
+                // events (run_started/assistant_text/run_completed) carrying model, duration, and token
+                // estimates; CLI runtimes that only stream text still yield wall-clock timing.
+                bool isMux = captain.Runtime == AgentRuntimeEnum.Mux;
+                double? reportedDurationMs = null;
+                int? reportedTokens = null;
+                string? reportedModel = null;
+
                 runtime.OnOutputReceived += (pid, line) =>
                 {
-                    // Mux streams structured protocol events (run_started, run_completed, ...) on stdout
-                    // alongside the assistant text; skip those so the chat shows the reply, not raw JSON.
-                    if (captain.Runtime == AgentRuntimeEnum.Mux && MuxRuntime.IsProtocolEventLine(line)) return;
+                    if (isMux && MuxRuntime.IsProtocolEventLine(line))
+                    {
+                        // Parse the Mux event for telemetry instead of discarding it. The reply text
+                        // itself still comes from the final-message artifact.
+                        try
+                        {
+                            using (JsonDocument doc = JsonDocument.Parse(line.Trim()))
+                            {
+                                JsonElement root = doc.RootElement;
+                                string eventType = root.TryGetProperty("eventType", out JsonElement et) && et.ValueKind == JsonValueKind.String
+                                    ? et.GetString() ?? String.Empty : String.Empty;
+
+                                lock (outputLock)
+                                {
+                                    if (eventType == "assistant_text" && firstOutputUtc == null)
+                                        firstOutputUtc = DateTime.UtcNow;
+                                    if (root.TryGetProperty("model", out JsonElement m) && m.ValueKind == JsonValueKind.String)
+                                        reportedModel = m.GetString();
+                                    if (eventType == "run_completed")
+                                    {
+                                        if (root.TryGetProperty("durationMs", out JsonElement d) && d.ValueKind == JsonValueKind.Number)
+                                            reportedDurationMs = d.GetDouble();
+                                        if (root.TryGetProperty("finalEstimatedTokens", out JsonElement ft) && ft.ValueKind == JsonValueKind.Number)
+                                            reportedTokens = ft.GetInt32();
+                                    }
+                                }
+                            }
+                        }
+                        catch (JsonException) { }
+                        return;
+                    }
 
                     lock (outputLock)
                     {
@@ -166,15 +203,32 @@ namespace Armada.Server
                         : "The captain produced no response.");
                 }
 
+                // Keep all timing on one wall-clock base so time-to-first-token never exceeds total and
+                // streaming always resolves. Token counts come from the captain's own telemetry (Mux
+                // reports finalEstimatedTokens); reportedDurationMs is captain-internal and, being on a
+                // different base than our wall clock, is used only as a fallback total.
+                double wallClockMs = (DateTime.UtcNow - startUtc).TotalMilliseconds;
+                double totalMs = wallClockMs > 0 ? wallClockMs : (reportedDurationMs ?? wallClockMs);
+                double? ttftMs = firstOutputUtc.HasValue
+                    ? Math.Min((firstOutputUtc.Value - startUtc).TotalMilliseconds, totalMs)
+                    : (double?)null;
+                double? tokensPerSecond = (reportedTokens.HasValue && totalMs > 0)
+                    ? reportedTokens.Value / (totalMs / 1000.0)
+                    : (double?)null;
+
                 CaptainChatResponse response = new CaptainChatResponse
                 {
                     Success = true,
                     Reply = reply,
-                    Model = String.IsNullOrEmpty(captain.Model) ? captain.Runtime.ToString() : captain.Model,
+                    Model = !String.IsNullOrEmpty(reportedModel) ? reportedModel
+                        : (String.IsNullOrEmpty(captain.Model) ? captain.Runtime.ToString() : captain.Model),
                     Metrics = new CaptainChatMetrics
                     {
-                        TotalMs = (DateTime.UtcNow - startUtc).TotalMilliseconds,
-                        TimeToFirstTokenMs = firstOutputUtc.HasValue ? (firstOutputUtc.Value - startUtc).TotalMilliseconds : (double?)null,
+                        TotalMs = totalMs,
+                        TimeToFirstTokenMs = ttftMs,
+                        StreamingMs = ttftMs.HasValue ? Math.Max(0, totalMs - ttftMs.Value) : (double?)null,
+                        TotalTokens = reportedTokens,
+                        TokensPerSecond = tokensPerSecond,
                     },
                 };
 
