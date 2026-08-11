@@ -1724,9 +1724,20 @@ namespace Armada.Core.Services
             // the same fleet-wide memory was visible to some captains and invisible to others.
             if (!String.IsNullOrWhiteSpace(_Settings.AiMemoryRoot))
             {
-                content += ledger.Track("mission.ai_memory", BuildAiMemorySection(
-                    _Settings.AiMemoryRoot!,
-                    ResolveMemoryRepoFolder(_Settings.AiMemoryRoot, vessel.Name)));
+                string? memoryRepoFolder = ResolveMemoryRepoFolder(_Settings.AiMemoryRoot, vessel.Name);
+                content += ledger.Track("mission.ai_memory", BuildAiMemorySection(_Settings.AiMemoryRoot!, memoryRepoFolder));
+                content += "\n";
+
+                // Facts about this vessel that cannot be fixed today. Empty by default, and meant to
+                // stay empty: the block reports its own count so a growing list reads as a regression.
+                // Read-only missions get it too, because a deferred fact misleads an auditor exactly as
+                // much as it misleads an implementer.
+                List<DeferredFact> deferredFacts = LoadDeferredFacts(_Settings.AiMemoryRoot, memoryRepoFolder);
+                string deferredFactsSection = BuildDeferredFactsSection(deferredFacts, DateTime.UtcNow);
+                if (!String.IsNullOrEmpty(deferredFactsSection))
+                {
+                    content += ledger.Track("mission.deferred_facts", deferredFactsSection);
+                }
                 content += "\n";
             }
 
@@ -2106,6 +2117,89 @@ namespace Armada.Core.Services
                 "AI-Memory is the authoritative durable memory for this fleet; the runtime's own file-memory " +
                 "protocol is not shared state, so do not write to it. " +
                 "It is reference material, not authority: playbooks, vessel instructions, and this mission brief win on conflict.\n";
+        }
+
+        /// <summary>
+        /// Renders the deferred-facts block: things about this vessel that cannot be fixed today and
+        /// that a captain would otherwise trip over or re-derive.
+        ///
+        /// Every entry reads as "known, and being fixed under &lt;objective&gt;". It never reads as "this is
+        /// normal", because a fact that reads as normal stops being fixed. An entry past its expiry is
+        /// marked stale rather than dropped: a fact that quietly disappears cannot be told apart from
+        /// one that was resolved.
+        ///
+        /// The block states its own entry count, so a list that is growing is visible as a regression
+        /// rather than as adoption.
+        /// </summary>
+        /// <param name="facts">Entries that passed validation.</param>
+        /// <param name="nowUtc">Current time, supplied so expiry is testable.</param>
+        /// <returns>The section, or an empty string when there is nothing to state.</returns>
+        internal static string BuildDeferredFactsSection(List<DeferredFact> facts, DateTime nowUtc)
+        {
+            if (facts == null || facts.Count == 0) return "";
+
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            builder.Append("## Known Deferred Facts (" + facts.Count + ")\n");
+            builder.Append("These are known and already owned. Each names the objective that removes it. ");
+            builder.Append("None of them is normal, and none of them is yours to fix in this mission ");
+            builder.Append("unless the mission says so.\n\n");
+
+            foreach (DeferredFact fact in facts)
+            {
+                if (fact.IsExpired(nowUtc))
+                {
+                    builder.Append("- STALE, unverified since " +
+                        (String.IsNullOrEmpty(fact.LastVerifiedCommit) ? "an unrecorded commit" : "`" + fact.LastVerifiedCommit + "`") +
+                        ": " + fact.Text + "\n");
+                    builder.Append("  - Past its review date, so treat it as unknown rather than as current. " +
+                        "Being fixed under " + fact.FixObjectiveId + ".\n");
+                    continue;
+                }
+
+                builder.Append("- " + fact.Text + "\n");
+                builder.Append("  - Known, and being fixed under " + fact.FixObjectiveId + ".");
+                if (!String.IsNullOrEmpty(fact.LastVerifiedCommit))
+                    builder.Append(" Last checked at `" + fact.LastVerifiedCommit + "`.");
+                builder.Append("\n");
+            }
+
+            return BoundGitAnchorsSection(builder.ToString());
+        }
+
+        /// <summary>
+        /// Reads and validates the vessel's deferred-facts file. Returns an empty list when the file is
+        /// absent, which is the expected state: the list is meant to stay empty.
+        /// </summary>
+        /// <param name="memoryRoot">Configured AI-Memory root path.</param>
+        /// <param name="repoFolder">Resolved folder for this vessel, or null.</param>
+        /// <returns>Validated entries; never null.</returns>
+        private List<DeferredFact> LoadDeferredFacts(string? memoryRoot, string? repoFolder)
+        {
+            List<DeferredFact> accepted = new List<DeferredFact>();
+            if (String.IsNullOrWhiteSpace(memoryRoot) || String.IsNullOrEmpty(repoFolder)) return accepted;
+
+            try
+            {
+                string path = Path.Combine(memoryRoot!.TrimEnd('/', '\\'), "repos", repoFolder!, "deferred-facts.md");
+                if (!File.Exists(path)) return accepted;
+
+                List<string> refusals;
+                DeferredFactsParser.Parse(File.ReadAllText(path), out accepted, out refusals);
+
+                // A refused entry is an operator error, not a captain problem. It never reaches the
+                // brief, and saying so in the log is what stops it being silently ignored for weeks.
+                foreach (string refusal in refusals)
+                {
+                    _Logging.Warn(_Header + "deferred facts for " + repoFolder + ": " + refusal);
+                }
+
+                return accepted;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read deferred facts for " + repoFolder + ": " + ex.Message);
+                return new List<DeferredFact>();
+            }
         }
 
         /// <summary>

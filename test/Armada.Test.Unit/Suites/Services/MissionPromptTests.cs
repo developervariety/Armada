@@ -1868,6 +1868,93 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("## Some Playbook", section, "playbook content must be preserved");
             });
 
+            // Deferred facts: the small residue that cannot be fixed today, with the teeth that keep
+            // the list from becoming a place to record problems instead of solving them.
+
+            await RunTest("DeferredFacts Refuses An Entry With No Fix Objective", () =>
+            {
+                List<DeferredFact> accepted;
+                List<string> refusals;
+                DeferredFactsParser.Parse(
+                    "fact: something is deferred\nexpires: 2099-01-01\n", out accepted, out refusals);
+
+                AssertEqual(0, accepted.Count, "an entry with no fix objective must not reach the brief");
+                AssertEqual(1, refusals.Count, "the refusal must be reported");
+                AssertContains("no fix objective", refusals[0], "the reason must name the missing field");
+            });
+
+            await RunTest("DeferredFacts Refuses An Entry With No Usable Expiry", () =>
+            {
+                List<DeferredFact> accepted;
+                List<string> refusals;
+                DeferredFactsParser.Parse(
+                    "fact: something is deferred\nfix: obj_example0000\n", out accepted, out refusals);
+                AssertEqual(0, accepted.Count, "an entry with no expiry must not reach the brief");
+                AssertContains("no usable expiry", refusals[0], "the reason must name the missing field");
+
+                DeferredFactsParser.Parse(
+                    "fact: x\nfix: obj_example0000\nexpires: soon\n", out accepted, out refusals);
+                AssertEqual(0, accepted.Count, "an unparseable expiry must be refused, not ignored");
+            });
+
+            await RunTest("DeferredFacts Accepts A Complete Entry And Reads Every Field", () =>
+            {
+                List<DeferredFact> accepted;
+                List<string> refusals;
+                DeferredFactsParser.Parse(
+                    "# a comment is ignored\n" +
+                    "fact: the bench suite needs hardware this dock does not have\n" +
+                    "fix: obj_example0000\n" +
+                    "expires: 2099-09-30\n" +
+                    "verified-at: 8510ae4\n", out accepted, out refusals);
+
+                AssertEqual(0, refusals.Count, "a complete entry must not be refused");
+                AssertEqual(1, accepted.Count, "the entry must be accepted");
+                AssertEqual("obj_example0000", accepted[0].FixObjectiveId, "the fix objective must be read");
+                AssertEqual("8510ae4", accepted[0].LastVerifiedCommit, "the verified commit must be read");
+                AssertTrue(accepted[0].IsComplete(), "the entry must report itself complete");
+            });
+
+            await RunTest("DeferredFacts Section Reads As Owned, Never As Normal", () =>
+            {
+                DeferredFact fact = new DeferredFact();
+                fact.Text = "the bench suite needs hardware this dock does not have";
+                fact.FixObjectiveId = "obj_example0000";
+                fact.ExpiresUtc = new DateTime(2099, 9, 30, 0, 0, 0, DateTimeKind.Utc);
+                fact.LastVerifiedCommit = "8510ae4";
+
+                string section = MissionService.BuildDeferredFactsSection(
+                    new List<DeferredFact> { fact }, new DateTime(2026, 8, 11, 0, 0, 0, DateTimeKind.Utc));
+
+                AssertContains("Known Deferred Facts (1)", section, "the count must be visible so growth reads as a regression");
+                AssertContains("being fixed under obj_example0000", section, "each entry must name its owning objective");
+                AssertFalse(section.Contains("STALE", StringComparison.Ordinal), "an in-date entry must not be marked stale");
+            });
+
+            await RunTest("DeferredFacts Marks An Expired Entry Stale Rather Than Dropping It", () =>
+            {
+                DeferredFact fact = new DeferredFact();
+                fact.Text = "a red test pending a decision";
+                fact.FixObjectiveId = "obj_example0000";
+                fact.ExpiresUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                fact.LastVerifiedCommit = "8510ae4";
+
+                string section = MissionService.BuildDeferredFactsSection(
+                    new List<DeferredFact> { fact }, new DateTime(2026, 8, 11, 0, 0, 0, DateTimeKind.Utc));
+
+                AssertContains("STALE", section, "a lapsed entry must be marked, not silently trusted");
+                AssertContains("a red test pending a decision", section, "a lapsed entry must not be dropped");
+                AssertContains("unknown rather than as current", section, "the captain must be told how to treat it");
+            });
+
+            await RunTest("DeferredFacts Section Is Empty When There Is Nothing Deferred", () =>
+            {
+                AssertEqual("", MissionService.BuildDeferredFactsSection(new List<DeferredFact>(), DateTime.UtcNow),
+                    "an empty list must add no bytes to the brief");
+                AssertEqual("", MissionService.BuildDeferredFactsSection(null!, DateTime.UtcNow),
+                    "a null list must add no bytes to the brief");
+            });
+
             // Git anchors: the facts a captain would otherwise spend its opening turns deriving.
 
             await RunTest("GitAnchors Section Is Omitted When Nothing Resolved", () =>
