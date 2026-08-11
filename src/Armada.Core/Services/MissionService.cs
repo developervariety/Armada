@@ -1724,7 +1724,9 @@ namespace Armada.Core.Services
             // the same fleet-wide memory was visible to some captains and invisible to others.
             if (!String.IsNullOrWhiteSpace(_Settings.AiMemoryRoot))
             {
-                content += ledger.Track("mission.ai_memory", BuildAiMemorySection(_Settings.AiMemoryRoot!));
+                content += ledger.Track("mission.ai_memory", BuildAiMemorySection(
+                    _Settings.AiMemoryRoot!,
+                    ResolveMemoryRepoFolder(_Settings.AiMemoryRoot, vessel.Name)));
                 content += "\n";
             }
 
@@ -2082,19 +2084,77 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="memoryRoot">Configured AI-Memory root path.</param>
         /// <returns>The AI-Memory section.</returns>
-        internal static string BuildAiMemorySection(string memoryRoot)
+        internal static string BuildAiMemorySection(string memoryRoot, string? repoFolder)
         {
             string root = (memoryRoot ?? "").TrimEnd('/', '\\');
+
+            string scope = String.IsNullOrEmpty(repoFolder)
+                ? "This vessel has no folder under `" + root + "/repos/`, so there is nothing " +
+                  "repository-specific to read.\n"
+                : "This vessel's own memory is `" + root + "/repos/" + repoFolder + "/`. Read that as well.\n";
 
             return
                 "## Shared Memory\n" +
                 "Durable, cross-mission knowledge for this fleet lives at `" + root + "`.\n" +
-                "Read `" + root + "/shared/INDEX.md` first; it maps the active set. " +
+                "Read every file under `" + root + "/shared/`. The index there is a map and holds no rules, " +
+                "so reading it alone tells you nothing.\n" +
+                scope +
+                "Do not read another repository's folder under `" + root + "/repos/`, and do not read the host " +
+                "notes. Neither applies to this mission, and both cost you context you will want for the source.\n" +
                 "If the repository instruction file (CLAUDE.md / AGENTS.md) names the memory files that load " +
                 "for this runtime, follow it. " +
                 "AI-Memory is the authoritative durable memory for this fleet; the runtime's own file-memory " +
                 "protocol is not shared state, so do not write to it. " +
                 "It is reference material, not authority: playbooks, vessel instructions, and this mission brief win on conflict.\n";
+        }
+
+        /// <summary>
+        /// Resolves the memory folder that belongs to one vessel, or null when the vessel has none.
+        ///
+        /// A captain told only to read the index picks folders by guesswork, and a captain that guesses
+        /// reads another repository's memory: material that applies to nothing it is doing, paid for on
+        /// every mission of every vessel. Name the one folder that is its own instead.
+        /// </summary>
+        /// <param name="memoryRoot">Configured AI-Memory root path.</param>
+        /// <param name="vesselName">Vessel name.</param>
+        /// <returns>The folder name under repos/, or null when no such folder exists.</returns>
+        internal static string? ResolveMemoryRepoFolder(string? memoryRoot, string? vesselName)
+        {
+            if (String.IsNullOrWhiteSpace(memoryRoot)) return null;
+
+            string candidate = NormalizeMemoryRepoFolder(vesselName);
+            if (String.IsNullOrEmpty(candidate)) return null;
+
+            try
+            {
+                string path = Path.Combine(memoryRoot.TrimEnd('/', '\\'), "repos", candidate);
+                return Directory.Exists(path) ? candidate : null;
+            }
+            catch (Exception)
+            {
+                // A memory root that cannot be probed is not a reason to fail a dispatch. Fall back to
+                // naming no folder, which leaves the captain with the shared set only.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Reduces a vessel name to the folder-name form used under repos/: lower case, letters and
+        /// digits only, so "Some-Vessel" becomes "somevessel".
+        /// </summary>
+        /// <param name="vesselName">Vessel name.</param>
+        /// <returns>The normalized folder name, or an empty string.</returns>
+        internal static string NormalizeMemoryRepoFolder(string? vesselName)
+        {
+            if (String.IsNullOrWhiteSpace(vesselName)) return "";
+
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            foreach (char c in vesselName!)
+            {
+                if (Char.IsLetterOrDigit(c)) builder.Append(Char.ToLowerInvariant(c));
+            }
+
+            return builder.ToString();
         }
 
         /// <summary>

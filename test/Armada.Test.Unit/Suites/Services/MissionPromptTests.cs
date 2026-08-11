@@ -186,7 +186,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         LoggingModule logging = CreateLogging();
                         ArmadaSettings settings = CreateSettings();
-                        settings.AiMemoryRoot = "/srv/armada/AI-Memory/";
+                        settings.AiMemoryRoot = "/memory-root/";
                         StubGitService git = new StubGitService();
                         MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
 
@@ -209,9 +209,10 @@ namespace Armada.Test.Unit.Suites.Services
                             string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, fileName));
 
                             AssertContains("## Shared Memory", brief, runtime + " must be told shared memory exists");
-                            AssertContains("/srv/armada/AI-Memory/shared/INDEX.md", brief, runtime + " must get the index path");
+                            AssertContains("/memory-root/shared/", brief, runtime + " must be pointed at the shared set");
+                            AssertContains("holds no rules", brief, runtime + " must be told the index alone is not enough");
                             // The trailing separator must be normalized, not doubled.
-                            AssertFalse(brief.Contains("AI-Memory//shared", StringComparison.Ordinal), "the root separator must be normalized");
+                            AssertFalse(brief.Contains("//shared", StringComparison.Ordinal), "the root separator must be normalized");
                             // The wording must not contradict a repo instruction file the runtime
                             // auto-loads: an absolute "do not read the whole tree" against an
                             // auto-loaded directive that names specific memory files reads as a
@@ -1818,9 +1819,45 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("AiMemorySection States Authoritative Precedence", () =>
             {
-                string section = MissionService.BuildAiMemorySection("/srv/armada/AI-Memory");
+                string section = MissionService.BuildAiMemorySection("/memory-root", null);
                 AssertContains("authoritative durable memory", section, "AI-Memory precedence must be stated");
                 AssertContains("do not write to it", section, "runtime file-memory write must be forbidden");
+            });
+
+            await RunTest("AiMemorySection Names This Vessel's Folder And Rules Out The Others", () =>
+            {
+                // A captain told only to read the index guesses which folders are its own, and a guess
+                // lands on another repository's memory: material that applies to nothing it is doing.
+                string section = MissionService.BuildAiMemorySection("/memory-root", "examplevessel");
+
+                AssertContains("/memory-root/repos/examplevessel/", section, "the vessel's own folder must be named");
+                AssertContains("Read every file under `/memory-root/shared/`", section, "the shared set must be read in full");
+                AssertContains("holds no rules", section, "the index alone must be called insufficient");
+                AssertContains("Do not read another repository's folder", section, "other repositories must be ruled out");
+            });
+
+            await RunTest("AiMemorySection Says So When A Vessel Has No Memory Folder", () =>
+            {
+                string section = MissionService.BuildAiMemorySection("/memory-root", null);
+
+                AssertContains("has no folder under", section, "the absence must be stated, not left to inference");
+                AssertFalse(section.Contains("/repos/examplevessel/", StringComparison.Ordinal), "no folder may be named");
+            });
+
+            await RunTest("MemoryRepoFolder Normalizes A Vessel Name To Its Folder Form", () =>
+            {
+                AssertEqual("examplevessel", MissionService.NormalizeMemoryRepoFolder("ExampleVessel"), "case must be folded");
+                AssertEqual("secondexample", MissionService.NormalizeMemoryRepoFolder("SecondExample"), "case must be folded");
+                AssertEqual("thirdexample", MissionService.NormalizeMemoryRepoFolder("third-example"), "punctuation must be dropped");
+                AssertEqual("", MissionService.NormalizeMemoryRepoFolder(null), "a null name yields nothing");
+                AssertEqual("", MissionService.NormalizeMemoryRepoFolder("   "), "a blank name yields nothing");
+            });
+
+            await RunTest("MemoryRepoFolder Returns Null When The Folder Does Not Exist", () =>
+            {
+                AssertNull(MissionService.ResolveMemoryRepoFolder(null, "ExampleVessel"), "no memory root yields no folder");
+                AssertNull(MissionService.ResolveMemoryRepoFolder("/nonexistent-memory-root", "ExampleVessel"),
+                    "a vessel with no folder on disk must resolve to null rather than a guess");
             });
 
             await RunTest("ReadOnlyPlaybooksWrapper Demotes Playbooks To Reference", () =>
