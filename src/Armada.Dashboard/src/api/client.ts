@@ -799,7 +799,10 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 // Ask Armada
 export const askArmada = (message: string) => post<AskResponse>('/api/v1/ask', { message });
 export const chatWithCaptain = (captainId: string, body: CaptainChatRequest) =>
-  post<CaptainChatResponse>('/api/v1/captains/' + captainId + '/chat', body);
+  // A chat turn launches the captain's CLI runtime headlessly, which can take minutes for slower
+  // agents (e.g. Codex). Allow more than the default 30s so the reply is not aborted client-side;
+  // keep it above the server-side chat timeout so the backend's clean message wins on timeout.
+  post<CaptainChatResponse>('/api/v1/captains/' + captainId + '/chat', body, { timeout: 330000 });
 
 // Needs-you inbox
 export const getInbox = () => get<InboxItem[]>('/api/v1/inbox');
