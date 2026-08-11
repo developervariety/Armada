@@ -77,6 +77,7 @@ const ServerHub = lazy(() => import('./pages/ServerHub'));
 const VesselsHub = lazy(() => import('./pages/VesselsHub'));
 const CaptainsHub = lazy(() => import('./pages/CaptainsHub'));
 const MissionsHub = lazy(() => import('./pages/MissionsHub'));
+const DispatchHub = lazy(() => import('./pages/DispatchHub'));
 
 function RouteFallback() {
   return (
@@ -101,8 +102,8 @@ export default function App() {
                       <Route path="dashboard" element={<Navigate to="/" replace />} />
                       <Route path="planning" element={<Planning />} />
                       <Route path="planning/:id" element={<Planning />} />
-                      <Route path="dispatch" element={<Dispatch />} />
-                      <Route path="backlog" element={<Objectives />} />
+                      <Route path="dispatch" element={<DispatchHub />} />
+                      <Route path="backlog" element={<Navigate to="/dispatch?tab=backlog" replace />} />
                       <Route path="backlog/:id" element={<ObjectiveDetail />} />
                       <Route path="objectives" element={<Objectives />} />
                       <Route path="objectives/:id" element={<ObjectiveDetail />} />
