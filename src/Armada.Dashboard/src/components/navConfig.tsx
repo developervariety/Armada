@@ -57,9 +57,7 @@ export const navSections: NavSection[] = [
       { to: '/planning', label: 'Planning', tooltip: 'Plan with a captain, preserve the transcript, and dispatch directly from the session', icon: icons.planning },
       { to: '/dispatch', label: 'Dispatch', tooltip: 'Send work to vessels via missions and voyages', icon: icons.dispatch },
       { to: '/backlog', label: 'Backlog', tooltip: 'Capture future work and refine it with a selected captain before dispatch', icon: icons.backlog },
-      { to: '/voyages', label: 'Voyages', tooltip: 'Batches of related missions dispatched together', icon: icons.voyages },
-      { to: '/missions', label: 'Missions', tooltip: 'Individual work units assigned to captains', icon: icons.missions },
-      { to: '/merge-queue', label: 'Merge Queue', tooltip: 'Bors-style queue for landing and testing branches', icon: icons.mergeQueue },
+      { to: '/missions', label: 'Missions', tooltip: 'Work units, plus Voyages and the full Merge Queue as tabs', icon: icons.missions },
     ],
   },
   {

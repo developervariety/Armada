@@ -12,7 +12,7 @@ const ID_PREFIX_ROUTES: Array<{ prefix: string; route: (id: string) => string }>
   { prefix: 'sig_', route: (id) => `/signals/${id}` },
   { prefix: 'evt_', route: (id) => `/events/${id}` },
   { prefix: 'dck_', route: (id) => `/docks/${id}` },
-  { prefix: 'mrg_', route: () => '/merge-queue' },
+  { prefix: 'mrg_', route: () => '/missions?tab=merge-queue' },
 ];
 
 /** Return the dashboard detail route for an entity id, or null when the prefix is unknown. */

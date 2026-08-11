@@ -44,7 +44,7 @@ it is checked and its acceptance criteria are ticked.
 | 3 | Quick demotions (Notifications bell, Doctor → Server, Docks → Agents) | 0, 2 | Done | | feature/v0.9.0 | build+tests green |
 | 4 | Vessels hub (Fleets folded in + Workspace drill-in) | 0 | Done | | feature/v0.9.0 | build+tests green |
 | 5 | Captains hub (Docks tab) | 0, 3 | Done | | feature/v0.9.0 | build+tests green |
-| 6 | Missions surface (Voyages + full Merge Queue as tabs) | 0 | Not started | | | |
+| 6 | Missions surface (Voyages + full Merge Queue as tabs) | 0 | Done | | feature/v0.9.0 | build+tests green; Needs-You merge promotion is backend-driven |
 | 7 | Dispatch + Backlog (Backlog as intake tab) | 0 | Not started | | | |
 | 8 | Delivery hub + role/feature gating | 0 | Not started | | | |
 | 9 | Dashboard home as command center + guided understanding | 1-8 | Not started | | | |
