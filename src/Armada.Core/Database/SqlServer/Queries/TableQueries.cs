@@ -657,6 +657,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     "Add per-captain provider credential columns to captains",
                     @"IF COL_LENGTH('captains', 'api_key') IS NULL ALTER TABLE captains ADD api_key NVARCHAR(MAX);",
                     @"IF COL_LENGTH('captains', 'api_base_url') IS NULL ALTER TABLE captains ADD api_base_url NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    61,
+                    "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
+                    @"IF COL_LENGTH('missions', 'retry_skip_captain_ids') IS NULL ALTER TABLE missions ADD retry_skip_captain_ids NVARCHAR(MAX);"
                 )
             };
         }

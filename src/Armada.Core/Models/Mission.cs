@@ -295,6 +295,17 @@ namespace Armada.Core.Models
         public int LandingRetryCount { get; set; } = 0;
 
         /// <summary>
+        /// Comma-separated captain ids already tried on this mission whose runs were
+        /// unusable (for example a Judge that exited with empty output and no verdict).
+        /// In-place re-runs append the failing captain so the next dispatch routes to a
+        /// different captain rather than re-selecting the same degraded provider. The
+        /// count of entries is the in-place re-run budget, which is deliberately kept
+        /// separate from <see cref="RecoveryAttempts"/> so an intermittent provider never
+        /// consumes the autonomous-rescue budget.
+        /// </summary>
+        public string? RetrySkipCaptainIds { get; set; } = null;
+
+        /// <summary>
         /// Timestamp of the most recent auto-recovery action (redispatch, rebase-captain,
         /// or surface) recorded for this mission. Null when no recovery has run.
         /// </summary>

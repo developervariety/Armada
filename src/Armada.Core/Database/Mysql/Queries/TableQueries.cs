@@ -957,6 +957,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v60 statements adding the per-mission retry-skip list so in-place judge
+        /// re-runs route to a different captain without consuming the autonomous-rescue budget.
+        /// </summary>
+        public static readonly string[] MigrationV60Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN retry_skip_captain_ids LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

@@ -58,8 +58,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, retry_skip_captain_ids)
+                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc, @retry_skip_captain_ids);";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
@@ -178,9 +178,10 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         reviewed_by_user_id = @reviewed_by_user_id,
                         review_requested_utc = @review_requested_utc,
                         reviewed_utc = @reviewed_utc,
-                        recovery_attempts = @recovery_attempts,
+                         recovery_attempts = @recovery_attempts,
                         landing_retry_count = @landing_retry_count,
                         last_recovery_action_utc = @last_recovery_action_utc,
+                        retry_skip_captain_ids = @retry_skip_captain_ids,
                         started_utc = @started_utc,
                         completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
@@ -222,6 +223,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
                     cmd.Parameters.AddWithValue("@landing_retry_count", mission.LandingRetryCount);
                     cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.LastRecoveryActionUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_skip_captain_ids", (object?)mission.RetrySkipCaptainIds ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(mission.LastUpdateUtc));

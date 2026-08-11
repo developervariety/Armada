@@ -207,6 +207,68 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(InvokeShouldRetry(hasVerdict, 0), "A salvaged real verdict is terminal and must not be retried.");
                 return Task.CompletedTask;
             });
+
+            // -----------------------------------------------------------------------------------
+            // Empty-output provider degradation (vilao claude-fable-5, 2026-08-11): a Judge that
+            // exits with empty/no verdict must be re-run in place WITHOUT consuming the recovery
+            // budget, and the re-run must route to a DIFFERENT captain. The retry budget lives in
+            // RetrySkipCaptainIds; RecoveryAttempts stays reserved for the autonomous rescue.
+            // -----------------------------------------------------------------------------------
+
+            // Skip-list counting is the retry budget, so an empty-output provider burns zero
+            // RecoveryAttempts while still allowing the bounded in-place re-run.
+            await RunTest("CountRetrySkipCaptains_Empty_Zero", () =>
+            {
+                AssertEqual(0, InvokeCountRetrySkipCaptains(null), "No skip list means no re-runs consumed.");
+                AssertEqual(0, InvokeCountRetrySkipCaptains("   "), "Whitespace skip list counts as zero.");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("CountRetrySkipCaptains_Populated_CountsIds", () =>
+            {
+                AssertEqual(1, InvokeCountRetrySkipCaptains("cpt_one"));
+                AssertEqual(3, InvokeCountRetrySkipCaptains("cpt_one,cpt_two,cpt_three"));
+                AssertEqual(2, InvokeCountRetrySkipCaptains("cpt_one,,cpt_three"), "Empty entries do not inflate the budget.");
+                return Task.CompletedTask;
+            });
+
+            // Appending a captain keeps old entries and deduplicates, so one degraded captain never
+            // doubles the count across multiple empty-output runs.
+            await RunTest("AppendRetrySkipCaptain_AppendsAndDeduplicates", () =>
+            {
+                Mission mission = new Mission();
+                InvokeAppendRetrySkipCaptain(mission, "cpt_vilao_1");
+                AssertEqual("cpt_vilao_1", mission.RetrySkipCaptainIds);
+                InvokeAppendRetrySkipCaptain(mission, "cpt_vilao_2");
+                AssertEqual("cpt_vilao_1,cpt_vilao_2", mission.RetrySkipCaptainIds);
+                InvokeAppendRetrySkipCaptain(mission, "cpt_vilao_1");
+                AssertEqual("cpt_vilao_1,cpt_vilao_2", mission.RetrySkipCaptainIds, "Duplicate captain must not inflate the re-run budget.");
+                return Task.CompletedTask;
+            });
+
+            // The retry decision uses the skip-list count, keeping the retry bounded exactly as
+            // before (0 and 1 retry), while RecoveryAttempts (the rescue budget) stays untouched
+            // in the reset path. A count of 2 means both in-place re-runs are consumed, so the
+            // mission settles terminal -- the identical bound the pre-existing budget tests pin.
+            await RunTest("MissingVerdictDecision_SkipListCount_BoundsRetries", () =>
+            {
+                AssertTrue(InvokeShouldRetry(false, InvokeCountRetrySkipCaptains("cpt_vilao_1")), "One consumed re-run still allows one more.");
+                AssertFalse(InvokeShouldRetry(false, InvokeCountRetrySkipCaptains("cpt_vilao_1,cpt_vilao_2")), "Both in-place re-runs consumed: settle terminal.");
+                AssertFalse(InvokeShouldRetry(false, InvokeCountRetrySkipCaptains("cpt_one,cpt_two,cpt_three")), "Past the cap the mission settles terminal.");
+                return Task.CompletedTask;
+            });
+
+            // Isolation: a captain on the skip list is excluded from re-dispatch, but a captain
+            // not on the list stays eligible.
+            await RunTest("IsCaptainOnRetrySkipList_ExcludesOnlyListed", () =>
+            {
+                AssertTrue(InvokeIsCaptainOnRetrySkipList("cpt_vilao_1,cpt_vilao_2", "cpt_vilao_1"));
+                AssertTrue(InvokeIsCaptainOnRetrySkipList("cpt_vilao_1,cpt_vilao_2", "cpt_vilao_2"));
+                AssertFalse(InvokeIsCaptainOnRetrySkipList("cpt_vilao_1,cpt_vilao_2", "native_fable_1"), "A native fallback captain stays eligible.");
+                AssertFalse(InvokeIsCaptainOnRetrySkipList(null, "cpt_vilao_1"));
+                AssertFalse(InvokeIsCaptainOnRetrySkipList("cpt_vilao_1", null));
+                return Task.CompletedTask;
+            });
         }
 
         /// <summary>
@@ -231,6 +293,39 @@ namespace Armada.Test.Unit.Suites.Services
             Type t = asm.GetType("Armada.Core.Services.MissionService")!;
             MethodInfo mi = t.GetMethod("ShouldRetryMissingJudgeVerdict", BindingFlags.NonPublic | BindingFlags.Static)!;
             return (bool)mi.Invoke(null, new object?[] { hasParseableVerdict, priorRetryCount })!;
+        }
+
+        /// <summary>
+        /// Invoke the private static MissionService.CountRetrySkipCaptains via reflection.
+        /// </summary>
+        private static int InvokeCountRetrySkipCaptains(string? retrySkipCaptainIds)
+        {
+            Assembly asm = typeof(Mission).Assembly;
+            Type t = asm.GetType("Armada.Core.Services.MissionService")!;
+            MethodInfo mi = t.GetMethod("CountRetrySkipCaptains", BindingFlags.NonPublic | BindingFlags.Static)!;
+            return (int)mi.Invoke(null, new object?[] { retrySkipCaptainIds })!;
+        }
+
+        /// <summary>
+        /// Invoke the private static MissionService.AppendRetrySkipCaptain via reflection.
+        /// </summary>
+        private static void InvokeAppendRetrySkipCaptain(Mission mission, string? captainId)
+        {
+            Assembly asm = typeof(Mission).Assembly;
+            Type t = asm.GetType("Armada.Core.Services.MissionService")!;
+            MethodInfo mi = t.GetMethod("AppendRetrySkipCaptain", BindingFlags.NonPublic | BindingFlags.Static)!;
+            mi.Invoke(null, new object?[] { mission, captainId });
+        }
+
+        /// <summary>
+        /// Invoke the private static MissionService.IsCaptainOnRetrySkipList via reflection.
+        /// </summary>
+        private static bool InvokeIsCaptainOnRetrySkipList(string? retrySkipCaptainIds, string? captainId)
+        {
+            Assembly asm = typeof(Mission).Assembly;
+            Type t = asm.GetType("Armada.Core.Services.MissionService")!;
+            MethodInfo mi = t.GetMethod("IsCaptainOnRetrySkipList", BindingFlags.NonPublic | BindingFlags.Static)!;
+            return (bool)mi.Invoke(null, new object?[] { retrySkipCaptainIds, captainId })!;
         }
     }
 }

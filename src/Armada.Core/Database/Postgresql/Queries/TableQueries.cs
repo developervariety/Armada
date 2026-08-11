@@ -703,6 +703,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(60, "Add per-captain provider credential columns to captains",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS api_key TEXT;",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS api_base_url TEXT;"
+                ),
+                new SchemaMigration(61, "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS retry_skip_captain_ids TEXT;"
                 )
             };
         }

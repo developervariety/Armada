@@ -1331,13 +1331,20 @@ namespace Armada.Core.Services
                 // opens an incident and burns the auto-rescue budget on verified-good work. The
                 // RecoveryAttempts counter bounds the total automated recovery effort on this one
                 // mission; explicit FAIL / NEEDS_REVISION verdicts skip this path and stay terminal.
-                if (ShouldRetryMissingJudgeVerdict(verdict != JudgeVerdict.None, mission.RecoveryAttempts))
+                if (ShouldRetryMissingJudgeVerdict(verdict != JudgeVerdict.None, CountRetrySkipCaptains(mission.RetrySkipCaptainIds)))
                 {
-                    await ResetMissionForReRunAsync(mission, token).ConfigureAwait(false);
+                    // Record the captain that produced the empty/no-verdict output so the in-place
+                    // re-run dispatches to a DIFFERENT captain (native fallback) instead of
+                    // re-selecting the same degraded provider, and track the re-run in the same
+                    // persisted list so it does NOT consume the autonomous-rescue budget
+                    // (RecoveryAttempts). An intermittent Judge provider must never block the rescue.
+                    AppendRetrySkipCaptain(mission, captain != null ? captain.Id : mission.CaptainId);
+                    await ResetMissionForReRunAsync(mission, token, countRecoveryBudget: false).ConfigureAwait(false);
                     retryingMissingVerdict = true;
                     _Logging.Warn(_Header + "judge mission " + mission.Id +
-                        " produced no verdict line; re-running in place (recovery attempt " +
-                        mission.RecoveryAttempts + " of " + _MaxMissingJudgeVerdictRetries + ")");
+                        " produced no verdict line; re-running in place on a different captain (re-run " +
+                        CountRetrySkipCaptains(mission.RetrySkipCaptainIds) + " of " + _MaxMissingJudgeVerdictRetries + ", skipping " +
+                        (captain != null ? captain.Id : mission.CaptainId) + ")");
                 }
                 else if (verdict != JudgeVerdict.Pass && !judgeGateRejected)
                 {
@@ -4787,11 +4794,19 @@ namespace Armada.Core.Services
         /// <summary>
         /// Reset a mission for an in-place re-run (used for Judge re-runs: missing verdict, or a
         /// PASS held while independent Checks resolve). Clears the agent-produced state so the
-        /// re-dispatch starts fresh on a new dock and captain.
+        /// re-dispatch starts fresh on a new dock and captain. When
+        /// <paramref name="countRecoveryBudget"/> is false, the mission is re-queued WITHOUT
+        /// consuming the autonomous-rescue budget (<see cref="Mission.RecoveryAttempts"/>); the
+        /// caller tracks its re-run in its own persisted field instead. Used by the missing-verdict
+        /// path so an intermittent provider (a Judge that exits with empty output) never blocks the
+        /// rescue that a genuinely failed mission still needs.
         /// </summary>
-        private async Task ResetMissionForReRunAsync(Mission mission, CancellationToken token)
+        private async Task ResetMissionForReRunAsync(Mission mission, CancellationToken token, bool countRecoveryBudget = true)
         {
-            mission.RecoveryAttempts++;
+            if (countRecoveryBudget)
+            {
+                mission.RecoveryAttempts++;
+            }
             mission.Status = MissionStatusEnum.Pending;
             mission.CaptainId = null;
             mission.DockId = null;
@@ -5813,6 +5828,61 @@ namespace Armada.Core.Services
             return priorRetryCount < _MaxMissingJudgeVerdictRetries;
         }
 
+        /// <summary>
+        /// Count the captain ids already skipped from in-place re-runs for a mission. Each
+        /// missing-verdict re-run appends the failing captain, so the count doubles as the
+        /// missing-verdict retry budget. It is deliberately NOT
+        /// <see cref="Mission.RecoveryAttempts"/>, which gates the autonomous-rescue pipeline:
+        /// an intermittent Judge provider must not consume the recovery budget a genuinely failed
+        /// mission still needs.
+        /// </summary>
+        private static int CountRetrySkipCaptains(string? retrySkipCaptainIds)
+        {
+            if (String.IsNullOrWhiteSpace(retrySkipCaptainIds)) return 0;
+            int count = 0;
+            foreach (string part in retrySkipCaptainIds.Split(','))
+            {
+                if (!String.IsNullOrWhiteSpace(part)) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Append a captain id to the mission's in-place re-run skip list. Deduplicates, so a
+        /// captain that produced empty output more than once is still counted once.
+        /// </summary>
+        private static void AppendRetrySkipCaptain(Mission mission, string? captainId)
+        {
+            if (mission == null || String.IsNullOrWhiteSpace(captainId)) return;
+            string existing = mission.RetrySkipCaptainIds ?? String.Empty;
+            bool alreadyPresent = false;
+            foreach (string part in existing.Split(','))
+            {
+                if (String.Equals(part.Trim(), captainId, StringComparison.Ordinal))
+                {
+                    alreadyPresent = true;
+                    break;
+                }
+            }
+            if (alreadyPresent) return;
+            mission.RetrySkipCaptainIds = String.IsNullOrEmpty(existing)
+                ? captainId
+                : existing + "," + captainId;
+        }
+
+        /// <summary>
+        /// Whether a captain id sits on a mission's in-place re-run skip list.
+        /// </summary>
+        private static bool IsCaptainOnRetrySkipList(string? retrySkipCaptainIds, string? captainId)
+        {
+            if (String.IsNullOrWhiteSpace(captainId) || String.IsNullOrWhiteSpace(retrySkipCaptainIds)) return false;
+            foreach (string part in retrySkipCaptainIds.Split(','))
+            {
+                if (String.Equals(part.Trim(), captainId, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
         private static JudgeVerdict ParseJudgeVerdict(string? agentOutput)
         {
             if (String.IsNullOrEmpty(agentOutput)) return JudgeVerdict.None;
@@ -6351,6 +6421,24 @@ namespace Armada.Core.Services
             if (eligible.Count == 0)
             {
                 return null;
+            }
+
+            // In-place re-run routing: a mission whose judges produced empty output records the
+            // failing captain on RetrySkipCaptainIds. Exclude those captains from re-dispatch so
+            // the re-run routes to a different (native fallback) captain instead of re-selecting
+            // the same degraded provider. If the exclusion would empty the pool entirely (a
+            // single-captain fleet), fall back to the full eligible set so work is never stranded.
+            List<Captain> eligibleFiltersSkipped = new List<Captain>();
+            foreach (Captain captain in eligible)
+            {
+                if (!IsCaptainOnRetrySkipList(mission?.RetrySkipCaptainIds, captain.Id))
+                {
+                    eligibleFiltersSkipped.Add(captain);
+                }
+            }
+            if (eligibleFiltersSkipped.Count > 0)
+            {
+                eligible = eligibleFiltersSkipped;
             }
 
             // Prefer captains whose PreferredPersona matches

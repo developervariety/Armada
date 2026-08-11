@@ -626,6 +626,7 @@ namespace Armada.Core.Database.Sqlite
             try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
             try { object lr = reader["landing_retry_count"]; mission.LandingRetryCount = (lr == null || lr == DBNull.Value) ? 0 : Convert.ToInt32(lr); } catch { }
             try { mission.LastRecoveryActionUtc = FromIso8601Nullable(reader["last_recovery_action_utc"]); } catch { }
+            try { mission.RetrySkipCaptainIds = NullableString(reader["retry_skip_captain_ids"]); } catch { }
             return mission;
         }
 

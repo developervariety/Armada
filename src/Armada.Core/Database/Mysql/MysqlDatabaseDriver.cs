@@ -611,6 +611,11 @@ namespace Armada.Core.Database.Mysql
                     59,
                     "Add per-captain provider credential columns to captains",
                     TableQueries.MigrationV59Statements
+                ),
+                new SchemaMigration(
+                    60,
+                    "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
+                    TableQueries.MigrationV60Statements
                 )
             };
         }
