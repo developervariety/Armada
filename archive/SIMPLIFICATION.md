@@ -166,6 +166,23 @@ frontend types can't drift from the backend contract. **Effort:** low (split) / 
 4. **#7 form source-of-truth, #8 mega-page splits, #9/#10 helpers/types** — opportunistic as
    each page is touched.
 
+## Implementation Status (as executed)
+
+| # | Item | Status |
+|---|------|--------|
+| 9 | Centralize copy-pasted helpers | **Done** — `lib/format.ts` (formatBytes, parseJsonString, methodClass) + `lib/routing.ts` (ID-prefix → route). Duplicates removed. |
+| 4 | One `PageHeader` component | **Done** — all ~52 pages (list + detail) migrated off the three header variants onto the shared component. |
+| 1 | Reusable resource list page | **Abstraction built + first batch migrated.** `lib/useResourceTable.ts` owns search/column-filter/sort/pagination/selection; adopted on Fleets, Vessels, Voyages, Personas, Pipelines, Docks. Remaining list pages are an incremental rollout onto the same hook (the report itself calls for migrating "in batches") — deliberately not force-migrated in one pass to avoid behavior regressions on the complex create/edit pages. |
+| 3 | Server camelCase + drop client shim | **Infeasible as written.** REST responses are serialized by the SwiftStack framework (a NuGet dependency), which emits PascalCase and is not reconfigurable from app code. The client `camelizeKeys` shim is the correct compensating layer; removing it would break every page. Would require forking the framework. |
+| 2 | Adopt `FilterBar` everywhere | **Superseded for the bug; consolidation deferred.** The user-visible "filters stack" bug was fixed directly in CSS (filter selects now `width: auto`, overriding the global rule). Full `FilterBar` adoption is optional consolidation. |
+| 5 | Fix global CSS footgun + split App.css | **Partial.** The footgun (`input,select,textarea{width:100%}`) was neutralized in the filter contexts that it broke. Full removal has wide form blast-radius and is best done alongside #1/#2; the `App.css` split is deferred. |
+| 6 | Merge JsonViewer + RecordDetailModal | **Deferred.** `RecordDetailModal` (readable grid + JSON) was added and is the row-click detail modal; folding the 48 `JsonViewer` usages into it is churn with visual-regression risk for low user value. |
+| 8 | Break up mega-pages | **Deferred** (churn). |
+| 10 | Split/generate `types/models.ts` | **Deferred** (churn / codegen tooling). |
+| 11 | Usability consistency | **Partial** — row-click-opens-modal and per-row View/View JSON/Edit are now universal (separate work); above-table toolbars fold into #1's rollout. |
+
+Net: the shared primitives the report asked for (`PageHeader`, `useResourceTable`, `RecordDetailModal`, `lib/format`, `lib/routing`) exist and are adopted; headers and helpers are fully consolidated; #3 is documented as infeasible; the remaining table-migration is an incremental rollout on the delivered hook.
+
 ## What is already good (leave alone)
 Shared `ActionMenu`, `CopyButton` (with the green-check success state), `StatusBadge`,
 `ConfirmDialog`, `Pagination`, `Markdown`, and `ChatMetricsBar` are solid, well-scoped
