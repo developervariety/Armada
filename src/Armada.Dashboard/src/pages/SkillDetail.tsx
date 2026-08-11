@@ -9,6 +9,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 export default function SkillDetail() {
@@ -95,22 +96,25 @@ export default function SkillDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/skills">{t('Skills')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Skill') : name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Skill') : name}</h2>
-        <div className="inline-actions">
-          {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
-          {!createMode && skill && (
-            <button className="btn btn-sm" onClick={() => setJsonOpen(true)}>{t('View JSON')}</button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/skills">{t('Skills')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Skill') : name}</span>
+          </>
+        }
+        title={createMode ? t('Create Skill') : name}
+        actions={
+          <>
+            {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
+            {!createMode && skill && (
+              <button className="btn btn-sm" onClick={() => setJsonOpen(true)}>{t('View JSON')}</button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonOpen} title={skill?.name || t('Skill')} data={skill} onClose={() => setJsonOpen(false)} />

@@ -4,6 +4,7 @@ import { createPipeline, getPipeline, updatePipeline, deletePipeline, listPerson
 import type { Pipeline, PipelineStage, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import ActionMenu from '../components/shared/ActionMenu';
+import PageHeader from '../components/shared/PageHeader';
 import JsonViewer from '../components/shared/JsonViewer';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
@@ -223,27 +224,29 @@ export default function PipelineDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/pipelines">{t('Pipelines')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{pipeline.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{pipeline.name}</h2>
-        <div className="inline-actions">
-          {canManage && (
-            <button className="btn btn-primary" onClick={openRun} disabled={pipeline.stages.length === 0} title={t('Dispatch a voyage using this pipeline')}>
-              {'▶'} {t('Run')}
-            </button>
-          )}
-          <ActionMenu id={`pipeline-${pipeline.name}`} items={[
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
-            { label: 'Edit', onClick: openEdit },
-            { label: 'Duplicate', onClick: () => void handleDuplicate() },
-            { label: 'Delete', danger: true, onClick: handleDelete, disabled: pipeline.isBuiltIn },
-          ]} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/pipelines">{t('Pipelines')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{pipeline.name}</span>
+          </>
+        }
+        title={pipeline.name}
+        actions={
+          <>
+            {canManage && (
+              <button className="btn btn-primary" onClick={openRun} disabled={pipeline.stages.length === 0} title={t('Dispatch a voyage using this pipeline')}>
+                {'▶'} {t('Run')}
+              </button>
+            )}
+            <ActionMenu id={`pipeline-${pipeline.name}`} items={[
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              { label: 'Delete', danger: true, onClick: handleDelete, disabled: pipeline.isBuiltIn },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

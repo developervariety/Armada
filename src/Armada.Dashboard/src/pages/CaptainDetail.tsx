@@ -19,6 +19,7 @@ import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
@@ -280,17 +281,19 @@ export default function CaptainDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/captains">{t('Captains')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{captain.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{captain.name}</h2>
-        <div className="inline-actions">
-          <ActionMenu id={`captain-${captain.id}`} items={getActionItems()} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/captains">{t('Captains')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{captain.name}</span>
+          </>
+        }
+        title={captain.name}
+        actions={
+          <>
+            <ActionMenu id={`captain-${captain.id}`} items={getActionItems()} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

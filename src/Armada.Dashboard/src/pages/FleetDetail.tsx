@@ -5,6 +5,7 @@ import type { Fleet, Vessel, Pipeline } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -104,22 +105,24 @@ export default function FleetDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/fleets">{t('Fleets')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{fleet.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{fleet.name}</h2>
-        <div className="inline-actions">
-          <ActionMenu id={`fleet-${fleet.id}`} items={[
-            { label: 'Edit', onClick: openEdit },
-            { label: 'Duplicate', onClick: () => void handleDuplicate() },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Fleet: {{name}}', { name: fleet.name }), data: fleet }) },
-            { label: 'Delete', danger: true, onClick: handleDelete },
-          ]} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/fleets">{t('Fleets')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{fleet.name}</span>
+          </>
+        }
+        title={fleet.name}
+        actions={
+          <>
+            <ActionMenu id={`fleet-${fleet.id}`} items={[
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Fleet: {{name}}', { name: fleet.name }), data: fleet }) },
+              { label: 'Delete', danger: true, onClick: handleDelete },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

@@ -4,6 +4,7 @@ import { createPersona, deletePersona, getPersona, getPromptTemplate, listPrompt
 import type { Persona, PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
@@ -188,23 +189,25 @@ export default function PersonaDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/personas">{t('Personas')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{persona.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{persona.name}</h2>
-        <div className="inline-actions">
-          <ActionMenu id={`persona-${persona.name}`} items={[
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
-            { label: 'Edit', onClick: openEdit },
-            { label: 'Duplicate', onClick: () => void handleDuplicate() },
-            ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
-            { label: 'Delete', danger: true, onClick: handleDelete },
-          ]} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/personas">{t('Personas')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{persona.name}</span>
+          </>
+        }
+        title={persona.name}
+        actions={
+          <>
+            <ActionMenu id={`persona-${persona.name}`} items={[
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
+              { label: 'Delete', danger: true, onClick: handleDelete },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

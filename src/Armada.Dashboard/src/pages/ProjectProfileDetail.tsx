@@ -17,6 +17,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 const KNOWN_PERSONAS = ['Product Manager', 'Architect', 'Worker', 'Test Engineer', 'Judge', 'Usability Engineer'];
@@ -162,22 +163,25 @@ export default function ProjectProfileDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/project-profiles">{t('Project Profiles')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Project Profile') : name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Project Profile') : name}</h2>
-        <div className="inline-actions">
-          {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
-          {!createMode && profile && (
-            <button className="btn btn-sm" onClick={() => setJsonOpen(true)}>{t('View JSON')}</button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/project-profiles">{t('Project Profiles')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Project Profile') : name}</span>
+          </>
+        }
+        title={createMode ? t('Create Project Profile') : name}
+        actions={
+          <>
+            {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
+            {!createMode && profile && (
+              <button className="btn btn-sm" onClick={() => setJsonOpen(true)}>{t('View JSON')}</button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonOpen} title={profile?.name || t('Project Profile')} data={profile} onClose={() => setJsonOpen(false)} />

@@ -5,6 +5,7 @@ import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, La
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -216,42 +217,45 @@ export default function VesselDetail() {
   return (
     <div>
       {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/vessels">{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{vessel.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{vessel.name}</h2>
-        <div className="inline-actions">
-          <button type="button" className="btn btn-sm" onClick={handleManageObjectives}>
-            {t('Manage Objectives')}
-          </button>
-          {vessel.fleetId && (
-            <button type="button" className="btn btn-sm" onClick={() => navigate(`/fleets/${vessel.fleetId}`)}>
-              {t('Manage Fleet')}
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/vessels">{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{vessel.name}</span>
+          </>
+        }
+        title={vessel.name}
+        actions={
+          <>
+            <button type="button" className="btn btn-sm" onClick={handleManageObjectives}>
+              {t('Manage Objectives')}
             </button>
-          )}
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}/onboarding`)}>
-            {t('Onboarding')}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })}>
-            {t('Run Check')}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
-            {t('Open Workspace')}
-          </button>
-          <ActionMenu id={`vessel-${vessel.id}`} items={[
-            { label: 'Manage Objectives', onClick: handleManageObjectives },
-            { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },
-            { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
-            { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
-            { label: 'Edit', onClick: openEdit },
-            { label: 'Duplicate', onClick: () => void handleDuplicate() },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
-            { label: 'Delete', danger: true, onClick: handleDelete },
-          ]} />
-        </div>
-      </div>
+            {vessel.fleetId && (
+              <button type="button" className="btn btn-sm" onClick={() => navigate(`/fleets/${vessel.fleetId}`)}>
+                {t('Manage Fleet')}
+              </button>
+            )}
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}/onboarding`)}>
+              {t('Onboarding')}
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })}>
+              {t('Run Check')}
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
+              {t('Open Workspace')}
+            </button>
+            <ActionMenu id={`vessel-${vessel.id}`} items={[
+              { label: 'Manage Objectives', onClick: handleManageObjectives },
+              { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },
+              { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
+              { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
+              { label: 'Delete', danger: true, onClick: handleDelete },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

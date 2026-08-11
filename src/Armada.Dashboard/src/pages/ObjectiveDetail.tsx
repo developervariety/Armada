@@ -67,6 +67,7 @@ import {
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 
@@ -863,20 +864,21 @@ export default function ObjectiveDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to={canonicalListPath}>{t('Backlog')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Backlog Item') : title}</span>
-        {!isBacklogPath && !createMode && objective && (
+      <PageHeader
+        breadcrumb={
           <>
-            <span className="breadcrumb-sep">&gt;</span>
-            <Link to={canonicalItemPath(objective.id)}>{t('Canonical Backlog Route')}</Link>
+            <Link to={canonicalListPath}>{t('Backlog')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Backlog Item') : title}</span>
+            {!isBacklogPath && !createMode && objective && (
+              <>
+                <span className="breadcrumb-sep">&gt;</span>
+                <Link to={canonicalItemPath(objective.id)}>{t('Canonical Backlog Route')}</Link>
+              </>
+            )}
           </>
-        )}
-      </div>
-
-      <div className="detail-header">
-        <div>
-          <h2>{createMode ? t('Create Backlog Item') : title}</h2>
-          {!createMode && objective && (
+        }
+        title={createMode ? t('Create Backlog Item') : title}
+        subtitle={
+          !createMode && objective ? (
             <div className="backlog-chip-row" style={{ marginTop: '0.35rem' }}>
               <span className={`tag ${objective.kind.toLowerCase()}`}>{objective.kind}</span>
               <span className={`tag ${objective.priority.toLowerCase()}`}>{objective.priority}</span>
@@ -884,9 +886,10 @@ export default function ObjectiveDetail() {
               <StatusBadge status={objective.status} />
               <span className={`tag ${objective.backlogState.toLowerCase()}`}>{objective.backlogState}</span>
             </div>
-          )}
-        </div>
-        <div className="inline-actions">
+          ) : undefined
+        }
+        actions={
+          <>
           {!createMode && (
             <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: objective })} title={t('Open the raw backlog item JSON payload.')}>
               {t('View JSON')}
@@ -973,8 +976,9 @@ export default function ObjectiveDetail() {
               {t('Delete')}
             </button>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

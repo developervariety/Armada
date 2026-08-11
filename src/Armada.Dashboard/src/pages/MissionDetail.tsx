@@ -29,6 +29,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
+import PageHeader from '../components/shared/PageHeader';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 
@@ -372,50 +373,52 @@ export default function MissionDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/missions">{t('Missions')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{mission.title}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{mission.title}</h2>
-        <div className="inline-actions">
-          {canResolveReview && (
-            <>
-              <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' })}>{t('Approve')}</button>
-              <button className="btn btn-sm btn-danger" onClick={() => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' })}>{t('Deny')}</button>
-            </>
-          )}
-          <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
-          <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
-          <button className="btn btn-sm" onClick={handleViewInstructions} title={t('View mission instructions')}>{t('Instructions')}</button>
-          {mission.vesselId && (
-            <button className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } })}>
-              {t('Run Check')}
-            </button>
-          )}
-          {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
-            <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</button>
-          )}
-          <ActionMenu id={`mission-action-${mission.id}`} items={[
-            { label: 'Edit', onClick: openEdit },
-            ...(canResolveReview ? [
-              { label: 'Approve Review', onClick: () => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' }) },
-              { label: 'Deny Review', onClick: () => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' }) },
-            ] : []),
-            { label: 'View Diff', onClick: handleViewDiff },
-            { label: 'View Log', onClick: handleViewLog },
-            { label: 'View Instructions', onClick: handleViewInstructions },
-            ...(mission.vesselId ? [{ label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } }) }] : []),
-            { label: 'Transition Status', onClick: () => setShowTransition(true) },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
-            { label: 'Restart', onClick: handleRestart },
-            ...((mission.status === 'WorkProduced' || mission.status === 'LandingFailed') ? [{ label: 'Retry Landing', onClick: async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } } }] : []),
-            { label: 'Purge', danger: true, onClick: handlePurge },
-            { label: 'Delete', danger: true, onClick: handleDelete },
-          ]} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/missions">{t('Missions')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{mission.title}</span>
+          </>
+        }
+        title={mission.title}
+        actions={
+          <>
+            {canResolveReview && (
+              <>
+                <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' })}>{t('Approve')}</button>
+                <button className="btn btn-sm btn-danger" onClick={() => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' })}>{t('Deny')}</button>
+              </>
+            )}
+            <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
+            <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
+            <button className="btn btn-sm" onClick={handleViewInstructions} title={t('View mission instructions')}>{t('Instructions')}</button>
+            {mission.vesselId && (
+              <button className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } })}>
+                {t('Run Check')}
+              </button>
+            )}
+            {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
+              <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</button>
+            )}
+            <ActionMenu id={`mission-action-${mission.id}`} items={[
+              { label: 'Edit', onClick: openEdit },
+              ...(canResolveReview ? [
+                { label: 'Approve Review', onClick: () => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' }) },
+                { label: 'Deny Review', onClick: () => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' }) },
+              ] : []),
+              { label: 'View Diff', onClick: handleViewDiff },
+              { label: 'View Log', onClick: handleViewLog },
+              { label: 'View Instructions', onClick: handleViewInstructions },
+              ...(mission.vesselId ? [{ label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } }) }] : []),
+              { label: 'Transition Status', onClick: () => setShowTransition(true) },
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
+              { label: 'Restart', onClick: handleRestart },
+              ...((mission.status === 'WorkProduced' || mission.status === 'LandingFailed') ? [{ label: 'Retry Landing', onClick: async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } } }] : []),
+              { label: 'Purge', danger: true, onClick: handlePurge },
+              { label: 'Delete', danger: true, onClick: handleDelete },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

@@ -21,6 +21,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import { buildEnvironmentDuplicatePayload } from '../lib/duplicates';
 
 const ENVIRONMENT_KINDS: EnvironmentKind[] = ['Development', 'Test', 'Staging', 'Production', 'CustomerHosted', 'Custom'];
@@ -266,102 +267,105 @@ export default function EnvironmentDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/environments">{t('Environments')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Environment') : name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Environment') : name}</h2>
-        <div className="inline-actions">
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/deployments/new', {
-                state: {
-                  prefill: {
-                    vesselId: vesselId || null,
-                    environmentId: environment?.id || null,
-                    environmentName: environment?.name || null,
-                    title: `${name} Deploy`,
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/environments">{t('Environments')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Environment') : name}</span>
+          </>
+        }
+        title={createMode ? t('Create Environment') : name}
+        actions={
+          <>
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/deployments/new', {
+                  state: {
+                    prefill: {
+                      vesselId: vesselId || null,
+                      environmentId: environment?.id || null,
+                      environmentName: environment?.name || null,
+                      title: `${name} Deploy`,
+                    },
                   },
-                },
-              })}
-            >
-              {t('Deploy')}
-            </button>
-          )}
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/checks', {
-                state: {
-                  prefill: {
-                    vesselId: vesselId || null,
-                    label: name,
-                    environmentName: name,
+                })}
+              >
+                {t('Deploy')}
+              </button>
+            )}
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/checks', {
+                  state: {
+                    prefill: {
+                      vesselId: vesselId || null,
+                      label: name,
+                      environmentName: name,
+                    },
                   },
-                },
-              })}
-            >
-              {t('Run Check')}
-            </button>
-          )}
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/incidents/new', {
-                state: {
-                  prefill: {
-                    vesselId: vesselId || null,
-                    environmentId: environment?.id || null,
-                    environmentName: environment?.name || name,
-                    title: `${name} Incident`,
-                    severity: kind === 'Production' ? 'High' : 'Medium',
+                })}
+              >
+                {t('Run Check')}
+              </button>
+            )}
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/incidents/new', {
+                  state: {
+                    prefill: {
+                      vesselId: vesselId || null,
+                      environmentId: environment?.id || null,
+                      environmentName: environment?.name || name,
+                      title: `${name} Incident`,
+                      severity: kind === 'Production' ? 'High' : 'Medium',
+                    },
                   },
-                },
-              })}
-            >
-              {t('Create Incident')}
-            </button>
-          )}
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/runbooks', {
-                state: {
-                  prefillExecution: {
-                    environmentId: environment?.id || null,
-                    environmentName: environment?.name || name,
-                    checkType: verificationDefinitions.length > 0 ? 'DeploymentVerification' : 'HealthCheck',
+                })}
+              >
+                {t('Create Incident')}
+              </button>
+            )}
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/runbooks', {
+                  state: {
+                    prefillExecution: {
+                      environmentId: environment?.id || null,
+                      environmentName: environment?.name || name,
+                      checkType: verificationDefinitions.length > 0 ? 'DeploymentVerification' : 'HealthCheck',
+                    },
                   },
-                },
-              })}
-            >
-              {t('Runbook')}
-            </button>
-          )}
-          {!createMode && selectedVessel && (
-            <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)}>
-              {t('Open Workspace')}
-            </button>
-          )}
-          {!createMode && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: environment })}>
-              {t('View JSON')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
-              {t('Duplicate')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
-              {t('Delete')}
-            </button>
-          )}
-        </div>
-      </div>
+                })}
+              >
+                {t('Runbook')}
+              </button>
+            )}
+            {!createMode && selectedVessel && (
+              <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)}>
+                {t('Open Workspace')}
+              </button>
+            )}
+            {!createMode && (
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: environment })}>
+                {t('View JSON')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+                {t('Duplicate')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+                {t('Delete')}
+              </button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
