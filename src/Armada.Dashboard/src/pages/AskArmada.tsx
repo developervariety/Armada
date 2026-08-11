@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { chatWithCaptain, getCaptainTools, listCaptains } from '../api/client';
-import type { Captain, CaptainChatMessage, CaptainChatMetrics, CaptainToolAccessResult } from '../types/models';
+import type { Captain, CaptainChatMessage, CaptainChatMetrics, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
+import { useWebSocket } from '../context/WebSocketContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import Markdown from '../components/shared/Markdown';
 import ChatMetricsInfo from '../components/shared/ChatMetricsInfo';
@@ -12,6 +13,7 @@ interface ChatTurn {
   text: string;
   metrics?: CaptainChatMetrics;
   model?: string | null;
+  streaming?: boolean;
 }
 
 // Ask Armada is available with any captain.
@@ -22,6 +24,7 @@ function isChattable(_captain: Captain): boolean {
 export default function AskArmada() {
   const { t } = useLocale();
   const navigate = useNavigate();
+  const { subscribe } = useWebSocket();
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [captainId, setCaptainId] = useState('');
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -58,26 +61,50 @@ export default function AskArmada() {
   const selectedCaptain = captains.find((c) => c.id === captainId) || null;
   const armadaMcpMissing = tools != null && tools.armadaToolCount <= 0;
 
+  // Replace the in-flight streaming assistant turn (the last one) via the updater.
+  function updateStreamingTurn(mutate: (turn: ChatTurn) => ChatTurn) {
+    setTurns((current) => {
+      const copy = [...current];
+      for (let i = copy.length - 1; i >= 0; i -= 1) {
+        if (copy[i].role === 'assistant' && copy[i].streaming) { copy[i] = mutate(copy[i]); break; }
+      }
+      return copy;
+    });
+  }
+
   async function send(message: string) {
     const text = message.trim();
     if (!text || busy || !captainId) return;
     setInput('');
 
+    const turnId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
     const history: CaptainChatMessage[] = turns.map((turn) => ({ role: turn.role, content: turn.text }));
-    setTurns((current) => [...current, { role: 'user', text }]);
+    // Add the user turn and an empty assistant turn that fills in live as chunks stream over the WebSocket.
+    setTurns((current) => [...current, { role: 'user', text }, { role: 'assistant', text: '', streaming: true }]);
     setBusy(true);
+
+    const unsubscribe = subscribe((msg: WebSocketMessage) => {
+      if (msg.type !== 'ask.chunk') return;
+      const data = msg.data as { turnId?: string; delta?: string } | undefined;
+      if (!data || data.turnId !== turnId || !data.delta) return;
+      updateStreamingTurn((turn) => ({ ...turn, text: turn.text + data.delta }));
+      requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
+    });
+
     try {
-      const response = await chatWithCaptain(captainId, { message: text, history });
+      const response = await chatWithCaptain(captainId, { message: text, history, turnId });
       if (!response.success) {
         setError(response.error || t('The captain could not respond.'));
-        setTurns((current) => current.slice(0, -1)); // drop the unanswered user turn
+        setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
       } else {
-        setTurns((current) => [...current, { role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }]);
+        // Reconcile the streamed text with the authoritative final reply + metrics.
+        updateStreamingTurn(() => ({ role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }));
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Chat failed.'));
-      setTurns((current) => current.slice(0, -1));
+      setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
     } finally {
+      unsubscribe();
       setBusy(false);
       requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
     }

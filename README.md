@@ -459,7 +459,7 @@ Armada is a C#/.NET solution with five main projects:
 |---------|-------------|
 | **Armada.Core** | Domain models (including tenants, users, credentials), database interfaces, service interfaces, settings |
 | **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, extensible via `IAgentRuntime`) |
-| **Armada.Server** | Admiral process: REST API ([SwiftStack](https://github.com/jchristn/swiftstack)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), WebSocket hub, embedded dashboard |
+| **Armada.Server** | Admiral process: REST API + WebSocket ([Watson](https://github.com/jchristn/watson)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), embedded dashboard |
 | **Armada.Dashboard** | Standalone React dashboard for Docker/production deployments |
 | **Armada.Helm** | CLI ([Spectre.Console](https://spectreconsole.net/)), thin HTTP client to Admiral |
 
@@ -573,7 +573,7 @@ Direct Dispatch (CLI / API / MCP)                Dashboard Planning UI
 |-----------|-----------|-------|
 | Language | C# / .NET 8+ | Cross-platform |
 | Database | SQLite, PostgreSQL, SQL Server, MySQL | SQLite default; zero-install, embedded |
-| REST API | [SwiftStack](https://github.com/jchristn/swiftstack) | OpenAPI built-in |
+| REST API + WebSocket | [Watson](https://github.com/jchristn/watson) | OpenAPI built-in |
 | MCP/JSON-RPC | [Voltaic](https://github.com/jchristn/voltaic) | Standards-compliant MCP server |
 | CLI | [Spectre.Console](https://spectreconsole.net/) | Rich terminal UI |
 | Logging | [SyslogLogging](https://github.com/jchristn/sysloglogging) | Structured logging |

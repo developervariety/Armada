@@ -865,6 +865,7 @@ export interface CaptainChatMetrics {
 export interface CaptainChatRequest {
   message: string;
   history: CaptainChatMessage[];
+  turnId?: string;
 }
 
 export interface CaptainChatResponse {

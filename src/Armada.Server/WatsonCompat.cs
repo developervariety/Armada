@@ -4,8 +4,8 @@ namespace Armada.Server
     using WatsonWebserver.Core.OpenApi;
 
     /// <summary>
-    /// Fluent helpers on <see cref="OpenApiRouteMetadata"/> preserving the call sites
-    /// previously provided by SwiftStack's OpenAPI extensions.
+    /// Fluent helpers on <see cref="OpenApiRouteMetadata"/> for concise route-metadata call sites
+    /// on top of Watson's OpenAPI model.
     /// </summary>
     public static class OpenApiRouteMetadataExtensions
     {
@@ -38,8 +38,8 @@ namespace Armada.Server
     }
 
     /// <summary>
-    /// Typed response factories for <see cref="OpenApiResponseMetadata"/>. Preserves the
-    /// <c>OpenApiResponseMetadata.Json&lt;T&gt;(description)</c> shape that SwiftStack exposed.
+    /// Typed response factories for <see cref="OpenApiResponseMetadata"/> providing a concise
+    /// <c>OpenApiJson.For&lt;T&gt;(description)</c> shape on top of Watson's OpenAPI model.
     /// </summary>
     public static class OpenApiJson
     {

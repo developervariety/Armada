@@ -11,6 +11,7 @@ namespace Armada.Server
     using Armada.Core.Models;
     using Armada.Runtimes;
     using Armada.Runtimes.Interfaces;
+    using Armada.Server.WebSocket;
     using SyslogLogging;
 
     /// <summary>
@@ -26,6 +27,7 @@ namespace Armada.Server
 
         private readonly DatabaseDriver _Database;
         private readonly AgentRuntimeFactory _RuntimeFactory;
+        private readonly ArmadaWebSocketHub? _WebSocketHub;
         private readonly LoggingModule _Logging;
         private readonly string _Header = "[CaptainChatService] ";
 
@@ -42,11 +44,13 @@ namespace Armada.Server
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="runtimeFactory">Agent runtime factory used to launch the captain's CLI headlessly.</param>
+        /// <param name="webSocketHub">WebSocket hub used to stream reply chunks live; may be null.</param>
         /// <param name="logging">Logging module.</param>
-        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, LoggingModule logging)
+        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, ArmadaWebSocketHub? webSocketHub, LoggingModule logging)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
+            _WebSocketHub = webSocketHub;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
@@ -105,13 +109,14 @@ namespace Armada.Server
                 double? reportedDurationMs = null;
                 int? reportedTokens = null;
                 string? reportedModel = null;
+                string? turnId = request.TurnId;
 
                 runtime.OnOutputReceived += (pid, line) =>
                 {
                     if (isMux && MuxRuntime.IsProtocolEventLine(line))
                     {
-                        // Parse the Mux event for telemetry instead of discarding it. The reply text
-                        // itself still comes from the final-message artifact.
+                        // Parse the Mux event for telemetry and live text. The final reply still comes
+                        // from the final-message artifact; assistant_text carries the streamed deltas.
                         try
                         {
                             using (JsonDocument doc = JsonDocument.Parse(line.Trim()))
@@ -120,13 +125,18 @@ namespace Armada.Server
                                 string eventType = root.TryGetProperty("eventType", out JsonElement et) && et.ValueKind == JsonValueKind.String
                                     ? et.GetString() ?? String.Empty : String.Empty;
 
+                                string? deltaText = null;
                                 lock (outputLock)
                                 {
-                                    if (eventType == "assistant_text" && firstOutputUtc == null)
-                                        firstOutputUtc = DateTime.UtcNow;
                                     if (root.TryGetProperty("model", out JsonElement m) && m.ValueKind == JsonValueKind.String)
                                         reportedModel = m.GetString();
-                                    if (eventType == "run_completed")
+                                    if (eventType == "assistant_text")
+                                    {
+                                        if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
+                                        if (root.TryGetProperty("text", out JsonElement tx) && tx.ValueKind == JsonValueKind.String)
+                                            deltaText = tx.GetString();
+                                    }
+                                    else if (eventType == "run_completed")
                                     {
                                         if (root.TryGetProperty("durationMs", out JsonElement d) && d.ValueKind == JsonValueKind.Number)
                                             reportedDurationMs = d.GetDouble();
@@ -134,6 +144,7 @@ namespace Armada.Server
                                             reportedTokens = ft.GetInt32();
                                     }
                                 }
+                                if (!String.IsNullOrEmpty(deltaText)) EmitChunk(turnId, deltaText!);
                             }
                         }
                         catch (JsonException) { }
@@ -149,6 +160,7 @@ namespace Armada.Server
                             output.Append('\n');
                         }
                     }
+                    EmitChunk(turnId, line + "\n");
                 };
                 runtime.OnProcessExited += (pid, code) => exitSource.TrySetResult(code);
 
@@ -280,6 +292,13 @@ namespace Armada.Server
 
             builder.Append("User: " + request.Message.Trim());
             return builder.ToString();
+        }
+
+        private void EmitChunk(string? turnId, string delta)
+        {
+            if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null || String.IsNullOrEmpty(delta)) return;
+            try { _WebSocketHub.BroadcastEvent("ask.chunk", String.Empty, new { turnId, delta }); }
+            catch { }
         }
 
         private static CaptainChatResponse Fail(string error)

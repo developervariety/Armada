@@ -20,6 +20,13 @@ namespace Armada.Core.Models
         /// </summary>
         public List<CaptainChatMessage> History { get; set; } = new List<CaptainChatMessage>();
 
+        /// <summary>
+        /// Optional client-generated turn identifier. When set, the server streams the reply as it is
+        /// produced by broadcasting <c>ask.chunk</c> WebSocket events tagged with this id, so the
+        /// dashboard can render tokens live. The HTTP response still returns the full reply and metrics.
+        /// </summary>
+        public string? TurnId { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories
