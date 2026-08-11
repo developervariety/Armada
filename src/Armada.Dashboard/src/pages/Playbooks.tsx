@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPlaybook, deletePlaybook, listPlaybooks } from '../api/client';
+import { createPlaybook, deletePlaybook, listPlaybooks, updatePlaybook } from '../api/client';
 import type { Playbook } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -32,8 +32,9 @@ export default function Playbooks() {
     onConfirm: () => {},
   });
 
-  // Create modal
+  // Create/Edit modal
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Playbook | null>(null);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState<{ fileName: string; description: string; content: string; active: boolean }>({
     fileName: 'NEW_PLAYBOOK.md',
@@ -45,6 +46,7 @@ export default function Playbooks() {
   const canManage = isAdmin || isTenantAdmin;
 
   function openCreate() {
+    setEditing(null);
     setCreateForm({
       fileName: 'NEW_PLAYBOOK.md',
       description: '',
@@ -54,19 +56,37 @@ export default function Playbooks() {
     setShowCreate(true);
   }
 
+  function openEdit(playbook: Playbook) {
+    setEditing(playbook);
+    setCreateForm({
+      fileName: playbook.fileName,
+      description: playbook.description || '',
+      content: playbook.content,
+      active: playbook.active,
+    });
+    setShowCreate(true);
+  }
+
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     if (saving) return;
     setSaving(true);
     try {
-      const created = await createPlaybook({
+      const payload = {
         fileName: createForm.fileName,
         description: createForm.description.trim() || null,
         content: createForm.content,
         active: createForm.active,
-      });
-      setShowCreate(false);
-      pushToast('success', t('Playbook "{{name}}" created.', { name: created.fileName }));
+      };
+      if (editing) {
+        const updated = await updatePlaybook(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Playbook "{{name}}" saved.', { name: updated.fileName }));
+      } else {
+        const created = await createPlaybook(payload);
+        setShowCreate(false);
+        pushToast('success', t('Playbook "{{name}}" created.', { name: created.fileName }));
+      }
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -172,7 +192,7 @@ export default function Playbooks() {
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
-            <h3>{t('Create Playbook')}</h3>
+            <h3>{editing ? t('Edit Playbook') : t('Create Playbook')}</h3>
             <label>{t('File Name')}
               <input type="text" value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} placeholder={t('CSHARP_BACKEND_ARCHITECTURE.md')} required />
             </label>
@@ -187,7 +207,7 @@ export default function Playbooks() {
               <span>{t('Active and selectable during dispatch')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Playbook')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Playbook')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -259,7 +279,7 @@ export default function Playbooks() {
             </thead>
             <tbody>
               {filtered.map((playbook) => (
-                <tr key={playbook.id} className="clickable" onClick={() => navigate(`/playbooks/${playbook.id}`)}>
+                <tr key={playbook.id} className="clickable" onClick={() => canManage ? openEdit(playbook) : navigate(`/playbooks/${playbook.id}`)}>
                   <td>
                     <strong>{playbook.fileName}</strong>
                     <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{playbook.id}</div>
@@ -279,6 +299,7 @@ export default function Playbooks() {
                       id={`playbook-${playbook.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/playbooks/${playbook.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(playbook) }] : []),
                         ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(playbook) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: playbook.fileName, data: playbook }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(playbook) }] : []),

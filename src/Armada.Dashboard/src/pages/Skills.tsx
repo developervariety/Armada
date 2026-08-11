@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createSkill, deleteSkill, listSkills } from '../api/client';
+import { createSkill, deleteSkill, listSkills, updateSkill } from '../api/client';
 import type { Skill } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -28,8 +28,9 @@ export default function Skills() {
     open: false, title: '', message: '', onConfirm: () => {},
   });
 
-  // Create modal
+  // Create/Edit modal
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Skill | null>(null);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState<{ name: string; category: string; description: string; content: string; active: boolean }>({
     name: 'Untitled Skill', category: '', description: '', content: '', active: true,
@@ -38,7 +39,20 @@ export default function Skills() {
   const canManage = isAdmin || isTenantAdmin;
 
   function openCreate() {
+    setEditing(null);
     setCreateForm({ name: 'Untitled Skill', category: '', description: '', content: '', active: true });
+    setShowCreate(true);
+  }
+
+  function openEdit(skill: Skill) {
+    setEditing(skill);
+    setCreateForm({
+      name: skill.name,
+      category: skill.category || '',
+      description: skill.description || '',
+      content: skill.content || '',
+      active: skill.active,
+    });
     setShowCreate(true);
   }
 
@@ -47,15 +61,22 @@ export default function Skills() {
     if (saving) return;
     setSaving(true);
     try {
-      const created = await createSkill({
+      const payload = {
         name: createForm.name,
         description: createForm.description || null,
         category: createForm.category || null,
         content: createForm.content,
         active: createForm.active,
-      });
-      setShowCreate(false);
-      pushToast('success', t('Skill "{{name}}" created.', { name: created.name }));
+      };
+      if (editing) {
+        const updated = await updateSkill(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Skill "{{name}}" saved.', { name: updated.name }));
+      } else {
+        const created = await createSkill(payload);
+        setShowCreate(false);
+        pushToast('success', t('Skill "{{name}}" created.', { name: created.name }));
+      }
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -144,7 +165,7 @@ export default function Skills() {
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(e) => e.stopPropagation()} onSubmit={handleCreate}>
-            <h3>{t('Create Skill')}</h3>
+            <h3>{editing ? t('Edit Skill') : t('Create Skill')}</h3>
             <label>{t('Name')}
               <input type="text" value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} required />
             </label>
@@ -162,7 +183,7 @@ export default function Skills() {
               <span>{t('Active')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Skill')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Skill')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -226,7 +247,7 @@ export default function Skills() {
             </thead>
             <tbody>
               {filtered.map((skill) => (
-                <tr key={skill.id} className="clickable" onClick={() => navigate(`/skills/${skill.id}`)}>
+                <tr key={skill.id} className="clickable" onClick={() => canManage ? openEdit(skill) : navigate(`/skills/${skill.id}`)}>
                   <td>
                     <strong>{skill.name}</strong>
                     <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{skill.id}</div>
@@ -240,6 +261,7 @@ export default function Skills() {
                       id={`skill-${skill.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/skills/${skill.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(skill) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: skill.name, data: skill }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(skill) }] : []),
                       ]}

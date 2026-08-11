@@ -8,6 +8,7 @@ import {
   listReleases,
   listVessels,
   listWorkflowProfiles,
+  updateDeployment,
 } from '../api/client';
 import type {
   Deployment,
@@ -93,6 +94,7 @@ export default function Deployments() {
   };
 
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Deployment | null>(null);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
@@ -124,7 +126,27 @@ export default function Deployments() {
   }, []);
 
   function openCreate() {
+    setEditing(null);
     setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  function openEdit(deployment: Deployment) {
+    setEditing(deployment);
+    setCreateForm({
+      vesselId: deployment.vesselId || '',
+      workflowProfileId: deployment.workflowProfileId || '',
+      environmentId: deployment.environmentId || '',
+      environmentName: deployment.environmentName || '',
+      releaseId: deployment.releaseId || '',
+      sourceRef: deployment.sourceRef || '',
+      missionId: deployment.missionId || '',
+      voyageId: deployment.voyageId || '',
+      title: deployment.title || 'Deployment',
+      summary: deployment.summary || '',
+      notes: deployment.notes || '',
+      autoExecute: true,
+    });
     setShowCreate(true);
   }
 
@@ -166,9 +188,15 @@ export default function Deployments() {
         notes: createForm.notes.trim() || null,
         autoExecute: createForm.autoExecute,
       };
-      const created = await createDeployment(payload);
-      setShowCreate(false);
-      pushToast('success', t('Deployment "{{title}}" created.', { title: created.title }));
+      if (editing) {
+        const updated = await updateDeployment(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Deployment "{{title}}" saved.', { title: updated.title }));
+      } else {
+        const created = await createDeployment(payload);
+        setShowCreate(false);
+        pushToast('success', t('Deployment "{{title}}" created.', { title: created.title }));
+      }
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -262,7 +290,7 @@ export default function Deployments() {
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
-            <h3>{t('Create Deployment')}</h3>
+            <h3>{editing ? t('Edit Deployment') : t('Create Deployment')}</h3>
             <label>{t('Vessel')}
               <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
                 <option value="">{t('Select a vessel')}</option>
@@ -321,7 +349,7 @@ export default function Deployments() {
               <span>{t('Execute immediately when approval is not required')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Deployment')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Deployment')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -416,7 +444,7 @@ export default function Deployments() {
             </thead>
             <tbody>
               {filtered.map((deployment) => (
-                <tr key={deployment.id} className="clickable" onClick={() => navigate(`/deployments/${deployment.id}`)}>
+                <tr key={deployment.id} className="clickable" onClick={() => canManage ? openEdit(deployment) : navigate(`/deployments/${deployment.id}`)}>
                   <td>
                     <strong>{deployment.title}</strong>
                     <div className="text-dim" style={{ marginTop: '0.2rem' }}>
@@ -441,6 +469,7 @@ export default function Deployments() {
                       id={`deployment-${deployment.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/deployments/${deployment.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(deployment) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: deployment.title, data: deployment }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(deployment) }] : []),
                       ]}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createRelease, deleteRelease, listReleases, listVessels, listWorkflowProfiles } from '../api/client';
+import { createRelease, deleteRelease, listReleases, listVessels, listWorkflowProfiles, updateRelease } from '../api/client';
 import type { Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -61,11 +61,31 @@ export default function Releases() {
   };
 
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Release | null>(null);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
   function openCreate() {
+    setEditing(null);
     setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  function openEdit(release: Release) {
+    setEditing(release);
+    setCreateForm({
+      vesselId: release.vesselId || '',
+      workflowProfileId: release.workflowProfileId || '',
+      title: release.title,
+      version: release.version || '',
+      tagName: release.tagName || '',
+      summary: release.summary || '',
+      notes: release.notes || '',
+      status: release.status,
+      voyageIds: (release.voyageIds || []).join('\n'),
+      missionIds: (release.missionIds || []).join('\n'),
+      checkRunIds: (release.checkRunIds || []).join('\n'),
+    });
     setShowCreate(true);
   }
 
@@ -88,9 +108,15 @@ export default function Releases() {
         checkRunIds: splitList(createForm.checkRunIds),
         objectiveIds: [],
       };
-      const created = await createRelease(payload);
-      setShowCreate(false);
-      pushToast('success', t('Release "{{title}}" created.', { title: created.title }));
+      if (editing) {
+        const updated = await updateRelease(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Release "{{title}}" saved.', { title: updated.title }));
+      } else {
+        const created = await createRelease(payload);
+        setShowCreate(false);
+        pushToast('success', t('Release "{{title}}" created.', { title: created.title }));
+      }
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -194,7 +220,7 @@ export default function Releases() {
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
-            <h3>{t('Create Release')}</h3>
+            <h3>{editing ? t('Edit Release') : t('Create Release')}</h3>
             <label>{t('Title')}
               <input value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
             </label>
@@ -243,7 +269,7 @@ export default function Releases() {
               <textarea rows={3} value={createForm.checkRunIds} onChange={(event) => setCreateForm((current) => ({ ...current, checkRunIds: event.target.value }))} placeholder="chk_..." />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Release')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Release')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -326,7 +352,7 @@ export default function Releases() {
             </thead>
             <tbody>
               {filtered.map((release) => (
-                <tr key={release.id} className="clickable" onClick={() => navigate(`/releases/${release.id}`)}>
+                <tr key={release.id} className="clickable" onClick={() => canManage ? openEdit(release) : navigate(`/releases/${release.id}`)}>
                   <td>
                     <strong>{release.title}</strong>
                     <div className="text-dim" style={{ marginTop: '0.2rem' }}>
@@ -354,6 +380,7 @@ export default function Releases() {
                       id={`release-${release.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/releases/${release.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(release) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: release.title, data: release }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(release) }] : []),
                       ]}

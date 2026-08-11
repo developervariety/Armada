@@ -7,6 +7,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -33,6 +34,9 @@ export default function Personas() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+
+  // Row-click view modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -201,6 +205,17 @@ export default function Personas() {
       {/* JSON Viewer */}
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
 
+      {/* Row-click View Modal */}
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={typeof viewRecord?.name === 'string' ? viewRecord.name : t('Persona')}
+        subtitle={t('Persona')}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/personas/${encodeURIComponent((r as { name: string }).name)}`); }}
+        editLabel={t('Open Details')}
+      />
+
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
@@ -252,7 +267,7 @@ export default function Personas() {
               </thead>
               <tbody>
                 {paginated.map(p => (
-                  <tr key={p.name} className="clickable" onClick={() => openEdit(p)}>
+                  <tr key={p.name} className="clickable" onClick={() => setViewRecord(p as unknown as Record<string, unknown>)}>
                     <td><strong>{p.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">

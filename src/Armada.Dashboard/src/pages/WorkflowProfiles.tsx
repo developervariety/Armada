@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createWorkflowProfile, deleteWorkflowProfile, listFleets, listVessels, listWorkflowProfiles } from '../api/client';
+import { createWorkflowProfile, deleteWorkflowProfile, listFleets, listVessels, listWorkflowProfiles, updateWorkflowProfile } from '../api/client';
 import type { Fleet, Vessel, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -85,6 +85,7 @@ export default function WorkflowProfiles() {
   };
 
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<WorkflowProfile | null>(null);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
@@ -114,7 +115,30 @@ export default function WorkflowProfiles() {
   const vesselOptions = useMemo(() => vessels.filter((vessel) => vessel.active !== false), [vessels]);
 
   function openCreate() {
+    setEditing(null);
     setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  function openEdit(profile: WorkflowProfile) {
+    setEditing(profile);
+    setCreateForm({
+      name: profile.name,
+      description: profile.description || '',
+      scope: profile.scope,
+      fleetId: profile.fleetId || '',
+      vesselId: profile.vesselId || '',
+      isDefault: profile.isDefault,
+      active: profile.active,
+      languageHints: (profile.languageHints || []).join('\n'),
+      expectedArtifacts: (profile.expectedArtifacts || []).join('\n'),
+      lintCommand: profile.lintCommand || '',
+      buildCommand: profile.buildCommand || '',
+      unitTestCommand: profile.unitTestCommand || '',
+      integrationTestCommand: profile.integrationTestCommand || '',
+      e2eTestCommand: profile.e2eTestCommand || '',
+      packageCommand: profile.packageCommand || '',
+    });
     setShowCreate(true);
   }
 
@@ -139,13 +163,20 @@ export default function WorkflowProfiles() {
         integrationTestCommand: createForm.integrationTestCommand.trim() || null,
         e2eTestCommand: createForm.e2eTestCommand.trim() || null,
         packageCommand: createForm.packageCommand.trim() || null,
-        requiredInputs: [],
-        environments: [],
+        requiredInputs: editing ? editing.requiredInputs : [],
+        environments: editing ? editing.environments : [],
       };
-      const created = await createWorkflowProfile(payload);
-      setShowCreate(false);
-      pushToast('success', t('Workflow profile "{{name}}" created.', { name: created.name }));
-      navigate(`/workflow-profiles/${created.id}`);
+      if (editing) {
+        const updated = await updateWorkflowProfile(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Workflow profile "{{name}}" saved.', { name: updated.name }));
+        await load();
+      } else {
+        const created = await createWorkflowProfile(payload);
+        setShowCreate(false);
+        pushToast('success', t('Workflow profile "{{name}}" created.', { name: created.name }));
+        navigate(`/workflow-profiles/${created.id}`);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
     } finally {
@@ -232,10 +263,17 @@ export default function WorkflowProfiles() {
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
-            <h3>{t('Create Workflow Profile')}</h3>
+            <h3>{editing ? t('Edit Workflow Profile') : t('Create Workflow Profile')}</h3>
             <p className="text-dim" style={{ marginTop: 0 }}>
               {t('Set the core details here. Required inputs, environment commands, and the remaining commands can be configured after creation.')}
             </p>
+            {editing && (
+              <p className="text-dim" style={{ marginTop: 0 }}>
+                <a href={`/workflow-profiles/${editing.id}`} onClick={(event) => { event.preventDefault(); navigate(`/workflow-profiles/${editing.id}`); }}>
+                  {t('Open full editor')}
+                </a>
+              </p>
+            )}
             <label>{t('Name')}
               <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
             </label>
@@ -298,7 +336,7 @@ export default function WorkflowProfiles() {
               <span>{t('Active')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Workflow Profile')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Workflow Profile')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -378,7 +416,7 @@ export default function WorkflowProfiles() {
             </thead>
             <tbody>
               {filtered.map((profile) => (
-                <tr key={profile.id} className="clickable" onClick={() => navigate(`/workflow-profiles/${profile.id}`)}>
+                <tr key={profile.id} className="clickable" onClick={() => canManage ? openEdit(profile) : navigate(`/workflow-profiles/${profile.id}`)}>
                   <td>
                     <strong>{profile.name}</strong>
                     <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{profile.id}</div>
@@ -399,6 +437,7 @@ export default function WorkflowProfiles() {
                       id={`workflow-profile-${profile.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/workflow-profiles/${profile.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(profile) }] : []),
                         ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(profile) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(profile) }] : []),

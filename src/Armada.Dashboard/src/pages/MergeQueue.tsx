@@ -11,6 +11,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -45,6 +46,9 @@ export default function MergeQueue() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+
+  // View detail modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -334,6 +338,13 @@ export default function MergeQueue() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? `${t('Merge Entry')}: ${String(viewRecord.branchName || viewRecord.id || '')}` : ''}
+        subtitle={viewRecord ? String(viewRecord.targetBranch || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
       <DiffViewer
@@ -405,7 +416,7 @@ export default function MergeQueue() {
               </thead>
               <tbody>
                 {sorted.map(entry => (
-                  <tr key={entry.id} className="clickable" onClick={() => navigate(`/merge-queue/${entry.id}`)}>
+                  <tr key={entry.id} className="clickable" onClick={() => setViewRecord(entry as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(entry.id)} onChange={() => toggleSelect(entry.id)} title={t('Select this entry')} />
                     </td>

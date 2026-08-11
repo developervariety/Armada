@@ -9,10 +9,12 @@ import {
   listWorkflowProfiles,
 } from '../api/client';
 import type {
+  CheckRunType,
   DeploymentEnvironment,
   Runbook,
   RunbookExecution,
   RunbookExecutionStartRequest,
+  RunbookUpsertRequest,
   WorkflowProfile,
 } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -22,9 +24,27 @@ import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildRunbookDuplicatePayload } from '../lib/duplicates';
+
+const RUNBOOK_CHECK_TYPES: CheckRunType[] = [
+  'Build',
+  'UnitTest',
+  'IntegrationTest',
+  'E2ETest',
+  'Migration',
+  'SecurityScan',
+  'Performance',
+  'Deploy',
+  'Rollback',
+  'SmokeTest',
+  'HealthCheck',
+  'DeploymentVerification',
+  'RollbackVerification',
+  'Custom',
+];
 
 interface RunbookPageState {
   prefillExecution?: Partial<RunbookExecutionStartRequest>;
@@ -47,6 +67,7 @@ export default function Runbooks() {
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [colFilters, setColFilters] = useState({ title: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
     title: '',
@@ -54,8 +75,71 @@ export default function Runbooks() {
     onConfirm: () => {},
   });
 
+  // Create modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState<{
+    fileName: string;
+    title: string;
+    description: string;
+    workflowProfileId: string;
+    environmentId: string;
+    defaultCheckType: CheckRunType | '';
+    active: boolean;
+  }>({
+    fileName: 'RUNBOOK.md',
+    title: 'Runbook',
+    description: '',
+    workflowProfileId: '',
+    environmentId: '',
+    defaultCheckType: '',
+    active: true,
+  });
+
   const canManage = isAdmin || isTenantAdmin;
   const carryState = (location.state as RunbookPageState | null) || null;
+
+  function openCreate() {
+    setCreateForm({
+      fileName: 'RUNBOOK.md',
+      title: 'Runbook',
+      description: '',
+      workflowProfileId: '',
+      environmentId: '',
+      defaultCheckType: '',
+      active: true,
+    });
+    setShowCreate(true);
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      const payload: RunbookUpsertRequest = {
+        fileName: createForm.fileName.trim() || null,
+        title: createForm.title.trim() || null,
+        description: createForm.description.trim() || null,
+        workflowProfileId: createForm.workflowProfileId || null,
+        environmentId: createForm.environmentId || null,
+        environmentName: createForm.environmentId ? (environmentMap.get(createForm.environmentId) || null) : null,
+        defaultCheckType: createForm.defaultCheckType || null,
+        parameters: [],
+        steps: [],
+        overviewMarkdown: '',
+        active: createForm.active,
+      };
+      const created = await createRunbook(payload);
+      setShowCreate(false);
+      pushToast('success', t('Runbook "{{title}}" created.', { title: created.title }));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     try {
@@ -150,7 +234,7 @@ export default function Runbooks() {
         <div className="view-actions">
           <RefreshButton onRefresh={load} title={t('Refresh runbooks')} />
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/runbooks/new', { state: carryState })}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + {t('Runbook')}
             </button>
           )}
@@ -165,6 +249,19 @@ export default function Runbooks() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? String(viewRecord.title || viewRecord.id || '') : ''}
+        subtitle={viewRecord ? String(viewRecord.fileName || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => {
+          const id = viewRecord?.id;
+          setViewRecord(null);
+          if (id) navigate(`/runbooks/${String(id)}`, { state: carryState });
+        }}
+        editLabel={t('Open Details')}
+      />
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
@@ -172,6 +269,55 @@ export default function Runbooks() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{t('Create Runbook')}</h3>
+            <label>{t('File Name')}
+              <input type="text" value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} required />
+            </label>
+            <label>{t('Title')}
+              <input type="text" value={createForm.title} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} required />
+            </label>
+            <label>{t('Description')}
+              <textarea rows={2} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} />
+            </label>
+            <label>{t('Workflow Profile')}
+              <select value={createForm.workflowProfileId} onChange={(event) => setCreateForm({ ...createForm, workflowProfileId: event.target.value })}>
+                <option value="">{t('No workflow profile')}</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Environment')}
+              <select value={createForm.environmentId} onChange={(event) => setCreateForm({ ...createForm, environmentId: event.target.value })}>
+                <option value="">{t('No environment')}</option>
+                {environments.map((environment) => (
+                  <option key={environment.id} value={environment.id}>{environment.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Default Check Type')}
+              <select value={createForm.defaultCheckType} onChange={(event) => setCreateForm({ ...createForm, defaultCheckType: event.target.value as CheckRunType | '' })}>
+                <option value="">{t('No default check')}</option>
+                {RUNBOOK_CHECK_TYPES.map((checkType) => (
+                  <option key={checkType} value={checkType}>{checkType}</option>
+                ))}
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
+              <span>{t('Active')}</span>
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Runbook')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
@@ -240,7 +386,7 @@ export default function Runbooks() {
               {filtered.map((runbook) => {
                 const counts = executionCounts.get(runbook.id) || { total: 0, running: 0 };
                 return (
-                  <tr key={runbook.id} className="clickable" onClick={() => navigate(`/runbooks/${runbook.id}`, { state: carryState })}>
+                  <tr key={runbook.id} className="clickable" onClick={() => setViewRecord(runbook as unknown as Record<string, unknown>)}>
                     <td>
                       <strong>{runbook.title}</strong>
                       <div className="text-dim" style={{ marginTop: '0.2rem' }}>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createEnvironment, deleteEnvironment, listEnvironments, listVessels } from '../api/client';
+import { createEnvironment, deleteEnvironment, listEnvironments, listVessels, updateEnvironment } from '../api/client';
 import type { DeploymentEnvironment, DeploymentEnvironmentUpsertRequest, EnvironmentKind, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -37,8 +37,9 @@ export default function Environments() {
     onConfirm: () => {},
   });
 
-  // Create modal
+  // Create/Edit modal
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<DeploymentEnvironment | null>(null);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState<{
     vesselId: string;
@@ -71,6 +72,7 @@ export default function Environments() {
   const canManage = isAdmin || isTenantAdmin;
 
   function openCreate() {
+    setEditing(null);
     setCreateForm({
       vesselId: '',
       name: 'Environment',
@@ -84,6 +86,25 @@ export default function Environments() {
       requiresApproval: false,
       isDefault: false,
       active: true,
+    });
+    setShowCreate(true);
+  }
+
+  function openEdit(environment: DeploymentEnvironment) {
+    setEditing(environment);
+    setCreateForm({
+      vesselId: environment.vesselId || '',
+      name: environment.name,
+      kind: environment.kind,
+      configurationSource: environment.configurationSource || '',
+      baseUrl: environment.baseUrl || '',
+      healthEndpoint: environment.healthEndpoint || '',
+      description: environment.description || '',
+      accessNotes: environment.accessNotes || '',
+      deploymentRules: environment.deploymentRules || '',
+      requiresApproval: environment.requiresApproval,
+      isDefault: environment.isDefault,
+      active: environment.active,
     });
     setShowCreate(true);
   }
@@ -103,17 +124,23 @@ export default function Environments() {
         healthEndpoint: createForm.healthEndpoint.trim() || null,
         accessNotes: createForm.accessNotes.trim() || null,
         deploymentRules: createForm.deploymentRules.trim() || null,
-        verificationDefinitions: [],
-        rolloutMonitoringWindowMinutes: 60,
-        rolloutMonitoringIntervalSeconds: 300,
-        alertOnRegression: true,
+        verificationDefinitions: editing ? editing.verificationDefinitions : [],
+        rolloutMonitoringWindowMinutes: editing ? editing.rolloutMonitoringWindowMinutes : 60,
+        rolloutMonitoringIntervalSeconds: editing ? editing.rolloutMonitoringIntervalSeconds : 300,
+        alertOnRegression: editing ? editing.alertOnRegression : true,
         requiresApproval: createForm.requiresApproval,
         isDefault: createForm.isDefault,
         active: createForm.active,
       };
-      const created = await createEnvironment(payload);
-      setShowCreate(false);
-      pushToast('success', t('Environment "{{name}}" created.', { name: created.name }));
+      if (editing) {
+        const updated = await updateEnvironment(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Environment "{{name}}" saved.', { name: updated.name }));
+      } else {
+        const created = await createEnvironment(payload);
+        setShowCreate(false);
+        pushToast('success', t('Environment "{{name}}" created.', { name: created.name }));
+      }
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -231,7 +258,7 @@ export default function Environments() {
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
-            <h3>{t('Create Environment')}</h3>
+            <h3>{editing ? t('Edit Environment') : t('Create Environment')}</h3>
             <label>{t('Vessel')}
               <select value={createForm.vesselId} onChange={(event) => setCreateForm({ ...createForm, vesselId: event.target.value })}>
                 <option value="">{t('Select a vessel')}</option>
@@ -283,7 +310,7 @@ export default function Environments() {
               </label>
             </div>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Environment')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Environment')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -371,7 +398,7 @@ export default function Environments() {
             </thead>
             <tbody>
               {filtered.map((environment) => (
-                <tr key={environment.id} className="clickable" onClick={() => navigate(`/environments/${environment.id}`)}>
+                <tr key={environment.id} className="clickable" onClick={() => canManage ? openEdit(environment) : navigate(`/environments/${environment.id}`)}>
                   <td>
                     <strong>{environment.name}</strong>
                     <div className="text-dim" style={{ marginTop: '0.2rem' }}>
@@ -397,6 +424,7 @@ export default function Environments() {
                       id={`environment-${environment.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/environments/${environment.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(environment) }] : []),
                         ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(environment) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: environment.name, data: environment }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(environment) }] : []),

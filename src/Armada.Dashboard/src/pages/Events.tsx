@@ -6,6 +6,7 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -34,6 +35,7 @@ export default function Events() {
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
   const [events, setEvents] = useState<ArmadaEvent[]>([]);
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,6 +196,15 @@ export default function Events() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? `${(viewRecord as { eventType?: string }).eventType || t('Event')}` : t('Event')}
+        subtitle={viewRecord ? String((viewRecord as { id?: string }).id ?? '') : ''}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => { const r = viewRecord; setViewRecord(null); if (r) navigate(`/events/${(r as { id: string }).id}`); }}
+        editLabel={t('Open Details')}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -250,7 +261,7 @@ export default function Events() {
                 {sorted.map(evt => {
                   const entRoute = entityRoute(evt.entityId);
                   return (
-                    <tr key={evt.id} className="clickable" onClick={() => navigate(`/events/${evt.id}`)}>
+                    <tr key={evt.id} className="clickable" onClick={() => setViewRecord(evt as unknown as Record<string, unknown>)}>
                       <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={selected.includes(evt.id)} onChange={() => toggleSelect(evt.id)} title={t('Select this event')} />
                       </td>

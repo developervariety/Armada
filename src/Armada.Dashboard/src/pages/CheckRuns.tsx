@@ -14,6 +14,7 @@ import { useNotifications } from '../context/NotificationContext';
 import ActionMenu from '../components/shared/ActionMenu';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -121,6 +122,7 @@ export default function CheckRuns() {
   const [typeFilter, setTypeFilter] = useState<'all' | CheckRunType>('all');
   const [colFilters, setColFilters] = useState({ label: '', environmentName: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   const [showRunModal, setShowRunModal] = useState(false);
   const [running, setRunning] = useState(false);
@@ -340,6 +342,19 @@ export default function CheckRuns() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? String(viewRecord.label || viewRecord.type || viewRecord.id || '') : ''}
+        subtitle={viewRecord ? String(viewRecord.type || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => {
+          const id = viewRecord?.id;
+          setViewRecord(null);
+          if (id) navigate(`/checks/${String(id)}`);
+        }}
+        editLabel={t('Open Details')}
+      />
 
       {showRunModal && (
         <div className="modal-overlay" onClick={() => !running && setShowRunModal(false)}>
@@ -552,7 +567,7 @@ export default function CheckRuns() {
             </thead>
             <tbody>
               {filtered.map((run) => (
-                <tr key={run.id} className="clickable" onClick={() => navigate(`/checks/${run.id}`)}>
+                <tr key={run.id} className="clickable" onClick={() => setViewRecord(run as unknown as Record<string, unknown>)}>
                   <td>
                     {(() => {
                       const parsingSummary = summarizeRunParsing(run);

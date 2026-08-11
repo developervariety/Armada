@@ -6,6 +6,7 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -33,6 +34,9 @@ export default function Docks() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+
+  // View detail modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -187,6 +191,13 @@ export default function Docks() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? `${t('Dock')}: ${String(viewRecord.branchName || viewRecord.id || '')}` : ''}
+        subtitle={viewRecord ? String(viewRecord.worktreePath || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -235,7 +246,7 @@ export default function Docks() {
               </thead>
               <tbody>
                 {sorted.map(d => (
-                  <tr key={d.id} className="clickable" onClick={() => navigate(`/docks/${d.id}`)}>
+                  <tr key={d.id} className="clickable" onClick={() => setViewRecord(d as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggleSelect(d.id)} title={t('Select this dock')} />
                     </td>

@@ -12,6 +12,7 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -60,6 +61,7 @@ export default function Signals() {
   const [sendForm, setSendForm] = useState<SendSignalRequest>({ type: 'Nudge', payload: '', toCaptainId: '' });
   const [sendLoading, setSendLoading] = useState(false);
   const [jsonView, setJsonView] = useState<{ title: string; data: unknown } | null>(null);
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ message: string; action: () => void } | null>(null);
 
   const captainName = useCallback((id: string | null) => {
@@ -279,7 +281,7 @@ export default function Signals() {
             </thead>
             <tbody>
               {sorted.map(sig => (
-                <tr key={sig.id} className="clickable" onClick={() => navigate(`/signals/${sig.id}`)}>
+                <tr key={sig.id} className="clickable" onClick={() => setViewRecord(sig as unknown as Record<string, unknown>)}>
                   <td onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(sig.id)} onChange={() => toggleSelection(sig.id)} style={{ width: 'auto' }} /></td>
                   <td className="mono table-id-cell" style={{ color: 'var(--primary)' }}>
                     <span className="id-display">
@@ -350,6 +352,14 @@ export default function Signals() {
 
       {/* JSON Viewer */}
       <JsonViewer open={jsonView !== null} title={jsonView?.title ?? ''} data={jsonView?.data ?? null} onClose={() => setJsonView(null)} />
+
+      {/* View Detail Modal */}
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? `${t('Signal')}: ${String(viewRecord.type || viewRecord.id || '')}` : ''}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+      />
 
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirmAction !== null} message={confirmAction?.message ?? ''} onConfirm={() => confirmAction?.action()} onCancel={() => setConfirmAction(null)} />

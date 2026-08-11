@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createProjectProfile, deleteProjectProfile, listFleets, listProjectProfiles, listVessels } from '../api/client';
+import { createProjectProfile, deleteProjectProfile, listFleets, listProjectProfiles, listVessels, updateProjectProfile } from '../api/client';
 import type { Fleet, ProjectProfile, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -54,6 +54,7 @@ export default function ProjectProfiles() {
   };
 
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<ProjectProfile | null>(null);
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
 
@@ -80,7 +81,25 @@ export default function ProjectProfiles() {
   }, []);
 
   function openCreate() {
+    setEditing(null);
     setCreateForm(EMPTY_CREATE_FORM);
+    setShowCreate(true);
+  }
+
+  function openEdit(profile: ProjectProfile) {
+    setEditing(profile);
+    setCreateForm({
+      name: profile.name,
+      description: profile.description || '',
+      scope: profile.scope,
+      fleetId: profile.fleetId || '',
+      vesselId: profile.vesselId || '',
+      isDefault: profile.isDefault,
+      active: profile.active,
+      defaultPipelineId: profile.defaultPipelineId || '',
+      workflowProfileId: profile.workflowProfileId || '',
+      skills: (profile.skills || []).join('\n'),
+    });
     setShowCreate(true);
   }
 
@@ -99,12 +118,18 @@ export default function ProjectProfiles() {
         active: createForm.active,
         defaultPipelineId: createForm.defaultPipelineId || null,
         workflowProfileId: createForm.workflowProfileId || null,
-        personaOverrides: [],
+        personaOverrides: editing ? (editing.personaOverrides || []) : [],
         skills: splitList(createForm.skills),
       };
-      const created = await createProjectProfile(payload);
-      setShowCreate(false);
-      pushToast('success', t('Project profile "{{name}}" created.', { name: created.name }));
+      if (editing) {
+        const updated = await updateProjectProfile(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Project profile "{{name}}" saved.', { name: updated.name }));
+      } else {
+        const created = await createProjectProfile(payload);
+        setShowCreate(false);
+        pushToast('success', t('Project profile "{{name}}" created.', { name: created.name }));
+      }
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -183,7 +208,7 @@ export default function ProjectProfiles() {
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
-            <h3>{t('Create Project Profile')}</h3>
+            <h3>{editing ? t('Edit Project Profile') : t('Create Project Profile')}</h3>
             <label>{t('Name')}
               <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
             </label>
@@ -231,7 +256,7 @@ export default function ProjectProfiles() {
               <span>{t('Active')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Project Profile')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Project Profile')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -311,7 +336,7 @@ export default function ProjectProfiles() {
             </thead>
             <tbody>
               {filtered.map((profile) => (
-                <tr key={profile.id} className="clickable" onClick={() => navigate(`/project-profiles/${profile.id}`)}>
+                <tr key={profile.id} className="clickable" onClick={() => canManage ? openEdit(profile) : navigate(`/project-profiles/${profile.id}`)}>
                   <td>
                     <strong>{profile.name}</strong>
                     <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{profile.id}</div>
@@ -332,6 +357,7 @@ export default function ProjectProfiles() {
                       id={`project-profile-${profile.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/project-profiles/${profile.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(profile) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(profile) }] : []),
                       ]}

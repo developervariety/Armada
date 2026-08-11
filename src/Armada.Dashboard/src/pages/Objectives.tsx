@@ -35,6 +35,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
@@ -65,6 +66,7 @@ export default function Objectives() {
   const [colFilters, setColFilters] = useState({ title: '' });
   const [sortBy, setSortBy] = useState<BacklogSortKey>('rank');
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
     title: '',
@@ -365,6 +367,19 @@ export default function Objectives() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? String(viewRecord.title || viewRecord.id || '') : ''}
+        subtitle={viewRecord ? String(viewRecord.owner || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => {
+          const id = viewRecord?.id;
+          setViewRecord(null);
+          if (id) navigate(`/backlog/${String(id)}`);
+        }}
+        editLabel={t('Open Details')}
+      />
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
@@ -584,7 +599,7 @@ export default function Objectives() {
             <tbody>
               {orderedObjectives.map((objective) => {
                 return (
-                  <tr key={objective.id} className="clickable" onClick={() => navigate(`/backlog/${objective.id}`)}>
+                  <tr key={objective.id} className="clickable" onClick={() => setViewRecord(objective as unknown as Record<string, unknown>)}>
                     <td onClick={(event) => event.stopPropagation()}>
                       <div className="backlog-rank-cell">
                         <strong>{objective.rank}</strong>

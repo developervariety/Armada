@@ -7,6 +7,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -59,6 +60,9 @@ export default function Vessels() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+
+  // Row-click view modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -439,6 +443,15 @@ export default function Vessels() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={typeof viewRecord?.name === 'string' ? viewRecord.name : t('Vessel')}
+        subtitle={t('Vessel')}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/vessels/${(r as { id: string }).id}`); }}
+        editLabel={t('Open Details')}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -500,7 +513,7 @@ export default function Vessels() {
               </thead>
               <tbody>
                 {paginated.map(v => (
-                  <tr key={v.id} className="clickable" onClick={() => openEdit(v)}>
+                  <tr key={v.id} className="clickable" onClick={() => setViewRecord(v as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title={t('Select this vessel')} />
                     </td>
