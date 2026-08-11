@@ -78,6 +78,7 @@ const VesselsHub = lazy(() => import('./pages/VesselsHub'));
 const CaptainsHub = lazy(() => import('./pages/CaptainsHub'));
 const MissionsHub = lazy(() => import('./pages/MissionsHub'));
 const DispatchHub = lazy(() => import('./pages/DispatchHub'));
+const DeliveryHub = lazy(() => import('./pages/DeliveryHub'));
 
 function RouteFallback() {
   return (
@@ -160,18 +161,19 @@ export default function App() {
                       <Route path="skills/:id" element={<SkillDetail />} />
                       <Route path="ask" element={<AskArmada />} />
                       <Route path="inbox" element={<Inbox />} />
-                      <Route path="checks" element={<CheckRuns />} />
+                      <Route path="delivery" element={<DeliveryHub />} />
+                      <Route path="checks" element={<Navigate to="/delivery?tab=checks" replace />} />
                       <Route path="checks/:id" element={<CheckRunDetail />} />
-                      <Route path="environments" element={<Environments />} />
+                      <Route path="environments" element={<Navigate to="/delivery?tab=environments" replace />} />
                       <Route path="environments/:id" element={<EnvironmentDetail />} />
-                      <Route path="deployments" element={<Deployments />} />
+                      <Route path="deployments" element={<Navigate to="/delivery?tab=deployments" replace />} />
                       <Route path="deployments/:id" element={<DeploymentDetail />} />
-                      <Route path="releases" element={<Releases />} />
+                      <Route path="releases" element={<Navigate to="/delivery?tab=releases" replace />} />
                       <Route path="releases/new" element={<ReleaseDetail />} />
                       <Route path="releases/:id" element={<ReleaseDetail />} />
-                      <Route path="incidents" element={<Incidents />} />
+                      <Route path="incidents" element={<Navigate to="/delivery?tab=incidents" replace />} />
                       <Route path="incidents/:id" element={<IncidentDetail />} />
-                      <Route path="runbooks" element={<Runbooks />} />
+                      <Route path="runbooks" element={<Navigate to="/delivery?tab=runbooks" replace />} />
                       <Route path="runbooks/:id" element={<RunbookDetail />} />
                       <Route path="requests" element={<Navigate to="/activity?source=requests" replace />} />
                       <Route path="requests/:id" element={<RequestHistory />} />

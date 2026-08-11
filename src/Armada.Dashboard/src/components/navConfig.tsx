@@ -62,14 +62,9 @@ export const navSections: NavSection[] = [
   {
     key: 'delivery',
     label: 'DELIVERY',
-    matchers: ['/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
+    matchers: ['/delivery', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
     items: [
-      { to: '/checks', label: 'Checks', tooltip: 'Structured build, test, deploy, and verification runs', icon: icons.checks },
-      { to: '/environments', label: 'Environments', tooltip: 'Named deployment targets with metadata, URLs, approval rules, and access notes', icon: icons.environments },
-      { to: '/deployments', label: 'Deployments', tooltip: 'Approve, execute, verify, and roll back deployments into named environments', icon: icons.deployments },
-      { to: '/releases', label: 'Releases', tooltip: 'Draft, candidate, shipped, failed, and rolled-back release records', icon: icons.releases },
-      { to: '/incidents', label: 'Incidents', tooltip: 'Operational incidents tied to deployments, rollback, hotfix planning, and postmortems', icon: icons.incidents },
-      { to: '/runbooks', label: 'Runbooks', tooltip: 'Playbook-backed operational runbooks with parameters, step tracking, and history', icon: icons.runbooks },
+      { to: '/delivery', label: 'Delivery', tooltip: 'Deployments, Environments, Releases, Incidents, Checks, and Runbooks as tabs', icon: icons.delivery },
     ],
   },
   {
