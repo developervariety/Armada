@@ -650,7 +650,9 @@ export const deleteObjectiveRefinementSession = (sessionId: string) =>
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
-export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`);
+// The runtime tool probe (e.g. Mux) launches the CLI and can take tens of seconds; allow well
+// beyond the default 30s so slow probes resolve instead of aborting and reading as "unknown".
+export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`, { timeout: 120000 });
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);

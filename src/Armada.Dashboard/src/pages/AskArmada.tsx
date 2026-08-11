@@ -29,6 +29,7 @@ export default function AskArmada() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [tools, setTools] = useState<CaptainToolAccessResult | null>(null);
+  const [toolsLoading, setToolsLoading] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -43,12 +44,14 @@ export default function AskArmada() {
 
   // Detect whether the selected captain is connected to Armada over MCP so we can warn when it is not.
   useEffect(() => {
-    if (!captainId) { setTools(null); return; }
+    if (!captainId) { setTools(null); setToolsLoading(false); return; }
     let active = true;
     setTools(null);
+    setToolsLoading(true);
     getCaptainTools(captainId)
       .then((result) => { if (active) setTools(result); })
-      .catch(() => { if (active) setTools(null); });
+      .catch(() => { if (active) setTools(null); })
+      .finally(() => { if (active) setToolsLoading(false); });
     return () => { active = false; };
   }, [captainId]);
 
@@ -108,6 +111,11 @@ export default function AskArmada() {
         </div>
       ) : (
         <>
+          {toolsLoading && (
+            <div className="text-dim" style={{ fontSize: '0.78rem', marginBottom: '0.6rem' }}>
+              {t('Checking whether this captain is connected to Armada over MCP...')}
+            </div>
+          )}
           {armadaMcpMissing && (
             <div className="mcp-warning-banner">
               <span className="mcp-warning-icon" aria-hidden="true">
