@@ -142,7 +142,6 @@ export interface Captain {
   allowedPersonas: string | null;
   preferredPersona: string | null;
   runtimeOptionsJson?: string | null;
-  apiEndpointUrl?: string | null;
   state: string;
   currentMissionId: string | null;
   currentDockId: string | null;
@@ -151,24 +150,6 @@ export interface Captain {
   lastHeartbeatUtc: string | null;
   createdUtc: string;
   lastUpdateUtc: string;
-}
-
-export interface CaptainHealthCheckResult {
-  captainId: string;
-  endpointUrl: string;
-  checkedUtc: string;
-  healthy: boolean;
-  latencyMs: number;
-  statusCode: number | null;
-  error: string | null;
-}
-
-export interface CaptainHealthResponse {
-  captainId: string;
-  endpointUrl: string | null;
-  totalChecks: number;
-  healthyChecks: number;
-  results: CaptainHealthCheckResult[];
 }
 
 export interface CaptainToolSummary {

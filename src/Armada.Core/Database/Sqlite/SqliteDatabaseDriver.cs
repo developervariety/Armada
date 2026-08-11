@@ -534,7 +534,6 @@ namespace Armada.Core.Database.Sqlite
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
-            try { captain.ApiEndpointUrl = NullableString(reader["api_endpoint_url"]); } catch { }
             return captain;
         }
 
