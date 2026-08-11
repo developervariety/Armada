@@ -2141,8 +2141,10 @@ namespace Armada.Core.Services
                 }
 
                 // At brief-generation time the dock has just been provisioned, so its HEAD is the
-                // commit this mission's work starts from.
-                anchors.BaseCommit = head!;
+                // commit this mission's work starts from. Rendered abbreviated, to match the target tip
+                // below: showing one full hash beside one short hash reads as two different commits.
+                string? shortHead = await _Git.GetRevisionShaAsync(worktreePath, "HEAD", token).ConfigureAwait(false);
+                anchors.BaseCommit = String.IsNullOrEmpty(shortHead) ? head! : shortHead!;
 
                 // The target tip is resolved separately and is not always the same commit: a dock cut
                 // from an older base lands through the merge queue against a target that has since
@@ -2233,7 +2235,7 @@ namespace Armada.Core.Services
                 builder.Append("- Target branch tip at dispatch: `" + anchors.TargetTip + "`\n");
 
                 if (!String.IsNullOrEmpty(anchors.BaseCommit) &&
-                    !String.Equals(anchors.BaseCommit, anchors.TargetTip, StringComparison.OrdinalIgnoreCase))
+                    !IsSameCommit(anchors.BaseCommit, anchors.TargetTip))
                 {
                     builder.Append("  - These differ: your checkout is not at the target tip. ");
                     builder.Append("Expect the landing to rebase or merge, and do not assume the tip's content is present here.\n");
@@ -2304,6 +2306,32 @@ namespace Armada.Core.Services
             }
 
             return BoundGitAnchorsSection(builder.ToString());
+        }
+
+        /// <summary>
+        /// Reports whether two commit strings name the same commit when one is abbreviated and the other
+        /// is not. Git hands back a full hash from rev-parse HEAD and a short one from rev-parse --short,
+        /// so an ordinal comparison of the two calls the same commit different.
+        ///
+        /// That mattered in production: the anchors block told captains "your checkout is not at the
+        /// target tip" on every dispatch where it WAS at the tip. A confident false statement is worse
+        /// than no statement, because a captain plans around it.
+        /// </summary>
+        /// <param name="left">First commit string; full or abbreviated.</param>
+        /// <param name="right">Second commit string; full or abbreviated.</param>
+        /// <returns>True when either is a prefix of the other.</returns>
+        internal static bool IsSameCommit(string? left, string? right)
+        {
+            if (String.IsNullOrEmpty(left) || String.IsNullOrEmpty(right)) return false;
+
+            string shorter = left!.Length <= right!.Length ? left! : right!;
+            string longer = left!.Length <= right!.Length ? right! : left!;
+
+            // Git will not abbreviate below four characters, and a shorter prefix would start matching
+            // unrelated commits. Treat anything shorter as not comparable rather than guessing.
+            if (shorter.Length < 4) return false;
+
+            return longer.StartsWith(shorter, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

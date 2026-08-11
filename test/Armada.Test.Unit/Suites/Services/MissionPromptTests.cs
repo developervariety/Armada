@@ -1939,6 +1939,33 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("These differ", section, "a dock cut from an older base must be called out");
             });
 
+            await RunTest("GitAnchors Section Does Not Claim A Difference Between A Full And An Abbreviated Hash", () =>
+            {
+                // Observed live: rev-parse HEAD returns a full hash and rev-parse --short returns an
+                // abbreviated one, so an ordinal comparison called one commit two. Every dispatch was
+                // told its checkout was behind the target tip when it was sitting on it.
+                GitAnchors anchors = new GitAnchors();
+                anchors.TargetBranch = "main";
+                anchors.BaseCommit = "8510ae4ab2d5fd1e897391d7228151b9ceb45e63";
+                anchors.TargetTip = "8510ae4";
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertFalse(section.Contains("These differ", StringComparison.Ordinal),
+                    "the same commit in two forms must not be reported as a difference");
+            });
+
+            await RunTest("IsSameCommit Matches On Prefix And Refuses A Too-Short One", () =>
+            {
+                AssertTrue(MissionService.IsSameCommit("8510ae4ab2d5fd1e", "8510ae4"), "an abbreviation must match its full hash");
+                AssertTrue(MissionService.IsSameCommit("8510ae4", "8510ae4ab2d5fd1e"), "order must not matter");
+                AssertTrue(MissionService.IsSameCommit("8510ae4", "8510AE4"), "comparison must ignore case");
+                AssertFalse(MissionService.IsSameCommit("8510ae4", "bbb2222"), "different commits must not match");
+                AssertFalse(MissionService.IsSameCommit("851", "8510ae4"), "a prefix under four characters is not comparable");
+                AssertFalse(MissionService.IsSameCommit(null, "8510ae4"), "a null side must not match");
+                AssertFalse(MissionService.IsSameCommit("", ""), "two empty strings must not match");
+            });
+
             await RunTest("MissionSubjectExtractor Finds Paths And Identifiers And Caps Both", () =>
             {
                 // Placeholder subjects only. A test fixture that quotes a real vessel's paths or
