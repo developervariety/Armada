@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { getInbox } from '../api/client';
 import type { InboxItem, InboxSeverity } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
+import { useNotifications } from '../context/NotificationContext';
+import { entityRoute } from '../lib/routing';
 import ErrorModal from '../components/shared/ErrorModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
@@ -15,10 +17,13 @@ function severityColor(severity: InboxSeverity): string {
 
 export default function Inbox() {
   const navigate = useNavigate();
-  const { t } = useLocale();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const unreadAlerts = useMemo(() => notifications.filter((n) => !n.read).slice(0, 8), [notifications]);
 
   async function load() {
     try {
@@ -63,6 +68,10 @@ export default function Inbox() {
           <span>{t('Warning')}</span>
           <strong style={{ color: severityColor('Warning') }}>{counts.warning}</strong>
         </div>
+        <div className="card playbook-overview-card">
+          <span>{t('Unread alerts')}</span>
+          <strong>{unreadCount}</strong>
+        </div>
       </div>
 
       {loading && items.length === 0 ? (
@@ -95,6 +104,40 @@ export default function Inbox() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {unreadAlerts.length > 0 && (
+        <div style={{ marginTop: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <h2 style={{ fontSize: '1rem', margin: 0 }}>{t('Recent alerts')}</h2>
+            <button className="btn-sm" onClick={markAllRead} title={t('Mark all notifications as read')}>
+              {t('Mark all read')}
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            {unreadAlerts.map((n) => {
+              const route = entityRoute(n.missionId || n.voyageId || n.captainId);
+              return (
+                <div
+                  key={n.id}
+                  className={`card${route ? ' clickable' : ''}`}
+                  style={{ padding: '0.6rem 0.9rem', cursor: route ? 'pointer' : 'default' }}
+                  onClick={() => { markRead(n.id); if (route) navigate(route); }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <strong>{n.title}</strong>
+                      <div className="text-dim" style={{ marginTop: '0.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.message}</div>
+                    </div>
+                    <span className="text-dim" style={{ whiteSpace: 'nowrap' }} title={formatDateTime(n.timestampUtc)}>
+                      {formatRelativeTime(n.timestampUtc)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

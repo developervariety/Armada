@@ -27,7 +27,6 @@ const Planning = lazy(() => import('./pages/Planning'));
 const Objectives = lazy(() => import('./pages/Objectives'));
 const ObjectiveDetail = lazy(() => import('./pages/ObjectiveDetail'));
 const Signals = lazy(() => import('./pages/Signals'));
-const Notifications = lazy(() => import('./pages/Notifications'));
 const Server = lazy(() => import('./pages/Server'));
 const FleetDetail = lazy(() => import('./pages/FleetDetail'));
 const VesselDetail = lazy(() => import('./pages/VesselDetail'));
@@ -74,6 +73,7 @@ const ApiExplorer = lazy(() => import('./pages/ApiExplorer'));
 const History = lazy(() => import('./pages/History'));
 const Configuration = lazy(() => import('./pages/Configuration'));
 const Activity = lazy(() => import('./pages/Activity'));
+const ServerHub = lazy(() => import('./pages/ServerHub'));
 
 function RouteFallback() {
   return (
@@ -174,14 +174,14 @@ export default function App() {
                       <Route path="api-explorer" element={<ApiExplorer />} />
                       <Route path="api-explorer/:operationId" element={<ApiExplorer />} />
 
-                      <Route path="notifications" element={<Notifications />} />
+                      <Route path="notifications" element={<Navigate to="/inbox" replace />} />
 
                       <Route path="admin/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
                       <Route path="admin/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                       <Route path="admin/credentials" element={<ProtectedRoute><Credentials /></ProtectedRoute>} />
 
-                      <Route path="server" element={<Server />} />
-                      <Route path="doctor" element={<Doctor />} />
+                      <Route path="server" element={<ServerHub />} />
+                      <Route path="doctor" element={<Navigate to="/server?tab=diagnostics" replace />} />
                       <Route path="settings" element={<Navigate to="/server" replace />} />
                     </Route>
                   </Routes>

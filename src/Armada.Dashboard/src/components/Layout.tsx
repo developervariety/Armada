@@ -305,7 +305,7 @@ export default function Layout() {
               <span aria-hidden="true">{collapsed ? '»' : '«'}</span>
             </button>
 
-            <NavLink to="/doctor" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
+            <NavLink to="/server?tab=diagnostics" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
               <span
                 className={`status-dot ${
                   healthStatus === 'healthy' ? 'healthy' : healthStatus === 'warning' ? 'warning' : 'error'

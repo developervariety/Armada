@@ -84,7 +84,6 @@ export const navSections: NavSection[] = [
       { to: '/workspace', label: 'Workspace', tooltip: 'Open a vessel as a browsable, editable repository workspace', icon: icons.workspace },
       { to: '/vessels', label: 'Vessels', tooltip: 'Registered git repositories and vessel configuration', icon: icons.vessels },
       { to: '/captains', label: 'Captains', tooltip: 'AI coding agents that execute missions', icon: icons.captains },
-      { to: '/docks', label: 'Docks', tooltip: 'Isolated git worktrees assigned to captains', icon: icons.docks },
     ],
   },
   {
@@ -98,10 +97,9 @@ export const navSections: NavSection[] = [
   {
     key: 'activity',
     label: 'ACTIVITY',
-    matchers: ['/activity', '/history', '/requests', '/events', '/signals', '/notifications'],
+    matchers: ['/activity', '/history', '/requests', '/events', '/signals'],
     items: [
       { to: '/activity', label: 'Activity', tooltip: 'One log across requests, events, signals, and history; filter by source type', icon: icons.activity },
-      { to: '/notifications', label: 'Notifications', tooltip: 'Real-time alerts for mission completions and failures', icon: icons.notifications },
     ],
   },
   {
@@ -110,8 +108,7 @@ export const navSections: NavSection[] = [
     matchers: ['/server', '/doctor', '/settings', '/api-explorer'],
     items: [
       { to: '/api-explorer', label: 'API Explorer', tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses', icon: icons.apiExplorer },
-      { to: '/server', label: 'Server', tooltip: 'Admiral server settings, ports, and configuration', icon: icons.server },
-      { to: '/doctor', label: 'Doctor', tooltip: 'System health diagnostics and environment checks', icon: icons.doctor },
+      { to: '/server', label: 'Server', tooltip: 'Admiral server settings, configuration, and health diagnostics', icon: icons.server },
     ],
   },
   {
