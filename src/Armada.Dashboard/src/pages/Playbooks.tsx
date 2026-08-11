@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 
@@ -162,22 +163,20 @@ export default function Playbooks() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Playbooks')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Tenant-scoped markdown playbooks that can be attached to voyages and missions. Use them for durable engineering rules, architecture standards, or execution checklists.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh playbooks')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={openCreate}>
-              + {t('Playbook')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Playbooks')}
+        subtitle={t('Tenant-scoped markdown playbooks that can be attached to voyages and missions. Use them for durable engineering rules, architecture standards, or execution checklists.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh playbooks')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + {t('Playbook')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

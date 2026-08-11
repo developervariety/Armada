@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   deleteRequestHistoryByFilter,
   deleteRequestHistoryEntries,
@@ -511,30 +512,28 @@ export default function RequestHistory() {
 
   return (
     <div className="request-history-page">
-      <div className="page-header">
-        <div>
-          <h2>{t('Requests')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Inspect captured Armada API traffic, filter by route or principal, and replay stored requests into API Explorer.')}
-          </p>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-sm" onClick={() => navigate('/api-explorer')}>
-            {t('API Explorer')}
-          </button>
-          {selectedIds.length > 0 && (
-            <button className="btn btn-danger btn-sm" onClick={() => setDeleteSelectedOpen(true)}>
-              {t('Delete Selected')} ({selectedIds.length})
+      <PageHeader
+        title={t('Requests')}
+        subtitle={t('Inspect captured Armada API traffic, filter by route or principal, and replay stored requests into API Explorer.')}
+        actions={(
+          <>
+            <button className="btn btn-sm" onClick={() => navigate('/api-explorer')}>
+              {t('API Explorer')}
             </button>
-          )}
-          {totalRecords > 0 && (
-            <button className="btn btn-danger btn-sm" onClick={() => setDeleteFilteredOpen(true)}>
-              {hasActiveFilters ? t('Delete Filtered') : t('Delete Visible Range')}
-            </button>
-          )}
-          <RefreshButton onRefresh={async () => { await Promise.all([loadEntries(), loadSummary()]); }} title={t('Refresh request data')} />
-        </div>
-      </div>
+            {selectedIds.length > 0 && (
+              <button className="btn btn-danger btn-sm" onClick={() => setDeleteSelectedOpen(true)}>
+                {t('Delete Selected')} ({selectedIds.length})
+              </button>
+            )}
+            {totalRecords > 0 && (
+              <button className="btn btn-danger btn-sm" onClick={() => setDeleteFilteredOpen(true)}>
+                {hasActiveFilters ? t('Delete Filtered') : t('Delete Visible Range')}
+              </button>
+            )}
+            <RefreshButton onRefresh={async () => { await Promise.all([loadEntries(), loadSummary()]); }} title={t('Refresh request data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

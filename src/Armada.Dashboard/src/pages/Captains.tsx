@@ -12,6 +12,7 @@ import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -383,22 +384,22 @@ export default function Captains() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Captains')}</h2>
-          <p className="text-dim view-subtitle">{t('AI agent processes that execute missions. Monitor heartbeat, state, and manage captain lifecycle.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
-          <RefreshButton onRefresh={load} title={t('Refresh captain data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Captains')}
+        subtitle={t('AI agent processes that execute missions. Monitor heartbeat, state, and manage captain lifecycle.')}
+        actions={(
+          <>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
+            <RefreshButton onRefresh={load} title={t('Refresh captain data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

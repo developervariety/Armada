@@ -5,6 +5,7 @@ import type { InboxItem, InboxSeverity } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 
 function severityColor(severity: InboxSeverity): string {
   if (severity === 'Critical') return 'var(--danger, #ff6b6b)';
@@ -41,15 +42,11 @@ export default function Inbox() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Needs You')}</h2>
-          <p className="text-dim view-subtitle">{t('Everything across the fleet that is waiting on a decision or intervention from you.')}</p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh inbox')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Needs You')}
+        subtitle={t('Everything across the fleet that is waiting on a decision or intervention from you.')}
+        actions={<RefreshButton onRefresh={load} title={t('Refresh inbox')} />}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   createBacklogItem,
   deleteBacklogItem,
@@ -343,27 +344,25 @@ export default function Objectives() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Backlog')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Capture future work, refine it, and carry the same record through planning, dispatch, release, deployment, and incident follow-through.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh backlog')} />
-          {canManage && (
-            <button className="btn" onClick={() => setImportModalOpen(true)}>
-              {t('Import GitHub')}
-            </button>
-          )}
-          {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate(createBacklogRoute)}>
-              + {t('Backlog Item')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Backlog')}
+        subtitle={t('Capture future work, refine it, and carry the same record through planning, dispatch, release, deployment, and incident follow-through.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh backlog')} />
+            {canManage && (
+              <button className="btn" onClick={() => setImportModalOpen(true)}>
+                {t('Import GitHub')}
+              </button>
+            )}
+            {canManage && (
+              <button className="btn btn-primary" onClick={() => navigate(createBacklogRoute)}>
+                + {t('Backlog Item')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

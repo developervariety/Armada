@@ -7,6 +7,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import PlaybookSelector from '../components/shared/PlaybookSelector';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
+import PageHeader from '../components/shared/PageHeader';
 
 interface DispatchPrefillState {
   fromPlanning?: boolean;
@@ -146,14 +147,10 @@ export default function Dispatch() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Dispatch')}</h2>
-          <p className="text-muted">
-            {t('Describe the work you want Armada to dispatch through the selected vessel and pipeline.')}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title={t('Dispatch')}
+        subtitle={t('Describe the work you want Armada to dispatch through the selected vessel and pipeline.')}
+      />
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="dispatch-form">

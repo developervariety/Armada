@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { getSettings, updateSettings, getHealth } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useProxySessionContext } from '../lib/useProxySessionContext';
@@ -98,15 +99,11 @@ export default function Settings() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Settings')}</h2>
-          <p className="text-muted">{t('View and modify server configuration.')}</p>
-        </div>
-        <div className="page-actions">
-          <RefreshButton onRefresh={loadData} title={t('Refresh settings')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Settings')}
+        subtitle={t('View and modify server configuration.')}
+        actions={<RefreshButton onRefresh={loadData} title={t('Refresh settings')} />}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       {toast && (

@@ -13,6 +13,7 @@ import {
 import type { MissionSummary, Vessel, Captain, Signal, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -272,39 +273,37 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('System Status')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Overview of fleet health, active missions, and recent activity.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <button
-            className="btn btn-sm"
-            onClick={openSetupWizard}
-            title={t('Open the setup wizard for onboarding and next-step guidance')}
-            aria-label={t('Open Setup Wizard')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m12 3-1.9 4.8L5 9.7l4.1 2.1L12 17l2.9-5.2L19 9.7l-5.1-1.9Z" />
-              <path d="M5 3v4" />
-              <path d="M3 5h4" />
-              <path d="M19 16v5" />
-              <path d="M16.5 18.5h5" />
-            </svg>
-            <span>{t('Setup Wizard')}</span>
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/dispatch')} title={t('Smart dispatch with NLP task parsing')}>
-            + {t('Dispatch')}
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a new voyage with multiple missions')}>
-            + {t('Voyage')}
-          </button>
-          <RefreshButton onRefresh={loadAll} title="Refresh all dashboard data" />
-        </div>
-      </div>
+      <PageHeader
+        title={t('System Status')}
+        subtitle={t('Overview of fleet health, active missions, and recent activity.')}
+        actions={(
+          <>
+            <button
+              className="btn btn-sm"
+              onClick={openSetupWizard}
+              title={t('Open the setup wizard for onboarding and next-step guidance')}
+              aria-label={t('Open Setup Wizard')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m12 3-1.9 4.8L5 9.7l4.1 2.1L12 17l2.9-5.2L19 9.7l-5.1-1.9Z" />
+                <path d="M5 3v4" />
+                <path d="M3 5h4" />
+                <path d="M19 16v5" />
+                <path d="M16.5 18.5h5" />
+              </svg>
+              <span>{t('Setup Wizard')}</span>
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/dispatch')} title={t('Smart dispatch with NLP task parsing')}>
+              + {t('Dispatch')}
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a new voyage with multiple missions')}>
+              + {t('Voyage')}
+            </button>
+            <RefreshButton onRefresh={loadAll} title="Refresh all dashboard data" />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <ConfirmDialog

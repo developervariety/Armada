@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import CopyButton from '../components/shared/CopyButton';
+import PageHeader from '../components/shared/PageHeader';
 import { formatBytes, parseJsonString, methodClass } from '../lib/format';
 const RESPONSE_TABS = ['preview', 'body', 'headers', 'code'] as const;
 const CODE_TABS = ['curl', 'fetch', 'csharp'] as const;
@@ -667,33 +668,31 @@ export default function ApiExplorer() {
 
   return (
     <div className="api-explorer-page">
-      <div className="page-header">
-        <div>
-          <h2>{t('API Explorer')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Browse the live OpenAPI document, execute authenticated requests, inspect responses, and replay captured traffic.')}
-          </p>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-sm" onClick={() => navigate('/requests')}>
-            {t('Requests')}
-          </button>
-          <a className="btn btn-sm" href={buildRequestUrl('/openapi.json')} target="_blank" rel="noreferrer">
-            {t('OpenAPI JSON')}
-          </a>
-          <a className="btn btn-sm" href={buildRequestUrl('/swagger')} target="_blank" rel="noreferrer">
-            {t('Swagger')}
-          </a>
-          <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={!selectedOperation || !!abortController || loading}>
-            {abortController ? t('Running...') : t('Send Request')}
-          </button>
-          {abortController && (
-            <button className="btn btn-sm" onClick={() => abortController.abort()}>
-              {t('Abort')}
+      <PageHeader
+        title={t('API Explorer')}
+        subtitle={t('Browse the live OpenAPI document, execute authenticated requests, inspect responses, and replay captured traffic.')}
+        actions={(
+          <>
+            <button className="btn btn-sm" onClick={() => navigate('/requests')}>
+              {t('Requests')}
             </button>
-          )}
-        </div>
-      </div>
+            <a className="btn btn-sm" href={buildRequestUrl('/openapi.json')} target="_blank" rel="noreferrer">
+              {t('OpenAPI JSON')}
+            </a>
+            <a className="btn btn-sm" href={buildRequestUrl('/swagger')} target="_blank" rel="noreferrer">
+              {t('Swagger')}
+            </a>
+            <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={!selectedOperation || !!abortController || loading}>
+              {abortController ? t('Running...') : t('Send Request')}
+            </button>
+            {abortController && (
+              <button className="btn btn-sm" onClick={() => abortController.abort()}>
+                {t('Abort')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       {error && <div className="api-tool-error">{error}</div>}
 

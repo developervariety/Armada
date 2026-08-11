@@ -6,6 +6,7 @@ import { useLocale } from '../context/LocaleContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 
 interface SavedHistoryView {
   id: string;
@@ -339,29 +340,27 @@ export default function History() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('History')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Unified operational memory across backlog refinement, planning, dispatch, releases, deployments, incidents, requests, and events.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-sm" onClick={() => setSaveViewOpen(true)}>
-            {t('Save View')}
-          </button>
-          <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('json')}>
-            {exporting === 'json' ? t('Exporting...') : t('Export JSON')}
-          </button>
-          <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('csv')}>
-            {exporting === 'csv' ? t('Exporting...') : t('Export CSV')}
-          </button>
-          <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('md')}>
-            {exporting === 'md' ? t('Exporting...') : t('Export Markdown')}
-          </button>
-          <RefreshButton onRefresh={load} title={t('Refresh history')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('History')}
+        subtitle={t('Unified operational memory across backlog refinement, planning, dispatch, releases, deployments, incidents, requests, and events.')}
+        actions={(
+          <>
+            <button className="btn btn-sm" onClick={() => setSaveViewOpen(true)}>
+              {t('Save View')}
+            </button>
+            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('json')}>
+              {exporting === 'json' ? t('Exporting...') : t('Export JSON')}
+            </button>
+            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('csv')}>
+              {exporting === 'csv' ? t('Exporting...') : t('Export CSV')}
+            </button>
+            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('md')}>
+              {exporting === 'md' ? t('Exporting...') : t('Export Markdown')}
+            </button>
+            <RefreshButton onRefresh={load} title={t('Refresh history')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={metadataViewer.open} title={metadataViewer.title} data={metadataViewer.data} onClose={() => setMetadataViewer({ open: false, title: '', data: null })} />

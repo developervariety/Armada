@@ -10,6 +10,7 @@ import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -221,16 +222,16 @@ export default function Pipelines() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Pipelines')}</h2>
-          <p className="text-dim view-subtitle">{t('Multi-stage workflows combining different personas')}</p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
-          <RefreshButton onRefresh={load} title="Refresh pipeline data" />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Pipelines')}
+        subtitle={t('Multi-stage workflows combining different personas')}
+        actions={(
+          <>
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
+            <RefreshButton onRefresh={load} title="Refresh pipeline data" />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

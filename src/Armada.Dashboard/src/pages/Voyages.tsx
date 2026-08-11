@@ -10,6 +10,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -177,21 +178,21 @@ export default function Voyages() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Voyages')}</h2>
-          <p className="text-dim view-subtitle">{t('Batches of related missions dispatched together')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkCancel}>
-              {t('Cancel Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
-          <RefreshButton onRefresh={load} title="Refresh voyage data" />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Voyages')}
+        subtitle={t('Batches of related missions dispatched together')}
+        actions={(
+          <>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkCancel}>
+                {t('Cancel Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
+            <RefreshButton onRefresh={load} title="Refresh voyage data" />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

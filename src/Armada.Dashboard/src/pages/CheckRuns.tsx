@@ -12,6 +12,7 @@ import type { CheckRun, CheckRunRequest, CheckRunType, Vessel, VesselReadinessRe
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import ActionMenu from '../components/shared/ActionMenu';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
@@ -325,20 +326,18 @@ export default function CheckRuns() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Checks')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Structured build, test, deploy, and verification runs with durable output, artifacts, and retry support.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh check runs')} />
-          <button className="btn btn-primary" onClick={() => openRunModal()}>
-            + {t('Run Check')}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={t('Checks')}
+        subtitle={t('Structured build, test, deploy, and verification runs with durable output, artifacts, and retry support.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh check runs')} />
+            <button className="btn btn-primary" onClick={() => openRunModal()}>
+              + {t('Run Check')}
+            </button>
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

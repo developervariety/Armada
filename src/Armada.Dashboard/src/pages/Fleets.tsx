@@ -10,6 +10,7 @@ import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -213,21 +214,21 @@ export default function Fleets() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Fleets')}</h2>
-          <p className="text-dim view-subtitle">{t('Fleets are groups of vessels (repositories) useful for organizing and understanding relationships amongst code assets.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
-          <RefreshButton onRefresh={load} title={t('Refresh fleet data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Fleets')}
+        subtitle={t('Fleets are groups of vessels (repositories) useful for organizing and understanding relationships amongst code assets.')}
+        actions={(
+          <>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
+            <RefreshButton onRefresh={load} title={t('Refresh fleet data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import DiffViewer from '../components/shared/DiffViewer';
+import PageHeader from '../components/shared/PageHeader';
 import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
 import RefreshButton from '../components/shared/RefreshButton';
@@ -291,25 +292,25 @@ export default function MergeQueue() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Merge Queue')}</h2>
-          <p className="text-dim view-subtitle">{t('Completed missions awaiting merge. Review, test, approve, and manage the merge pipeline.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-sm" onClick={handleProcessAll} title={t('Process all queued entries')}>{t('Process All')}</button>
-          <button className="btn btn-primary btn-sm" onClick={() => {
-            setEnqueueForm({ branchName: '', targetBranch: 'main', missionId: '', vesselId: '', testCommand: '', priority: 0 });
-            setShowEnqueue(true);
-          }}>+ {t('Enqueue')}</button>
-          <RefreshButton onRefresh={load} title={t('Refresh merge queue')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Merge Queue')}
+        subtitle={t('Completed missions awaiting merge. Review, test, approve, and manage the merge pipeline.')}
+        actions={(
+          <>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-sm" onClick={handleProcessAll} title={t('Process all queued entries')}>{t('Process All')}</button>
+            <button className="btn btn-primary btn-sm" onClick={() => {
+              setEnqueueForm({ branchName: '', targetBranch: 'main', missionId: '', vesselId: '', testCommand: '', priority: 0 });
+              setShowEnqueue(true);
+            }}>+ {t('Enqueue')}</button>
+            <RefreshButton onRefresh={load} title={t('Refresh merge queue')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

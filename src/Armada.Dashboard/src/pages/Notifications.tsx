@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useNotifications, type Notification } from '../context/NotificationContext';
 import { useLocale } from '../context/LocaleContext';
+import PageHeader from '../components/shared/PageHeader';
 
 function severityDotClass(severity: Notification['severity']): string {
   switch (severity) {
@@ -25,37 +26,39 @@ export default function Notifications() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Notifications')}</h2>
-          <p className="text-muted">
+      <PageHeader
+        title={t('Notifications')}
+        subtitle={(
+          <>
             {t('State change history for missions, voyages, and captains.')}
             {unreadCount > 0 && (
               <span style={{ marginLeft: '0.5rem', fontWeight: 600 }}>
                 ({unreadCount.toLocaleString()} {t('unread')})
               </span>
             )}
-          </p>
-        </div>
-        <div className="page-actions">
-          <button
-            className="btn-sm"
-            onClick={markAllRead}
-            disabled={unreadCount === 0}
-            title={t('Mark all notifications as read')}
-          >
-            {t('Mark All Read')}
-          </button>
-          <button
-            className="btn-sm btn-danger"
-            onClick={clearHistory}
-            disabled={notifications.length === 0}
-            title={t('Clear all notification history')}
-          >
-            {t('Clear History')}
-          </button>
-        </div>
-      </div>
+          </>
+        )}
+        actions={(
+          <>
+            <button
+              className="btn-sm"
+              onClick={markAllRead}
+              disabled={unreadCount === 0}
+              title={t('Mark all notifications as read')}
+            >
+              {t('Mark All Read')}
+            </button>
+            <button
+              className="btn-sm btn-danger"
+              onClick={clearHistory}
+              disabled={notifications.length === 0}
+              title={t('Clear all notification history')}
+            >
+              {t('Clear History')}
+            </button>
+          </>
+        )}
+      />
 
       {notifications.length > 0 ? (
         <div className="table-wrap">

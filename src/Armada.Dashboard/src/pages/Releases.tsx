@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 const RELEASE_STATUSES: ReleaseStatus[] = ['Draft', 'Candidate', 'Shipped', 'Failed', 'RolledBack'];
@@ -190,22 +191,20 @@ export default function Releases() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Releases')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('First-class release records that bundle versions, notes, linked voyages and missions, structured checks, and derived artifacts.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh releases')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={openCreate}>
-              + {t('Release')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Releases')}
+        subtitle={t('First-class release records that bundle versions, notes, linked voyages and missions, structured checks, and derived artifacts.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh releases')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + {t('Release')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

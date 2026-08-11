@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   createDeployment,
   deleteDeployment,
@@ -260,22 +261,20 @@ export default function Deployments() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Deployments')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('First-class deployment records linking releases, environments, checks, approval, verification, rollback, and request-history evidence.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh deployments')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={openCreate}>
-              + {t('Deployment')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Deployments')}
+        subtitle={t('First-class deployment records linking releases, environments, checks, approval, verification, rollback, and request-history evidence.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh deployments')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + {t('Deployment')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

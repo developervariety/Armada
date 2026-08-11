@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   createPlanningSession,
   deletePlanningSession,
@@ -588,14 +589,10 @@ export default function Planning() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Planning')}</h2>
-          <p className="text-muted">
-            {t('Chat with a captain against a specific vessel, preserve the transcript, and dispatch directly from the planning output.')}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title={t('Planning')}
+        subtitle={t('Chat with a captain against a specific vessel, preserve the transcript, and dispatch directly from the planning output.')}
+      />
 
       {error && (
         <div className="alert alert-error" style={{ marginBottom: '1rem' }}>

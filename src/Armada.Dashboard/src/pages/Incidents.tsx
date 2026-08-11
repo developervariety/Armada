@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   createIncident,
   deleteIncident,
@@ -208,22 +209,20 @@ export default function Incidents() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Incidents')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Track incidents, hotfix context, rollback history, recovery notes, and postmortems alongside deployments and releases.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh incidents')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={openCreate}>
-              + {t('Incident')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Incidents')}
+        subtitle={t('Track incidents, hotfix context, rollback history, recovery notes, and postmortems alongside deployments and releases.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh incidents')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + {t('Incident')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

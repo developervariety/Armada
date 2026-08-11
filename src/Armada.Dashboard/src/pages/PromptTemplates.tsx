@@ -9,6 +9,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -141,18 +142,18 @@ export default function PromptTemplates() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{translate('Prompt Templates')}</h2>
-          <p className="text-dim view-subtitle">{translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}</p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
-            + {translate('Prompt Template')}
-          </button>
-          <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={translate('Prompt Templates')}
+        subtitle={translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}
+        actions={(
+          <>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
+              + {translate('Prompt Template')}
+            </button>
+            <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

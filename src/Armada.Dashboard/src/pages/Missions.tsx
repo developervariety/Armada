@@ -13,6 +13,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
+import PageHeader from '../components/shared/PageHeader';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -287,25 +288,25 @@ export default function Missions() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Missions')}</h2>
-          <p className="text-dim view-subtitle">{t('Individual work units assigned to captains')}</p>
-        </div>
-        <div className="view-actions">
-          <select className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }} title={t('Filter by status')}>
-            <option value="">{t('All Statuses')}</option>
-            {MISSION_STATUSES.map(s => <option key={s} value={s}>{t(s)}</option>)}
-          </select>
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Mission')}</button>
-          <RefreshButton onRefresh={load} title="Refresh mission data" />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Missions')}
+        subtitle={t('Individual work units assigned to captains')}
+        actions={(
+          <>
+            <select className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }} title={t('Filter by status')}>
+              <option value="">{t('All Statuses')}</option>
+              {MISSION_STATUSES.map(s => <option key={s} value={s}>{t(s)}</option>)}
+            </select>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Mission')}</button>
+            <RefreshButton onRefresh={load} title="Refresh mission data" />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

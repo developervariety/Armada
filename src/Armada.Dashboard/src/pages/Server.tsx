@@ -12,6 +12,7 @@ import {
   type ProxySessionContext,
 } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications, type Severity } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -602,17 +603,11 @@ export default function Server() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Server Settings')}</h2>
-          <p className="text-muted">
-            {t('Admiral server health, configuration, and operational controls.')}
-          </p>
-        </div>
-        <div className="page-actions">
-          <RefreshButton onRefresh={loadData} title={t('Refresh server data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Server Settings')}
+        subtitle={t('Admiral server health, configuration, and operational controls.')}
+        actions={<RefreshButton onRefresh={loadData} title={t('Refresh server data')} />}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

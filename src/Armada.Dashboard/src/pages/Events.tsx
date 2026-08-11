@@ -9,6 +9,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -165,20 +166,20 @@ export default function Events() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Events')}</h2>
-          <p className="text-dim view-subtitle">{t('System event log capturing state changes, completions, failures, and other notable occurrences.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <RefreshButton onRefresh={load} title={t('Refresh event data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Events')}
+        subtitle={t('System event log capturing state changes, completions, failures, and other notable occurrences.')}
+        actions={(
+          <>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <RefreshButton onRefresh={load} title={t('Refresh event data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

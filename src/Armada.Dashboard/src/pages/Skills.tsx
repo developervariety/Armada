@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 export default function Skills() {
@@ -137,20 +138,18 @@ export default function Skills() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Skills')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('A directory of reusable capability snippets attached to projects and injected into mission prompts.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh skills')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={openCreate}>+ {t('Skill')}</button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Skills')}
+        subtitle={t('A directory of reusable capability snippets attached to projects and injected into mission prompts.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh skills')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>+ {t('Skill')}</button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

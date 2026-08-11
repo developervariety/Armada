@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   createRunbook,
   deleteRunbook,
@@ -224,22 +225,20 @@ export default function Runbooks() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Runbooks')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Playbook-backed operational runbooks with bound workflow profiles, environments, parameters, step tracking, and execution history.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh runbooks')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={openCreate}>
-              + {t('Runbook')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Runbooks')}
+        subtitle={t('Playbook-backed operational runbooks with bound workflow profiles, environments, parameters, step tracking, and execution history.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh runbooks')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + {t('Runbook')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       {carryState?.prefillExecution && (
         <div className="alert" style={{ marginBottom: '1rem' }}>

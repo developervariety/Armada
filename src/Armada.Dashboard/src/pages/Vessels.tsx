@@ -10,6 +10,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -302,24 +303,24 @@ export default function Vessels() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Vessels')}</h2>
-          <p className="text-dim view-subtitle">{t('Git repositories registered with Armada')}</p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
-            {t('Workspace')}
-          </button>
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
+      <PageHeader
+        title={t('Vessels')}
+        subtitle={t('Git repositories registered with Armada')}
+        actions={(
+          <>
+            <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
+              {t('Workspace')}
             </button>
-          )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
-          <RefreshButton onRefresh={load} title="Refresh vessel data" />
-        </div>
-      </div>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
+            <RefreshButton onRefresh={load} title="Refresh vessel data" />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

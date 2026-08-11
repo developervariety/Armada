@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import { buildEnvironmentDuplicatePayload } from '../lib/duplicates';
 
 const ENVIRONMENT_KINDS: EnvironmentKind[] = ['Development', 'Test', 'Staging', 'Production', 'CustomerHosted', 'Custom'];
@@ -228,22 +229,20 @@ export default function Environments() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Environments')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Named deployment targets for vessels, with URLs, configuration sources, approval requirements, and operator notes.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh environments')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={openCreate}>
-              + {t('Environment')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Environments')}
+        subtitle={t('Named deployment targets for vessels, with URLs, configuration sources, approval requirements, and operator notes.')}
+        actions={(
+          <>
+            <RefreshButton onRefresh={load} title={t('Refresh environments')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + {t('Environment')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
