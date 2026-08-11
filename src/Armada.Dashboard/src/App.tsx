@@ -73,6 +73,7 @@ const RequestHistory = lazy(() => import('./pages/RequestHistory'));
 const ApiExplorer = lazy(() => import('./pages/ApiExplorer'));
 const History = lazy(() => import('./pages/History'));
 const Configuration = lazy(() => import('./pages/Configuration'));
+const Activity = lazy(() => import('./pages/Activity'));
 
 function RouteFallback() {
   return (
@@ -123,11 +124,12 @@ export default function App() {
                       <Route path="voyages/create" element={<VoyageCreate />} />
                       <Route path="voyages/:id" element={<VoyageDetail />} />
 
-                      <Route path="signals" element={<Signals />} />
-                      <Route path="history" element={<History />} />
+                      <Route path="activity" element={<Activity />} />
+                      <Route path="signals" element={<Navigate to="/activity?source=signals" replace />} />
+                      <Route path="history" element={<Navigate to="/activity?source=history" replace />} />
                       <Route path="signals/:id" element={<SignalDetail />} />
 
-                      <Route path="events" element={<Events />} />
+                      <Route path="events" element={<Navigate to="/activity?source=events" replace />} />
                       <Route path="events/:id" element={<EventDetail />} />
 
                       <Route path="docks" element={<Docks />} />
@@ -167,7 +169,7 @@ export default function App() {
                       <Route path="incidents/:id" element={<IncidentDetail />} />
                       <Route path="runbooks" element={<Runbooks />} />
                       <Route path="runbooks/:id" element={<RunbookDetail />} />
-                      <Route path="requests" element={<RequestHistory />} />
+                      <Route path="requests" element={<Navigate to="/activity?source=requests" replace />} />
                       <Route path="requests/:id" element={<RequestHistory />} />
                       <Route path="api-explorer" element={<ApiExplorer />} />
                       <Route path="api-explorer/:operationId" element={<ApiExplorer />} />

@@ -98,20 +98,17 @@ export const navSections: NavSection[] = [
   {
     key: 'activity',
     label: 'ACTIVITY',
-    matchers: ['/history', '/signals', '/events', '/notifications'],
+    matchers: ['/activity', '/history', '/requests', '/events', '/signals', '/notifications'],
     items: [
-      { to: '/history', label: 'History', tooltip: 'Cross-entity timeline spanning missions, checks, requests, planning, merge queue, and events', icon: icons.history },
-      { to: '/signals', label: 'Signals', tooltip: 'Messages exchanged between the Admiral and captains', icon: icons.signals },
-      { to: '/events', label: 'Events', tooltip: 'Audit log of system-wide actions and state changes', icon: icons.events },
+      { to: '/activity', label: 'Activity', tooltip: 'One log across requests, events, signals, and history; filter by source type', icon: icons.activity },
       { to: '/notifications', label: 'Notifications', tooltip: 'Real-time alerts for mission completions and failures', icon: icons.notifications },
     ],
   },
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/requests', '/api-explorer'],
+    matchers: ['/server', '/doctor', '/settings', '/api-explorer'],
     items: [
-      { to: '/requests', label: 'Requests', tooltip: 'Captured request history with summaries, replay, and request inspection', icon: icons.requests },
       { to: '/api-explorer', label: 'API Explorer', tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses', icon: icons.apiExplorer },
       { to: '/server', label: 'Server', tooltip: 'Admiral server settings, ports, and configuration', icon: icons.server },
       { to: '/doctor', label: 'Doctor', tooltip: 'System health diagnostics and environment checks', icon: icons.doctor },
