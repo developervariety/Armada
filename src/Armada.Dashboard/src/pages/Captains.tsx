@@ -405,7 +405,7 @@ export default function Captains() {
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className={`modal${isMuxRuntime(form.runtime) ? ' modal-mux' : ''}`} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className={`modal modal-captain${isMuxRuntime(form.runtime) ? ' modal-mux' : ''}`} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Captain') : t('Create Captain')}</h3>
             <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
             <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}

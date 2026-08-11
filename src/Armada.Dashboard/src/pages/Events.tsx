@@ -12,23 +12,10 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { entityRoute } from '../lib/routing';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'eventType' | 'entityType' | 'createdUtc';
-
-function entityRoute(entityId: string | null): string | null {
-  if (!entityId) return null;
-  if (entityId.startsWith('flt_')) return `/fleets/${entityId}`;
-  if (entityId.startsWith('vsl_')) return `/vessels/${entityId}`;
-  if (entityId.startsWith('cpt_')) return `/captains/${entityId}`;
-  if (entityId.startsWith('msn_')) return `/missions/${entityId}`;
-  if (entityId.startsWith('vyg_')) return `/voyages/${entityId}`;
-  if (entityId.startsWith('sig_')) return `/signals/${entityId}`;
-  if (entityId.startsWith('evt_')) return `/events/${entityId}`;
-  if (entityId.startsWith('dck_')) return `/docks/${entityId}`;
-  if (entityId.startsWith('mrg_')) return `/merge-queue`;
-  return null;
-}
 
 export default function Events() {
   const navigate = useNavigate();

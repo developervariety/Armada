@@ -4622,6 +4622,11 @@ tr.clickable { cursor: pointer; }
 /* Mux captains expose many more fields; give their config modal 50% more width (440px -> 660px). */
 .modal-mux { max-width: 660px; }
 
+/* Captain create/edit modal: 100% wider than the base modal and ~50% taller so the
+   runtime/instruction/endpoint fields have room. Doubles the base 440px (and the 660px mux). */
+.modal-captain { max-width: 880px; min-height: 66vh; }
+.modal-captain.modal-mux { max-width: 1320px; }
+
 /* Rendered markdown (chat/assistant content): compact, readable spacing. */
 .markdown { line-height: 1.5; overflow-wrap: anywhere; }
 .markdown > *:first-child { margin-top: 0; }

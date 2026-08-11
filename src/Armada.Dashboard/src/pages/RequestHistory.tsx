@@ -25,6 +25,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
+import { formatBytes, parseJsonString } from '../lib/format';
 
 type ActivityRangeId = 'lastHour' | 'lastDay' | 'lastWeek' | 'lastMonth';
 
@@ -68,27 +69,6 @@ function toLocalInputValue(date: Date) {
 
 function buildApiDate(value: string) {
   return value ? new Date(value).toISOString() : undefined;
-}
-
-function formatBytes(bytes: number) {
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-function parseJsonString<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
 }
 
 function formatChartLabel(value: string, rangeId: ActivityRangeId) {

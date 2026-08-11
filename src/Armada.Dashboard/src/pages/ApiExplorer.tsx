@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import CopyButton from '../components/shared/CopyButton';
+import { formatBytes, parseJsonString, methodClass } from '../lib/format';
 const RESPONSE_TABS = ['preview', 'body', 'headers', 'code'] as const;
 const CODE_TABS = ['curl', 'fetch', 'csharp'] as const;
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -110,15 +111,6 @@ function isOperationSource(value: OpenApiPathItemValue): value is OpenApiOperati
   return true;
 }
 
-function parseJsonString<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 function resolveSchema(schema: OpenApiSchema | undefined | null, spec: OpenApiSpec | null, seen = new Set<string>()): OpenApiSchema | null {
   if (!schema) return null;
   if (schema.$ref) {
@@ -180,18 +172,6 @@ function parameterInitialValue(parameter: OpenApiParameter, spec: OpenApiSpec | 
   return '';
 }
 
-function formatBytes(bytes: number) {
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
 function prettifyContent(body: string, contentType: string) {
   if (!body) return '(empty)';
   if (contentType.includes('application/json')) {
@@ -225,10 +205,6 @@ function generateCodeSnippets(request: ExplorerRequestPreview): Record<CodeTab, 
     fetch: `const response = await fetch(${JSON.stringify(request.url)}, {\n  method: ${JSON.stringify(request.method.toUpperCase())}${fetchHeaders}${fetchBody}\n});\n\nconst data = await response.text();`,
     csharp: `using System.Net.Http;\nusing System.Text;\n\nusing var client = new HttpClient();\nusing var request = new HttpRequestMessage(HttpMethod.${request.method.charAt(0).toUpperCase() + request.method.slice(1).toLowerCase()}, ${JSON.stringify(request.url)});\n${csharpHeaders}${csharpBody ? `\n${csharpBody}` : ''}\nusing var response = await client.SendAsync(request);\nvar body = await response.Content.ReadAsStringAsync();`,
   };
-}
-
-function methodClass(method: string) {
-  return `request-method-pill request-method-${method.toLowerCase()}`;
 }
 
 function getOperationSubtext(operation: ExplorerOperation) {

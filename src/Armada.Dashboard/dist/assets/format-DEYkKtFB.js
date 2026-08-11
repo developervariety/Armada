@@ -1,0 +1,1 @@
+function o(t){if(!t)return"0 B";const e=["B","KB","MB","GB"];let r=t,n=0;for(;r>=1024&&n<e.length-1;)r/=1024,n+=1;return`${r.toFixed(r>=10||n===0?0:1)} ${e[n]}`}function s(t,e){if(!t)return e;try{return JSON.parse(t)}catch{return e}}function u(t){return`request-method-pill request-method-${t.toLowerCase()}`}export{o as f,u as m,s as p};
