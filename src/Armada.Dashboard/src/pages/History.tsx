@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { enumerateHistoryTimeline, listObjectives, listVessels } from '../api/client';
+import { enumerateHistoryTimeline, listObjectives, listVessels, deleteRequestHistoryEntry } from '../api/client';
 import type { HistoricalTimelineEntry, HistoricalTimelineQuery, Objective, Vessel } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
+import { useNotifications } from '../context/NotificationContext';
+import ActionMenu from '../components/shared/ActionMenu';
+import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
@@ -145,7 +148,9 @@ function buildMarkdown(query: HistoricalTimelineQuery, entries: HistoricalTimeli
 
 export default function History() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const { pushToast } = useNotifications();
   const navigate = useNavigate();
+  const [confirmDelete, setConfirmDelete] = useState<HistoricalTimelineEntry | null>(null);
   const location = useLocation();
   const initialQuery = new URLSearchParams(location.search);
   const [entries, setEntries] = useState<HistoricalTimelineEntry[]>([]);
@@ -269,6 +274,23 @@ export default function History() {
         title: `${entry.sourceType}: ${entry.title}`,
         data: entry.metadataJson,
       });
+    }
+  }
+
+  // Timeline entries are a read-only aggregation; only request-sourced rows (req_ source id)
+  // map to a deletable underlying record (the request-history entry).
+  function canDeleteEntry(entry: HistoricalTimelineEntry): boolean {
+    return !!entry.sourceId && entry.sourceId.startsWith('req_');
+  }
+
+  async function handleDeleteEntry(entry: HistoricalTimelineEntry) {
+    setConfirmDelete(null);
+    try {
+      await deleteRequestHistoryEntry(entry.sourceId);
+      pushToast('warning', t('History entry deleted.'));
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to delete history entry.'));
     }
   }
 
@@ -482,71 +504,62 @@ export default function History() {
           <span>{t('Try broadening the filters or refresh after running additional work in Armada.')}</span>
         </div>
       ) : (
-        <div className="history-timeline">
-          {groupedEntries.map(([label, dayEntries]) => (
-            <section key={label} className="history-day-group">
-              <div className="history-day-header">{label}</div>
-              <div className="history-day-entries">
-                {dayEntries.map((entry) => (
-                  <article key={entry.id} className="history-entry-card">
-                    <div className="history-entry-rail">
-                      <span className={`status-dot ${severityClass(entry.severity) || 'connected'}`} />
-                    </div>
-                    <div className="history-entry-body">
-                      <div className="history-entry-topline">
-                        <div>
-                          <strong>{entry.title}</strong>
-                          <div className="text-dim history-entry-meta">
-                            <span>{formatRelativeTime(entry.occurredUtc)}</span>
-                            <span>{formatDateTime(entry.occurredUtc)}</span>
-                          </div>
-                        </div>
-                        <div className="history-entry-badges">
-                          <span className="tag">{entry.sourceType}</span>
-                          {entry.status && <span className={`tag ${severityClass(entry.severity)}`.trim()}>{entry.status}</span>}
-                        </div>
-                      </div>
-
-                      {entry.description && (
-                        <p className="history-entry-description">{entry.description}</p>
-                      )}
-
-                      <div className="history-entry-details">
-                        {entry.objectiveId && <span>{t('Backlog')}: {objectiveMap.get(entry.objectiveId) || entry.objectiveId}</span>}
-                        {entry.actorDisplay && <span>{t('Actor')}: <strong>{entry.actorDisplay}</strong></span>}
-                        {entry.vesselId && <span>{t('Vessel')}: {vesselMap.get(entry.vesselId) || entry.vesselId}</span>}
-                        {entry.environmentId && <span>{t('Environment')}: <span className="mono">{entry.environmentId}</span></span>}
-                        {entry.deploymentId && <span>{t('Deployment')}: <span className="mono">{entry.deploymentId}</span></span>}
-                        {entry.incidentId && <span>{t('Incident')}: <span className="mono">{entry.incidentId}</span></span>}
-                        {entry.missionId && <span>{t('Mission')}: <span className="mono">{entry.missionId}</span></span>}
-                        {entry.voyageId && <span>{t('Voyage')}: <span className="mono">{entry.voyageId}</span></span>}
-                      </div>
-
-                      <div className="history-entry-actions">
-                        {entry.route && (
-                          <button className="btn btn-sm" onClick={() => navigate(entry.route || '/')}>
-                            {t('Open')}
-                          </button>
-                        )}
-                        {entry.vesselId && (
-                          <Link className="btn btn-sm" to={`/workspace/${entry.vesselId}`}>
-                            {t('Workspace')}
-                          </Link>
-                        )}
-                        {entry.metadataJson && (
-                          <button className="btn btn-sm" onClick={() => openMetadata(entry)}>
-                            {t('Metadata')}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t('When')}</th>
+                <th>{t('Title')}</th>
+                <th>{t('Source')}</th>
+                <th>{t('Status')}</th>
+                <th>{t('Actor')}</th>
+                <th>{t('Vessel')}</th>
+                <th className="text-right">{t('Actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr
+                  key={entry.id}
+                  className={entry.route ? 'clickable' : undefined}
+                  onClick={entry.route ? () => navigate(entry.route as string) : undefined}
+                >
+                  <td className="text-dim" title={formatDateTime(entry.occurredUtc)} style={{ whiteSpace: 'nowrap' }}>{formatRelativeTime(entry.occurredUtc)}</td>
+                  <td>
+                    <strong>{entry.title}</strong>
+                    {entry.description && <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>{entry.description}</div>}
+                  </td>
+                  <td><span className="tag">{entry.sourceType}</span></td>
+                  <td>{entry.status ? <span className={`tag ${severityClass(entry.severity)}`.trim()}>{entry.status}</span> : <span className="text-dim">-</span>}</td>
+                  <td className="text-dim">{entry.actorDisplay || '-'}</td>
+                  <td className="text-dim">{entry.vesselId ? (vesselMap.get(entry.vesselId) || entry.vesselId) : '-'}</td>
+                  <td className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <ActionMenu
+                      id={`history-${entry.id}`}
+                      items={[
+                        ...(entry.route ? [{ label: 'View', onClick: () => navigate(entry.route as string) }] : []),
+                        ...(entry.metadataJson ? [{ label: 'View JSON', onClick: () => openMetadata(entry) }] : []),
+                        ...(entry.vesselId ? [{ label: 'Open Workspace', onClick: () => navigate(`/workspace/${entry.vesselId}`) }] : []),
+                        ...(canDeleteEntry(entry) ? [{ label: 'Delete', danger: true, onClick: () => setConfirmDelete(entry) }] : []),
+                      ]}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={t('Delete History Entry')}
+        message={t('Delete this request-history entry? This cannot be undone.')}
+        confirmLabel={t('Delete')}
+        danger
+        onConfirm={() => confirmDelete && void handleDeleteEntry(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
