@@ -75,6 +75,7 @@ const Configuration = lazy(() => import('./pages/Configuration'));
 const Activity = lazy(() => import('./pages/Activity'));
 const ServerHub = lazy(() => import('./pages/ServerHub'));
 const VesselsHub = lazy(() => import('./pages/VesselsHub'));
+const CaptainsHub = lazy(() => import('./pages/CaptainsHub'));
 
 function RouteFallback() {
   return (
@@ -115,7 +116,7 @@ export default function App() {
                       <Route path="workspace/:vesselId" element={<Workspace />} />
                       <Route path="workspace/:vesselId/:panel" element={<Workspace />} />
 
-                      <Route path="captains" element={<Captains />} />
+                      <Route path="captains" element={<CaptainsHub />} />
                       <Route path="captains/:id" element={<CaptainDetail />} />
 
                       <Route path="missions" element={<Missions />} />
@@ -133,7 +134,7 @@ export default function App() {
                       <Route path="events" element={<Navigate to="/activity?source=events" replace />} />
                       <Route path="events/:id" element={<EventDetail />} />
 
-                      <Route path="docks" element={<Docks />} />
+                      <Route path="docks" element={<Navigate to="/captains?tab=docks" replace />} />
                       <Route path="docks/:id" element={<DockDetail />} />
 
                       <Route path="merge-queue" element={<MergeQueue />} />
