@@ -6870,3 +6870,262 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     gap: 0.5rem;
     flex-wrap: wrap;
 }
+
+/* ── Nav: Ask Armada standalone primary item ── */
+.sidebar-nav-item.sidebar-nav-primary {
+    color: var(--accent);
+    font-weight: 600;
+}
+.sidebar-nav-item.sidebar-nav-primary svg {
+    color: var(--accent);
+}
+
+/* ── Shared Tabs primitive (page-level tab bar) ── */
+.page-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+.page-tabs-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.1rem;
+}
+.page-tabs-list {
+    display: flex;
+    align-items: stretch;
+    gap: 0.15rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.page-tabs-list::-webkit-scrollbar {
+    display: none;
+}
+.page-tab {
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 0.86rem;
+    font-weight: 600;
+    padding: 0.6rem 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.page-tab:hover {
+    color: var(--text);
+}
+.page-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+.page-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 4px 4px 0 0;
+}
+.page-tabs-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+.page-tab-panel {
+    min-height: 0;
+}
+
+/* ── Notification bell (top bar) ── */
+.notif-bell {
+    position: relative;
+    display: inline-flex;
+}
+.notif-bell-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.notif-bell-btn:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+}
+.notif-bell-btn .notif-badge {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+}
+.notif-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 360px;
+    max-width: calc(100vw - 2rem);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+    z-index: 200;
+    overflow: hidden;
+}
+.notif-dropdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+.notif-dropdown-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text);
+}
+.notif-dropdown-actions {
+    display: flex;
+    gap: 0.6rem;
+}
+.notif-dropdown-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 420px;
+    overflow-y: auto;
+}
+.notif-dropdown-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 0.85rem;
+    cursor: pointer;
+    font-family: var(--font);
+}
+.notif-dropdown-item:hover {
+    background: var(--bg-hover);
+}
+.notif-dropdown-item.unread {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.notif-dropdown-item-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 0;
+}
+.notif-dropdown-item-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.notif-dropdown-item-message {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.notif-dropdown-item-time {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.notif-dropdown-empty {
+    padding: 1.4rem 0.85rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+}
+
+/* ── Command palette (Cmd-K) ── */
+.command-palette-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 12vh;
+    z-index: 400;
+}
+.command-palette {
+    width: 560px;
+    max-width: calc(100vw - 2rem);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.command-palette-input {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.95rem;
+    padding: 0.9rem 1rem;
+    outline: none;
+}
+.command-palette-list {
+    list-style: none;
+    margin: 0;
+    padding: 0.35rem;
+    max-height: 52vh;
+    overflow-y: auto;
+}
+.command-palette-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: calc(var(--radius) - 2px);
+    padding: 0.55rem 0.75rem;
+    cursor: pointer;
+    font-family: var(--font);
+    color: var(--text);
+}
+.command-palette-item.active {
+    background: var(--bg-hover);
+}
+.command-palette-item-label {
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+.command-palette-item-section {
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+.command-palette-empty {
+    padding: 1.4rem 1rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}

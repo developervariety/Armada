@@ -38,7 +38,7 @@ it is checked and its acceptance criteria are ticked.
 
 | # | Phase | Depends on | Status | Owner | PR / Branch | Verified |
 |---|---|---|---|---|---|---|
-| 0 | Foundations (shared Tabs, bell, palette, route redirects) | — | Not started | | | |
+| 0 | Foundations (shared Tabs, bell, palette, route redirects) | — | Done | | feature/v0.9.0 | build+tests green |
 | 1 | Configuration hub (7 config pages → 1 tabbed hub) | 0 | Not started | | | |
 | 2 | Activity log (History + Requests + Events + Signals → 1) | 0 | Not started | | | |
 | 3 | Quick demotions (Notifications bell, Doctor → Server, Docks → Agents) | 0, 2 | Not started | | | |
@@ -191,6 +191,11 @@ Tabs primitive (Phase 0) owns this.
 Nothing else can start cleanly until the shared pieces every later phase leans on exist.
 Build the primitives once, correctly, and the seven consolidations that follow become
 configuration rather than fresh invention.
+
+> **Status: Done.** Shipped `navConfig.tsx` (single source of truth for nav), `Tabs.tsx`
+> (URL-synced), `NotificationBell.tsx`, `CommandPalette.tsx`; Ask Armada is a standalone
+> item under Dashboard; sidebar widened to 220px; section collapse defaults applied. Build
+> and all 42 tests green. Nav-inventory/primitive unit tests are added in Phase 10.
 
 **Goal.** Ship the shared Tabs primitive, the top-bar notification bell, the ⌘K command
 palette, the route-redirect scaffolding, and the sidebar defaults — with no user-visible
