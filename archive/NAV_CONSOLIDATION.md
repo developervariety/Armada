@@ -1,4 +1,11 @@
-# Navigation Consolidation — Implementation Plan
+# Navigation Consolidation — Implementation Plan (COMPLETED)
+
+> **Archived.** All 14 phases shipped on `feature/v0.9.0` (see the commit series
+> `feat(dashboard): Phase 0..9`, `test(...)` Phase 10, `docs`/`chore` Phases 11-12, and the
+> Phase 13 acceptance commit). Dashboard build + 54 frontend tests green, full .NET solution
+> builds, backend 2244 tests green, dashboard deployed. The one open item is authenticated
+> visual QA of the live sidebar (needs a running Admiral server). Kept as the historical
+> record of the effort.
 
 **Target:** collapse the dashboard from **~35 nav destinations across 6 sections** to
 **~13 workflow-grouped destinations**, without deleting a single capability, so a new
