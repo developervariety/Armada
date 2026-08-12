@@ -153,6 +153,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum number of times a mission is automatically re-dispatched (to a fresh captain) after a
+        /// detected no-op completion before it is failed and surfaced to the operator inbox. Set to 0 to
+        /// fail immediately on the first no-op. Must be in range [0, 5].
+        /// </summary>
+        public int MaxNoOpRedispatchAttempts
+        {
+            get => _MaxNoOpRedispatchAttempts;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 5) value = 5;
+                _MaxNoOpRedispatchAttempts = value;
+            }
+        }
+
+        /// <summary>
         /// Global landing mode for completed missions. Determines how work is integrated.
         /// When set, takes precedence over the legacy boolean flags (AutoPush, AutoCreatePullRequests, AutoMergePullRequests).
         /// Can be overridden per-vessel or per-voyage.
@@ -575,6 +591,7 @@ namespace Armada.Core.Settings
         private int _PlanningSessionInactivityTimeoutMinutes = Constants.DefaultPlanningSessionInactivityTimeoutMinutes;
         private int _PlanningSessionAbandonmentTimeoutMinutes = Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes;
         private int _MaxLandingRetries = 3;
+        private int _MaxNoOpRedispatchAttempts = 1;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _MaxConcurrentMissions = Constants.DefaultMaxConcurrentMissions;

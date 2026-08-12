@@ -78,6 +78,12 @@ namespace Armada.Core.Models
         public int Priority { get; set; } = 100;
 
         /// <summary>
+        /// Number of times this mission has been automatically re-dispatched after a detected no-op
+        /// completion. Bounds the auto-retry before the mission is failed and surfaced to the operator.
+        /// </summary>
+        public int RedispatchAttempts { get; set; } = 0;
+
+        /// <summary>
         /// Parent mission identifier for sub-tasks.
         /// </summary>
         public string? ParentMissionId { get; set; } = null;

@@ -568,6 +568,7 @@ namespace Armada.Core.Database.Sqlite
             mission.ProcessId = NullableInt(reader["process_id"]);
             mission.PrUrl = NullableString(reader["pr_url"]);
             mission.CommitHash = NullableString(reader["commit_hash"]);
+            try { object v = reader["redispatch_attempts"]; if (v != DBNull.Value) mission.RedispatchAttempts = Convert.ToInt32(v); } catch { }
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);
             try { mission.AgentOutput = NullableString(reader["agent_output"]); } catch { }
             mission.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

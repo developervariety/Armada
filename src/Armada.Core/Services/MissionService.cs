@@ -676,6 +676,70 @@ namespace Armada.Core.Services
         /// <summary>
         /// Core completion logic, called under in-flight deduplication guard.
         /// </summary>
+        /// <summary>
+        /// If a completion looks like a no-op false-complete, re-dispatch the mission to a fresh captain
+        /// (bounded by <see cref="ArmadaSettings.MaxNoOpRedispatchAttempts"/>) or, once exhausted, fail it
+        /// so it surfaces in the operator inbox. Returns true when the completion was handled as a no-op
+        /// (the caller must not proceed to landing).
+        /// </summary>
+        private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (!NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
+                return false;
+
+            // Release the dock/captain before re-dispatching or failing.
+            if (dock != null)
+            {
+                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "no-op reclaim error for mission " + mission.Id + ": " + ex.Message); }
+            }
+
+            int maxAttempts = _Settings.MaxNoOpRedispatchAttempts;
+            if (mission.RedispatchAttempts < maxAttempts)
+            {
+                mission.RedispatchAttempts++;
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CaptainId = null;
+                mission.DockId = null;
+                mission.ProcessId = null;
+                mission.PrUrl = null;
+                mission.CommitHash = null;
+                mission.DiffSnapshot = null;
+                mission.AgentOutput = null;
+                mission.FailureReason = null;
+                mission.StartedUtc = null;
+                mission.CompletedUtc = null;
+                mission.TotalRuntimeMs = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "no-op completion detected for mission " + mission.Id +
+                    "; re-dispatching to a fresh captain (attempt " + mission.RedispatchAttempts + "/" + maxAttempts + ")");
+
+                if (!String.IsNullOrEmpty(mission.VesselId))
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                    if (vessel != null) await TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                }
+                return true;
+            }
+
+            // Retries exhausted: fail and surface to the operator inbox (LandingFailed/Failed feed it).
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = "no_op_completion_detected: captain repeatedly completed with no changes after " +
+                mission.RedispatchAttempts + " re-dispatch attempt(s). Likely an impossible or mis-specified mission.";
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "no-op completion for mission " + mission.Id +
+                " exhausted re-dispatch attempts; failing to operator inbox");
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return true;
+        }
+
         private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token)
         {
             Mission? mission = null;
@@ -762,6 +826,15 @@ namespace Armada.Core.Services
                     mission.AgentOutput = agentOutput;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 }
+            }
+
+            // Reject a no-op false-complete (fast exit, empty diff, trivial output): re-dispatch to a
+            // fresh captain up to a bounded number of times, then fail to the operator inbox. Skipped
+            // when the mission already failed scope validation.
+            if (!failedForScopeViolation &&
+                await TryRejectNoOpCompletionAsync(mission, dock, token).ConfigureAwait(false))
+            {
+                return;
             }
 
             if (!failedForScopeViolation && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))

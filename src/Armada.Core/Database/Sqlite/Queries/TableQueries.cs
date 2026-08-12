@@ -1308,7 +1308,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(47, "Name the default admin credential",
                     @"UPDATE credentials SET name = 'Default Admin Credential' WHERE id = 'default' AND (name IS NULL OR name = '');"),
                 new SchemaMigration(49, "Add reasoning_effort to captains (48 was consumed by a reverted feature on some deployments)",
-                    @"ALTER TABLE captains ADD COLUMN reasoning_effort TEXT;")
+                    @"ALTER TABLE captains ADD COLUMN reasoning_effort TEXT;"),
+                new SchemaMigration(50, "Add redispatch_attempts to missions for no-op completion recovery",
+                    @"ALTER TABLE missions ADD COLUMN redispatch_attempts INTEGER NOT NULL DEFAULT 0;")
             };
         }
 
