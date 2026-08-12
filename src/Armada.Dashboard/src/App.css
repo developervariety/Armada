@@ -4623,7 +4623,7 @@ tr.clickable { cursor: pointer; }
 
 /* Captain create/edit modal: 100% wider than the base modal and ~50% taller so the
    runtime/instruction/endpoint fields have room. Doubles the base 440px (and the 660px mux). */
-.modal-captain { max-width: 880px; min-height: 66vh; display: flex; flex-direction: column; }
+.modal-captain { max-width: 880px; min-height: 82.5vh; display: flex; flex-direction: column; }
 .modal-captain.modal-mux { max-width: 1320px; }
 /* Let the System Instructions field consume the modal's remaining vertical space. */
 .modal-captain > .captain-instructions-field {

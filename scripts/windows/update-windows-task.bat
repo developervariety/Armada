@@ -28,8 +28,12 @@ if errorlevel 1 (
 )
 
 echo.
-echo [update-windows-task] Stopping Armada.Server...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%STOP_SCRIPT%" >nul 2>nul
+echo [update-windows-task] Stopping every running Armada.Server process...
+rem PowerShell helper stops managed and dotnet-hosted instances and waits for exit.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%STOP_SCRIPT%"
+rem Batch-level guarantee: force-kill any Armada.Server.exe by image name regardless of path,
+rem so a server launched straight out of the repo bin cannot survive and hold the port/DLL locks.
+taskkill /F /IM Armada.Server.exe >nul 2>nul
 
 echo [update-windows-task] Using target framework %ARMADA_TARGET_FRAMEWORK%...
 call "%SCRIPT_DIR%\install-windows-task.bat" %ARMADA_FORWARD_FRAMEWORK_ARGS%

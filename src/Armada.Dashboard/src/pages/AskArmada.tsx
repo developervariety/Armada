@@ -179,7 +179,7 @@ export default function AskArmada() {
             <input type="checkbox" checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} disabled={busy} />
             {t('Stream responses')}
           </label>
-          <label className="ask-stream-toggle" title={t('Ask the captain to surface the model reasoning. Supported by Mux; other runtimes ignore it.')}>
+          <label className="ask-stream-toggle" title={t('Surface the model reasoning above the answer. Mux streams it natively; other runtimes are asked to include it.')}>
             <input type="checkbox" checked={showThinking} onChange={(e) => setShowThinking(e.target.checked)} disabled={busy} />
             {t('Show thinking')}
           </label>

@@ -378,46 +378,44 @@ export default function Captains() {
           <form className={`modal modal-captain${isMuxRuntime(form.runtime) ? ' modal-mux' : ''}`} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Captain') : t('Create Captain')}</h3>
             <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
-              <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
-                <option value="">{t('Select runtime...')}</option>
-                <option value="ClaudeCode">Claude Code</option>
-                <option value="Codex">Codex</option>
-                <option value="Gemini">Gemini</option>
-                <option value="Cursor">Cursor</option>
-                <option value="Mux">Mux</option>
-              </select>
-            </label>
-            <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
-              {t('Model')}
-              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
-            </label>
-            <label>
-              {t('Reasoning effort')}
-              <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })}>
-                <option value="">{t('Runtime default')}</option>
-                <option value="Off">{t('Off')}</option>
-                <option value="Minimal">{t('Minimal')}</option>
-                <option value="Low">{t('Low')}</option>
-                <option value="Medium">{t('Medium')}</option>
-                <option value="High">{t('High')}</option>
-              </select>
-              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
-                {t('Applied to Claude Code, Codex, and Mux. Ignored by runtimes without a reasoning control.')}
-              </span>
-            </label>
-            <label>
-              {t('Capability tier')}
-              <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
-                <option value="">{t('Auto (classify from model)')}</option>
-                <option value="Economy">{t('Economy')}</option>
-                <option value="Standard">{t('Standard')}</option>
-                <option value="Premium">{t('Premium')}</option>
-              </select>
-              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
-                {t('Missions requiring a tier route to captains at or above it. Leave on Auto to classify from the model name.')}
-              </span>
-            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+              <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
+                <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
+                  <option value="">{t('Select runtime...')}</option>
+                  <option value="ClaudeCode">Claude Code</option>
+                  <option value="Codex">Codex</option>
+                  <option value="Gemini">Gemini</option>
+                  <option value="Cursor">Cursor</option>
+                  <option value="Mux">Mux</option>
+                </select>
+              </label>
+              <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
+                {t('Model')}
+                <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+              </label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+              <label>
+                {t('Reasoning effort')}
+                <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })}>
+                  <option value="">{t('Runtime default')}</option>
+                  <option value="Off">{t('Off')}</option>
+                  <option value="Minimal">{t('Minimal')}</option>
+                  <option value="Low">{t('Low')}</option>
+                  <option value="Medium">{t('Medium')}</option>
+                  <option value="High">{t('High')}</option>
+                </select>
+              </label>
+              <label>
+                {t('Capability tier')}
+                <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                  <option value="">{t('Auto (classify from model)')}</option>
+                  <option value="Economy">{t('Economy')}</option>
+                  <option value="Standard">{t('Standard')}</option>
+                  <option value="Premium">{t('Premium')}</option>
+                </select>
+              </label>
+            </div>
             <MuxRuntimeFields
               runtime={form.runtime}
               form={form}

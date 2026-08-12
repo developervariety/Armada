@@ -28,6 +28,14 @@ echo [update] Stopping Armada server if it is running...
 call :run_helm server stop
 
 echo.
+echo [update] Stopping every remaining Armada.Server process...
+rem PowerShell helper stops managed and dotnet-hosted instances and waits for exit.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\stop-armada-server.ps1"
+rem Batch-level guarantee: force-kill any Armada.Server.exe by image name regardless of path,
+rem so a server launched straight out of the repo bin cannot survive and hold the port/DLL locks.
+taskkill /F /IM Armada.Server.exe >nul 2>nul
+
+echo.
 echo [update] Reinstalling Armada tool and redeploying dashboard...
 call "%SCRIPT_DIR%\reinstall.bat" %ARMADA_FORWARD_FRAMEWORK_ARGS%
 if errorlevel 1 exit /b 1

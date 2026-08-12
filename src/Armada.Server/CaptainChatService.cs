@@ -4,6 +4,7 @@ namespace Armada.Server
     using System.IO;
     using System.Text;
     using System.Text.Json;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -284,6 +285,21 @@ namespace Armada.Server
                         : "The captain produced no response.");
                 }
 
+                // For non-Mux runtimes, lift the prompt-instructed <thinking> block out of the reply so it
+                // renders in the collapsible thinking section instead of inline with the final answer.
+                if (request.ShowThinking && !isMux)
+                {
+                    string extractedThinking = ExtractAndStripThinking(ref reply);
+                    if (!String.IsNullOrEmpty(extractedThinking))
+                    {
+                        lock (outputLock)
+                        {
+                            thinking.Clear();
+                            thinking.Append(extractedThinking);
+                        }
+                    }
+                }
+
                 // Keep all timing on one wall-clock base so time-to-first-token never exceeds total and
                 // streaming always resolves. Token counts come from the captain's own telemetry (Mux
                 // reports finalEstimatedTokens); reportedDurationMs is captain-internal and, being on a
@@ -358,6 +374,15 @@ namespace Armada.Server
                 builder.AppendLine();
             }
 
+            // Mux surfaces reasoning natively via --show-thinking; every other runtime has no headless
+            // thinking channel, so when the user asks to see thinking we instruct the model to emit its
+            // reasoning in a single delimited block that the service then lifts out of the answer.
+            if (request.ShowThinking && captain.Runtime != AgentRuntimeEnum.Mux)
+            {
+                builder.AppendLine("Before your final answer, briefly work through your reasoning inside a single block delimited by <thinking> and </thinking>. Write the final answer after the closing </thinking> tag. Use those tags only once, and never inside the final answer.");
+                builder.AppendLine();
+            }
+
             if (request.History != null && request.History.Count > 0)
             {
                 foreach (CaptainChatMessage message in request.History)
@@ -371,6 +396,37 @@ namespace Armada.Server
 
             builder.Append("User: " + request.Message.Trim());
             return builder.ToString();
+        }
+
+        /// <summary>
+        /// Lift the prompt-instructed reasoning out of a reply: return the concatenated text of every
+        /// &lt;thinking&gt;...&lt;/thinking&gt; block and rewrite <paramref name="reply"/> to the answer with those
+        /// blocks removed. If removing them would leave no answer, the reply is left intact and empty is
+        /// returned (so a model that put everything in the block does not yield a blank answer).
+        /// </summary>
+        /// <param name="reply">The reply to strip; rewritten in place when a block is removed.</param>
+        /// <returns>The extracted reasoning text, or empty when none was present.</returns>
+        private static string ExtractAndStripThinking(ref string reply)
+        {
+            if (String.IsNullOrEmpty(reply)) return String.Empty;
+
+            MatchCollection matches = Regex.Matches(reply, "<thinking>(.*?)</thinking>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            if (matches.Count == 0) return String.Empty;
+
+            StringBuilder collected = new StringBuilder();
+            foreach (Match match in matches)
+            {
+                string piece = match.Groups[1].Value.Trim();
+                if (piece.Length == 0) continue;
+                if (collected.Length > 0) collected.AppendLine();
+                collected.Append(piece);
+            }
+
+            string stripped = Regex.Replace(reply, "<thinking>.*?</thinking>", String.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase).Trim();
+            if (String.IsNullOrWhiteSpace(stripped)) return String.Empty;
+
+            reply = stripped;
+            return collected.ToString().Trim();
         }
 
         private void EmitChunk(string? turnId, string delta)

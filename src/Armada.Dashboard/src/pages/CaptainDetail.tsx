@@ -332,9 +332,6 @@ export default function CaptainDetail() {
                 <option value="Medium">{t('Medium')}</option>
                 <option value="High">{t('High')}</option>
               </select>
-              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
-                {t('Applied to Claude Code, Codex, and Mux. Ignored by runtimes without a reasoning control.')}
-              </span>
             </label>
             <label>
               {t('Capability tier')}

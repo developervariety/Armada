@@ -34,11 +34,15 @@ interface VesselForm {
   branchCleanupPolicy: string;
   allowConcurrentMissions: boolean;
   defaultPipelineId: string;
+  secretScanEnabled: boolean;
+  protectedPathPatterns: string;
+  privateIdentifierDenylist: string;
 }
 
 const emptyForm: VesselForm = {
   name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '',
   projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false, defaultPipelineId: '',
+  secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '',
 };
 
 export default function Vessels() {
@@ -152,6 +156,9 @@ export default function Vessels() {
       gitHubTokenOverride: '',
       clearGitHubTokenOverride: false,
       defaultPipelineId: v.defaultPipelineId ?? '',
+      secretScanEnabled: v.secretScanEnabled ?? false,
+      protectedPathPatterns: (v.protectedPathPatterns || []).join('\n'),
+      privateIdentifierDenylist: (v.privateIdentifierDenylist || []).join('\n'),
     });
     setEditing(v);
     setShowForm(true);
@@ -169,6 +176,8 @@ export default function Vessels() {
       if (!payload.branchCleanupPolicy) delete payload.branchCleanupPolicy;
       if (!payload.modelContext) delete payload.modelContext;
       if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+      payload.protectedPathPatterns = form.protectedPathPatterns.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+      payload.privateIdentifierDenylist = form.privateIdentifierDenylist.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
       delete payload.clearGitHubTokenOverride;
       if (editing)
       {
@@ -372,6 +381,22 @@ export default function Vessels() {
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title={t('When enabled, AI agents accumulate key knowledge about this repository during missions.')}>
                 <input type="checkbox" checked={form.enableModelContext} onChange={e => setForm({ ...form, enableModelContext: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
                 <span style={{ verticalAlign: 'middle' }}>{t('Enable Model Context')}</span>
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title={t('Scan each mission diff for secrets before landing, and flag protected paths / private identifiers.')}>
+                <input type="checkbox" checked={form.secretScanEnabled} onChange={e => setForm({ ...form, secretScanEnabled: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
+                <span style={{ verticalAlign: 'middle' }}>{t('Scan mission diffs for secrets')}</span>
+              </label>
+            </div>
+
+            {/* Dock boundary path/identifier rules */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1.5rem', marginBottom: '0.5rem' }}>
+              <label style={{ display: 'flex', flexDirection: 'column' }}>
+                {t('Protected Path Patterns')}
+                <textarea value={form.protectedPathPatterns} onChange={e => setForm({ ...form, protectedPathPatterns: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. .env* or infra/**')} style={{ resize: 'vertical' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column' }}>
+                {t('Private Identifier Denylist')}
+                <textarea value={form.privateIdentifierDenylist} onChange={e => setForm({ ...form, privateIdentifierDenylist: e.target.value })} rows={2} placeholder={t('One value per line; do not list real secrets')} style={{ resize: 'vertical' }} />
               </label>
             </div>
 
