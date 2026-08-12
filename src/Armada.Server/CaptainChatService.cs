@@ -167,6 +167,32 @@ namespace Armada.Server
                                     }
                                 }
                                 if (!String.IsNullOrEmpty(deltaText)) EmitChunk(turnId, deltaText!);
+
+                                // Surface tool activity to the chat UI: when a tool call is proposed and when
+                                // it completes (with success/failure, runtime, and result for inspection).
+                                if (eventType == "tool_call_proposed" && root.TryGetProperty("toolCall", out JsonElement proposed))
+                                {
+                                    string? toolId = proposed.TryGetProperty("id", out JsonElement propId) && propId.ValueKind == JsonValueKind.String ? propId.GetString() : null;
+                                    string? toolName = proposed.TryGetProperty("name", out JsonElement pnm) && pnm.ValueKind == JsonValueKind.String ? pnm.GetString() : null;
+                                    string? argsJson = proposed.TryGetProperty("arguments", out JsonElement parg) ? Truncate(parg.GetRawText(), 4000) : null;
+                                    EmitTool(turnId, new { turnId, phase = "started", id = toolId, name = toolName, arguments = argsJson });
+                                }
+                                else if (eventType == "tool_call_completed")
+                                {
+                                    string? toolId = root.TryGetProperty("toolCallId", out JsonElement cid) && cid.ValueKind == JsonValueKind.String ? cid.GetString() : null;
+                                    string? toolName = root.TryGetProperty("toolName", out JsonElement cnm) && cnm.ValueKind == JsonValueKind.String ? cnm.GetString() : null;
+                                    double? elapsedMs = root.TryGetProperty("elapsedMs", out JsonElement cel) && cel.ValueKind == JsonValueKind.Number ? cel.GetDouble() : (double?)null;
+                                    bool? ok = null;
+                                    string? resultJson = null;
+                                    if (root.TryGetProperty("result", out JsonElement res))
+                                    {
+                                        if (res.TryGetProperty("success", out JsonElement suc) && (suc.ValueKind == JsonValueKind.True || suc.ValueKind == JsonValueKind.False))
+                                            ok = suc.GetBoolean();
+                                        JsonElement resultBody = res.TryGetProperty("content", out JsonElement content) ? content : res;
+                                        resultJson = Truncate(resultBody.GetRawText(), 16000);
+                                    }
+                                    EmitTool(turnId, new { turnId, phase = "completed", id = toolId, name = toolName, ok, elapsedMs, result = resultJson });
+                                }
                             }
                         }
                         catch (JsonException) { }
@@ -327,6 +353,19 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null || String.IsNullOrEmpty(delta)) return;
             try { _WebSocketHub.BroadcastEvent("ask.chunk", String.Empty, new { turnId, delta }); }
             catch { }
+        }
+
+        private void EmitTool(string? turnId, object payload)
+        {
+            if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null) return;
+            try { _WebSocketHub.BroadcastEvent("ask.tool", String.Empty, payload); }
+            catch { }
+        }
+
+        private static string? Truncate(string? value, int max)
+        {
+            if (String.IsNullOrEmpty(value) || value!.Length <= max) return value;
+            return value.Substring(0, max) + "... (truncated)";
         }
 
         private static CaptainChatResponse Fail(string error)

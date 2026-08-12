@@ -7188,6 +7188,77 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     align-items: center;
     gap: 0.4rem;
 }
+
+/* Ask Armada: compact, collapsible tool-call activity chips */
+.chat-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.15rem 0 0.5rem;
+}
+.chat-tool {
+    border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+    border-radius: 6px;
+    background: rgba(148, 163, 184, 0.06);
+    overflow: hidden;
+}
+.chat-tool-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.22rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.72rem;
+    list-style: none;
+    user-select: none;
+}
+.chat-tool-summary::-webkit-details-marker { display: none; }
+.chat-tool-summary::marker { content: ''; }
+.chat-tool-status {
+    display: inline-flex;
+    width: 1rem;
+    justify-content: center;
+    font-weight: 700;
+}
+.chat-tool-running .chat-tool-status { color: var(--text-dim, #94a3b8); }
+.chat-tool-success .chat-tool-status { color: #3fb950; }
+.chat-tool-failed .chat-tool-status { color: #f85149; }
+.chat-tool-name {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chat-tool-meta {
+    margin-left: auto;
+    color: var(--text-dim, #94a3b8);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+}
+.chat-tool-detail {
+    padding: 0.1rem 0.5rem 0.45rem;
+    border-top: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+}
+.chat-tool-label {
+    color: var(--text-dim, #94a3b8);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 0.35rem 0 0.15rem;
+}
+.chat-tool-pre {
+    margin: 0;
+    max-height: 240px;
+    overflow: auto;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    background: rgba(0, 0, 0, 0.22);
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
 .chat-metrics-info {
     position: relative;
     display: inline-flex;

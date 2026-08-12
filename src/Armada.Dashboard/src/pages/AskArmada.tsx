@@ -8,12 +8,34 @@ import ErrorModal from '../components/shared/ErrorModal';
 import Markdown from '../components/shared/Markdown';
 import ChatMetricsInfo from '../components/shared/ChatMetricsInfo';
 
+interface ToolEvent {
+  id: string;
+  name: string;
+  status: 'running' | 'success' | 'failed';
+  arguments?: string | null;
+  result?: string | null;
+  elapsedMs?: number | null;
+}
+
 interface ChatTurn {
   role: 'user' | 'assistant';
   text: string;
   metrics?: CaptainChatMetrics;
   model?: string | null;
   streaming?: boolean;
+  tools?: ToolEvent[];
+}
+
+// Pretty-print a JSON string for the expandable tool detail; fall back to the raw text.
+function prettyJson(raw: string): string {
+  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
+}
+
+// Compact runtime label for a tool call.
+function formatToolMs(ms: number | null | undefined): string {
+  if (ms == null) return '';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)}s`;
 }
 
 // Ask Armada is available with any captain.
@@ -110,11 +132,35 @@ export default function AskArmada() {
     let unsubscribe: () => void = () => undefined;
     if (streaming) {
       unsubscribe = subscribe((msg: WebSocketMessage) => {
-        if (msg.type !== 'ask.chunk') return;
-        const data = msg.data as { turnId?: string; delta?: string } | undefined;
-        if (!data || data.turnId !== turnId || !data.delta) return;
-        updateStreamingTurn((turn) => ({ ...turn, text: turn.text + data.delta }));
-        requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
+        if (msg.type === 'ask.chunk') {
+          const data = msg.data as { turnId?: string; delta?: string } | undefined;
+          if (!data || data.turnId !== turnId || !data.delta) return;
+          updateStreamingTurn((turn) => ({ ...turn, text: turn.text + data.delta }));
+          requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
+        } else if (msg.type === 'ask.tool') {
+          const d = msg.data as { turnId?: string; phase?: string; id?: string; name?: string; arguments?: string | null; ok?: boolean | null; elapsedMs?: number | null; result?: string | null } | undefined;
+          if (!d || d.turnId !== turnId || !d.id) return;
+          updateStreamingTurn((turn) => {
+            const tools = turn.tools ? [...turn.tools] : [];
+            const idx = tools.findIndex((tl) => tl.id === d.id);
+            if (d.phase === 'started') {
+              if (idx === -1) tools.push({ id: d.id!, name: d.name || 'tool', status: 'running', arguments: d.arguments ?? null });
+            } else if (d.phase === 'completed') {
+              const prior = idx >= 0 ? tools[idx] : undefined;
+              const done: ToolEvent = {
+                id: d.id!,
+                name: d.name || prior?.name || 'tool',
+                status: d.ok === false ? 'failed' : 'success',
+                arguments: prior?.arguments ?? null,
+                result: d.result ?? null,
+                elapsedMs: d.elapsedMs ?? null,
+              };
+              if (idx >= 0) tools[idx] = done; else tools.push(done);
+            }
+            return { ...turn, tools };
+          });
+          requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
+        }
       });
     }
 
@@ -124,8 +170,8 @@ export default function AskArmada() {
         setError(response.error || t('The captain could not respond.'));
         setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
       } else if (streaming) {
-        // Reconcile the streamed text with the authoritative final reply + metrics.
-        updateStreamingTurn(() => ({ role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }));
+        // Reconcile the streamed text with the authoritative final reply + metrics, keeping any tool activity.
+        updateStreamingTurn((turn) => ({ ...turn, streaming: false, text: response.reply, metrics: response.metrics, model: response.model }));
       } else {
         setTurns((current) => [...current, { role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }]);
       }
@@ -211,6 +257,40 @@ export default function AskArmada() {
                       <span>{turn.role === 'user' ? t('You') : (turn.model || (selectedCaptain?.name ?? t('Captain')))}</span>
                       {turn.role === 'assistant' && turn.metrics && <ChatMetricsInfo metrics={turn.metrics} />}
                     </div>
+                    {turn.role === 'assistant' && turn.tools && turn.tools.length > 0 && (
+                      <div className="chat-tools">
+                        {turn.tools.map((tool) => (
+                          <details key={tool.id} className={`chat-tool chat-tool-${tool.status}`}>
+                            <summary className="chat-tool-summary">
+                              <span className="chat-tool-status" aria-hidden="true">
+                                {tool.status === 'running' ? '…' : tool.status === 'success' ? '✓' : '✕'}
+                              </span>
+                              <span className="chat-tool-name">{tool.name}</span>
+                              <span className="chat-tool-meta">
+                                {tool.status === 'running' ? t('running…') : formatToolMs(tool.elapsedMs)}
+                              </span>
+                            </summary>
+                            <div className="chat-tool-detail">
+                              {tool.arguments && (
+                                <>
+                                  <div className="chat-tool-label">{t('Arguments')}</div>
+                                  <pre className="chat-tool-pre">{prettyJson(tool.arguments)}</pre>
+                                </>
+                              )}
+                              {tool.result && (
+                                <>
+                                  <div className="chat-tool-label">{t('Result')}</div>
+                                  <pre className="chat-tool-pre">{prettyJson(tool.result)}</pre>
+                                </>
+                              )}
+                              {!tool.arguments && !tool.result && (
+                                <div className="text-dim" style={{ fontSize: '0.7rem' }}>{t('No details available.')}</div>
+                              )}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    )}
                     {turn.role === 'assistant'
                       ? <Markdown>{turn.text}</Markdown>
                       : <div style={{ whiteSpace: 'pre-wrap' }}>{turn.text}</div>}
