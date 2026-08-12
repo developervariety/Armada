@@ -528,6 +528,11 @@ namespace Armada.Core.Database.Mysql
                     46,
                     "Add skills directory",
                     TableQueries.MigrationV46Statements
+                ),
+                new SchemaMigration(
+                    47,
+                    "Add reasoning_effort/tier, redispatch_attempts, and vessel dock-boundary columns",
+                    TableQueries.MigrationV47Statements
                 )
             };
         }

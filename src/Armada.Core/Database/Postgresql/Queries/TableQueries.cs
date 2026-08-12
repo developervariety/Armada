@@ -1016,7 +1016,15 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);"
                 ),
                 new SchemaMigration(47, "Name the default admin credential",
-                    @"UPDATE credentials SET name = 'Default Admin Credential' WHERE id = 'default' AND (name IS NULL OR name = '');")
+                    @"UPDATE credentials SET name = 'Default Admin Credential' WHERE id = 'default' AND (name IS NULL OR name = '');"),
+                new SchemaMigration(48, "Add reasoning_effort/tier, redispatch_attempts, and vessel dock-boundary columns",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS reasoning_effort TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS tier TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS redispatch_attempts INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS tier TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS secret_scan_enabled BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS protected_path_patterns_json TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS private_identifier_denylist_json TEXT;")
             };
         }
 

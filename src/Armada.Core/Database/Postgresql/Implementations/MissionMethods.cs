@@ -65,10 +65,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description,
                         status, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
+                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, redispatch_attempts, tier, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description,
                         @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @redispatch_attempts, @tier, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     AddMissionParameters(cmd, mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -140,6 +140,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         reviewed_by_user_id = @reviewed_by_user_id, review_requested_utc = @review_requested_utc,
                         reviewed_utc = @reviewed_utc, review_deadline_utc = @review_deadline_utc,
                         total_runtime_ms = @total_runtime_ms,
+                        redispatch_attempts = @redispatch_attempts, tier = @tier,
                         started_utc = @started_utc, completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -714,6 +715,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)mission.ReviewedUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@review_deadline_utc", mission.ReviewDeadlineUtc.HasValue ? (object)mission.ReviewDeadlineUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@redispatch_attempts", mission.RedispatchAttempts);
+            cmd.Parameters.AddWithValue("@tier", (object?)mission.Tier?.ToString() ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", mission.CreatedUtc);
             cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)mission.StartedUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)mission.CompletedUtc.Value : DBNull.Value);
@@ -824,6 +827,14 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { mission.ReviewRequestedUtc = NullableDateTime(reader["review_requested_utc"]); } catch { }
             try { mission.ReviewedUtc = NullableDateTime(reader["reviewed_utc"]); } catch { }
             try { mission.ReviewDeadlineUtc = NullableDateTime(reader["review_deadline_utc"]); } catch { }
+            try { mission.RedispatchAttempts = Convert.ToInt32(reader["redispatch_attempts"]); } catch { }
+            try
+            {
+                string? tierStr = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(tierStr) && Enum.TryParse<CaptainTierEnum>(tierStr, out CaptainTierEnum tier))
+                    mission.Tier = tier;
+            }
+            catch { }
             return mission;
         }
 

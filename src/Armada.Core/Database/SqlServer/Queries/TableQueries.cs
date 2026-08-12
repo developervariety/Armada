@@ -863,6 +863,17 @@ namespace Armada.Core.Database.SqlServer.Queries
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_tenant') CREATE INDEX idx_skills_tenant ON skills(tenant_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_category') CREATE INDEX idx_skills_category ON skills(category);"
+                ),
+                new SchemaMigration(
+                    47,
+                    "Add captain reasoning_effort/tier, mission redispatch_attempts/tier, vessel secret scan and privacy fields",
+                    @"IF COL_LENGTH('captains', 'reasoning_effort') IS NULL ALTER TABLE captains ADD reasoning_effort NVARCHAR(64) NULL;",
+                    @"IF COL_LENGTH('captains', 'tier') IS NULL ALTER TABLE captains ADD tier NVARCHAR(32) NULL;",
+                    @"IF COL_LENGTH('missions', 'redispatch_attempts') IS NULL ALTER TABLE missions ADD redispatch_attempts INT NOT NULL CONSTRAINT DF_missions_redispatch_attempts DEFAULT 0;",
+                    @"IF COL_LENGTH('missions', 'tier') IS NULL ALTER TABLE missions ADD tier NVARCHAR(32) NULL;",
+                    @"IF COL_LENGTH('vessels', 'secret_scan_enabled') IS NULL ALTER TABLE vessels ADD secret_scan_enabled BIT NOT NULL CONSTRAINT DF_vessels_secret_scan_enabled DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'protected_path_patterns_json') IS NULL ALTER TABLE vessels ADD protected_path_patterns_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('vessels', 'private_identifier_denylist_json') IS NULL ALTER TABLE vessels ADD private_identifier_denylist_json NVARCHAR(MAX) NULL;"
                 )
             };
         }

@@ -405,6 +405,22 @@ namespace Armada.Core.Database.SqlServer
                     vessel.ProtectedBranchPatterns = JsonSerializer.Deserialize<List<string>>(protectedPatternsJson) ?? new List<string>();
             }
             catch { }
+            try { vessel.SecretScanEnabled = Convert.ToBoolean(reader["secret_scan_enabled"]); }
+            catch { vessel.SecretScanEnabled = false; }
+            try
+            {
+                string? protectedPathPatternsJson = NullableString(reader["protected_path_patterns_json"]);
+                if (!String.IsNullOrWhiteSpace(protectedPathPatternsJson))
+                    vessel.ProtectedPathPatterns = JsonSerializer.Deserialize<List<string>>(protectedPathPatternsJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? privateIdentifierDenylistJson = NullableString(reader["private_identifier_denylist_json"]);
+                if (!String.IsNullOrWhiteSpace(privateIdentifierDenylistJson))
+                    vessel.PrivateIdentifierDenylist = JsonSerializer.Deserialize<List<string>>(privateIdentifierDenylistJson) ?? new List<string>();
+            }
+            catch { }
             try { vessel.ReleaseBranchPrefix = NullableString(reader["release_branch_prefix"]) ?? "release/"; } catch { vessel.ReleaseBranchPrefix = "release/"; }
             try { vessel.HotfixBranchPrefix = NullableString(reader["hotfix_branch_prefix"]) ?? "hotfix/"; } catch { vessel.HotfixBranchPrefix = "hotfix/"; }
             try { vessel.RequirePullRequestForProtectedBranches = Convert.ToBoolean(reader["require_pull_request_for_protected_branches"]); }
@@ -445,6 +461,20 @@ namespace Armada.Core.Database.SqlServer
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
+            try
+            {
+                string? reasoningEffortStr = NullableString(reader["reasoning_effort"]);
+                if (!String.IsNullOrEmpty(reasoningEffortStr) && Enum.TryParse<ReasoningEffortEnum>(reasoningEffortStr, out ReasoningEffortEnum reasoningEffort))
+                    captain.ReasoningEffort = reasoningEffort;
+            }
+            catch { }
+            try
+            {
+                string? tierStr = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(tierStr) && Enum.TryParse<CaptainTierEnum>(tierStr, out CaptainTierEnum tier))
+                    captain.Tier = tier;
+            }
+            catch { }
             return captain;
         }
 
@@ -466,6 +496,14 @@ namespace Armada.Core.Database.SqlServer
             mission.Description = NullableString(reader["description"]);
             mission.Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!);
             mission.Priority = Convert.ToInt32(reader["priority"]);
+            try { mission.RedispatchAttempts = Convert.ToInt32(reader["redispatch_attempts"]); } catch { }
+            try
+            {
+                string? tierStr = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(tierStr) && Enum.TryParse<CaptainTierEnum>(tierStr, out CaptainTierEnum tier))
+                    mission.Tier = tier;
+            }
+            catch { }
             mission.ParentMissionId = NullableString(reader["parent_mission_id"]);
             mission.BranchName = NullableString(reader["branch_name"]);
             mission.DockId = NullableString(reader["dock_id"]);

@@ -1186,6 +1186,20 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v47 statements: reasoning_effort/tier on captains, redispatch_attempts/tier on missions, and vessel dock-boundary columns.
+        /// </summary>
+        public static readonly string[] MigrationV47Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN reasoning_effort VARCHAR(64) NULL;",
+            @"ALTER TABLE captains ADD COLUMN tier VARCHAR(32) NULL;",
+            @"ALTER TABLE missions ADD COLUMN redispatch_attempts INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE missions ADD COLUMN tier VARCHAR(32) NULL;",
+            @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json LONGTEXT NULL;",
+            @"ALTER TABLE vessels ADD COLUMN private_identifier_denylist_json LONGTEXT NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

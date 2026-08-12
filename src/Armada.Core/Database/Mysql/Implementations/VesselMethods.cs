@@ -54,8 +54,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, github_token_override, landing_mode, branch_cleanup_policy, require_passing_checks_to_land, allow_concurrent_missions, default_pipeline_id, default_branch, protected_branch_patterns_json, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @github_token_override, @landing_mode, @branch_cleanup_policy, @require_passing_checks_to_land, @allow_concurrent_missions, @default_pipeline_id, @default_branch, @protected_branch_patterns_json, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, github_token_override, landing_mode, branch_cleanup_policy, require_passing_checks_to_land, allow_concurrent_missions, secret_scan_enabled, protected_path_patterns_json, private_identifier_denylist_json, default_pipeline_id, default_branch, protected_branch_patterns_json, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @github_token_override, @landing_mode, @branch_cleanup_policy, @require_passing_checks_to_land, @allow_concurrent_missions, @secret_scan_enabled, @protected_path_patterns_json, @private_identifier_denylist_json, @default_pipeline_id, @default_branch, @protected_branch_patterns_json, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
@@ -73,6 +73,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@require_passing_checks_to_land", vessel.RequirePassingChecksToLand ? 1 : 0);
                     cmd.Parameters.AddWithValue("@allow_concurrent_missions", vessel.AllowConcurrentMissions ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@secret_scan_enabled", vessel.SecretScanEnabled ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@protected_path_patterns_json", JsonSerializer.Serialize(vessel.ProtectedPathPatterns ?? new List<string>()));
+                    cmd.Parameters.AddWithValue("@private_identifier_denylist_json", JsonSerializer.Serialize(vessel.PrivateIdentifierDenylist ?? new List<string>()));
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@protected_branch_patterns_json", JsonSerializer.Serialize(vessel.ProtectedBranchPatterns ?? new List<string>()));
@@ -179,6 +182,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                         branch_cleanup_policy = @branch_cleanup_policy,
                         require_passing_checks_to_land = @require_passing_checks_to_land,
                         allow_concurrent_missions = @allow_concurrent_missions,
+                        secret_scan_enabled = @secret_scan_enabled,
+                        protected_path_patterns_json = @protected_path_patterns_json,
+                        private_identifier_denylist_json = @private_identifier_denylist_json,
                         default_pipeline_id = @default_pipeline_id,
                         default_branch = @default_branch,
                         protected_branch_patterns_json = @protected_branch_patterns_json,
@@ -206,6 +212,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@require_passing_checks_to_land", vessel.RequirePassingChecksToLand ? 1 : 0);
                     cmd.Parameters.AddWithValue("@allow_concurrent_missions", vessel.AllowConcurrentMissions ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@secret_scan_enabled", vessel.SecretScanEnabled ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@protected_path_patterns_json", JsonSerializer.Serialize(vessel.ProtectedPathPatterns ?? new List<string>()));
+                    cmd.Parameters.AddWithValue("@private_identifier_denylist_json", JsonSerializer.Serialize(vessel.PrivateIdentifierDenylist ?? new List<string>()));
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@protected_branch_patterns_json", JsonSerializer.Serialize(vessel.ProtectedBranchPatterns ?? new List<string>()));
@@ -779,6 +788,21 @@ namespace Armada.Core.Database.Mysql.Implementations
                 vessel.BranchCleanupPolicy = bcp;
             try { vessel.AllowConcurrentMissions = Convert.ToInt64(reader["allow_concurrent_missions"]) == 1; }
             catch { vessel.AllowConcurrentMissions = false; }
+            try { vessel.SecretScanEnabled = Convert.ToInt64(reader["secret_scan_enabled"]) == 1; } catch { }
+            try
+            {
+                string? protectedPathJson = NullableString(reader["protected_path_patterns_json"]);
+                if (!String.IsNullOrWhiteSpace(protectedPathJson))
+                    vessel.ProtectedPathPatterns = JsonSerializer.Deserialize<List<string>>(protectedPathJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? denylistJson = NullableString(reader["private_identifier_denylist_json"]);
+                if (!String.IsNullOrWhiteSpace(denylistJson))
+                    vessel.PrivateIdentifierDenylist = JsonSerializer.Deserialize<List<string>>(denylistJson) ?? new List<string>();
+            }
+            catch { }
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             try { vessel.RequirePassingChecksToLand = Convert.ToInt64(reader["require_passing_checks_to_land"]) == 1; } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
