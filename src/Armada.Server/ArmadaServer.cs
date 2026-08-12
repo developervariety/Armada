@@ -141,6 +141,10 @@ namespace Armada.Server
             await _Database.InitializeAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "database initialized");
 
+            // Ensure a local API key exists so trusted local clients (the armada CLI) can authenticate
+            // to the REST API. Generated once and persisted to settings.json, which the CLI also reads.
+            await EnsureApiKeyAsync().ConfigureAwait(false);
+
             // Initialize services
             _Git = new GitService(_Logging);
             IDockService dockService = new DockService(_Logging, _Database, _Settings, _Git);
@@ -463,6 +467,23 @@ namespace Armada.Server
             _RequestAuthContexts.Remove(ctx);
             _RequestAuthContexts.Add(ctx, result);
             return result;
+        }
+
+        private async Task EnsureApiKeyAsync()
+        {
+            if (!String.IsNullOrEmpty(_Settings.ApiKey))
+                return;
+
+            _Settings.ApiKey = "ak_" + Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+            try
+            {
+                await _Settings.SaveAsync().ConfigureAwait(false);
+                _Logging.Info(_Header + "generated local API key for CLI authentication and saved to settings");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "generated API key but could not persist settings: " + ex.Message);
+            }
         }
 
         private async Task SeedSyntheticAdminAsync()

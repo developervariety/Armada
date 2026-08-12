@@ -4,6 +4,7 @@ namespace Armada.Helm.Commands
     using System.Net.Http;
     using System.Net.Http.Json;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using Spectre.Console;
     using Spectre.Console.Cli;
     using Armada.Core;
@@ -27,11 +28,13 @@ namespace Armada.Helm.Commands
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
-            WriteIndented = true
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
         };
         private static bool _ServerReady = false;
         private static ArmadaSettings? _CachedSettings;
         private static bool _AutoInitDone = false;
+        private static bool _AuthHeaderApplied = false;
 
         #endregion
 
@@ -99,6 +102,7 @@ namespace Armada.Helm.Commands
             if (_CachedSettings != null) return _CachedSettings;
 
             _CachedSettings = ArmadaSettings.LoadAsync().GetAwaiter().GetResult();
+            ApplyAuthHeader(_CachedSettings);
 
             if (!_AutoInitDone)
             {
@@ -107,6 +111,20 @@ namespace Armada.Helm.Commands
             }
 
             return _CachedSettings;
+        }
+
+        /// <summary>
+        /// Attach the local API key (from settings) to the shared HTTP client so REST calls authenticate.
+        /// The Admiral generates and persists this key to settings.json on startup; the CLI reads the same file.
+        /// </summary>
+        private static void ApplyAuthHeader(ArmadaSettings? settings)
+        {
+            if (_AuthHeaderApplied) return;
+            if (settings == null || string.IsNullOrEmpty(settings.ApiKey)) return;
+
+            _Client.DefaultRequestHeaders.Remove("X-Api-Key");
+            _Client.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
+            _AuthHeaderApplied = true;
         }
 
         /// <summary>
@@ -134,6 +152,11 @@ namespace Armada.Helm.Commands
             {
                 AnsiConsole.MarkupLine("[dim]Admiral not running -- starting embedded server...[/]");
                 await EmbeddedServer.StartAsync().ConfigureAwait(false);
+
+                // The embedded server may have just generated the local API key; reload settings and
+                // apply the header so subsequent authenticated calls succeed.
+                _CachedSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
+                ApplyAuthHeader(_CachedSettings);
             }
 
             // Mark server as available (whether external or embedded)
