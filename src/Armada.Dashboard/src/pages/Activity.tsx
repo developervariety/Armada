@@ -22,7 +22,7 @@ function panel(node: ReactNode): ReactNode {
 export default function Activity() {
   const tabs: TabDef[] = [
     { key: 'history', label: 'All Activity', render: () => panel(<History />) },
-    { key: 'requests', label: 'Requests', render: () => panel(<RequestHistory />) },
+    { key: 'requests', label: 'API Requests', render: () => panel(<RequestHistory />) },
     { key: 'events', label: 'Events', render: () => panel(<Events />) },
     { key: 'signals', label: 'Signals', render: () => panel(<Signals />) },
   ];

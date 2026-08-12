@@ -220,8 +220,8 @@ export default function AskArmada() {
           <p className="ask-disclaimer">{t('AI can make mistakes. Check answers.')}</p>
 
           <form
-            className="card ask-input-form"
-            style={{ padding: '0.75rem', display: 'flex', gap: '0.5rem' }}
+            className="ask-input-form"
+            style={{ display: 'flex', gap: '0.5rem' }}
             onSubmit={(e) => { e.preventDefault(); send(input); }}
           >
             <input
