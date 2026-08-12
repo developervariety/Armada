@@ -92,7 +92,25 @@ For the full tool reference and decision-making guidance, see [`INSTRUCTIONS_FOR
 
 ## Appendix: Manual Configuration
 
-**Stdio transport (recommended)** — no MCP port required; Mux launches Armada as a subprocess:
+**HTTP transport (recommended)** — the Admiral serves MCP over Streamable HTTP at `http://localhost:7891/mcp` (MCP port 7891; REST is on 7890). In an interactive session, run `/mcp`, choose **+ Add MCP server...**, and enter name `armada`, transport `http`, url `http://localhost:7891`, mcp path `/mcp` (default), auth `none`. For headless runs, point Mux's HTTP MCP transport at that path:
+
+```json
+{
+  "servers": [
+    { "name": "armada", "transport": "http", "url": "http://localhost:7891", "mcpPath": "/mcp" }
+  ]
+}
+```
+
+Pass it inline instead of a file if you prefer:
+
+```bash
+mux print --yolo --mcp-config '{"servers":[{"name":"armada","transport":"http","url":"http://localhost:7891","mcpPath":"/mcp"}]}' "what is the status of the fleet?"
+```
+
+Use `--strict-mcp-config` to load only the servers from the flag and ignore the config directory's `mcp-servers.json`.
+
+**Stdio transport (fallback)** — no MCP port required; Mux launches Armada as a subprocess. Useful when a proxy in front of the MCP port requires an auth header:
 
 ```json
 {
@@ -101,11 +119,3 @@ For the full tool reference and decision-making guidance, see [`INSTRUCTIONS_FOR
   ]
 }
 ```
-
-Pass it inline instead of a file if you prefer:
-
-```bash
-mux print --yolo --mcp-config '{"servers":[{"name":"armada","transport":"stdio","command":"armada","args":["mcp","stdio"]}]}' "what is the status of the fleet?"
-```
-
-**HTTP transport** — the Admiral serves MCP over streamable HTTP at `http://localhost:7891/rpc` (MCP port 7891; REST is on 7890). Point Mux's HTTP MCP transport at that path when your deployment does not require an auth header. Use `--strict-mcp-config` to load only the servers from the flag and ignore the config directory's `mcp-servers.json`.

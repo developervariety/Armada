@@ -1,8 +1,8 @@
 # Armada MCP API Reference
 
 **Version:** 0.9.0
-**Default URL:** `http://localhost:7891`
-**Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
+**Default URL:** `http://localhost:7891/mcp`
+**Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), Streamable HTTP transport
 **Server Library:** Voltaic (McpHttpServer)
 **Server Name:** `Armada`
 
@@ -185,13 +185,13 @@ The MCP server shares the same tool implementations as the stdio transport, regi
 
 ### HTTP Transport
 
-The primary MCP transport is HTTP, served by `McpHttpServer` from the Voltaic library. The server listens on a dedicated port.
+The primary MCP transport is HTTP, served by `McpHttpServer` from the Voltaic library. The server listens on a dedicated port and exposes the modern MCP **Streamable HTTP** endpoint at `/mcp` (POST for JSON-RPC requests, GET for the SSE notification stream, DELETE to terminate the session). Point HTTP MCP clients at:
 
 ```
-http://localhost:7891
+http://localhost:7891/mcp
 ```
 
-MCP clients communicate using the standard MCP JSON-RPC protocol over HTTP. The server supports the full MCP tool-calling lifecycle:
+The legacy `/rpc` + `/events` (separate SSE) endpoints remain served for older clients but `/mcp` is preferred. MCP clients communicate using the standard MCP JSON-RPC protocol over HTTP. The server supports the full MCP tool-calling lifecycle:
 
 1. **Initialize** — Client discovers server capabilities and available tools
 2. **Call Tool** — Client invokes a tool with arguments
@@ -3733,7 +3733,7 @@ Add Armada as an MCP server in your Claude Desktop configuration (`claude_deskto
 {
   "mcpServers": {
     "armada": {
-      "url": "http://localhost:7891"
+      "url": "http://localhost:7891/mcp"
     }
   }
 }
@@ -3744,7 +3744,7 @@ Add Armada as an MCP server in your Claude Desktop configuration (`claude_deskto
 Add Armada as an MCP server via the CLI:
 
 ```bash
-claude mcp add armada http://localhost:7891
+claude mcp add --transport http armada http://localhost:7891/mcp
 ```
 
 Or add to your project's `.mcp.json`:
@@ -3753,8 +3753,8 @@ Or add to your project's `.mcp.json`:
 {
   "mcpServers": {
     "armada": {
-      "type": "url",
-      "url": "http://localhost:7891"
+      "type": "http",
+      "url": "http://localhost:7891/mcp"
     }
   }
 }

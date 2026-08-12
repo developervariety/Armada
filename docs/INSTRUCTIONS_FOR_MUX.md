@@ -4,9 +4,60 @@
 
 ## Connecting Mux to Armada over MCP
 
-Mux talks to Armada through Armada's MCP server. Because Mux's headless MCP is off unless you pass `--mcp-config`, and Mux's HTTP MCP transport does not currently expose per-server auth headers, the recommended way to connect is Armada's **stdio bridge** (`armada mcp stdio`), which reuses the local `armada` CLI's credentials.
+Mux talks to Armada through Armada's MCP server. The Admiral serves the modern **MCP Streamable HTTP** transport at `http://localhost:7891/mcp` (MCP port 7891; REST is on 7890). This is the recommended way to connect.
 
-1. Create a Mux MCP config file, for example `armada.mcp.json`:
+### Option A -- Interactive (`/mcp` in a Mux session)
+
+1. Start Mux interactively:
+
+```bash
+mux
+```
+
+2. In the Mux session, run the MCP servers manager:
+
+```
+/mcp
+```
+
+   (aliases: `/mcp-servers`, `/servers`; also on the `F1` menu under **Model**.)
+
+3. Choose **+ Add MCP server...** and fill in the guided form:
+   - **name**: `armada`
+   - **transport**: `http`
+   - **url**: `http://localhost:7891`
+   - **mcp path**: `/mcp` (the default -- leave as-is)
+   - **auth**: `none`
+
+Each server row shows a live connectivity glyph -- `●` online (with its discovered tool count) or `○` offline. Once `armada` shows `●` with ~100 tools, you are connected. The server is saved to the Mux config directory's `mcp-servers.json`, so it loads automatically in future sessions.
+
+### Option B -- Config file (headless / scripted runs)
+
+Mux's headless MCP is off unless you pass `--mcp-config`. Create a Mux MCP config file, for example `armada.mcp.json`:
+
+```json
+{
+  "servers": [
+    { "name": "armada", "transport": "http", "url": "http://localhost:7891", "mcpPath": "/mcp" }
+  ]
+}
+```
+
+Run Mux with that config so the Armada tools load:
+
+```bash
+mux --mcp-config ./armada.mcp.json print --yolo "what is the status of the fleet?"
+```
+
+Or pass the config inline:
+
+```bash
+mux print --yolo --mcp-config '{"servers":[{"name":"armada","transport":"http","url":"http://localhost:7891","mcpPath":"/mcp"}]}' "what is the status of the fleet?"
+```
+
+### Option C -- stdio bridge (fallback / when an auth header is required)
+
+If your deployment fronts the MCP port with a proxy that requires an auth header, use Armada's **stdio bridge** (`armada mcp stdio`), which reuses the local `armada` CLI's credentials:
 
 ```json
 {
@@ -16,23 +67,11 @@ Mux talks to Armada through Armada's MCP server. Because Mux's headless MCP is o
 }
 ```
 
-2. Run Mux with that config so the Armada tools load:
+### Notes
 
-```bash
-mux --mcp-config ./armada.mcp.json print --yolo "what is the status of the fleet?"
-```
+`armada mcp install` configures Claude Code, Codex, Gemini, and Cursor automatically, but not Mux -- connect Mux with `/mcp` or `--mcp-config` as above.
 
-Or pass the config inline:
-
-```bash
-mux print --yolo --mcp-config '{"servers":[{"name":"armada","transport":"stdio","command":"armada","args":["mcp","stdio"]}]}' "what is the status of the fleet?"
-```
-
-For interactive sessions, save the same server into the Mux config directory's `mcp-servers.json` (or use `/mcp add`) so it loads automatically. `armada mcp install` configures Claude Code, Codex, Gemini, and Cursor automatically, but not Mux — configure Mux with `--mcp-config` or `mcp-servers.json` as above.
-
-If you prefer HTTP, the Admiral also serves MCP over streamable HTTP at `http://localhost:7891/rpc` (MCP port 7891; REST is on 7890); point Mux's HTTP transport at that path when your deployment does not require an auth header.
-
-Verify the connection with `mux probe --output-format json --require-tools` — the `armada` server should appear with a non-zero tool count. Once connected, the Ask Armada page stops showing the "not connected to Armada over MCP" banner for this captain.
+Verify the connection with `mux probe --output-format json --require-tools` -- the `armada` server should appear with a non-zero tool count. Once connected, the Ask Armada page stops showing the "not connected to Armada over MCP" banner for this captain.
 
 ---
 

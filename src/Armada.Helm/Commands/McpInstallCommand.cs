@@ -15,12 +15,12 @@ namespace Armada.Helm.Commands
         protected override async Task<int> ExecuteAsync(CommandContext context, McpInstallSettings settings, CancellationToken cancellationToken)
         {
             ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
-            string mcpRpcUrl = McpConfigHelper.GetMcpRpcUrl(armadaSettings.McpPort);
+            string mcpUrl = McpConfigHelper.GetMcpUrl(armadaSettings.McpPort);
             List<McpConfigHelper.ConfigTarget> targets = McpConfigHelper.BuildTargets(armadaSettings.McpPort);
             List<McpConfigHelper.InstructionTarget> instructionTargets = McpConfigHelper.BuildInstructionTargets();
 
             AnsiConsole.MarkupLine("[bold dodgerblue1]Armada MCP Install[/]");
-            AnsiConsole.MarkupLine($"[dim]MCP endpoint:[/] [green]{Markup.Escape(mcpRpcUrl)}[/]");
+            AnsiConsole.MarkupLine($"[dim]MCP endpoint:[/] [green]{Markup.Escape(mcpUrl)}[/]");
             AnsiConsole.WriteLine();
 
             if (settings.DryRun)

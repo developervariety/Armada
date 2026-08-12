@@ -27,9 +27,13 @@ namespace Armada.Helm.Commands
         private const string ManagedBlockEnd = "<!-- armada:mcp:end -->";
         private const string SourceMcpFramework = "net10.0";
 
-        internal static string GetMcpRpcUrl(int mcpPort)
+        internal static string GetMcpUrl(int mcpPort)
         {
-            return $"http://localhost:{mcpPort}/rpc";
+            // Voltaic serves the modern MCP Streamable HTTP transport at /mcp (POST for JSON-RPC,
+            // GET for the SSE notification stream, DELETE to terminate the session). This is the
+            // endpoint modern MCP clients (Claude Code, Gemini, Cursor, Mux) expect. The legacy
+            // /rpc + /events pair is still served for older clients but is no longer advertised.
+            return $"http://localhost:{mcpPort}/mcp";
         }
 
         internal static string GetClaudeJsonPath()
@@ -69,7 +73,7 @@ namespace Armada.Helm.Commands
 
         internal static List<ConfigTarget> BuildTargets(int mcpPort)
         {
-            string mcpRpcUrl = GetMcpRpcUrl(mcpPort);
+            string mcpUrl = GetMcpUrl(mcpPort);
             string codexCommand = ResolveCliCommand("codex");
             string geminiCommand = ResolveCliCommand("gemini");
 
@@ -81,7 +85,7 @@ namespace Armada.Helm.Commands
                     new JsonObject
                     {
                         ["type"] = "http",
-                        ["url"] = mcpRpcUrl,
+                        ["url"] = mcpUrl,
                     },
                     InstallAgent: true,
                     ManualInstallCommand: BuildClaudeCliCommand(mcpPort)),
@@ -98,16 +102,16 @@ namespace Armada.Helm.Commands
                     "Gemini CLI",
                     GetGeminiConfigPath(),
                     CliCommand: geminiCommand,
-                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpRpcUrl },
+                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpUrl },
                     RemoveArgs: new[] { "mcp", "remove", "armada" },
-                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpRpcUrl,
+                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpUrl,
                     ManualRemoveCommand: geminiCommand + " mcp remove armada"),
                 new(
                     "Cursor",
                     GetCursorConfigPath(),
                     new JsonObject
                     {
-                        ["url"] = mcpRpcUrl,
+                        ["url"] = mcpUrl,
                         ["transport"] = "http",
                     },
                     IsProjectScoped: true),
@@ -323,7 +327,7 @@ namespace Armada.Helm.Commands
 
         internal static string BuildClaudeCliCommand(int mcpPort)
         {
-            return $"claude mcp add --transport http --scope user armada {GetMcpRpcUrl(mcpPort)}";
+            return $"claude mcp add --transport http --scope user armada {GetMcpUrl(mcpPort)}";
         }
 
         internal static string BuildClaudeStdioCommand()

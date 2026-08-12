@@ -20,7 +20,7 @@ This now writes the MCP configuration for all supported tools automatically. For
 {
   "mcpServers": {
     "armada": {
-      "url": "http://localhost:7891/rpc"
+      "url": "http://localhost:7891/mcp"
     }
   }
 }
@@ -80,7 +80,7 @@ If you prefer to configure MCP manually instead of using `armada mcp install`, a
 {
   "mcpServers": {
     "armada": {
-      "url": "http://localhost:7891/rpc"
+      "url": "http://localhost:7891/mcp"
     }
   }
 }
