@@ -2420,6 +2420,8 @@ Delete a playbook. Existing mission snapshots remain immutable.
 
 Prompt templates define the instruction text used when generating captain mission briefs. Armada ships with built-in templates that can be customized. Custom templates can also be created per tenant.
 
+The built-in **`ask.system`** template (category `ask`) is the system prompt prepended to every **Ask Armada** dashboard chat turn. It is seeded automatically on first run and is editable exactly like any other template — through **Configuration > Prompts** in the dashboard, through these REST endpoints (`GET`/`PUT /api/v1/prompt-templates/ask.system`, `POST /api/v1/prompt-templates/ask.system/reset`), or through the MCP tools (`get_prompt_template`, `update_prompt_template`, `reset_prompt_template` with `name = "ask.system"`).
+
 #### GET /api/v1/prompt-templates
 
 List all prompt templates with pagination.

@@ -539,7 +539,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Ask Armada assistant
-            new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), new CaptainChatService(_Database, _RuntimeFactory, _WebSocketHub, _Logging), _JsonOptions)
+            new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), new CaptainChatService(_Database, _RuntimeFactory, _WebSocketHub, _PromptTemplateService, _Logging), _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Needs-you inbox

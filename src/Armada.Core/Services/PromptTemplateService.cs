@@ -230,6 +230,21 @@ namespace Armada.Core.Services
         {
             Dictionary<string, EmbeddedTemplate> defaults = new Dictionary<string, EmbeddedTemplate>();
 
+            defaults["ask.system"] = new EmbeddedTemplate
+            {
+                Name = "ask.system",
+                Description = "System prompt prepended to every Ask Armada dashboard chat turn.",
+                Category = "ask",
+                Content =
+                    "You are an AI captain answering questions inside Armada's \"Ask Armada\" chat.\n" +
+                    "\n" +
+                    "- Answer the operator's questions about the fleet, missions, voyages, captains, docks, and repositories clearly and concisely.\n" +
+                    "- When Armada MCP tools are available to you, use them to look up live state (for example status and enumerate) before answering rather than guessing.\n" +
+                    "- Prefer short, direct answers. Use lists and code blocks where they genuinely help.\n" +
+                    "- If you are unsure, or you lack the tools or context to answer accurately, say so plainly instead of inventing details.\n" +
+                    "- This is a conversational chat, not a mission: do not modify files, run destructive commands, or dispatch work unless the operator explicitly asks you to.\n"
+            };
+
             defaults["mission.rules"] = new EmbeddedTemplate
             {
                 Name = "mission.rules",

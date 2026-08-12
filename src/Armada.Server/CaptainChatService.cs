@@ -9,6 +9,7 @@ namespace Armada.Server
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
     using Armada.Runtimes;
     using Armada.Runtimes.Interfaces;
     using Armada.Server.WebSocket;
@@ -28,6 +29,7 @@ namespace Armada.Server
         private readonly DatabaseDriver _Database;
         private readonly AgentRuntimeFactory _RuntimeFactory;
         private readonly ArmadaWebSocketHub? _WebSocketHub;
+        private readonly IPromptTemplateService? _PromptTemplates;
         private readonly LoggingModule _Logging;
         private readonly string _Header = "[CaptainChatService] ";
 
@@ -45,12 +47,14 @@ namespace Armada.Server
         /// <param name="database">Database driver.</param>
         /// <param name="runtimeFactory">Agent runtime factory used to launch the captain's CLI headlessly.</param>
         /// <param name="webSocketHub">WebSocket hub used to stream reply chunks live; may be null.</param>
+        /// <param name="promptTemplates">Prompt template service used to resolve the Ask Armada system prompt; may be null.</param>
         /// <param name="logging">Logging module.</param>
-        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, ArmadaWebSocketHub? webSocketHub, LoggingModule logging)
+        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, ArmadaWebSocketHub? webSocketHub, IPromptTemplateService? promptTemplates, LoggingModule logging)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
             _WebSocketHub = webSocketHub;
+            _PromptTemplates = promptTemplates;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
@@ -76,7 +80,19 @@ namespace Armada.Server
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
             if (captain == null) return Fail("Captain not found.");
 
-            string prompt = BuildPrompt(captain, request);
+            // The editable Ask Armada system prompt (Configuration > Prompts, template 'ask.system').
+            string? askSystemPrompt = null;
+            if (_PromptTemplates != null)
+            {
+                try
+                {
+                    PromptTemplate? tpl = await _PromptTemplates.ResolveAsync("ask.system", token).ConfigureAwait(false);
+                    askSystemPrompt = tpl?.Content;
+                }
+                catch { }
+            }
+
+            string prompt = BuildPrompt(captain, request, askSystemPrompt);
             string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-chat-" + Guid.NewGuid().ToString("N"));
             string finalMessageFilePath = Path.Combine(workingDirectory, "reply.txt");
 
@@ -269,9 +285,15 @@ namespace Armada.Server
 
         #region Private-Methods
 
-        private static string BuildPrompt(Captain captain, CaptainChatRequest request)
+        private static string BuildPrompt(Captain captain, CaptainChatRequest request, string? systemPrompt)
         {
             StringBuilder builder = new StringBuilder();
+
+            if (!String.IsNullOrWhiteSpace(systemPrompt))
+            {
+                builder.AppendLine(systemPrompt.Trim());
+                builder.AppendLine();
+            }
 
             if (!String.IsNullOrWhiteSpace(captain.SystemInstructions))
             {

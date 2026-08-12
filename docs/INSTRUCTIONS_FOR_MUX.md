@@ -4,34 +4,33 @@
 
 ## Connecting Mux to Armada over MCP
 
-Mux talks to Armada through Armada's MCP server. The Admiral exposes MCP on port **7891** by default (the REST API is on 7890). To connect a Mux captain so it can call Armada's tools, give Mux an MCP config that registers the Armada server, then run Mux with `--mcp-config`.
+Mux talks to Armada through Armada's MCP server. Because Mux's headless MCP is off unless you pass `--mcp-config`, and Mux's HTTP MCP transport does not currently expose per-server auth headers, the recommended way to connect is Armada's **stdio bridge** (`armada mcp stdio`), which reuses the local `armada` CLI's credentials.
 
-1. Create (or extend) a Mux MCP config file, for example `armada.mcp.json`:
+1. Create a Mux MCP config file, for example `armada.mcp.json`:
 
 ```json
 {
-  "mcpServers": {
-    "armada": {
-      "transport": "streamable_http",
-      "url": "http://127.0.0.1:7891/mcp",
-      "headers": { "X-Token": "<your-armada-token>" }
-    }
-  }
+  "servers": [
+    { "name": "armada", "transport": "stdio", "command": "armada", "args": ["mcp", "stdio"] }
+  ]
 }
 ```
 
-2. Run Mux with that config so the Armada tools are loaded:
+2. Run Mux with that config so the Armada tools load:
 
 ```bash
-mux --mcp-config ./armada.mcp.json print --yolo "status of the fleet"
+mux --mcp-config ./armada.mcp.json print --yolo "what is the status of the fleet?"
 ```
 
-You can also let Armada wire this up for you with the bundled installer:
+Or pass the config inline:
 
 ```bash
-./scripts/common/install-mcp.sh        # Linux/macOS
-scripts\windows\install-mcp.bat        # Windows
+mux print --yolo --mcp-config '{"servers":[{"name":"armada","transport":"stdio","command":"armada","args":["mcp","stdio"]}]}' "what is the status of the fleet?"
 ```
+
+For interactive sessions, save the same server into the Mux config directory's `mcp-servers.json` (or use `/mcp add`) so it loads automatically. `armada mcp install` configures Claude Code, Codex, Gemini, and Cursor automatically, but not Mux — configure Mux with `--mcp-config` or `mcp-servers.json` as above.
+
+If you prefer HTTP, the Admiral also serves MCP over streamable HTTP at `http://localhost:7891/rpc` (MCP port 7891; REST is on 7890); point Mux's HTTP transport at that path when your deployment does not require an auth header.
 
 Verify the connection with `mux probe --output-format json --require-tools` — the `armada` server should appear with a non-zero tool count. Once connected, the Ask Armada page stops showing the "not connected to Armada over MCP" banner for this captain.
 
