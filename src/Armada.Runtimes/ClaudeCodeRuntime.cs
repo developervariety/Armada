@@ -1,7 +1,9 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
+    using System.Globalization;
     using SyslogLogging;
 
     /// <summary>
@@ -103,7 +105,7 @@ namespace Armada.Runtimes
         /// <summary>
         /// Apply Claude Code specific environment variables.
         /// </summary>
-        protected override void ApplyEnvironment(ProcessStartInfo startInfo)
+        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
 
@@ -111,6 +113,13 @@ namespace Armada.Runtimes
             // even when the Admiral or CLI was started from within a Claude Code session
             startInfo.Environment.Remove("CLAUDECODE");
             startInfo.Environment.Remove("CLAUDE_CODE_ENTRYPOINT");
+
+            // Per-captain reasoning effort -> Claude Code extended-thinking budget.
+            int? thinkingTokens = ReasoningEffortTranslator.ToClaudeThinkingTokens(captain?.ReasoningEffort);
+            if (thinkingTokens.HasValue)
+            {
+                startInfo.Environment["MAX_THINKING_TOKENS"] = thinkingTokens.Value.ToString(CultureInfo.InvariantCulture);
+            }
         }
 
         #endregion

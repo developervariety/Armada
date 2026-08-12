@@ -136,7 +136,7 @@ namespace Armada.Runtimes
                 }
             }
 
-            ApplyEnvironment(startInfo);
+            ApplyEnvironment(startInfo, captain);
 
             // Set up optional log file writer
             StreamWriter? logWriter = null;
@@ -323,7 +323,9 @@ namespace Armada.Runtimes
         /// <summary>
         /// Apply runtime-specific environment variables to the process start info.
         /// </summary>
-        protected virtual void ApplyEnvironment(ProcessStartInfo startInfo)
+        /// <param name="startInfo">The process start info being configured.</param>
+        /// <param name="captain">The captain being launched, if any (for per-captain env such as reasoning effort).</param>
+        protected virtual void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
         }
 

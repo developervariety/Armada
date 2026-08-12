@@ -33,6 +33,7 @@ type CaptainDetailFormState = {
   runtime: string;
   systemInstructions: string;
   model: string;
+  reasoningEffort: string;
   allowedPersonas: string;
   preferredPersona: string;
 } & MuxCaptainFormFields;
@@ -50,7 +51,7 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', reasoningEffort: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
@@ -108,6 +109,7 @@ export default function CaptainDetail() {
       runtime: captain.runtime || 'ClaudeCode',
       systemInstructions: captain.systemInstructions ?? '',
       model: captain.model ?? '',
+      reasoningEffort: captain.reasoningEffort ?? '',
       allowedPersonas: captain.allowedPersonas ?? '',
       preferredPersona: captain.preferredPersona ?? '',
       ...muxFormFromCaptain(captain),
@@ -127,6 +129,7 @@ export default function CaptainDetail() {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.reasoningEffort = form.reasoningEffort ? form.reasoningEffort : null;
       if (!payload.allowedPersonas) delete payload.allowedPersonas;
       if (!payload.preferredPersona) delete payload.preferredPersona;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
@@ -315,6 +318,20 @@ export default function CaptainDetail() {
             <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+            </label>
+            <label>
+              {t('Reasoning effort')}
+              <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })}>
+                <option value="">{t('Runtime default')}</option>
+                <option value="Off">{t('Off')}</option>
+                <option value="Minimal">{t('Minimal')}</option>
+                <option value="Low">{t('Low')}</option>
+                <option value="Medium">{t('Medium')}</option>
+                <option value="High">{t('High')}</option>
+              </select>
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Applied to Claude Code, Codex, and Mux. Ignored by runtimes without a reasoning control.')}
+              </span>
             </label>
             <MuxRuntimeFields
               runtime={form.runtime}

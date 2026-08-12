@@ -26,6 +26,12 @@ namespace Armada.Server.Mcp
         public string? Model { get; set; }
 
         /// <summary>
+        /// Optional reasoning-effort level: Off, Minimal, Low, Medium, or High. Translated to each
+        /// runtime's native control at launch (Claude thinking budget, Codex reasoning effort, Mux --effort).
+        /// </summary>
+        public string? ReasoningEffort { get; set; }
+
+        /// <summary>
         /// JSON array of persona names this captain can fill. Null means any persona.
         /// </summary>
         public string? AllowedPersonas { get; set; }

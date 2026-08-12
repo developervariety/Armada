@@ -96,6 +96,7 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
                         model = new { type = "string", description = "AI model identifier; null means runtime default" },
+                        reasoningEffort = new { type = "string", description = "Reasoning effort: Off, Minimal, Low, Medium, or High. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort). Ignored by runtimes without a control." },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
                         muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override" },
@@ -121,6 +122,7 @@ namespace Armada.Server.Mcp.Tools
                     captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
                     captain.AllowedPersonas = request.AllowedPersonas;
                     captain.PreferredPersona = request.PreferredPersona;
+                    captain.ReasoningEffort = ParseReasoningEffort(request.ReasoningEffort);
                     ApplyMuxOptions(captain, request);
 
                     if (agentLifecycle != null)
@@ -146,6 +148,7 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "New system instructions for this captain" },
                         model = new { type = "string", description = "New AI model identifier; null means runtime default" },
+                        reasoningEffort = new { type = "string", description = "Reasoning effort: Off, Minimal, Low, Medium, or High. Empty string clears it. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort)." },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
                         muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override; empty string clears it" },
@@ -177,6 +180,8 @@ namespace Armada.Server.Mcp.Tools
                         captain.AllowedPersonas = request.AllowedPersonas;
                     if (request.PreferredPersona != null)
                         captain.PreferredPersona = request.PreferredPersona;
+                    if (request.ReasoningEffort != null)
+                        captain.ReasoningEffort = ParseReasoningEffort(request.ReasoningEffort);
                     try
                     {
                         ApplyMuxOptions(captain, request, captain.Runtime == AgentRuntimeEnum.Mux ? captain : null);
@@ -377,6 +382,14 @@ namespace Armada.Server.Mcp.Tools
                 },
                 isError = true
             };
+        }
+
+        private static ReasoningEffortEnum? ParseReasoningEffort(string? value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return null;
+            return Enum.TryParse<ReasoningEffortEnum>(value.Trim(), true, out ReasoningEffortEnum parsed)
+                ? parsed
+                : (ReasoningEffortEnum?)null;
         }
 
         private static void ApplyMuxOptions(Captain captain, CaptainCreateArgs request)

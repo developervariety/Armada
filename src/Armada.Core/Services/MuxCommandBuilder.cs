@@ -18,7 +18,8 @@ namespace Armada.Core.Services
             string prompt,
             string? model,
             string? finalMessageFilePath,
-            MuxCaptainOptions? options)
+            MuxCaptainOptions? options,
+            string? effort = null)
         {
             if (String.IsNullOrWhiteSpace(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrWhiteSpace(prompt)) throw new ArgumentNullException(nameof(prompt));
@@ -30,6 +31,12 @@ namespace Armada.Core.Services
 
             AppendConfigDirectory(args, options?.ConfigDirectory);
             AppendMcpConfig(args, options?.ConfigDirectory);
+
+            if (!String.IsNullOrWhiteSpace(effort))
+            {
+                args.Add("--effort");
+                args.Add(effort!.Trim());
+            }
 
             args.Add("--output-format");
             args.Add("jsonl");

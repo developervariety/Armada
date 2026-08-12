@@ -76,7 +76,8 @@ namespace Armada.Runtimes
             Captain? captain)
         {
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
-            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options);
+            string? effort = ReasoningEffortTranslator.ToMuxEffort(captain?.ReasoningEffort);
+            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options, effort);
         }
 
         /// <summary>

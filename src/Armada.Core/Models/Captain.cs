@@ -98,6 +98,13 @@ namespace Armada.Core.Models
         public string? PreferredPersona { get; set; } = null;
 
         /// <summary>
+        /// Optional reasoning-effort level for this captain, translated to each runtime's native control
+        /// at launch (Claude Code thinking budget, Codex model_reasoning_effort, Mux --effort). Runtimes
+        /// without a native control ignore it. Null means "use the runtime default".
+        /// </summary>
+        public ReasoningEffortEnum? ReasoningEffort { get; set; } = null;
+
+        /// <summary>
         /// Runtime-specific configuration serialized as JSON.
         /// Use this for settings that should not be promoted into generic captain fields.
         /// </summary>

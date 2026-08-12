@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
     using SyslogLogging;
 
@@ -100,6 +101,14 @@ namespace Armada.Runtimes
             {
                 args.Add("--model");
                 args.Add(model);
+            }
+
+            // Per-captain reasoning effort -> Codex config override (minimal/low/medium/high).
+            string? reasoningEffort = ReasoningEffortTranslator.ToCodexReasoningEffort(captain?.ReasoningEffort);
+            if (!String.IsNullOrEmpty(reasoningEffort))
+            {
+                args.Add("-c");
+                args.Add("model_reasoning_effort=" + reasoningEffort);
             }
 
             if (!String.IsNullOrEmpty(finalMessageFilePath))

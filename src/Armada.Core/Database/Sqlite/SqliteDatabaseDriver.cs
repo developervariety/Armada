@@ -533,6 +533,13 @@ namespace Armada.Core.Database.Sqlite
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
+            try
+            {
+                string? reasoningEffort = NullableString(reader["reasoning_effort"]);
+                if (!String.IsNullOrEmpty(reasoningEffort) && Enum.TryParse<ReasoningEffortEnum>(reasoningEffort, out ReasoningEffortEnum parsedEffort))
+                    captain.ReasoningEffort = parsedEffort;
+            }
+            catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
             return captain;
         }
