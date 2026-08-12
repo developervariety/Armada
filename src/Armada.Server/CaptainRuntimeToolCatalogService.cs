@@ -547,7 +547,7 @@ namespace Armada.Server
             using (HttpRequestMessage initializeRequest = BuildHttpRequest(server, initializePayload, sessionId))
             using (HttpResponseMessage initializeResponse = await _HttpClient.SendAsync(initializeRequest, token).ConfigureAwait(false))
             {
-                string initializeContent = await initializeResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                string initializeContent = NormalizeSseJson(await initializeResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                 if (!initializeResponse.IsSuccessStatusCode)
                 {
                     throw new InvalidOperationException(FirstNonEmptyLine(initializeContent, initializeResponse.ReasonPhrase));
@@ -595,7 +595,7 @@ namespace Armada.Server
 
                 using HttpRequestMessage request = BuildHttpRequest(server, payload, sessionId);
                 using HttpResponseMessage response = await _HttpClient.SendAsync(request, token).ConfigureAwait(false);
-                string content = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                string content = NormalizeSseJson(await response.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                 if (!response.IsSuccessStatusCode)
                 {
                     throw new InvalidOperationException(FirstNonEmptyLine(content, response.ReasonPhrase));
@@ -807,7 +807,11 @@ namespace Armada.Server
         {
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, server.Url);
             request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+            // MCP Streamable HTTP servers (including Armada's own Voltaic server) require the client to
+            // accept BOTH application/json and text/event-stream; sending only application/json is
+            // rejected with "requires Accept: application/json, text/event-stream".
             request.Headers.Accept.ParseAdd("application/json");
+            request.Headers.Accept.ParseAdd("text/event-stream");
 
             if (!String.IsNullOrWhiteSpace(sessionId))
             {
@@ -820,6 +824,37 @@ namespace Armada.Server
             }
 
             return request;
+        }
+
+        /// <summary>
+        /// Streamable HTTP MCP servers may return a single JSON body or an SSE stream (text/event-stream)
+        /// framed as "data: {json}" lines. Return the JSON payload in either case so the caller can parse it.
+        /// </summary>
+        private static string NormalizeSseJson(string content)
+        {
+            if (String.IsNullOrWhiteSpace(content))
+            {
+                return content;
+            }
+
+            string trimmed = content.TrimStart();
+            if (trimmed.StartsWith("{", StringComparison.Ordinal) || trimmed.StartsWith("[", StringComparison.Ordinal))
+            {
+                return content;
+            }
+
+            StringBuilder builder = new StringBuilder();
+            foreach (string rawLine in content.Split('\n'))
+            {
+                string line = rawLine.TrimEnd('\r');
+                if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    builder.Append(line.Substring(5).TrimStart());
+                }
+            }
+
+            string joined = builder.ToString().Trim();
+            return joined.Length > 0 ? joined : content;
         }
 
         private async Task<CommandExecutionResult> RunProcessAsync(
