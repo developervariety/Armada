@@ -150,7 +150,13 @@ namespace Armada.Server
                                     {
                                         if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
                                         if (root.TryGetProperty("text", out JsonElement tx) && tx.ValueKind == JsonValueKind.String)
+                                        {
                                             deltaText = tx.GetString();
+                                            // Accumulate streamed assistant text so a reply survives even if
+                                            // the final-message artifact (reply.txt) is not written.
+                                            if (!String.IsNullOrEmpty(deltaText) && output.Length < _MaxOutputChars)
+                                                output.Append(deltaText);
+                                        }
                                     }
                                     else if (eventType == "run_completed")
                                     {

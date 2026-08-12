@@ -29,6 +29,7 @@ namespace Armada.Core.Services
             };
 
             AppendConfigDirectory(args, options?.ConfigDirectory);
+            AppendMcpConfig(args, options?.ConfigDirectory);
 
             args.Add("--output-format");
             args.Add("jsonl");
@@ -122,6 +123,32 @@ namespace Armada.Core.Services
             {
                 args.Add("--config-dir");
                 args.Add(configDirectory.Trim());
+            }
+        }
+
+        /// <summary>
+        /// Explicitly pass the Mux config directory's mcp-servers.json via --mcp-config.
+        /// Headless `mux print` auto-loads mcp-servers.json normally, but stops doing so once
+        /// --working-directory is supplied (which Armada always sets). Passing --mcp-config forces
+        /// the configured MCP servers (including Armada) to load, so a captain answering a chat or
+        /// running a mission has the same tools it has in an interactive Mux session.
+        /// </summary>
+        private static void AppendMcpConfig(List<string> args, string? configDirectory)
+        {
+            string directory = configDirectory?.Trim() ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(directory))
+            {
+                string? envDir = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
+                directory = !String.IsNullOrWhiteSpace(envDir)
+                    ? envDir.Trim()
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mux");
+            }
+
+            string mcpServersPath = Path.Combine(directory, "mcp-servers.json");
+            if (File.Exists(mcpServersPath))
+            {
+                args.Add("--mcp-config");
+                args.Add(mcpServersPath);
             }
         }
 
