@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import type { PlanningSessionMessage } from '../../types/models';
 import StatusBadge from '../shared/StatusBadge';
 import Markdown from '../shared/Markdown';
-import ChatMetricsBar from '../shared/ChatMetricsBar';
+import ChatMetricsInfo from '../shared/ChatMetricsInfo';
 import ChatToolChips, { type ToolEvent } from '../shared/ChatToolChips';
 
 interface PlanningTranscriptCardProps {
@@ -161,6 +161,7 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
                 <span className="text-dim" title={formatDateTime(message.lastUpdateUtc)}>
                   {formatRelativeTime(message.lastUpdateUtc)}
                 </span>
+                {isAssistant && message.metrics && <ChatMetricsInfo metrics={message.metrics} />}
               </div>
 
               {isAssistant && (
@@ -183,8 +184,6 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
                 )}
               </div>
 
-              {isAssistant && message.metrics && <ChatMetricsBar metrics={message.metrics} />}
-
               {isAssistant && message.content.trim().length > 0 && (
                 <div className="planning-chat-message-actions">
                   <button
@@ -205,6 +204,8 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
           </div>
         )}
       </div>
+
+      <p className="ask-disclaimer">{t('AI can make mistakes. Check answers.')}</p>
 
       <div className="planning-chat-composer">
         <label htmlFor={composerId}>{t('Send Message')}</label>
