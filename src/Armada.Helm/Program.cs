@@ -134,7 +134,7 @@ namespace Armada.Helm
             HelpRow("config init", "Interactive setup (config auto-initializes)");
 
             HelpHeading("MCP integration (armada mcp ...)");
-            HelpRow("mcp install", "Configure MCP for Claude Code, Codex, Gemini, Cursor");
+            HelpRow("mcp install", "Configure MCP for Claude Code, Codex, Gemini, Cursor, Mux");
             HelpRow("mcp remove", "Remove MCP integration from those clients");
             HelpRow("mcp stdio", "Run the MCP server over stdio (subprocess bridge)");
 
@@ -392,9 +392,9 @@ namespace Armada.Helm
                 {
                     mcp.SetDescription("MCP integration");
                     mcp.AddCommand<McpInstallCommand>("install")
-                        .WithDescription("Configure MCP integration for Claude Code, Codex, Gemini, and Cursor");
+                        .WithDescription("Configure MCP integration for Claude Code, Codex, Gemini, Cursor, and Mux");
                     mcp.AddCommand<McpRemoveCommand>("remove")
-                        .WithDescription("Remove MCP integration for Claude Code, Codex, Gemini, and Cursor");
+                        .WithDescription("Remove MCP integration for Claude Code, Codex, Gemini, Cursor, and Mux");
                     mcp.AddCommand<McpStdioCommand>("stdio")
                         .WithDescription("Run MCP server over stdio (for Claude Code subprocess)");
                 });

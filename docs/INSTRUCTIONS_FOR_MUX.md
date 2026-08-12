@@ -69,7 +69,7 @@ If your deployment fronts the MCP port with a proxy that requires an auth header
 
 ### Notes
 
-`armada mcp install` configures Claude Code, Codex, Gemini, and Cursor automatically, but not Mux -- connect Mux with `/mcp` or `--mcp-config` as above.
+`armada mcp install` configures Claude Code, Codex, Gemini, and Cursor, and -- when it detects Mux (a `~/.mux` config directory or a `mux` executable on PATH) -- it also adds the `armada` HTTP server to Mux's `mcp-servers.json` for you. You can still connect Mux manually with `/mcp` or `--mcp-config` as above.
 
 Verify the connection with `mux probe --output-format json --require-tools` -- the `armada` server should appear with a non-zero tool count. Once connected, the Ask Armada page stops showing the "not connected to Armada over MCP" banner for this captain.
 
