@@ -1,6 +1,16 @@
 @echo off
 setlocal
 
+rem =====================================================================
+rem update.bat -- updates a GLOBAL-TOOL / MANUAL install (see install.bat).
+rem Stops the server via the Armada.Helm CLI, reinstalls the global
+rem Armada.Helm dotnet tool + redeploys the dashboard, then restarts.
+rem This is NOT the same as update-windows-task.bat, which updates the
+rem registered Windows auto-start deployment (HKCU Run key "ArmadaAdmiral",
+rem self-contained server published to %USERPROFILE%\.armada\bin). Use the
+rem update script that matches how you installed; they are not interchangeable.
+rem =====================================================================
+
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 call "%SCRIPT_DIR%\resolve-framework.bat" %*

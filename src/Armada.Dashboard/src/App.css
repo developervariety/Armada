@@ -7338,6 +7338,8 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     flex-direction: column;
     height: calc(100dvh - var(--shell-chrome-height) - 1.5rem);
     min-height: 0;
+    /* Breathing room between the composer and the bottom of the viewport. */
+    padding-bottom: 1.25rem;
 }
 .ask-header-controls {
     display: flex;

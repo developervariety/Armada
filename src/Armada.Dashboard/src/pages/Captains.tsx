@@ -26,6 +26,8 @@ type CaptainFormState = {
   runtime: string;
   systemInstructions: string;
   model: string;
+  reasoningEffort: string;
+  tier: string;
 } & MuxCaptainFormFields;
 
 export default function Captains() {
@@ -39,7 +41,7 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', reasoningEffort: '', tier: '', ...EMPTY_MUX_CAPTAIN_FORM });
   const [saving, setSaving] = useState(false);
 
   // JSON viewer
@@ -140,7 +142,7 @@ export default function Captains() {
 
   // CRUD
   function openCreate() {
-    setForm({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+    setForm({ name: '', runtime: '', systemInstructions: '', model: '', reasoningEffort: '', tier: '', ...EMPTY_MUX_CAPTAIN_FORM });
     setEditing(null);
     setShowForm(true);
   }
@@ -151,6 +153,8 @@ export default function Captains() {
       runtime: c.runtime,
       systemInstructions: c.systemInstructions ?? '',
       model: c.model ?? '',
+      reasoningEffort: c.reasoningEffort ?? '',
+      tier: c.tier ?? '',
       ...muxFormFromCaptain(c),
     });
     setEditing(c);
@@ -170,6 +174,8 @@ export default function Captains() {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.reasoningEffort = form.reasoningEffort ? form.reasoningEffort : null;
+      payload.tier = form.tier ? form.tier : null;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
       delete payload.muxConfigDirectory;
       delete payload.muxEndpoint;
@@ -385,6 +391,32 @@ export default function Captains() {
             <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+            </label>
+            <label>
+              {t('Reasoning effort')}
+              <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })}>
+                <option value="">{t('Runtime default')}</option>
+                <option value="Off">{t('Off')}</option>
+                <option value="Minimal">{t('Minimal')}</option>
+                <option value="Low">{t('Low')}</option>
+                <option value="Medium">{t('Medium')}</option>
+                <option value="High">{t('High')}</option>
+              </select>
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Applied to Claude Code, Codex, and Mux. Ignored by runtimes without a reasoning control.')}
+              </span>
+            </label>
+            <label>
+              {t('Capability tier')}
+              <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                <option value="">{t('Auto (classify from model)')}</option>
+                <option value="Economy">{t('Economy')}</option>
+                <option value="Standard">{t('Standard')}</option>
+                <option value="Premium">{t('Premium')}</option>
+              </select>
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Missions requiring a tier route to captains at or above it. Leave on Auto to classify from the model name.')}
+              </span>
             </label>
             <MuxRuntimeFields
               runtime={form.runtime}

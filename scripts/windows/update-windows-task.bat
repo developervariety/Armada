@@ -1,6 +1,17 @@
 @echo off
 setlocal
 
+rem =====================================================================
+rem update-windows-task.bat -- updates the WINDOWS AUTO-START install
+rem (see install-windows-task.bat). Requires the HKCU Run entry
+rem "ArmadaAdmiral"; stops the running server, republishes the
+rem self-contained server to %USERPROFILE%\.armada\bin, and re-registers
+rem the startup entry. This is NOT the same as update.bat, which updates a
+rem global-tool / manual install (Armada.Helm dotnet tool, foreground
+rem server). Use the update script that matches how you installed; they are
+rem not interchangeable.
+rem =====================================================================
+
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 call "%SCRIPT_DIR%\resolve-framework.bat" %*

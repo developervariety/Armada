@@ -1353,21 +1353,15 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Build per-turn statistics for a planning reply from wall-clock timing and a character-based
-        /// token estimate. Planning drives a runtime CLI rather than a direct model client, so exact
-        /// provider token usage is not available here; time to first token and total time are measured
-        /// directly, and tokens (and tokens/sec) are estimated from the reply length (~3.5 chars/token).
-        /// </summary>
-        /// <param name="startUtc">When the turn was launched.</param>
-        /// <param name="firstOutputUtc">When the first non-protocol output line arrived, if any.</param>
-        /// <param name="endUtc">When the turn finished.</param>
-        /// <param name="content">The final reply text.</param>
-        /// <returns>The per-turn metrics.</returns>
-        /// <summary>
         /// For a Mux captain, interpret a structured protocol line: return the assistant_text delta to stream
         /// into the reply, or emit a tool-call activity event and return null. For non-Mux runtimes (or plain
         /// lines), the line is returned verbatim as streamed text.
         /// </summary>
+        /// <param name="isMux">Whether the captain runtime is Mux, whose lines may be structured protocol events.</param>
+        /// <param name="sessionId">The planning session ID the line belongs to.</param>
+        /// <param name="messageId">The reply message ID being streamed.</param>
+        /// <param name="line">The raw output line from the runtime.</param>
+        /// <returns>The text to stream, or null when the line was consumed as an activity event.</returns>
         private string? ExtractPlanningStreamText(bool isMux, string sessionId, string messageId, string line)
         {
             if (!isMux || !MuxRuntime.IsProtocolEventLine(line))
@@ -1428,6 +1422,17 @@ namespace Armada.Server
             return value.Substring(0, max) + "... (truncated)";
         }
 
+        /// <summary>
+        /// Build per-turn statistics for a planning reply from wall-clock timing and a character-based
+        /// token estimate. Planning drives a runtime CLI rather than a direct model client, so exact
+        /// provider token usage is not available here; time to first token and total time are measured
+        /// directly, and tokens (and tokens/sec) are estimated from the reply length (~3.5 chars/token).
+        /// </summary>
+        /// <param name="startUtc">When the turn was launched.</param>
+        /// <param name="firstOutputUtc">When the first non-protocol output line arrived, if any.</param>
+        /// <param name="endUtc">When the turn finished.</param>
+        /// <param name="content">The final reply text.</param>
+        /// <returns>The per-turn metrics.</returns>
         private static CaptainChatMetrics BuildTurnMetrics(DateTime startUtc, DateTime? firstOutputUtc, DateTime endUtc, string content)
         {
             CaptainChatMetrics metrics = new CaptainChatMetrics();

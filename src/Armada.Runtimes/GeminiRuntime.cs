@@ -70,6 +70,9 @@ namespace Armada.Runtimes
         /// </summary>
         protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Gemini;
 
+        /// <summary>
+        /// Get the command to execute for this runtime.
+        /// </summary>
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);
