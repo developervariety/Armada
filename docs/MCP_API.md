@@ -2478,7 +2478,7 @@ Refinement tools:
 
 | Tool | Purpose | Notes |
 |---|---|---|
-| `list_backlog_refinement_sessions` | List refinement sessions for one backlog item | Requires `objectiveId` |
+| `list_backlog_refinement_sessions` | List refinement sessions for one backlog item (lightweight, paginated) | Requires `objectiveId`; optional `pageNumber`, `pageSize` (default 25, max 100) |
 | `create_backlog_refinement_session` | Start captain-backed refinement | Requires explicit `captainId`; `vesselId` is optional |
 | `get_backlog_refinement_session` | Read one refinement transcript | Returns session, messages, captain, vessel, and linked backlog item |
 | `send_backlog_refinement_message` | Append one user message | Launches the next refinement turn |
@@ -2846,7 +2846,7 @@ Start a guided runbook execution with optional parameter overrides and deploymen
 
 ### list_prompt_templates
 
-List prompt templates, optionally filtered by category.
+List prompt templates (lightweight, paginated), optionally filtered by category. Returns metadata only -- name, category, description, active flag, and a `contentLength` hint -- not the template body. Fetch a single template's full content with [get_prompt_template](#get_prompt_template).
 
 **Input Schema:**
 
@@ -2854,7 +2854,9 @@ List prompt templates, optionally filtered by category.
 {
   "type": "object",
   "properties": {
-    "category": { "type": "string", "description": "Optional category filter such as 'persona' or 'mission'" }
+    "category": { "type": "string", "description": "Optional category filter such as 'persona' or 'mission'" },
+    "pageNumber": { "type": "integer", "description": "1-based page number (default 1)" },
+    "pageSize": { "type": "integer", "description": "Results per page (default 25, max 100)" }
   }
 }
 ```
@@ -2862,8 +2864,10 @@ List prompt templates, optionally filtered by category.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `category` | string | No | Optional category filter |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Results per page (default 25, max 100) |
 
-**Response:** array of [PromptTemplate](#prompttemplate) objects.
+**Response:** a paginated envelope `{ success, pageNumber, pageSize, totalPages, totalRecords, objects }`, where each item in `objects` carries `name`, `category`, `description`, `active`, `isBuiltIn`, `contentLength`, and `lastUpdateUtc`. The template body is intentionally omitted -- retrieve it per-template via [get_prompt_template](#get_prompt_template).
 
 ---
 

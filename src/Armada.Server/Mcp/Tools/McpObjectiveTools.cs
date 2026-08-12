@@ -413,13 +413,15 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "list_backlog_refinement_sessions",
-                    "List captain-backed refinement sessions for one backlog item.",
+                    "List captain-backed refinement sessions for one backlog item (lightweight, paginated). Returns session metadata only, most-recently-updated first; fetch a session's transcript with get_backlog_refinement_session.",
                     new
                     {
                         type = "object",
                         properties = new
                         {
-                            objectiveId = new { type = "string", description = "Backlog item ID (obj_ prefix)" }
+                            objectiveId = new { type = "string", description = "Backlog item ID (obj_ prefix)" },
+                            pageNumber = new { type = "integer", description = "1-based page number (default 1)" },
+                            pageSize = new { type = "integer", description = "Results per page (default 25, max 100)" }
                         },
                         required = new[] { "objectiveId" }
                     },
@@ -431,10 +433,33 @@ namespace Armada.Server.Mcp.Tools
                         Objective? objective = await objectiveService.ReadAsync(auth, request.ObjectiveId).ConfigureAwait(false);
                         if (objective == null) return (object)new { Error = "Backlog item not found" };
 
+                        int pageNumber = request.PageNumber.HasValue ? request.PageNumber.Value : 1;
+                        if (pageNumber < 1) pageNumber = 1;
+                        int pageSize = request.PageSize.HasValue ? request.PageSize.Value : 25;
+                        if (pageSize < 1) pageSize = 1;
+                        if (pageSize > 100) pageSize = 100;
+
                         List<ObjectiveRefinementSession> sessions = await EnumerateObjectiveRefinementSessionsAsync(database, auth, objective.Id).ConfigureAwait(false);
-                        return (object)sessions
+                        List<ObjectiveRefinementSession> ordered = sessions
                             .OrderByDescending(session => session.LastUpdateUtc)
                             .ToList();
+
+                        long totalRecords = ordered.Count;
+                        int totalPages = pageSize > 0 ? (int)Math.Ceiling((double)totalRecords / pageSize) : 0;
+                        List<ObjectiveRefinementSession> page = ordered
+                            .Skip((pageNumber - 1) * pageSize)
+                            .Take(pageSize)
+                            .ToList();
+
+                        return (object)new
+                        {
+                            success = true,
+                            pageNumber,
+                            pageSize,
+                            totalPages,
+                            totalRecords,
+                            objects = page
+                        };
                     });
 
                 register(

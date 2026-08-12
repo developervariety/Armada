@@ -2,6 +2,7 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -29,13 +30,15 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "list_prompt_templates",
-                "List prompt templates, optionally filtered by category.",
+                "List prompt templates (lightweight, paginated), optionally filtered by category. Returns metadata only -- name, category, description, active flag, and a contentLength hint -- not the template body. Fetch a single template's full content with get_prompt_template.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        category = new { type = "string", description = "Optional category filter (for example 'persona' or 'mission')" }
+                        category = new { type = "string", description = "Optional category filter (for example 'persona' or 'mission')" },
+                        pageNumber = new { type = "integer", description = "1-based page number (default 1)" },
+                        pageSize = new { type = "integer", description = "Results per page (default 25, max 100)" }
                     }
                 },
                 async (args) =>
@@ -43,8 +46,46 @@ namespace Armada.Server.Mcp.Tools
                     PromptTemplateArgs request = args.HasValue
                         ? JsonSerializer.Deserialize<PromptTemplateArgs>(args.Value, _JsonOptions) ?? new PromptTemplateArgs()
                         : new PromptTemplateArgs();
+
+                    int pageNumber = request.PageNumber.HasValue ? request.PageNumber.Value : 1;
+                    if (pageNumber < 1) pageNumber = 1;
+                    int pageSize = request.PageSize.HasValue ? request.PageSize.Value : 25;
+                    if (pageSize < 1) pageSize = 1;
+                    if (pageSize > 100) pageSize = 100;
+
                     List<PromptTemplate> templates = await templateService.ListAsync(request.Category).ConfigureAwait(false);
-                    return (object)templates;
+                    List<PromptTemplate> ordered = templates
+                        .OrderBy(template => template.Category, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    long totalRecords = ordered.Count;
+                    int totalPages = pageSize > 0 ? (int)Math.Ceiling((double)totalRecords / pageSize) : 0;
+
+                    List<object> objects = ordered
+                        .Skip((pageNumber - 1) * pageSize)
+                        .Take(pageSize)
+                        .Select(template => (object)new
+                        {
+                            name = template.Name,
+                            category = template.Category,
+                            description = template.Description,
+                            active = template.Active,
+                            isBuiltIn = template.IsBuiltIn,
+                            contentLength = template.Content != null ? template.Content.Length : 0,
+                            lastUpdateUtc = template.LastUpdateUtc
+                        })
+                        .ToList();
+
+                    return (object)new
+                    {
+                        success = true,
+                        pageNumber,
+                        pageSize,
+                        totalPages,
+                        totalRecords,
+                        objects
+                    };
                 });
 
             register(
