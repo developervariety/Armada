@@ -323,7 +323,7 @@ export default function VesselDetail() {
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.secretScanEnabled} onChange={e => setForm({ ...form, secretScanEnabled: e.target.checked })} style={{ width: 'auto' }} />
-              {t('Scan mission diffs for secrets')}
+              {t('Scan Mission Diffs for Secrets')}
             </label>
             <label>
               {t('Protected Path Patterns')}

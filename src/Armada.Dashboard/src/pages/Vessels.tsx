@@ -384,7 +384,7 @@ export default function Vessels() {
               </label>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title={t('Scan each mission diff for secrets before landing, and flag protected paths / private identifiers.')}>
                 <input type="checkbox" checked={form.secretScanEnabled} onChange={e => setForm({ ...form, secretScanEnabled: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
-                <span style={{ verticalAlign: 'middle' }}>{t('Scan mission diffs for secrets')}</span>
+                <span style={{ verticalAlign: 'middle' }}>{t('Scan Mission Diffs for Secrets')}</span>
               </label>
             </div>
 
