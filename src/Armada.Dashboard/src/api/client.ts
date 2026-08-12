@@ -149,6 +149,8 @@ function camelizeKeys(obj: any): any {
 interface RequestOptions {
   timeout?: number;
   rawText?: boolean;
+  /** External abort signal; when it fires the in-flight request is cancelled (used by chat Stop). */
+  signal?: AbortSignal;
 }
 
 export interface ProxySessionContext {
@@ -179,6 +181,15 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
   const timeoutMs = opts?.timeout ?? 30000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  // An external signal (e.g. the chat Stop button) cancels the in-flight request; the server observes
+  // the dropped request and cancels the captain runtime, so the stop is real rather than cosmetic.
+  const external = opts?.signal;
+  const onExternalAbort = () => controller.abort();
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener('abort', onExternalAbort);
+  }
+
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
       method,
@@ -186,8 +197,6 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     if (res.status === 401) {
       onUnauthorized?.();
@@ -216,11 +225,20 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
     const json = await res.json();
     return camelizeKeys(json) as T;
   } catch (err) {
-    clearTimeout(timeoutId);
+    // An external abort is a deliberate cancel (Stop), not a timeout — surface it distinctly so callers
+    // can treat it as a clean stop instead of an error.
+    if (external?.aborted) {
+      const aborted = new Error('Aborted');
+      aborted.name = 'AbortError';
+      throw aborted;
+    }
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error('Request timed out');
     }
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (external) external.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -729,6 +747,8 @@ export const summarizePlanningSession = (id: string, data: PlanningSessionSummar
   post<PlanningSessionSummaryResponse>(`/api/v1/planning-sessions/${id}/summarize`, data, { timeout: PLANNING_SUMMARIZE_TIMEOUT_MS });
 export const dispatchPlanningSession = (id: string, data: PlanningSessionDispatchRequest) => post<Voyage>(`/api/v1/planning-sessions/${id}/dispatch`, data);
 export const stopPlanningSession = (id: string) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/stop`);
+// Abort the in-flight planning turn without ending the session (Stop button parity with Ask Armada).
+export const stopPlanningTurn = (id: string) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/stop-turn`);
 export const deletePlanningSession = (id: string) => del<void>(`/api/v1/planning-sessions/${id}`);
 
 // ==================== Events ====================
@@ -800,11 +820,12 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 
 // Ask Armada
 export const askArmada = (message: string) => post<AskResponse>('/api/v1/ask', { message });
-export const chatWithCaptain = (captainId: string, body: CaptainChatRequest) =>
+export const chatWithCaptain = (captainId: string, body: CaptainChatRequest, opts?: { signal?: AbortSignal }) =>
   // A chat turn launches the captain's CLI runtime headlessly, which can take minutes for slower
   // agents (e.g. Codex). Allow more than the default 30s so the reply is not aborted client-side;
   // keep it above the server-side chat timeout so the backend's clean message wins on timeout.
-  post<CaptainChatResponse>('/api/v1/captains/' + captainId + '/chat', body, { timeout: 330000 });
+  // An optional signal lets the Stop button abort the request (the server then cancels the runtime).
+  post<CaptainChatResponse>('/api/v1/captains/' + captainId + '/chat', body, { timeout: 330000, signal: opts?.signal });
 
 // Needs-you inbox
 export const getInbox = () => get<InboxItem[]>('/api/v1/inbox');

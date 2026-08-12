@@ -79,12 +79,13 @@ describe('PlanningTranscriptCard', () => {
         onSelectMessage={onSelectMessage}
         onComposerChange={() => undefined}
         onSend={() => undefined}
+        onStopTurn={() => undefined}
         onEndSession={() => undefined}
         onDelete={() => undefined}
       />,
     );
 
-    expect(screen.getByText('Waiting for response...')).toBeInTheDocument();
+    expect(screen.getByText('Structured draft output')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Use For Dispatch' }));
     expect(onSelectMessage).toHaveBeenCalledWith('psm_ready');
   });
@@ -120,14 +121,13 @@ describe('PlanningTranscriptCard', () => {
         onSelectMessage={() => undefined}
         onComposerChange={onComposerChange}
         onSend={onSend}
+        onStopTurn={() => undefined}
         onEndSession={() => undefined}
         onDelete={() => undefined}
       />,
     );
 
-    const composer = screen.getByRole('textbox', { name: 'Send Message' });
-
-    expect(composer).toHaveAttribute('rows', '3');
+    const composer = screen.getByPlaceholderText('Describe the problem, ask for a plan, or negotiate the next steps with the captain.');
 
     await user.type(composer, ' now');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -163,6 +163,7 @@ describe('PlanningTranscriptCard', () => {
         onSelectMessage={() => undefined}
         onComposerChange={() => undefined}
         onSend={() => undefined}
+        onStopTurn={() => undefined}
         onEndSession={() => undefined}
         onDelete={() => undefined}
       />,

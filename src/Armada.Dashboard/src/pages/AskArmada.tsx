@@ -1,23 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { chatWithCaptain, getCaptainTools, listCaptains } from '../api/client';
-import type { Captain, CaptainChatMessage, CaptainChatMetrics, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
+import type { Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import ErrorModal from '../components/shared/ErrorModal';
-import Markdown from '../components/shared/Markdown';
-import ChatMetricsInfo from '../components/shared/ChatMetricsInfo';
-import ChatToolChips, { applyToolEvent, type ToolEvent } from '../components/shared/ChatToolChips';
+import CaptainChatPanel, { type ChatTurn } from '../components/shared/CaptainChatPanel';
+import { applyToolEvent } from '../components/shared/ChatToolChips';
 import { randomThinkingMessage } from '../components/askThinkingMessages';
-
-interface ChatTurn {
-  role: 'user' | 'assistant';
-  text: string;
-  metrics?: CaptainChatMetrics;
-  model?: string | null;
-  streaming?: boolean;
-  tools?: ToolEvent[];
-}
 
 // Ask Armada is available with any captain.
 function isChattable(_captain: Captain): boolean {
@@ -51,7 +41,7 @@ export default function AskArmada() {
   const [toolsLoading, setToolsLoading] = useState(false);
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [thinking, setThinking] = useState('');
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const toolsCache = useRef<Record<string, CaptainToolAccessResult>>({});
 
   // Rotate the "waiting" message every 4 seconds while a turn is in flight.
@@ -113,7 +103,9 @@ export default function AskArmada() {
     const turnId = streaming
       ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2))
       : undefined;
-    const history: CaptainChatMessage[] = turns.map((turn) => ({ role: turn.role, content: turn.text }));
+    const history: CaptainChatMessage[] = turns
+      .filter((turn) => turn.role !== 'system')
+      .map((turn) => ({ role: turn.role as 'user' | 'assistant', content: turn.text }));
     setTurns((current) => streaming
       ? [...current, { role: 'user', text }, { role: 'assistant', text: '', streaming: true }]
       : [...current, { role: 'user', text }]);
@@ -126,18 +118,20 @@ export default function AskArmada() {
           const data = msg.data as { turnId?: string; delta?: string } | undefined;
           if (!data || data.turnId !== turnId || !data.delta) return;
           updateStreamingTurn((turn) => ({ ...turn, text: turn.text + data.delta }));
-          requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
         } else if (msg.type === 'ask.tool') {
           const d = msg.data as ({ turnId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
           if (!d || d.turnId !== turnId || !d.id) return;
           updateStreamingTurn((turn) => ({ ...turn, tools: applyToolEvent(turn.tools, d) }));
-          requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
         }
       });
     }
 
+    // The controller lets the Stop button abort the request; the server then cancels the captain runtime.
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const response = await chatWithCaptain(captainId, { message: text, history, turnId });
+      const response = await chatWithCaptain(captainId, { message: text, history, turnId }, { signal: controller.signal });
       if (!response.success) {
         setError(response.error || t('The captain could not respond.'));
         setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
@@ -148,13 +142,23 @@ export default function AskArmada() {
         setTurns((current) => [...current, { role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }]);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Chat failed.'));
-      setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Stop pressed: keep whatever streamed so far and just clear the in-flight flag.
+        if (streaming) updateStreamingTurn((turn) => ({ ...turn, streaming: false }));
+      } else {
+        setError(err instanceof Error ? err.message : t('Chat failed.'));
+        setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
+      }
     } finally {
+      abortRef.current = null;
       unsubscribe();
       setBusy(false);
-      requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
     }
+  }
+
+  // Abort the in-flight turn. The dropped request cancels the captain runtime server-side.
+  function stop() {
+    abortRef.current?.abort();
   }
 
   return (
@@ -216,58 +220,22 @@ export default function AskArmada() {
             </div>
           )}
 
-          <div className="card ask-chat-window" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {turns.length === 0 ? (
-              <div className="text-dim" style={{ margin: 'auto', textAlign: 'center' }}>
-                <p>{selectedCaptain ? t('Chatting with {{name}}', { name: selectedCaptain.name }) : t('Select a captain to begin.')}</p>
-              </div>
-            ) : (
-              turns.map((turn, i) => (
-                <div key={i} style={{ alignSelf: turn.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-                  <div className="card" style={{ padding: '0.6rem 0.85rem', background: turn.role === 'user' ? 'var(--accent-soft, rgba(80,120,255,0.12))' : undefined }}>
-                    <div className="text-dim chat-turn-header" style={{ fontSize: '0.7rem', marginBottom: '0.2rem' }}>
-                      <span>{turn.role === 'user' ? t('You') : (turn.model || (selectedCaptain?.name ?? t('Captain')))}</span>
-                      {turn.role === 'assistant' && turn.metrics && <ChatMetricsInfo metrics={turn.metrics} />}
-                    </div>
-                    {turn.role === 'assistant' && (
-                      <ChatToolChips
-                        tools={turn.tools}
-                        runningLabel={t('running…')}
-                        argumentsLabel={t('Arguments')}
-                        resultLabel={t('Result')}
-                        noDetailsLabel={t('No details available.')}
-                      />
-                    )}
-                    {turn.role === 'assistant'
-                      ? <Markdown>{turn.text}</Markdown>
-                      : <div style={{ whiteSpace: 'pre-wrap' }}>{turn.text}</div>}
-                  </div>
-                </div>
-              ))
-            )}
-            {busy && <div key={thinking} className="text-dim ask-thinking" style={{ alignSelf: 'flex-start' }}>{thinking || t('Thinking...')}</div>}
-            <div ref={endRef} />
-          </div>
-
-          <p className="ask-disclaimer">{t('AI can make mistakes. Check answers.')}</p>
-
-          <form
-            className="ask-input-form"
-            style={{ display: 'flex', gap: '0.5rem' }}
-            onSubmit={(e) => { e.preventDefault(); send(input); }}
-          >
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={t('Message the captain...')}
-              style={{ flex: 1 }}
-              disabled={busy || !captainId}
-            />
-            <button type="submit" className="btn btn-primary" disabled={busy || !captainId || input.trim().length === 0}>
-              {busy ? t('...') : t('Send')}
-            </button>
-          </form>
+          <CaptainChatPanel
+            t={t}
+            turns={turns}
+            assistantName={selectedCaptain?.name}
+            emptyState={<p>{selectedCaptain ? t('Chatting with {{name}}', { name: selectedCaptain.name }) : t('Select a captain to begin.')}</p>}
+            input={input}
+            onInputChange={setInput}
+            onSend={() => send(input)}
+            onStop={stop}
+            busy={busy}
+            canSend={!busy && !!captainId && input.trim().length > 0}
+            canStop={busy}
+            thinking={thinking}
+            inputPlaceholder={t('Message the captain...')}
+            inputDisabled={!captainId}
+          />
         </div>
       )}
     </div>

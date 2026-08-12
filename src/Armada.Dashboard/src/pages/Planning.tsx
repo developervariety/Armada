@@ -14,6 +14,7 @@ import {
   listVessels,
   sendPlanningSessionMessage,
   stopPlanningSession,
+  stopPlanningTurn,
   summarizePlanningSession,
 } from '../api/client';
 import type {
@@ -493,6 +494,19 @@ export default function Planning() {
     }
   }
 
+  async function handleStopTurn() {
+    if (!currentSession) return;
+
+    try {
+      setError('');
+      const result = await stopPlanningTurn(currentSession.id);
+      setDetail(result);
+      setSessions((current) => upsertSession(current, result.session));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to stop the current turn.'));
+    }
+  }
+
   async function handleSummarize() {
     if (!currentSession || !selectedMessageId) return;
 
@@ -752,6 +766,7 @@ export default function Planning() {
               }}
               onComposerChange={setComposer}
               onSend={handleSendMessage}
+              onStopTurn={handleStopTurn}
               onEndSession={() => currentSession && requestEndSession(currentSession)}
               onDelete={() => setConfirmDeleteOpen(true)}
             />

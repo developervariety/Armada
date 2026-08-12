@@ -291,6 +291,42 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Abort the in-flight planning turn without ending the session. Kills the current turn's captain
+        /// runtime process; the background turn task then finalizes the assistant reply with whatever streamed
+        /// so far and returns the session to <see cref="PlanningSessionStatusEnum.Active"/> on its own (no
+        /// session-level stop is requested, so the completion path re-activates it). No-op unless the session
+        /// is currently <see cref="PlanningSessionStatusEnum.Responding"/>. Mirrors Ask Armada's Stop, which
+        /// cancels the runtime while leaving the chat usable.
+        /// </summary>
+        public async Task<PlanningSession> AbortTurnAsync(PlanningSession session, CancellationToken token = default)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+
+            session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+            if (session.Status != PlanningSessionStatusEnum.Responding)
+                return session;
+
+            if (session.ProcessId.HasValue)
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(session.CaptainId, token).ConfigureAwait(false);
+                if (captain != null)
+                {
+                    try
+                    {
+                        Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
+                        await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error aborting planning turn process " + session.ProcessId.Value + " for session " + session.Id + ": " + ex.Message);
+                    }
+                }
+            }
+
+            return session;
+        }
+
+        /// <summary>
         /// Create a voyage from a planning session.
         /// </summary>
         public async Task<Voyage> DispatchAsync(PlanningSession session, PlanningSessionDispatchRequest request, CancellationToken token = default)
