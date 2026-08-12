@@ -99,7 +99,7 @@ body {
     flex-direction: column;
     z-index: 90;
     border-right: 1px solid var(--border);
-    width: 180px;
+    width: 100%;
     transition: width 0.25s ease;
 }
 
@@ -529,6 +529,7 @@ body {
     justify-content: flex-end;
     gap: 0.75rem;
     height: var(--shell-chrome-height);
+    flex-shrink: 0;
     padding: 0 1rem;
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
@@ -681,7 +682,7 @@ body {
 }
 
 .main {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
     margin: 0;
     padding: 0.75rem 1rem 0.75rem 1.5rem;
@@ -7245,3 +7246,47 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .mcp-warning-icon { color: var(--orange, #d98a00); flex-shrink: 0; margin-top: 1px; }
 .mcp-warning-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
 .mcp-warning-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: center; }
+
+/* ── Ask Armada: full-height chat layout ── */
+.ask-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--shell-chrome-height) - 1.5rem);
+    min-height: 0;
+}
+.ask-header-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+}
+.ask-stream-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.ask-body {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.ask-chat-window {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+.ask-disclaimer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    margin: 0.5rem 0 0.45rem;
+}
+.ask-input-form {
+    flex-shrink: 0;
+    margin-top: 0;
+}

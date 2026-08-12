@@ -21,6 +21,19 @@ function isChattable(_captain: Captain): boolean {
   return true;
 }
 
+// Per-runtime setup instructions doc on GitHub for connecting a captain to Armada over MCP.
+function instructionsDocUrl(runtime: string | null | undefined): string {
+  const files: Record<string, string> = {
+    ClaudeCode: 'INSTRUCTIONS_FOR_CLAUDE_CODE.md',
+    Codex: 'INSTRUCTIONS_FOR_CODEX.md',
+    Cursor: 'INSTRUCTIONS_FOR_CURSOR.md',
+    Gemini: 'INSTRUCTIONS_FOR_GEMINI.md',
+    Mux: 'INSTRUCTIONS_FOR_MUX.md',
+  };
+  const file = (runtime && files[runtime]) || 'MCP_API.md';
+  return 'https://github.com/jchristn/Armada/blob/main/docs/' + file;
+}
+
 export default function AskArmada() {
   const { t } = useLocale();
   const navigate = useNavigate();
@@ -33,6 +46,7 @@ export default function AskArmada() {
   const [error, setError] = useState('');
   const [tools, setTools] = useState<CaptainToolAccessResult | null>(null);
   const [toolsLoading, setToolsLoading] = useState(false);
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -77,28 +91,38 @@ export default function AskArmada() {
     if (!text || busy || !captainId) return;
     setInput('');
 
-    const turnId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
+    const streaming = streamingEnabled;
+    // A turnId opts the request into live streaming; omit it for a plain request/response turn.
+    const turnId = streaming
+      ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2))
+      : undefined;
     const history: CaptainChatMessage[] = turns.map((turn) => ({ role: turn.role, content: turn.text }));
-    // Add the user turn and an empty assistant turn that fills in live as chunks stream over the WebSocket.
-    setTurns((current) => [...current, { role: 'user', text }, { role: 'assistant', text: '', streaming: true }]);
+    setTurns((current) => streaming
+      ? [...current, { role: 'user', text }, { role: 'assistant', text: '', streaming: true }]
+      : [...current, { role: 'user', text }]);
     setBusy(true);
 
-    const unsubscribe = subscribe((msg: WebSocketMessage) => {
-      if (msg.type !== 'ask.chunk') return;
-      const data = msg.data as { turnId?: string; delta?: string } | undefined;
-      if (!data || data.turnId !== turnId || !data.delta) return;
-      updateStreamingTurn((turn) => ({ ...turn, text: turn.text + data.delta }));
-      requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
-    });
+    let unsubscribe: () => void = () => undefined;
+    if (streaming) {
+      unsubscribe = subscribe((msg: WebSocketMessage) => {
+        if (msg.type !== 'ask.chunk') return;
+        const data = msg.data as { turnId?: string; delta?: string } | undefined;
+        if (!data || data.turnId !== turnId || !data.delta) return;
+        updateStreamingTurn((turn) => ({ ...turn, text: turn.text + data.delta }));
+        requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
+      });
+    }
 
     try {
       const response = await chatWithCaptain(captainId, { message: text, history, turnId });
       if (!response.success) {
         setError(response.error || t('The captain could not respond.'));
         setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
-      } else {
+      } else if (streaming) {
         // Reconcile the streamed text with the authoritative final reply + metrics.
         updateStreamingTurn(() => ({ role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }));
+      } else {
+        setTurns((current) => [...current, { role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }]);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Chat failed.'));
@@ -111,13 +135,17 @@ export default function AskArmada() {
   }
 
   return (
-    <div>
+    <div className="ask-page">
       <div className="view-header">
         <div>
           <h2>{t('Ask Armada')}</h2>
           <p className="text-dim view-subtitle">{t('Chat directly with a captain.')}</p>
         </div>
-        <div>
+        <div className="ask-header-controls">
+          <label className="ask-stream-toggle" title={t('Stream the reply token-by-token as it is produced')}>
+            <input type="checkbox" checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} disabled={busy} />
+            {t('Stream responses')}
+          </label>
           <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem' }}>
             {t('Captain')}
             <select value={captainId} onChange={(e) => setCaptainId(e.target.value)} disabled={busy}>
@@ -137,7 +165,7 @@ export default function AskArmada() {
           <p className="text-dim">{t('No captains are configured yet. Create a captain to Ask Armada.')}</p>
         </div>
       ) : (
-        <>
+        <div className="ask-body">
           {toolsLoading && (
             <div className="text-dim" style={{ fontSize: '0.78rem', marginBottom: '0.6rem' }}>
               {t('Checking whether this captain is connected to Armada over MCP...')}
@@ -160,12 +188,12 @@ export default function AskArmada() {
               </div>
               <div className="mcp-warning-actions">
                 <button className="btn btn-sm" onClick={() => navigate('/captains/' + captainId)}>{t('View captain')}</button>
-                <a className="btn btn-sm" href="https://github.com/jchristn/Armada/blob/main/docs/MCP_API.md" target="_blank" rel="noopener noreferrer">{t('How to connect')}</a>
+                <a className="btn btn-sm" href={instructionsDocUrl(selectedCaptain?.runtime)} target="_blank" rel="noopener noreferrer">{t('How to connect')}</a>
               </div>
             </div>
           )}
 
-          <div className="card" style={{ padding: '1rem', minHeight: '340px', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div className="card ask-chat-window" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {turns.length === 0 ? (
               <div className="text-dim" style={{ margin: 'auto', textAlign: 'center' }}>
                 <p>{selectedCaptain ? t('Chatting with {{name}}', { name: selectedCaptain.name }) : t('Select a captain to begin.')}</p>
@@ -189,9 +217,11 @@ export default function AskArmada() {
             <div ref={endRef} />
           </div>
 
+          <p className="ask-disclaimer">{t('AI can make mistakes. Check answers.')}</p>
+
           <form
-            className="card"
-            style={{ padding: '0.75rem', marginTop: '1rem', display: 'flex', gap: '0.5rem' }}
+            className="card ask-input-form"
+            style={{ padding: '0.75rem', display: 'flex', gap: '0.5rem' }}
             onSubmit={(e) => { e.preventDefault(); send(input); }}
           >
             <input
@@ -206,7 +236,7 @@ export default function AskArmada() {
               {busy ? t('...') : t('Send')}
             </button>
           </form>
-        </>
+        </div>
       )}
     </div>
   );
