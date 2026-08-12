@@ -44,6 +44,8 @@ namespace Test.Shared.Infrastructure
         /// Resolve the launch command.
         /// </summary>
         /// <returns>The command.</returns>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode;
+
         protected override string GetCommand() => CommandOverride;
 
         /// <summary>

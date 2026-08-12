@@ -92,6 +92,9 @@ namespace Armada.Runtimes
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
         /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
+        /// <param name="isolateLaunch">When true, launch the captain in a scoped agent configuration that
+        /// contains only the Armada MCP server, blocking inheritance of the host user's global settings.</param>
+        /// <param name="mcpPort">The Admiral MCP port, used to build the scoped Armada MCP config when isolating.</param>
         /// <param name="token">Cancellation token.</param>
         public virtual async Task<int> StartAsync(
             string workingDirectory,
@@ -101,6 +104,8 @@ namespace Armada.Runtimes
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool isolateLaunch = false,
+            int mcpPort = 0,
             CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
@@ -108,6 +113,29 @@ namespace Armada.Runtimes
 
             string command = GetCommand();
             List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
+
+            // Plan captain launch isolation (opt-in). An empty plan leaves the launch unchanged, so when
+            // isolation is disabled the behavior below is identical to a non-isolated launch.
+            Armada.Core.Services.CaptainLaunchIsolationPlan isolationPlan = new Armada.Core.Services.CaptainLaunchIsolationPlan();
+            if (isolateLaunch && mcpPort > 0)
+            {
+                string scopedConfigDirectory = Path.Combine(Path.GetTempPath(), "armada", "isolation", (captain?.Id ?? Guid.NewGuid().ToString("N")));
+                isolationPlan = Armada.Core.Services.CaptainLaunchIsolationPlanner.Plan(RuntimeType, mcpPort, scopedConfigDirectory);
+                if (!isolationPlan.IsEmpty)
+                {
+                    foreach (Armada.Core.Services.IsolationConfigFile file in isolationPlan.FilesToWrite)
+                    {
+                        string absolutePath = Path.Combine(scopedConfigDirectory, file.RelativePath);
+                        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+                        File.WriteAllText(absolutePath, file.Contents);
+                    }
+                    foreach (string extraArg in isolationPlan.ExtraArguments)
+                    {
+                        args.Add(extraArg);
+                    }
+                    _Logging.Info(_Header + "isolated launch for " + RuntimeType + " using scoped config " + scopedConfigDirectory);
+                }
+            }
 
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
@@ -137,6 +165,13 @@ namespace Armada.Runtimes
             }
 
             ApplyEnvironment(startInfo, captain);
+
+            // Apply isolation environment overrides last so a scoped HOME/CODEX_HOME/MUX_CONFIG_DIR wins
+            // over any inherited or runtime-default value.
+            foreach (KeyValuePair<string, string> kvp in isolationPlan.EnvironmentOverrides)
+            {
+                startInfo.Environment[kvp.Key] = kvp.Value;
+            }
 
             // Set up optional log file writer
             StreamWriter? logWriter = null;
@@ -279,6 +314,11 @@ namespace Armada.Runtimes
                 _Logging.Warn(_Header + "error stopping process " + processId + ": " + ex.Message);
             }
         }
+
+        /// <summary>
+        /// The runtime this adapter drives. Used to plan launch isolation (scoped config / strict MCP).
+        /// </summary>
+        protected abstract Armada.Core.Enums.AgentRuntimeEnum RuntimeType { get; }
 
         /// <summary>
         /// Build runtime-specific command-line arguments.

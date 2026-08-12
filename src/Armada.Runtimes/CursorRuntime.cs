@@ -59,6 +59,11 @@ namespace Armada.Runtimes
         /// <summary>
         /// Get the cursor CLI command.
         /// </summary>
+        /// <summary>
+        /// The runtime this adapter drives.
+        /// </summary>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Cursor;
+
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);

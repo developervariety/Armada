@@ -51,6 +51,8 @@ namespace Armada.Runtimes.Interfaces
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
         /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
+        /// <param name="isolateLaunch">When true, launch in a scoped agent configuration containing only the Armada MCP server.</param>
+        /// <param name="mcpPort">The Admiral MCP port, used to build the scoped Armada MCP config when isolating.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Process ID of the started agent.</returns>
         Task<int> StartAsync(
@@ -61,6 +63,8 @@ namespace Armada.Runtimes.Interfaces
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool isolateLaunch = false,
+            int mcpPort = 0,
             CancellationToken token = default);
 
         /// <summary>

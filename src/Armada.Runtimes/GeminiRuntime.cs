@@ -65,6 +65,11 @@ namespace Armada.Runtimes
         /// <summary>
         /// Get the gemini CLI command.
         /// </summary>
+        /// <summary>
+        /// The runtime this adapter drives.
+        /// </summary>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Gemini;
+
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);

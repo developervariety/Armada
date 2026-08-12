@@ -416,7 +416,9 @@ namespace Armada.Server
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
-                    captain: captain).ConfigureAwait(false);
+                    captain: captain,
+                    isolateLaunch: _Settings.IsolateCaptainLaunch,
+                    mcpPort: _Settings.McpPort).ConfigureAwait(false);
             }
             catch
             {

@@ -60,6 +60,11 @@ namespace Armada.Runtimes
         /// <summary>
         /// Get the mux CLI command.
         /// </summary>
+        /// <summary>
+        /// The runtime this adapter drives.
+        /// </summary>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Mux;
+
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);

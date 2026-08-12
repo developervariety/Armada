@@ -112,6 +112,15 @@ namespace Armada.Core.Settings
         public bool WebSocketEnabled { get; set; } = true;
 
         /// <summary>
+        /// Whether captains are launched in an isolated agent configuration so they cannot inherit the
+        /// host user's global agent settings or MCP servers. When enabled, each launch is given a scoped
+        /// configuration that contains only the Armada MCP server (built from <see cref="McpPort"/>), via
+        /// runtime-appropriate strict-config flags and/or a scoped HOME/config directory. Defaults to
+        /// false so existing deployments are unaffected until explicitly opted in.
+        /// </summary>
+        public bool IsolateCaptainLaunch { get; set; } = false;
+
+        /// <summary>
         /// Heartbeat check interval in seconds. Must be >= 5.
         /// </summary>
         public int HeartbeatIntervalSeconds
