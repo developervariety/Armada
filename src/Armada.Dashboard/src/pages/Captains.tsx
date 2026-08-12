@@ -387,6 +387,7 @@ export default function Captains() {
                   <option value="Gemini">Gemini</option>
                   <option value="Cursor">Cursor</option>
                   <option value="Mux">Mux</option>
+                  <option value="OpenCode">OpenCode</option>
                 </select>
               </label>
               <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>

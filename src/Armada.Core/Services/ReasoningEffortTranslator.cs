@@ -72,6 +72,28 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// The value for OpenCode's <c>--variant</c> flag (provider-specific reasoning effort). OpenCode
+        /// exposes a coarser set (minimal / high / max), so the five Armada levels collapse onto those:
+        /// Minimal and Low map to <c>minimal</c>, Medium and High map to <c>high</c>. Off and null omit the
+        /// flag so OpenCode keeps its default.
+        /// </summary>
+        /// <param name="effort">Captain reasoning effort, or null.</param>
+        /// <returns>The OpenCode variant token, or null to omit the flag.</returns>
+        public static string? ToOpenCodeVariant(ReasoningEffortEnum? effort)
+        {
+            if (effort == null) return null;
+            switch (effort.Value)
+            {
+                case ReasoningEffortEnum.Off: return null;
+                case ReasoningEffortEnum.Minimal: return "minimal";
+                case ReasoningEffortEnum.Low: return "minimal";
+                case ReasoningEffortEnum.Medium: return "high";
+                case ReasoningEffortEnum.High: return "high";
+                default: return null;
+            }
+        }
+
         #endregion
     }
 }

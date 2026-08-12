@@ -27,7 +27,7 @@ import { useNotifications } from '../context/NotificationContext';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'Custom'];
 type CaptainDetailFormState = {
   name: string;
   runtime: string;
