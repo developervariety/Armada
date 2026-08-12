@@ -123,6 +123,9 @@ export interface Vessel {
   hotfixBranchPrefix: string;
   requirePullRequestForProtectedBranches: boolean;
   requireMergeQueueForReleaseBranches: boolean;
+  secretScanEnabled?: boolean;
+  protectedPathPatterns?: string[];
+  privateIdentifierDenylist?: string[];
   allowConcurrentMissions: boolean;
   defaultPipelineId: string | null;
   active: boolean;

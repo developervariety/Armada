@@ -29,6 +29,9 @@ interface VesselForm {
   clearGitHubTokenOverride: boolean;
   requirePassingChecksToLand: boolean;
   protectedBranchPatterns: string;
+  secretScanEnabled: boolean;
+  protectedPathPatterns: string;
+  privateIdentifierDenylist: string;
   releaseBranchPrefix: string;
   hotfixBranchPrefix: string;
   requirePullRequestForProtectedBranches: boolean;
@@ -55,7 +58,7 @@ export default function VesselDetail() {
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, requirePassingChecksToLand: false, protectedBranchPatterns: '', releaseBranchPrefix: 'release/', hotfixBranchPrefix: 'hotfix/', requirePullRequestForProtectedBranches: false, requireMergeQueueForReleaseBranches: false, defaultPipelineId: '' });
+  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, requirePassingChecksToLand: false, protectedBranchPatterns: '', secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '', releaseBranchPrefix: 'release/', hotfixBranchPrefix: 'hotfix/', requirePullRequestForProtectedBranches: false, requireMergeQueueForReleaseBranches: false, defaultPipelineId: '' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -123,6 +126,9 @@ export default function VesselDetail() {
       clearGitHubTokenOverride: false,
       requirePassingChecksToLand: vessel.requirePassingChecksToLand,
       protectedBranchPatterns: (vessel.protectedBranchPatterns || []).join('\n'),
+      secretScanEnabled: vessel.secretScanEnabled ?? false,
+      protectedPathPatterns: (vessel.protectedPathPatterns || []).join('\n'),
+      privateIdentifierDenylist: (vessel.privateIdentifierDenylist || []).join('\n'),
       releaseBranchPrefix: vessel.releaseBranchPrefix || 'release/',
       hotfixBranchPrefix: vessel.hotfixBranchPrefix || 'hotfix/',
       requirePullRequestForProtectedBranches: vessel.requirePullRequestForProtectedBranches,
@@ -162,6 +168,14 @@ export default function VesselDetail() {
       else
         payload.gitHubTokenOverride = form.gitHubTokenOverride.trim();
       payload.protectedBranchPatterns = form.protectedBranchPatterns
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      payload.protectedPathPatterns = form.protectedPathPatterns
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      payload.privateIdentifierDenylist = form.privateIdentifierDenylist
         .split(/\r?\n/)
         .map((item) => item.trim())
         .filter((item) => item.length > 0);
@@ -306,6 +320,24 @@ export default function VesselDetail() {
             <label>
               {t('Protected Branch Patterns')}
               <textarea value={form.protectedBranchPatterns} onChange={e => setForm({ ...form, protectedBranchPatterns: e.target.value })} rows={4} placeholder={t('One pattern per line, e.g. main or release/*')} />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.secretScanEnabled} onChange={e => setForm({ ...form, secretScanEnabled: e.target.checked })} style={{ width: 'auto' }} />
+              {t('Scan mission diffs for secrets')}
+            </label>
+            <label>
+              {t('Protected Path Patterns')}
+              <textarea value={form.protectedPathPatterns} onChange={e => setForm({ ...form, protectedPathPatterns: e.target.value })} rows={3} placeholder={t('One glob per line, e.g. .env* or infra/**')} />
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('A mission that adds or modifies a matching path is flagged as a boundary violation.')}
+              </span>
+            </label>
+            <label>
+              {t('Private Identifier Denylist')}
+              <textarea value={form.privateIdentifierDenylist} onChange={e => setForm({ ...form, privateIdentifierDenylist: e.target.value })} rows={3} placeholder={t('One value per line, e.g. an internal hostname or account ID')} />
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Added diff lines containing any of these literals are flagged. Do not list actual secrets here.')}
+              </span>
             </label>
             <label>
               {t('Project Context')}
@@ -498,6 +530,19 @@ export default function VesselDetail() {
         <div className="detail-context-section">
           <h4>{t('Protected Branch Patterns')}</h4>
           <pre className="detail-context-block">{vessel.protectedBranchPatterns.join('\n')}</pre>
+        </div>
+      )}
+
+      {(vessel.secretScanEnabled || (vessel.protectedPathPatterns && vessel.protectedPathPatterns.length > 0) || (vessel.privateIdentifierDenylist && vessel.privateIdentifierDenylist.length > 0)) && (
+        <div className="detail-context-section">
+          <h4>{t('Dock Boundary')}</h4>
+          <div className="detail-field"><span className="detail-label">{t('Secret Scan')}</span><span>{vessel.secretScanEnabled ? t('Enabled') : t('Disabled')}</span></div>
+          {vessel.protectedPathPatterns && vessel.protectedPathPatterns.length > 0 && (
+            <pre className="detail-context-block">{t('Protected paths')}:{'\n'}{vessel.protectedPathPatterns.join('\n')}</pre>
+          )}
+          {vessel.privateIdentifierDenylist && vessel.privateIdentifierDenylist.length > 0 && (
+            <pre className="detail-context-block">{t('Private identifiers')}:{'\n'}{vessel.privateIdentifierDenylist.join('\n')}</pre>
+          )}
         </div>
       )}
 
