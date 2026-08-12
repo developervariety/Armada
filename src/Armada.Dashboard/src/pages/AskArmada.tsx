@@ -48,6 +48,7 @@ export default function AskArmada() {
   const [toolsLoading, setToolsLoading] = useState(false);
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const toolsCache = useRef<Record<string, CaptainToolAccessResult>>({});
 
   useEffect(() => {
     listCaptains({ pageSize: 200 })
@@ -62,11 +63,15 @@ export default function AskArmada() {
   // Detect whether the selected captain is connected to Armada over MCP so we can warn when it is not.
   useEffect(() => {
     if (!captainId) { setTools(null); setToolsLoading(false); return; }
+    // Serve a previously-fetched result instantly; the probe is slow (it live-checks each configured
+    // MCP server), so only pay for it once per captain per session.
+    const cached = toolsCache.current[captainId];
+    if (cached) { setTools(cached); setToolsLoading(false); return; }
     let active = true;
     setTools(null);
     setToolsLoading(true);
     getCaptainTools(captainId)
-      .then((result) => { if (active) setTools(result); })
+      .then((result) => { toolsCache.current[captainId] = result; if (active) setTools(result); })
       .catch(() => { if (active) setTools(null); })
       .finally(() => { if (active) setToolsLoading(false); });
     return () => { active = false; };

@@ -173,34 +173,7 @@ namespace Armada.Server
                 List<RuntimeMcpServerDefinition> servers = await ReadMuxConfiguredServersAsync(configDirectory, token).ConfigureAwait(false);
                 snapshot.ConfiguredServerCount = servers.Count + snapshot.Servers.Count;
 
-                foreach (RuntimeMcpServerDefinition server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    CaptainToolServerSummary serverSummary = CreateConfiguredServerSummary(server);
-
-                    snapshot.Servers.Add(serverSummary);
-
-                    if (!server.Enabled)
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        List<CaptainToolSummary> tools = await ProbeServerToolsAsync(server, token).ConfigureAwait(false);
-                        tools = ApplyToolFilters(server, tools);
-
-                        serverSummary.Reachable = true;
-                        serverSummary.ToolCount = tools.Count;
-                        serverSummary.Status = "Reachable";
-                        snapshot.Tools.AddRange(tools);
-                    }
-                    catch (Exception ex)
-                    {
-                        serverSummary.Reachable = false;
-                        serverSummary.Status = "Unreachable at query time";
-                        serverSummary.ErrorMessage = ex.Message;
-                    }
-                }
+                await ProbeServersConcurrentlyAsync(servers, snapshot, token).ConfigureAwait(false);
 
                 int reachableSources = snapshot.Servers.Count(s => s.Reachable);
                 snapshot.ReachableServerCount = reachableSources;
@@ -238,6 +211,59 @@ namespace Armada.Server
             }
         }
 
+        /// <summary>
+        /// Add each configured server to the snapshot and probe them for tools concurrently, so one
+        /// offline server does not serialize the others behind its connection timeout. Each server's
+        /// summary is updated in place; the collected tools are appended after all probes complete.
+        /// </summary>
+        private async Task ProbeServersConcurrentlyAsync(
+            List<RuntimeMcpServerDefinition> servers,
+            RuntimeToolCatalogSnapshot snapshot,
+            CancellationToken token)
+        {
+            List<Task<List<CaptainToolSummary>>> tasks = new List<Task<List<CaptainToolSummary>>>();
+
+            foreach (RuntimeMcpServerDefinition server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                CaptainToolServerSummary serverSummary = CreateConfiguredServerSummary(server);
+                snapshot.Servers.Add(serverSummary);
+
+                if (!server.Enabled)
+                {
+                    continue;
+                }
+
+                RuntimeMcpServerDefinition capturedServer = server;
+                CaptainToolServerSummary capturedSummary = serverSummary;
+                tasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        List<CaptainToolSummary> tools = await ProbeServerToolsAsync(capturedServer, token).ConfigureAwait(false);
+                        tools = ApplyToolFilters(capturedServer, tools);
+
+                        capturedSummary.Reachable = true;
+                        capturedSummary.ToolCount = tools.Count;
+                        capturedSummary.Status = "Reachable";
+                        return tools;
+                    }
+                    catch (Exception ex)
+                    {
+                        capturedSummary.Reachable = false;
+                        capturedSummary.Status = "Unreachable at query time";
+                        capturedSummary.ErrorMessage = ex.Message;
+                        return new List<CaptainToolSummary>();
+                    }
+                }, token));
+            }
+
+            List<CaptainToolSummary>[] results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            foreach (List<CaptainToolSummary> tools in results)
+            {
+                snapshot.Tools.AddRange(tools);
+            }
+        }
+
         private async Task<RuntimeToolCatalogSnapshot> ProbeConfiguredSourcesAsync(
             string runtimeName,
             List<RuntimeMcpServerDefinition> servers,
@@ -249,35 +275,7 @@ namespace Armada.Server
             snapshot.AvailabilityVerified = true;
             ApplyRuntimeBuiltInInventory(snapshot, builtInInventory);
 
-            foreach (RuntimeMcpServerDefinition server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                CaptainToolServerSummary serverSummary = CreateConfiguredServerSummary(server);
-
-                snapshot.Servers.Add(serverSummary);
-
-                if (!server.Enabled)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    List<CaptainToolSummary> tools = await ProbeServerToolsAsync(server, token).ConfigureAwait(false);
-                    tools = ApplyToolFilters(server, tools);
-
-                    serverSummary.Reachable = true;
-                    serverSummary.ToolCount = tools.Count;
-                    serverSummary.Status = tools.Count == 0 ? "Reachable" : "Reachable";
-
-                    snapshot.Tools.AddRange(tools);
-                }
-                catch (Exception ex)
-                {
-                    serverSummary.Reachable = false;
-                    serverSummary.Status = "Unreachable at query time";
-                    serverSummary.ErrorMessage = ex.Message;
-                }
-            }
+            await ProbeServersConcurrentlyAsync(servers, snapshot, token).ConfigureAwait(false);
 
             snapshot.ConfiguredServerCount = snapshot.Servers.Count;
             snapshot.ReachableServerCount = snapshot.Servers.Count(s => s.Reachable);
@@ -386,8 +384,8 @@ namespace Armada.Server
                     Headers = BuildHttpHeaders(detail.Transport),
                     EnabledTools = detail.EnabledTools ?? new List<string>(),
                     DisabledTools = detail.DisabledTools ?? new List<string>(),
-                    StartupTimeout = TimeSpan.FromSeconds(Math.Max(5, detail.StartupTimeoutSec ?? 15)),
-                    ToolTimeout = TimeSpan.FromSeconds(Math.Max(5, detail.ToolTimeoutSec ?? 15))
+                    StartupTimeout = TimeSpan.FromSeconds(Math.Max(4, detail.StartupTimeoutSec ?? 6)),
+                    ToolTimeout = TimeSpan.FromSeconds(Math.Max(4, detail.ToolTimeoutSec ?? 6))
                 };
                 server.Target = BuildTarget(server);
                 results.Add(server);
@@ -434,8 +432,8 @@ namespace Armada.Server
                         ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                     EnabledTools = new List<string>(),
                     DisabledTools = new List<string>(),
-                    StartupTimeout = TimeSpan.FromSeconds(15),
-                    ToolTimeout = TimeSpan.FromSeconds(15)
+                    StartupTimeout = TimeSpan.FromSeconds(6),
+                    ToolTimeout = TimeSpan.FromSeconds(6)
                 };
                 server.Target = BuildTarget(server);
                 servers.Add(server);
@@ -497,8 +495,8 @@ namespace Armada.Server
                     Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                     EnabledTools = new List<string>(),
                     DisabledTools = new List<string>(),
-                    StartupTimeout = TimeSpan.FromSeconds(15),
-                    ToolTimeout = TimeSpan.FromSeconds(15)
+                    StartupTimeout = TimeSpan.FromSeconds(6),
+                    ToolTimeout = TimeSpan.FromSeconds(6)
                 };
                 server.Target = BuildTarget(server);
                 servers.Add(server);

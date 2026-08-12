@@ -18,7 +18,7 @@ namespace Armada.Core.Services
         {
             PropertyNameCaseInsensitive = true
         };
-        private readonly TimeSpan _DefaultTimeout = TimeSpan.FromSeconds(20);
+        private readonly TimeSpan _DefaultTimeout = TimeSpan.FromSeconds(10);
 
         #endregion
 
