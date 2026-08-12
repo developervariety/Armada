@@ -7,6 +7,7 @@ import { useWebSocket } from '../context/WebSocketContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import Markdown from '../components/shared/Markdown';
 import ChatMetricsInfo from '../components/shared/ChatMetricsInfo';
+import { randomThinkingMessage } from '../components/askThinkingMessages';
 
 interface ToolEvent {
   id: string;
@@ -69,8 +70,17 @@ export default function AskArmada() {
   const [tools, setTools] = useState<CaptainToolAccessResult | null>(null);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [thinking, setThinking] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
   const toolsCache = useRef<Record<string, CaptainToolAccessResult>>({});
+
+  // Rotate the "waiting" message every 4 seconds while a turn is in flight.
+  useEffect(() => {
+    if (!busy) return;
+    setThinking((prev) => randomThinkingMessage(prev));
+    const id = window.setInterval(() => setThinking((prev) => randomThinkingMessage(prev)), 4000);
+    return () => window.clearInterval(id);
+  }, [busy]);
 
   useEffect(() => {
     listCaptains({ pageSize: 200 })
@@ -298,7 +308,7 @@ export default function AskArmada() {
                 </div>
               ))
             )}
-            {busy && <div className="text-dim" style={{ alignSelf: 'flex-start' }}>{t('Thinking...')}</div>}
+            {busy && <div key={thinking} className="text-dim ask-thinking" style={{ alignSelf: 'flex-start' }}>{thinking || t('Thinking...')}</div>}
             <div ref={endRef} />
           </div>
 

@@ -7193,6 +7193,20 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     gap: 0.4rem;
 }
 
+/* Ask Armada: rotating "waiting" message with a gentle fade on each change */
+.ask-thinking {
+    font-size: 0.82rem;
+    font-style: italic;
+    animation: ask-thinking-fade 0.45s ease;
+}
+@keyframes ask-thinking-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ask-thinking { animation: none; }
+}
+
 /* Ask Armada: compact, collapsible tool-call activity chips */
 .chat-tools {
     display: flex;
