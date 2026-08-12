@@ -317,7 +317,7 @@ namespace Armada.Core.Services
             }
 
             // Find an idle captain, preferring those matching the mission's persona
-            Captain? captain = await FindAvailableCaptainAsync(mission.Persona, token).ConfigureAwait(false);
+            Captain? captain = await FindAvailableCaptainAsync(mission.Persona, mission.Tier, token).ConfigureAwait(false);
             if (captain == null)
             {
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
@@ -3304,29 +3304,26 @@ namespace Armada.Core.Services
             return existing.TrimEnd() + "\n\n---\n\n" + feedbackSection;
         }
 
-        private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CancellationToken token)
+        private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CaptainTierEnum? requiredTier, CancellationToken token)
         {
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             if (idleCaptains.Count == 0)
                 return null;
 
-            // If no persona requirement, return any idle captain
+            // Filter by AllowedPersonas (null persona = any; null AllowedPersonas = fills any persona).
+            List<Captain> eligible;
             if (String.IsNullOrEmpty(persona))
-                return idleCaptains[0];
-
-            // Filter by AllowedPersonas (null = any persona is allowed)
-            List<Captain> eligible = new List<Captain>();
-            foreach (Captain captain in idleCaptains)
             {
-                if (String.IsNullOrEmpty(captain.AllowedPersonas))
+                eligible = new List<Captain>(idleCaptains);
+            }
+            else
+            {
+                eligible = new List<Captain>();
+                foreach (Captain captain in idleCaptains)
                 {
-                    // No restriction -- captain can fill any persona
-                    eligible.Add(captain);
-                }
-                else if (CaptainAllowsPersona(captain, persona))
-                {
-                    eligible.Add(captain);
+                    if (String.IsNullOrEmpty(captain.AllowedPersonas) || CaptainAllowsPersona(captain, persona))
+                        eligible.Add(captain);
                 }
             }
 
@@ -3335,13 +3332,33 @@ namespace Armada.Core.Services
                 return null;
             }
 
-            // Prefer captains whose PreferredPersona matches
-            foreach (Captain captain in eligible)
+            // Tier routing -- only when the mission explicitly requires a tier (so default dispatch is
+            // unchanged). Narrow to captains at/above the required tier, preferring the lowest eligible
+            // tier so strong captains are not consumed by cheaper work (upward-only fallback).
+            if (requiredTier.HasValue)
             {
-                if (!String.IsNullOrEmpty(captain.PreferredPersona) &&
-                    PersonaCatalog.Matches(captain.PreferredPersona, persona))
+                List<Captain> tierEligible = eligible
+                    .Where(c => CaptainTierSelector.EffectiveTier(c) >= requiredTier.Value)
+                    .ToList();
+                if (tierEligible.Count == 0)
                 {
-                    return captain;
+                    // No idle captain is strong enough for this mission's tier; leave it pending.
+                    return null;
+                }
+                CaptainTierEnum bestTier = tierEligible.Min(CaptainTierSelector.EffectiveTier);
+                eligible = tierEligible.Where(c => CaptainTierSelector.EffectiveTier(c) == bestTier).ToList();
+            }
+
+            // Prefer captains whose PreferredPersona matches
+            if (!String.IsNullOrEmpty(persona))
+            {
+                foreach (Captain captain in eligible)
+                {
+                    if (!String.IsNullOrEmpty(captain.PreferredPersona) &&
+                        PersonaCatalog.Matches(captain.PreferredPersona, persona))
+                    {
+                        return captain;
+                    }
                 }
             }
 

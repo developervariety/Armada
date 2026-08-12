@@ -34,6 +34,7 @@ type CaptainDetailFormState = {
   systemInstructions: string;
   model: string;
   reasoningEffort: string;
+  tier: string;
   allowedPersonas: string;
   preferredPersona: string;
 } & MuxCaptainFormFields;
@@ -51,7 +52,7 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', reasoningEffort: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', reasoningEffort: '', tier: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
@@ -110,6 +111,7 @@ export default function CaptainDetail() {
       systemInstructions: captain.systemInstructions ?? '',
       model: captain.model ?? '',
       reasoningEffort: captain.reasoningEffort ?? '',
+      tier: captain.tier ?? '',
       allowedPersonas: captain.allowedPersonas ?? '',
       preferredPersona: captain.preferredPersona ?? '',
       ...muxFormFromCaptain(captain),
@@ -130,6 +132,7 @@ export default function CaptainDetail() {
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
       payload.reasoningEffort = form.reasoningEffort ? form.reasoningEffort : null;
+      payload.tier = form.tier ? form.tier : null;
       if (!payload.allowedPersonas) delete payload.allowedPersonas;
       if (!payload.preferredPersona) delete payload.preferredPersona;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
@@ -331,6 +334,18 @@ export default function CaptainDetail() {
               </select>
               <span className="text-dim" style={{ fontSize: '0.72rem' }}>
                 {t('Applied to Claude Code, Codex, and Mux. Ignored by runtimes without a reasoning control.')}
+              </span>
+            </label>
+            <label>
+              {t('Capability tier')}
+              <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                <option value="">{t('Auto (classify from model)')}</option>
+                <option value="Economy">{t('Economy')}</option>
+                <option value="Standard">{t('Standard')}</option>
+                <option value="Premium">{t('Premium')}</option>
+              </select>
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Missions requiring a tier route to captains at or above it. Leave on Auto to classify from the model name.')}
               </span>
             </label>
             <MuxRuntimeFields

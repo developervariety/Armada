@@ -18,6 +18,12 @@ namespace Armada.Core.Models
         /// </summary>
         public string Description { get; set; } = "";
 
+        /// <summary>
+        /// Optional required capability tier for dispatch routing (Economy/Standard/Premium). Null routes
+        /// to any idle captain.
+        /// </summary>
+        public Armada.Core.Enums.CaptainTierEnum? Tier { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

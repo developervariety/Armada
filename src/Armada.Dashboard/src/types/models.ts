@@ -140,6 +140,7 @@ export interface Captain {
   systemInstructions: string | null;
   model: string | null;
   reasoningEffort?: string | null;
+  tier?: string | null;
   allowedPersonas: string | null;
   preferredPersona: string | null;
   runtimeOptionsJson?: string | null;

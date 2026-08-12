@@ -84,6 +84,12 @@ namespace Armada.Core.Models
         public int RedispatchAttempts { get; set; } = 0;
 
         /// <summary>
+        /// Optional required capability tier. Dispatch routes the mission to an idle captain at or above
+        /// this tier (preferring the lowest eligible tier). Null means Standard.
+        /// </summary>
+        public CaptainTierEnum? Tier { get; set; } = null;
+
+        /// <summary>
         /// Parent mission identifier for sub-tasks.
         /// </summary>
         public string? ParentMissionId { get; set; } = null;

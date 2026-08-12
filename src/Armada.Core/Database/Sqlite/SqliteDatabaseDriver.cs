@@ -555,6 +555,13 @@ namespace Armada.Core.Database.Sqlite
                     captain.ReasoningEffort = parsedEffort;
             }
             catch { }
+            try
+            {
+                string? tier = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(tier) && Enum.TryParse<CaptainTierEnum>(tier, out CaptainTierEnum parsedTier))
+                    captain.Tier = parsedTier;
+            }
+            catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
             return captain;
         }
@@ -584,6 +591,13 @@ namespace Armada.Core.Database.Sqlite
             mission.PrUrl = NullableString(reader["pr_url"]);
             mission.CommitHash = NullableString(reader["commit_hash"]);
             try { object v = reader["redispatch_attempts"]; if (v != DBNull.Value) mission.RedispatchAttempts = Convert.ToInt32(v); } catch { }
+            try
+            {
+                string? missionTier = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(missionTier) && Enum.TryParse<CaptainTierEnum>(missionTier, out CaptainTierEnum parsedMissionTier))
+                    mission.Tier = parsedMissionTier;
+            }
+            catch { }
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);
             try { mission.AgentOutput = NullableString(reader["agent_output"]); } catch { }
             mission.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

@@ -105,6 +105,12 @@ namespace Armada.Core.Models
         public ReasoningEffortEnum? ReasoningEffort { get; set; } = null;
 
         /// <summary>
+        /// Optional capability/cost tier used by dispatch to route missions of a given complexity. Null
+        /// means the tier is auto-classified from the model name at selection time (defaulting to Standard).
+        /// </summary>
+        public CaptainTierEnum? Tier { get; set; } = null;
+
+        /// <summary>
         /// Runtime-specific configuration serialized as JSON.
         /// Use this for settings that should not be promoted into generic captain fields.
         /// </summary>

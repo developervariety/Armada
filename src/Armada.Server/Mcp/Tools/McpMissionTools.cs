@@ -100,6 +100,8 @@ namespace Armada.Server.Mcp.Tools
                     if (request.VoyageId != null)
                         mission.VoyageId = request.VoyageId;
                     mission.Persona = request.Persona;
+                    if (!String.IsNullOrWhiteSpace(request.Tier) && Enum.TryParse<CaptainTierEnum>(request.Tier.Trim(), true, out CaptainTierEnum missionTier))
+                        mission.Tier = missionTier;
                     mission.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
                     mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
                     if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending)

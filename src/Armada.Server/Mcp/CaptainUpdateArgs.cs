@@ -37,6 +37,11 @@ namespace Armada.Server.Mcp
         public string? ReasoningEffort { get; set; }
 
         /// <summary>
+        /// Optional capability tier: Economy, Standard, or Premium. Empty/null auto-classifies from model.
+        /// </summary>
+        public string? Tier { get; set; }
+
+        /// <summary>
         /// JSON array of persona names this captain can fill. Null means any persona.
         /// </summary>
         public string? AllowedPersonas { get; set; }

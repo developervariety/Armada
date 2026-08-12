@@ -1314,7 +1314,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(51, "Add dock-boundary scanner config to vessels",
                     @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled INTEGER NOT NULL DEFAULT 0;",
                     @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json TEXT;",
-                    @"ALTER TABLE vessels ADD COLUMN private_identifier_denylist_json TEXT;")
+                    @"ALTER TABLE vessels ADD COLUMN private_identifier_denylist_json TEXT;"),
+                new SchemaMigration(52, "Add capability tier to captains and missions",
+                    @"ALTER TABLE captains ADD COLUMN tier TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN tier TEXT;")
             };
         }
 

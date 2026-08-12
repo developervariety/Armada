@@ -57,8 +57,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, reasoning_effort, system_instructions, allowed_personas, preferred_persona, runtime_options_json, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc, last_process_alive_utc)
-                            VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @reasoning_effort, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc, @last_process_alive_utc);";
+                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, reasoning_effort, tier, system_instructions, allowed_personas, preferred_persona, runtime_options_json, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc, last_process_alive_utc)
+                            VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @reasoning_effort, @tier, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc, @last_process_alive_utc);";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
@@ -66,6 +66,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
                     cmd.Parameters.AddWithValue("@model", (object?)captain.Model ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@reasoning_effort", (object?)captain.ReasoningEffort?.ToString() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@tier", (object?)captain.Tier?.ToString() ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@system_instructions", (object?)captain.SystemInstructions ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@allowed_personas", (object?)captain.AllowedPersonas ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
@@ -150,6 +151,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             runtime = @runtime,
                             model = @model,
                             reasoning_effort = @reasoning_effort,
+                            tier = @tier,
                             system_instructions = @system_instructions,
                             allowed_personas = @allowed_personas,
                             preferred_persona = @preferred_persona,
@@ -170,6 +172,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
                     cmd.Parameters.AddWithValue("@model", (object?)captain.Model ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@reasoning_effort", (object?)captain.ReasoningEffort?.ToString() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@tier", (object?)captain.Tier?.ToString() ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@system_instructions", (object?)captain.SystemInstructions ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@allowed_personas", (object?)captain.AllowedPersonas ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
