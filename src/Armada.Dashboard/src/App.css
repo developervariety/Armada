@@ -4723,6 +4723,10 @@ tr.clickable { cursor: pointer; }
 .modal-large { max-width: 730px; min-height: 400px; padding: 2rem; }
 .modal-large textarea { min-height: 180px; }
 
+/* Prompt Template detail modal: 66% wider and 33% taller than the standard large modal. */
+.modal-prompt-template { max-width: 1212px; min-height: 532px; }
+.modal-prompt-template .record-detail-value { white-space: pre-wrap; word-break: break-word; }
+
 .modal-box h3,
 .modal h3 { margin-top: 0; margin-bottom: 1rem; }
 

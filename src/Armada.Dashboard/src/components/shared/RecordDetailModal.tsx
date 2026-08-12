@@ -10,6 +10,8 @@ interface RecordDetailModalProps {
   onClose: () => void;
   onEdit?: () => void;
   editLabel?: string;
+  // Size class applied to the modal box (defaults to modal-large). Callers can pass a wider/taller variant.
+  sizeClassName?: string;
 }
 
 const HIDDEN_KEYS = new Set(['password', 'secret', 'token', 'bearerToken']);
@@ -43,7 +45,7 @@ function formatValue(key: string, value: unknown): string {
  * optional Edit action. Used as the row-click affordance for tables whose entities do not have a
  * purpose-built edit modal.
  */
-export default function RecordDetailModal({ open, title, subtitle, record, onClose, onEdit, editLabel }: RecordDetailModalProps) {
+export default function RecordDetailModal({ open, title, subtitle, record, onClose, onEdit, editLabel, sizeClassName }: RecordDetailModalProps) {
   const { t } = useLocale();
   const [showJson, setShowJson] = useState(false);
 
@@ -54,7 +56,7 @@ export default function RecordDetailModal({ open, title, subtitle, record, onClo
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal ${sizeClassName || 'modal-large'}`} onClick={(e) => e.stopPropagation()}>
         <div className="request-detail-header">
           <div>
             <h3>{title}</h3>

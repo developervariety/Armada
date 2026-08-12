@@ -166,6 +166,7 @@ export default function PromptTemplates() {
         title={typeof viewRecord?.name === 'string' ? viewRecord.name : translate('Prompt Template')}
         subtitle={translate('Prompt Template')}
         record={viewRecord}
+        sizeClassName="modal-large modal-prompt-template"
         onClose={() => setViewRecord(null)}
         onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/prompt-templates/${encodeURIComponent((r as { name: string }).name)}`); }}
         editLabel={translate('Open Details')}
