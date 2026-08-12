@@ -8,6 +8,11 @@ All notable changes to Armada are documented in this file.
 
 Focus: stickiness -- making Armada a daily driver through per-project customization.
 
+### Inbox MCP tool + broader "needs you" coverage
+- Added an `inbox` MCP tool so agent harnesses can answer "is there anything waiting on me / that needs my attention / any action items from Armada?". It returns the same consolidated attention list as the dashboard's Needs You and the `armada inbox` CLI (REST: `GET /api/v1/inbox`), with counts and per-item kind/severity/title/detail/entity/href.
+- Broadened the inbox definitions beyond missions + stalled captains to cover the full human-in-the-loop / human-out-of-the-loop set: missions in Review, landing-failed and failed missions, **failed merges**, **deployments pending approval**, **failed/verification-failed deployments**, and stalled captains. Purely informational events (completions, normal progress) are excluded.
+- Documented in MCP_API.md (with the kind/severity table) and added the tool to every `INSTRUCTIONS_FOR_*` orchestrator reference.
+
 ### Dashboard navigation consolidation
 - Regrouped the dashboard from ~35 nav destinations across 6 sections to ~13 workflow-grouped destinations, without removing any capability: every folded page is reachable as a tab, a filter, the notification bell, or the command palette, and every old route redirects.
 - Ask Armada is now a standalone top-level nav item directly under Dashboard (the primary workflow interface), also reachable via a new Cmd/Ctrl+K command palette.

@@ -32,6 +32,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 - [Tools](#tools)
   - **Status**
     - [status](#status)
+    - [inbox](#inbox)
     - [stop_server](#stop_server)
   - **Enumeration**
     - [enumerate](#enumerate)
@@ -315,6 +316,74 @@ No parameters required.
   "timestampUtc": "2026-03-07T12:34:56.789Z"
 }
 ```
+
+---
+
+### inbox
+
+Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Call this to answer a user asking *"Is there anything waiting on me?"*, *"Is there anything that needs my attention?"*, or *"Do I have any action items from Armada work?"*.
+
+**What qualifies.** Two kinds of item appear:
+
+- **Awaiting your decision (human-in-the-loop):** a mission in `Review` (approve or reject), or a deployment in `PendingApproval`.
+- **Failed and needs intervention (human-out-of-the-loop):** a failed mission, a mission whose work could not be merged (landing failed), a failed merge, a failed or verification-failed deployment, or a stalled captain.
+
+Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty `items` list means nothing currently needs the operator.
+
+**Item kinds and severity:**
+
+| `kind` | Meaning | Severity |
+|---|---|---|
+| `review` | Mission awaiting your review/approval | `Warning`, or `Critical` if the review deadline has passed |
+| `landing_failed` | Mission produced work that could not be merged | `Critical` |
+| `failed` | Mission failed | `Warning` |
+| `merge_failed` | Queued merge failed testing or landing | `Critical` |
+| `deployment_approval` | Deployment waiting for your approval before it runs | `Warning` |
+| `deployment_failed` | Deployment failed or failed verification | `Critical` |
+| `stalled_captain` | Captain is stalled and may need recovery or a dock reclaim | `Warning` |
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+No parameters required.
+
+**Response:** counts plus the ordered item list. Each item has `kind`, `severity` (`Critical`, `Warning`, or `Info`), `title`, `detail`, `entityType`, `entityId`, and a dashboard `href`.
+
+```json
+{
+  "count": 2,
+  "criticalCount": 1,
+  "warningCount": 1,
+  "items": [
+    {
+      "kind": "landing_failed",
+      "severity": "Critical",
+      "title": "Landing failed: Add JWT validation",
+      "detail": "The work could not be landed.",
+      "entityType": "mission",
+      "entityId": "msn_1a2b3c",
+      "href": "/missions/msn_1a2b3c"
+    },
+    {
+      "kind": "review",
+      "severity": "Warning",
+      "title": "Review: Refactor auth service",
+      "detail": "Awaiting your review.",
+      "entityType": "mission",
+      "entityId": "msn_4d5e6f",
+      "href": "/missions/msn_4d5e6f"
+    }
+  ]
+}
+```
+
+> Also exposed over REST as `GET /api/v1/inbox` and in the CLI as `armada inbox`.
 
 ---
 

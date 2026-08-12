@@ -171,6 +171,12 @@ For a quick system-wide overview:
 status()
 ```
 
+To see everything that needs a human's attention or action right now -- reviews to approve, deployments pending approval, failed missions/merges/deployments, and stalled captains -- most-urgent first:
+
+```
+inbox()
+```
+
 ### 5. Adapt
 
 When missions fail:
@@ -198,6 +204,7 @@ When missions fail:
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `status` | -- | Aggregate status: captain counts, mission counts by status, active voyages |
+| `inbox` | -- | The operator's inbox: everything that needs a human's attention or action right now -- missions in Review to approve, deployments pending approval, failed missions/merges/deployments, and stalled captains -- most-urgent first. Use this to answer "is anything waiting on me?" |
 | `stop_server` | -- | Graceful shutdown of the Admiral server |
 
 ### Enumeration

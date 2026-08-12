@@ -11,9 +11,16 @@ namespace Armada.Core.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Builds the operator's "needs you" inbox: a single consolidated list of items awaiting a human
-    /// decision or intervention across the fleet -- reviews to approve, failed landings, failed
-    /// missions, and stalled captains -- ordered most-urgent first.
+    /// Builds the operator's inbox: a single consolidated list of items across the fleet that require a
+    /// human's attention or action, ordered most-urgent first. Two kinds of item qualify:
+    ///
+    /// - Awaiting your decision (human-in-the-loop): a mission in Review, or a deployment pending approval.
+    /// - Failed and needs intervention (autonomous work that could not finish on its own): a failed
+    ///   mission, a mission whose work could not land, a failed merge, a failed or verification-failed
+    ///   deployment, or a stalled captain.
+    ///
+    /// Purely informational state changes (completions, normal progress) are deliberately excluded --
+    /// the inbox answers "is there anything waiting on me / that needs my attention?", not "what happened?".
     /// </summary>
     public class InboxService
     {
@@ -112,6 +119,53 @@ namespace Armada.Core.Services
                         EntityType = "captain",
                         EntityId = captain.Id,
                         Href = "/captains/" + captain.Id
+                    });
+                }
+
+                List<MergeEntry> mergeFailed = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Failed, token).ConfigureAwait(false);
+                foreach (MergeEntry entry in mergeFailed.Take(_MaxPerCategory))
+                {
+                    items.Add(new InboxItem
+                    {
+                        Kind = "merge_failed",
+                        Severity = InboxSeverityEnum.Critical,
+                        Title = "Merge failed: " + entry.TargetBranch,
+                        Detail = "A queued merge failed testing or landing and needs attention.",
+                        EntityType = "merge_entry",
+                        EntityId = entry.Id,
+                        Href = "/merge-queue/" + entry.Id
+                    });
+                }
+
+                List<Deployment> deployments = await _Database.Deployments.EnumerateAllAsync(new DeploymentQuery(), token).ConfigureAwait(false);
+
+                foreach (Deployment deployment in deployments.Where(d => d.Status == DeploymentStatusEnum.PendingApproval).Take(_MaxPerCategory))
+                {
+                    items.Add(new InboxItem
+                    {
+                        Kind = "deployment_approval",
+                        Severity = InboxSeverityEnum.Warning,
+                        Title = "Deployment awaiting approval: " + (String.IsNullOrWhiteSpace(deployment.EnvironmentName) ? deployment.Id : deployment.EnvironmentName!),
+                        Detail = "A deployment is waiting for your approval before it runs.",
+                        EntityType = "deployment",
+                        EntityId = deployment.Id,
+                        Href = "/deployments/" + deployment.Id
+                    });
+                }
+
+                foreach (Deployment deployment in deployments.Where(d => d.Status == DeploymentStatusEnum.Failed || d.Status == DeploymentStatusEnum.VerificationFailed).Take(_MaxPerCategory))
+                {
+                    items.Add(new InboxItem
+                    {
+                        Kind = "deployment_failed",
+                        Severity = InboxSeverityEnum.Critical,
+                        Title = "Deployment failed: " + (String.IsNullOrWhiteSpace(deployment.EnvironmentName) ? deployment.Id : deployment.EnvironmentName!),
+                        Detail = deployment.Status == DeploymentStatusEnum.VerificationFailed
+                            ? "Deployment verification failed and needs attention."
+                            : "A deployment failed and needs attention.",
+                        EntityType = "deployment",
+                        EntityId = deployment.Id,
+                        Href = "/deployments/" + deployment.Id
                     });
                 }
             }
