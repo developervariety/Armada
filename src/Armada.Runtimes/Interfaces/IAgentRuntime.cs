@@ -53,6 +53,7 @@ namespace Armada.Runtimes.Interfaces
         /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
         /// <param name="isolateLaunch">When true, launch in a scoped agent configuration containing only the Armada MCP server.</param>
         /// <param name="mcpPort">The Admiral MCP port, used to build the scoped Armada MCP config when isolating.</param>
+        /// <param name="showThinking">When true, ask the runtime to surface the model's reasoning for this run (e.g. Mux --show-thinking).</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Process ID of the started agent.</returns>
         Task<int> StartAsync(
@@ -65,6 +66,7 @@ namespace Armada.Runtimes.Interfaces
             Captain? captain = null,
             bool isolateLaunch = false,
             int mcpPort = 0,
+            bool showThinking = false,
             CancellationToken token = default);
 
         /// <summary>

@@ -40,6 +40,7 @@ export default function AskArmada() {
   const [tools, setTools] = useState<CaptainToolAccessResult | null>(null);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [showThinking, setShowThinking] = useState(false);
   const [thinking, setThinking] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const toolsCache = useRef<Record<string, CaptainToolAccessResult>>({});
@@ -122,6 +123,10 @@ export default function AskArmada() {
           const d = msg.data as ({ turnId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
           if (!d || d.turnId !== turnId || !d.id) return;
           updateStreamingTurn((turn) => ({ ...turn, tools: applyToolEvent(turn.tools, d) }));
+        } else if (msg.type === 'ask.thinking') {
+          const data = msg.data as { turnId?: string; delta?: string } | undefined;
+          if (!data || data.turnId !== turnId || !data.delta) return;
+          updateStreamingTurn((turn) => ({ ...turn, thinking: (turn.thinking ?? '') + data.delta }));
         }
       });
     }
@@ -131,15 +136,16 @@ export default function AskArmada() {
     abortRef.current = controller;
 
     try {
-      const response = await chatWithCaptain(captainId, { message: text, history, turnId }, { signal: controller.signal });
+      const response = await chatWithCaptain(captainId, { message: text, history, turnId, showThinking }, { signal: controller.signal });
       if (!response.success) {
         setError(response.error || t('The captain could not respond.'));
         setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
       } else if (streaming) {
-        // Reconcile the streamed text with the authoritative final reply + metrics, keeping any tool activity.
-        updateStreamingTurn((turn) => ({ ...turn, streaming: false, text: response.reply, metrics: response.metrics, model: response.model }));
+        // Reconcile the streamed text with the authoritative final reply + metrics, keeping any tool activity
+        // and preferring the authoritative thinking when the server returned it.
+        updateStreamingTurn((turn) => ({ ...turn, streaming: false, text: response.reply, metrics: response.metrics, model: response.model, thinking: response.thinking ?? turn.thinking }));
       } else {
-        setTurns((current) => [...current, { role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model }]);
+        setTurns((current) => [...current, { role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model, thinking: response.thinking ?? undefined }]);
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
@@ -172,6 +178,10 @@ export default function AskArmada() {
           <label className="ask-stream-toggle" title={t('Stream the reply token-by-token as it is produced')}>
             <input type="checkbox" checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} disabled={busy} />
             {t('Stream responses')}
+          </label>
+          <label className="ask-stream-toggle" title={t('Ask the captain to surface the model reasoning. Supported by Mux; other runtimes ignore it.')}>
+            <input type="checkbox" checked={showThinking} onChange={(e) => setShowThinking(e.target.checked)} disabled={busy} />
+            {t('Show thinking')}
           </label>
           <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem' }}>
             {t('Captain')}

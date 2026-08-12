@@ -16,6 +16,8 @@ export interface ChatTurn {
   model?: string | null;
   streaming?: boolean;
   tools?: ToolEvent[];
+  /** The model's reasoning ("thinking"), shown collapsed above the answer when present. */
+  thinking?: string;
 }
 
 interface CaptainChatPanelProps {
@@ -116,6 +118,16 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
                     resultLabel={t('Result')}
                     noDetailsLabel={t('No details available.')}
                   />
+                )}
+                {turn.role === 'assistant' && turn.thinking && turn.thinking.trim().length > 0 && (
+                  <details className="chat-thinking" open={turn.streaming} style={{ marginBottom: '0.4rem' }}>
+                    <summary className="text-dim" style={{ fontSize: '0.72rem', cursor: 'pointer' }}>
+                      {turn.streaming ? t('Thinking…') : t('Thinking')}
+                    </summary>
+                    <div className="text-dim" style={{ fontSize: '0.8rem', whiteSpace: 'pre-wrap', opacity: 0.85, marginTop: '0.3rem' }}>
+                      {turn.thinking}
+                    </div>
+                  </details>
                 )}
                 {turn.role === 'assistant'
                   ? <Markdown>{turn.text}</Markdown>

@@ -19,7 +19,8 @@ namespace Armada.Core.Services
             string? model,
             string? finalMessageFilePath,
             MuxCaptainOptions? options,
-            string? effort = null)
+            string? effort = null,
+            bool showThinking = false)
         {
             if (String.IsNullOrWhiteSpace(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrWhiteSpace(prompt)) throw new ArgumentNullException(nameof(prompt));
@@ -36,6 +37,12 @@ namespace Armada.Core.Services
             {
                 args.Add("--effort");
                 args.Add(effort!.Trim());
+            }
+
+            if (showThinking)
+            {
+                // Surface the model's reasoning for this run as assistant_thinking JSONL events.
+                args.Add("--show-thinking");
             }
 
             args.Add("--output-format");

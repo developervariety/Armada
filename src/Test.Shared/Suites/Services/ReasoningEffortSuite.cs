@@ -88,6 +88,19 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(args.Contains("--effort"), "did not expect --effort in args");
             }));
 
+            // ---- Mux --show-thinking wiring ----
+            cases.Add(Case("mux_command_includes_show_thinking", "Mux print args include --show-thinking when requested", TestTags.Positive, () =>
+            {
+                List<string> args = MuxCommandBuilder.BuildPrintArguments("/tmp/wd", "hello", null, null, null, null, true);
+                AssertTrue(args.Contains("--show-thinking"), "expected --show-thinking in args");
+            }));
+
+            cases.Add(Case("mux_command_omits_show_thinking_by_default", "Mux print args omit --show-thinking by default", TestTags.Negative, () =>
+            {
+                List<string> args = MuxCommandBuilder.BuildPrintArguments("/tmp/wd", "hello", null, null, null, null);
+                AssertFalse(args.Contains("--show-thinking"), "did not expect --show-thinking in args");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.ReasoningEffort",
                 displayName: "Reasoning Effort Translator",

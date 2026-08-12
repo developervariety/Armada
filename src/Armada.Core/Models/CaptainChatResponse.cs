@@ -33,6 +33,12 @@ namespace Armada.Core.Models
         /// </summary>
         public string? Error { get; set; } = null;
 
+        /// <summary>
+        /// The model's captured reasoning ("thinking") for this turn, when the request set
+        /// <see cref="CaptainChatRequest.ShowThinking"/> and the runtime surfaced it. Null otherwise.
+        /// </summary>
+        public string? Thinking { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

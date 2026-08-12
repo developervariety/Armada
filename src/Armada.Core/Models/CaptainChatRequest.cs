@@ -27,6 +27,13 @@ namespace Armada.Core.Models
         /// </summary>
         public string? TurnId { get; set; } = null;
 
+        /// <summary>
+        /// When true, ask the captain's runtime to surface the model's reasoning ("thinking") for this turn.
+        /// Currently honored by the Mux runtime (launched with <c>--show-thinking</c>), which streams the
+        /// reasoning as <c>assistant_thinking</c> events; runtimes without a thinking channel ignore it.
+        /// </summary>
+        public bool ShowThinking { get; set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories

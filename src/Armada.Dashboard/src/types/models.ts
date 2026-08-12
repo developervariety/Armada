@@ -871,6 +871,7 @@ export interface CaptainChatRequest {
   message: string;
   history: CaptainChatMessage[];
   turnId?: string;
+  showThinking?: boolean;
 }
 
 export interface CaptainChatResponse {
@@ -879,6 +880,7 @@ export interface CaptainChatResponse {
   model: string | null;
   metrics: CaptainChatMetrics;
   error: string | null;
+  thinking?: string | null;
 }
 
 export interface WorkspaceExecRequest {

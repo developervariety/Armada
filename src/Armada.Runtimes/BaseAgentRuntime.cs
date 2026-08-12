@@ -95,6 +95,8 @@ namespace Armada.Runtimes
         /// <param name="isolateLaunch">When true, launch the captain in a scoped agent configuration that
         /// contains only the Armada MCP server, blocking inheritance of the host user's global settings.</param>
         /// <param name="mcpPort">The Admiral MCP port, used to build the scoped Armada MCP config when isolating.</param>
+        /// <param name="showThinking">When true, ask the runtime to surface the model's reasoning for this run
+        /// (honored by runtimes with a thinking channel, e.g. Mux).</param>
         /// <param name="token">Cancellation token.</param>
         public virtual async Task<int> StartAsync(
             string workingDirectory,
@@ -106,11 +108,13 @@ namespace Armada.Runtimes
             Captain? captain = null,
             bool isolateLaunch = false,
             int mcpPort = 0,
+            bool showThinking = false,
             CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
 
+            ShowThinking = showThinking;
             string command = GetCommand();
             List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
 
@@ -319,6 +323,12 @@ namespace Armada.Runtimes
         /// The runtime this adapter drives. Used to plan launch isolation (scoped config / strict MCP).
         /// </summary>
         protected abstract Armada.Core.Enums.AgentRuntimeEnum RuntimeType { get; }
+
+        /// <summary>
+        /// Whether the current launch requested the model's reasoning ("thinking") be surfaced. Set at the
+        /// start of <see cref="StartAsync"/> and read by runtimes that support a thinking channel.
+        /// </summary>
+        protected bool ShowThinking { get; private set; }
 
         /// <summary>
         /// Build runtime-specific command-line arguments.

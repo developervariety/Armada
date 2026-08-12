@@ -115,6 +115,7 @@ namespace Armada.Server
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
+                StringBuilder thinking = new StringBuilder();
                 DateTime startUtc = DateTime.UtcNow;
                 DateTime? firstOutputUtc = null;
 
@@ -166,7 +167,26 @@ namespace Armada.Server
                                             reportedTokens = ft.GetInt32();
                                     }
                                 }
+
+                                // When --show-thinking is active, Mux streams the model's reasoning as
+                                // assistant_thinking events on a separate channel from the answer.
+                                string? thinkingDelta = null;
+                                if (eventType == "assistant_thinking"
+                                    && root.TryGetProperty("text", out JsonElement think)
+                                    && think.ValueKind == JsonValueKind.String)
+                                {
+                                    thinkingDelta = think.GetString();
+                                    if (!String.IsNullOrEmpty(thinkingDelta))
+                                    {
+                                        lock (outputLock)
+                                        {
+                                            if (thinking.Length < _MaxOutputChars) thinking.Append(thinkingDelta);
+                                        }
+                                    }
+                                }
+
                                 if (!String.IsNullOrEmpty(deltaText)) EmitChunk(turnId, deltaText!);
+                                if (!String.IsNullOrEmpty(thinkingDelta)) EmitThinking(turnId, thinkingDelta!);
 
                                 // Surface tool activity to the chat UI: when a tool call is proposed and when
                                 // it completes (with success/failure, runtime, and result for inspection).
@@ -218,6 +238,7 @@ namespace Armada.Server
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
                     captain: captain,
+                    showThinking: request.ShowThinking,
                     token: token).ConfigureAwait(false);
 
                 using (CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token))
@@ -276,10 +297,14 @@ namespace Armada.Server
                     ? reportedTokens.Value / (totalMs / 1000.0)
                     : (double?)null;
 
+                string thinkingText;
+                lock (outputLock) thinkingText = thinking.ToString().Trim();
+
                 CaptainChatResponse response = new CaptainChatResponse
                 {
                     Success = true,
                     Reply = reply,
+                    Thinking = String.IsNullOrEmpty(thinkingText) ? null : thinkingText,
                     Model = !String.IsNullOrEmpty(reportedModel) ? reportedModel
                         : (String.IsNullOrEmpty(captain.Model) ? captain.Runtime.ToString() : captain.Model),
                     Metrics = new CaptainChatMetrics
@@ -359,6 +384,13 @@ namespace Armada.Server
         {
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null) return;
             try { _WebSocketHub.BroadcastEvent("ask.tool", String.Empty, payload); }
+            catch { }
+        }
+
+        private void EmitThinking(string? turnId, string delta)
+        {
+            if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null || String.IsNullOrEmpty(delta)) return;
+            try { _WebSocketHub.BroadcastEvent("ask.thinking", String.Empty, new { turnId, delta }); }
             catch { }
         }
 
