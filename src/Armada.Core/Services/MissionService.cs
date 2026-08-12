@@ -682,6 +682,66 @@ namespace Armada.Core.Services
         /// so it surfaces in the operator inbox. Returns true when the completion was handled as a no-op
         /// (the caller must not proceed to landing).
         /// </summary>
+        /// <summary>
+        /// Run the pre-land dock-boundary scanner for the mission's vessel. On a finding, fail the mission
+        /// with a redaction-safe reason (which surfaces it in the operator inbox) and return true so the
+        /// caller does not land. Returns false when the vessel has no boundary rules or the dock is clean.
+        /// </summary>
+        private async Task<bool> TryFailMissionForBoundaryViolationAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VesselId)) return false;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return false;
+
+            DockBoundaryPolicy policy = new DockBoundaryPolicy
+            {
+                SecretScanEnabled = vessel.SecretScanEnabled,
+                ProtectedPathGlobs = vessel.ProtectedPathPatterns ?? new List<string>(),
+                PrivateIdentifiers = vessel.PrivateIdentifierDenylist ?? new List<string>(),
+            };
+            if (!policy.HasAnyRule()) return false;
+
+            List<string> changedPaths = ExtractChangedPathsFromDiff(mission.DiffSnapshot);
+            List<BoundaryFinding> findings = DockBoundaryScanner.Scan(mission.DiffSnapshot, changedPaths, policy);
+            if (findings.Count == 0) return false;
+
+            if (dock != null)
+            {
+                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "boundary reclaim error for mission " + mission.Id + ": " + ex.Message); }
+            }
+
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = DockBoundaryScanner.Summarize(findings);
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + mission.Id + " blocked by dock-boundary scanner (" + findings.Count + " finding(s))");
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return true;
+        }
+
+        private static List<string> ExtractChangedPathsFromDiff(string? diff)
+        {
+            List<string> paths = new List<string>();
+            if (String.IsNullOrEmpty(diff)) return paths;
+            foreach (string raw in diff!.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (!raw.StartsWith("+++ ", StringComparison.Ordinal)) continue;
+                string body = raw.Length > 4 ? raw.Substring(4).Trim() : String.Empty;
+                if (body == "/dev/null") continue;
+                if (body.StartsWith("b/", StringComparison.Ordinal) || body.StartsWith("a/", StringComparison.Ordinal))
+                    body = body.Substring(2);
+                body = body.Replace('\\', '/').TrimStart('/').Trim();
+                if (!String.IsNullOrEmpty(body)) paths.Add(body);
+            }
+            return paths;
+        }
+
         private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
         {
             if (!NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
@@ -833,6 +893,14 @@ namespace Armada.Core.Services
             // when the mission already failed scope validation.
             if (!failedForScopeViolation &&
                 await TryRejectNoOpCompletionAsync(mission, dock, token).ConfigureAwait(false))
+            {
+                return;
+            }
+
+            // Pre-land dock-boundary scan: secrets, protected paths, private-identifier leaks. A finding
+            // blocks landing and surfaces the mission (with a redaction-safe reason) in the operator inbox.
+            if (!failedForScopeViolation &&
+                await TryFailMissionForBoundaryViolationAsync(mission, dock, token).ConfigureAwait(false))
             {
                 return;
             }

@@ -178,6 +178,22 @@ namespace Armada.Core.Models
         public List<string> ProtectedBranchPatterns { get; set; } = new List<string>();
 
         /// <summary>
+        /// Whether the pre-land dock-boundary scanner runs built-in secret detection for this vessel.
+        /// </summary>
+        public bool SecretScanEnabled { get; set; } = false;
+
+        /// <summary>
+        /// Protected file-path globs the pre-land scanner blocks a mission from touching (e.g. ".github/**").
+        /// </summary>
+        public List<string> ProtectedPathPatterns { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Private identifiers (company/domain strings) the pre-land scanner blocks from leaking into
+        /// added diff lines for public repos.
+        /// </summary>
+        public List<string> PrivateIdentifierDenylist { get; set; } = new List<string>();
+
+        /// <summary>
         /// Prefix used to classify release branches.
         /// </summary>
         public string ReleaseBranchPrefix { get; set; } = "release/";

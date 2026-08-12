@@ -494,6 +494,21 @@ namespace Armada.Core.Database.Sqlite
                     vessel.ProtectedBranchPatterns = JsonSerializer.Deserialize<List<string>>(protectedPatternsJson) ?? new List<string>();
             }
             catch { }
+            try { vessel.SecretScanEnabled = Convert.ToInt64(reader["secret_scan_enabled"]) == 1; } catch { }
+            try
+            {
+                string? protectedPathJson = NullableString(reader["protected_path_patterns_json"]);
+                if (!String.IsNullOrWhiteSpace(protectedPathJson))
+                    vessel.ProtectedPathPatterns = JsonSerializer.Deserialize<List<string>>(protectedPathJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? denylistJson = NullableString(reader["private_identifier_denylist_json"]);
+                if (!String.IsNullOrWhiteSpace(denylistJson))
+                    vessel.PrivateIdentifierDenylist = JsonSerializer.Deserialize<List<string>>(denylistJson) ?? new List<string>();
+            }
+            catch { }
             try { vessel.ReleaseBranchPrefix = NullableString(reader["release_branch_prefix"]) ?? "release/"; } catch { vessel.ReleaseBranchPrefix = "release/"; }
             try { vessel.HotfixBranchPrefix = NullableString(reader["hotfix_branch_prefix"]) ?? "hotfix/"; } catch { vessel.HotfixBranchPrefix = "hotfix/"; }
             try { vessel.RequirePullRequestForProtectedBranches = Convert.ToInt64(reader["require_pull_request_for_protected_branches"]) == 1; }
