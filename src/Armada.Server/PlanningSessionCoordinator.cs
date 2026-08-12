@@ -690,17 +690,27 @@ namespace Armada.Server
                 DateTime turnStartUtc = DateTime.UtcNow;
                 DateTime? firstOutputUtc = null;
 
+                bool isMux = captain.Runtime == AgentRuntimeEnum.Mux;
                 runtime.OnOutputReceived += (processId, line) =>
                 {
-                    // Mux streams structured protocol events (run_started, run_completed, ...) on the same
-                    // stdout as the assistant text; skip those so the chat shows the reply, not raw JSON.
-                    if (captain.Runtime == AgentRuntimeEnum.Mux && MuxRuntime.IsProtocolEventLine(line)) return;
+                    // For Mux, parse the structured protocol events: stream assistant_text into the reply and
+                    // surface tool-call activity to the transcript. Other runtimes stream plain text lines.
+                    string? delta = ExtractPlanningStreamText(isMux, session.Id, assistantMessage.Id, line);
+                    if (String.IsNullOrEmpty(delta)) return;
 
                     string updatedContent;
                     lock (outputLock)
                     {
                         if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
-                        BoundedTextBuffer.AppendLine(output, line, _MaxPlanningOutputChars);
+                        if (isMux)
+                        {
+                            output.Append(delta);
+                            BoundedTextBuffer.Trim(output, _MaxPlanningOutputChars);
+                        }
+                        else
+                        {
+                            BoundedTextBuffer.AppendLine(output, delta, _MaxPlanningOutputChars);
+                        }
                         updatedContent = output.ToString();
                     }
 
@@ -1317,6 +1327,71 @@ namespace Armada.Server
         /// <param name="endUtc">When the turn finished.</param>
         /// <param name="content">The final reply text.</param>
         /// <returns>The per-turn metrics.</returns>
+        /// <summary>
+        /// For a Mux captain, interpret a structured protocol line: return the assistant_text delta to stream
+        /// into the reply, or emit a tool-call activity event and return null. For non-Mux runtimes (or plain
+        /// lines), the line is returned verbatim as streamed text.
+        /// </summary>
+        private string? ExtractPlanningStreamText(bool isMux, string sessionId, string messageId, string line)
+        {
+            if (!isMux || !MuxRuntime.IsProtocolEventLine(line))
+                return line;
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(line.Trim());
+                JsonElement root = doc.RootElement;
+                string eventType = root.TryGetProperty("eventType", out JsonElement et) && et.ValueKind == JsonValueKind.String
+                    ? et.GetString() ?? String.Empty : String.Empty;
+
+                if (eventType == "assistant_text")
+                {
+                    if (root.TryGetProperty("text", out JsonElement tx) && tx.ValueKind == JsonValueKind.String)
+                        return tx.GetString();
+                }
+                else if (eventType == "tool_call_proposed" && root.TryGetProperty("toolCall", out JsonElement proposed))
+                {
+                    string? toolId = proposed.TryGetProperty("id", out JsonElement propId) && propId.ValueKind == JsonValueKind.String ? propId.GetString() : null;
+                    string? toolName = proposed.TryGetProperty("name", out JsonElement pnm) && pnm.ValueKind == JsonValueKind.String ? pnm.GetString() : null;
+                    string? argsJson = proposed.TryGetProperty("arguments", out JsonElement parg) ? TruncateJson(parg.GetRawText(), 4000) : null;
+                    EmitPlanningTool(new { sessionId, messageId, phase = "started", id = toolId, name = toolName, arguments = argsJson });
+                }
+                else if (eventType == "tool_call_completed")
+                {
+                    string? toolId = root.TryGetProperty("toolCallId", out JsonElement cid) && cid.ValueKind == JsonValueKind.String ? cid.GetString() : null;
+                    string? toolName = root.TryGetProperty("toolName", out JsonElement cnm) && cnm.ValueKind == JsonValueKind.String ? cnm.GetString() : null;
+                    double? elapsedMs = root.TryGetProperty("elapsedMs", out JsonElement cel) && cel.ValueKind == JsonValueKind.Number ? cel.GetDouble() : (double?)null;
+                    bool? ok = null;
+                    string? resultJson = null;
+                    if (root.TryGetProperty("result", out JsonElement res))
+                    {
+                        if (res.TryGetProperty("success", out JsonElement suc) && (suc.ValueKind == JsonValueKind.True || suc.ValueKind == JsonValueKind.False))
+                            ok = suc.GetBoolean();
+                        JsonElement resultBody = res.TryGetProperty("content", out JsonElement content) ? content : res;
+                        resultJson = TruncateJson(resultBody.GetRawText(), 16000);
+                    }
+                    EmitPlanningTool(new { sessionId, messageId, phase = "completed", id = toolId, name = toolName, ok, elapsedMs, result = resultJson });
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            return null;
+        }
+
+        private void EmitPlanningTool(object payload)
+        {
+            try { _WebSocketHub?.BroadcastEvent("planning-session.tool", String.Empty, payload); }
+            catch { }
+        }
+
+        private static string? TruncateJson(string? value, int max)
+        {
+            if (String.IsNullOrEmpty(value) || value!.Length <= max) return value;
+            return value.Substring(0, max) + "... (truncated)";
+        }
+
         private static CaptainChatMetrics BuildTurnMetrics(DateTime startUtc, DateTime? firstOutputUtc, DateTime endUtc, string content)
         {
             CaptainChatMetrics metrics = new CaptainChatMetrics();

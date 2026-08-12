@@ -37,6 +37,8 @@ import PlanningSessionListCard from '../components/planning/PlanningSessionListC
 import PlanningStartCard from '../components/planning/PlanningStartCard';
 import PlanningTranscriptCard from '../components/planning/PlanningTranscriptCard';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
+import { applyToolEvent, type ToolEvent } from '../components/shared/ChatToolChips';
+import { randomThinkingMessage } from '../components/askThinkingMessages';
 import { canCaptainStartPlanning } from '../lib/captains';
 import {
   type DispatchSeedState,
@@ -100,6 +102,7 @@ export default function Planning() {
   const [objectiveId, setObjectiveId] = useState('');
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
   const [composer, setComposer] = useState('');
+  const [messageTools, setMessageTools] = useState<Record<string, ToolEvent[]>>({});
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [dispatchTitle, setDispatchTitle] = useState('');
   const [dispatchDescription, setDispatchDescription] = useState('');
@@ -115,6 +118,8 @@ export default function Planning() {
   const [pendingEndSession, setPendingEndSession] = useState<PlanningSession | null>(null);
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const scrollToSessionRef = useRef(false);
+  const [thinking, setThinking] = useState('');
   const dispatchSeedRef = useRef<DispatchSeedState | null>(null);
   const planningPrefillAppliedRef = useRef(false);
 
@@ -162,6 +167,7 @@ export default function Planning() {
   }, [loadCatalog]);
 
   useEffect(() => {
+    setMessageTools({});
     if (!id) {
       setDetail(null);
       setSelectedMessageId('');
@@ -222,6 +228,13 @@ export default function Planning() {
             messages: upsertMessage(current.messages, payload.message!),
           };
         });
+        return;
+      }
+
+      if (msg.type === 'planning-session.tool') {
+        const d = msg.data as ({ sessionId?: string; messageId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
+        if (!d || d.sessionId !== id || !d.messageId || !d.id) return;
+        setMessageTools((current) => ({ ...current, [d.messageId!]: applyToolEvent(current[d.messageId!], d) }));
         return;
       }
 
@@ -410,6 +423,24 @@ export default function Planning() {
   const canDispatch = !!currentSession && !!selectedMessage?.content.trim() && dispatchDescription.trim().length > 0 && !dispatching;
   const planningPrefill = location.state as PlanningPrefillState | null;
 
+  // After starting a session, jump down to the Current Session chat window once it loads.
+  useEffect(() => {
+    if (detail && scrollToSessionRef.current) {
+      scrollToSessionRef.current = false;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        transcriptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }));
+    }
+  }, [detail]);
+
+  // Rotate the "waiting" message every 4 seconds while the captain is responding.
+  useEffect(() => {
+    if (currentSession?.status !== 'Responding') return;
+    setThinking((prev) => randomThinkingMessage(prev));
+    const timer = window.setInterval(() => setThinking((prev) => randomThinkingMessage(prev)), 4000);
+    return () => window.clearInterval(timer);
+  }, [currentSession?.status]);
+
   async function handleCreateSession() {
     if (!captainId || !vesselId) return;
 
@@ -428,6 +459,7 @@ export default function Planning() {
 
       setSessions((current) => upsertSession(current, result.session));
       pushToast('success', t('Planning session started.'));
+      scrollToSessionRef.current = true;
       navigate(`/planning/${result.session.id}`, {
         state: composer.trim() ? { fromWorkspace: true, initialPrompt: composer.trim() } : undefined,
       });
@@ -703,6 +735,8 @@ export default function Planning() {
               failureReason={detail.session.failureReason}
               updatedUtc={detail.session.lastUpdateUtc}
               messages={currentMessages}
+              messageTools={messageTools}
+              thinkingMessage={thinking}
               selectedMessageId={selectedMessageId}
               composer={composer}
               sending={sending}

@@ -3,6 +3,7 @@ import type { PlanningSessionMessage } from '../../types/models';
 import StatusBadge from '../shared/StatusBadge';
 import Markdown from '../shared/Markdown';
 import ChatMetricsBar from '../shared/ChatMetricsBar';
+import ChatToolChips, { type ToolEvent } from '../shared/ChatToolChips';
 
 interface PlanningTranscriptCardProps {
   t: (value: string, vars?: Record<string, string | number>) => string;
@@ -18,6 +19,8 @@ interface PlanningTranscriptCardProps {
   failureReason?: string | null;
   updatedUtc: string;
   messages: PlanningSessionMessage[];
+  messageTools?: Record<string, ToolEvent[]>;
+  thinkingMessage?: string;
   selectedMessageId: string;
   composer: string;
   sending: boolean;
@@ -49,6 +52,8 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
     failureReason,
     updatedUtc,
     messages,
+    messageTools,
+    thinkingMessage,
     selectedMessageId,
     composer,
     sending,
@@ -158,6 +163,16 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
                 </span>
               </div>
 
+              {isAssistant && (
+                <ChatToolChips
+                  tools={messageTools?.[message.id]}
+                  runningLabel={t('running…')}
+                  argumentsLabel={t('Arguments')}
+                  resultLabel={t('Result')}
+                  noDetailsLabel={t('No details available.')}
+                />
+              )}
+
               <div className="planning-chat-bubble">
                 {isAssistant && message.content.trim().length > 0 ? (
                   <Markdown className="planning-chat-content">{message.content}</Markdown>
@@ -184,6 +199,11 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
             </div>
           );
         })}
+        {currentStatus === 'Responding' && (
+          <div key={thinkingMessage} className="text-dim ask-thinking" style={{ alignSelf: 'flex-start' }}>
+            {thinkingMessage || t('Thinking...')}
+          </div>
+        )}
       </div>
 
       <div className="planning-chat-composer">
