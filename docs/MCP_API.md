@@ -192,9 +192,9 @@ http://localhost:7891
 
 MCP clients communicate using the standard MCP JSON-RPC protocol over HTTP. The server supports the full MCP tool-calling lifecycle:
 
-1. **Initialize** Ã¢â‚¬â€ Client discovers server capabilities and available tools
-2. **Call Tool** Ã¢â‚¬â€ Client invokes a tool with arguments
-3. **Response** Ã¢â‚¬â€ Server returns the tool result
+1. **Initialize** — Client discovers server capabilities and available tools
+2. **Call Tool** — Client invokes a tool with arguments
+3. **Response** — Server returns the tool result
 
 ### Stdio Transport
 
@@ -3322,8 +3322,8 @@ Paginated result wrapper returned by `enumerate`.
 | `projectContext` | string \| null | Project context describing architecture, key files, and dependencies |
 | `styleGuide` | string \| null | Style guide describing naming conventions, patterns, and library preferences |
 | `hasGitHubTokenOverride` | bool | Indicates whether a per-vessel GitHub token override is stored. MCP never returns the raw token value. |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-vessel landing policy override |
-| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) Ã¢â‚¬â€ per-vessel branch cleanup override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-vessel landing policy override |
+| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) — per-vessel branch cleanup override |
 | `active` | bool | Whether the vessel is active |
 | `createdUtc` | string | ISO 8601 creation timestamp |
 | `lastUpdateUtc` | string | ISO 8601 last update timestamp |
@@ -3343,7 +3343,7 @@ Paginated result wrapper returned by `enumerate`.
 | `autoPush` | bool \| null | Override global auto-push setting |
 | `autoCreatePullRequests` | bool \| null | Override global auto-create PR setting |
 | `autoMergePullRequests` | bool \| null | Override global auto-merge PR setting |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-voyage landing policy override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-voyage landing policy override |
 
 #### Mission
 
