@@ -1217,6 +1217,21 @@ namespace Armada.Core.Services
             content += await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false);
             content += "\n";
 
+            // Resolved git anchors (start commit, target branch, working branch) so the captain does not
+            // burn opening turns deriving them. Best-effort: a git failure degrades to no section.
+            string? headCommit = null;
+            if (_Git != null)
+            {
+                try { headCommit = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false); }
+                catch { headCommit = null; }
+            }
+            string gitAnchors = GitAnchorsFormatter.Render(headCommit, vessel.DefaultBranch, mission.BranchName);
+            if (!String.IsNullOrEmpty(gitAnchors))
+            {
+                content += gitAnchors;
+                content += "\n";
+            }
+
             // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback
             content += await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false);
             content += "\n";
