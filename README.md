@@ -13,6 +13,7 @@
 <p align="center">
   <a href="#why-armada">Why Armada</a> |
   <a href="#how-it-works">How It Works</a> |
+  <a href="#community">Community</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#pipelines">Pipelines</a> |
   <a href="#use-cases">Use Cases</a> |
@@ -162,6 +163,12 @@ armada go "1. Add auth middleware 2. Add login endpoint 3. Add token validation"
 ### Auto-Recovery
 
 If a captain crashes, the Admiral can repair the worktree and relaunch the agent up to `MaxRecoveryAttempts` times (default: 3).
+
+## Community
+
+Armada has a growing community building on and around it.
+
+- **Community fork:** [@developervariety/Armada](https://github.com/developervariety/Armada)
 
 ## Contributors
 

@@ -1297,7 +1297,15 @@ namespace Armada.Server.Routes
                     buckets[bucketStartTicks] = bucket;
                 }
 
-                if (point.Status == MissionStatusEnum.Complete)
+                // "Complete" (green) covers every state where the captain has produced work or gone
+                // further, not just fully-landed missions -- so with landing off, produced/reviewed work
+                // still reads as done. Failed/LandingFailed are red; only genuinely in-flight (Pending/
+                // Assigned/InProgress) and Cancelled are grey "Other".
+                if (point.Status == MissionStatusEnum.WorkProduced
+                    || point.Status == MissionStatusEnum.PullRequestOpen
+                    || point.Status == MissionStatusEnum.Testing
+                    || point.Status == MissionStatusEnum.Review
+                    || point.Status == MissionStatusEnum.Complete)
                 {
                     bucket.CompleteCount++;
                     result.CompleteCount++;
