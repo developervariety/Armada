@@ -31,6 +31,7 @@ import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import PageHeader from '../components/shared/PageHeader';
 import CopyButton from '../components/shared/CopyButton';
+import Button from '../components/shared/Button';
 import { useLocale } from '../context/LocaleContext';
 
 const MISSION_STATUSES = [
@@ -66,7 +67,7 @@ export default function MissionDetail() {
   // Transition
   const [showTransition, setShowTransition] = useState(false);
   const [transitionStatus, setTransitionStatus] = useState('');
-  const [reviewDecision, setReviewDecision] = useState<{ mode: 'approve' | 'deny'; comment: string } | null>(null);
+  const [reviewDecision, setReviewDecision] = useState<{ comment: string } | null>(null);
 
   // Edit form
   const [editModal, setEditModal] = useState(false);
@@ -291,15 +292,22 @@ export default function MissionDetail() {
     }
   }
 
-  async function handleReviewDecision() {
+  async function submitReview(verdict: 'approve' | 'conditional' | 'morework' | 'deny') {
     if (!mission || !reviewDecision) return;
 
+    const comment = reviewDecision.comment.trim();
     try {
-      if (reviewDecision.mode === 'approve') {
-        await approveMissionReview(mission.id, reviewDecision.comment);
+      if (verdict === 'approve') {
+        await approveMissionReview(mission.id, { comment: comment || undefined });
         pushToast('success', t('Review approved for "{{title}}".', { title: mission.title }));
+      } else if (verdict === 'conditional') {
+        await approveMissionReview(mission.id, { comment, conditional: true });
+        pushToast('success', t('Conditionally approved "{{title}}". The next step will consider your feedback.', { title: mission.title }));
+      } else if (verdict === 'morework') {
+        await denyMissionReview(mission.id, { comment, action: 'RetryStage' });
+        pushToast('warning', t('Sent "{{title}}" back for more work with your feedback.', { title: mission.title }));
       } else {
-        await denyMissionReview(mission.id, reviewDecision.comment);
+        await denyMissionReview(mission.id, { comment: comment || undefined, action: 'FailPipeline' });
         pushToast('warning', t('Review denied for "{{title}}".', { title: mission.title }));
       }
 
@@ -383,10 +391,7 @@ export default function MissionDetail() {
         actions={
           <>
             {canResolveReview && (
-              <>
-                <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' })}>{t('Approve')}</button>
-                <button className="btn btn-sm btn-danger" onClick={() => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' })}>{t('Deny')}</button>
-              </>
+              <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ comment: mission.reviewComment || '' })}>{t('Resolve Review')}</button>
             )}
             <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
             <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
@@ -397,13 +402,12 @@ export default function MissionDetail() {
               </button>
             )}
             {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
-              <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</button>
+              <Button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</Button>
             )}
             <ActionMenu id={`mission-action-${mission.id}`} items={[
               { label: 'Edit', onClick: openEdit },
               ...(canResolveReview ? [
-                { label: 'Approve Review', onClick: () => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' }) },
-                { label: 'Deny Review', onClick: () => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' }) },
+                { label: 'Resolve Review', onClick: () => setReviewDecision({ comment: mission.reviewComment || '' }) },
               ] : []),
               { label: 'View Diff', onClick: handleViewDiff },
               { label: 'View Log', onClick: handleViewLog },
@@ -549,28 +553,30 @@ export default function MissionDetail() {
       {reviewDecision && (
         <div className="modal-overlay" onClick={() => setReviewDecision(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>{reviewDecision.mode === 'approve' ? t('Approve Review') : t('Deny Review')}</h3>
+            <h3>{t('Resolve Review')}</h3>
             <p className="text-dim">
-              {reviewDecision.mode === 'approve'
-                ? t('Approve this stage and let the pipeline continue.')
-                : t('Deny this stage. Armada will either send it back for rework or fail the pipeline based on the stage policy.')}
+              {t('Choose how to resolve this review gate. Your feedback is carried into the next step or the re-run.')}
             </p>
             <label style={{ marginTop: 12 }}>
-              {t('Comment')}
+              {t('Feedback')}
               <textarea
                 value={reviewDecision.comment}
                 rows={5}
                 onChange={event => setReviewDecision(current => current ? { ...current, comment: event.target.value } : current)}
-                placeholder={t('Add context for the reviewer decision...')}
+                placeholder={t('Required for Conditionally Approve and More Work Required; optional for Approve/Deny.')}
               />
             </label>
-            <div className="modal-actions">
-              <button
-                className={`btn ${reviewDecision.mode === 'approve' ? 'btn-primary' : 'btn-danger'}`}
-                onClick={handleReviewDecision}
-              >
-                {reviewDecision.mode === 'approve' ? t('Approve') : t('Deny')}
-              </button>
+            <ul className="review-verdict-help text-dim">
+              <li><strong>{t('Approve')}</strong> {t('- accept this stage and continue.')}</li>
+              <li><strong>{t('Conditionally Approve')}</strong> {t('- continue, but the next step must consider your feedback.')}</li>
+              <li><strong>{t('More Work Required')}</strong> {t('- redo this same step with your feedback.')}</li>
+              <li><strong>{t('Deny')}</strong> {t('- reject this stage and fail the pipeline.')}</li>
+            </ul>
+            <div className="modal-actions review-verdict-actions">
+              <Button className="btn btn-primary" onClick={() => submitReview('approve')}>{t('Approve')}</Button>
+              <Button className="btn" onClick={() => submitReview('conditional')} disabled={!reviewDecision.comment.trim()} title={!reviewDecision.comment.trim() ? t('Add feedback first') : undefined}>{t('Conditionally Approve')}</Button>
+              <Button className="btn" onClick={() => submitReview('morework')} disabled={!reviewDecision.comment.trim()} title={!reviewDecision.comment.trim() ? t('Add feedback first') : undefined}>{t('More Work Required')}</Button>
+              <Button className="btn btn-danger" onClick={() => submitReview('deny')}>{t('Deny')}</Button>
               <button className="btn" onClick={() => setReviewDecision(null)}>{t('Cancel')}</button>
             </div>
           </div>

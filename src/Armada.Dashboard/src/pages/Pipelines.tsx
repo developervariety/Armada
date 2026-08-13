@@ -10,8 +10,10 @@ import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPipelineDuplicatePayload } from '../lib/duplicates';
@@ -85,6 +87,7 @@ export default function Pipelines() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('pipelines', load);
 
   // CRUD
   function openCreate() {
@@ -186,6 +189,7 @@ export default function Pipelines() {
         actions={(
           <>
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title="Refresh pipeline data" />
           </>
         )}

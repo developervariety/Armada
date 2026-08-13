@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { getSettings, updateSettings, getHealth } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -63,6 +65,8 @@ export default function Settings() {
     loadData();
   }, [loadData]);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('settings', loadData);
+
   const handleSaveAll = async () => {
     if (!settings) return;
     setSaving(true);
@@ -102,7 +106,12 @@ export default function Settings() {
       <PageHeader
         title={t('Settings')}
         subtitle={t('View and modify server configuration.')}
-        actions={<RefreshButton onRefresh={loadData} title={t('Refresh settings')} />}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={loadData} title={t('Refresh settings')} />
+          </>
+        )}
       />
 
       <ErrorModal error={error} onClose={() => setError('')} />

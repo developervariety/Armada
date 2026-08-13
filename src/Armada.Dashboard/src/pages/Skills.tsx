@@ -10,6 +10,8 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
@@ -101,6 +103,8 @@ export default function Skills() {
 
   useEffect(() => { load(); }, []);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('skills', load);
+
   const categories = useMemo(() => {
     const set = new Set<string>();
     skills.forEach((s) => { if (s.category) set.add(s.category); });
@@ -143,6 +147,7 @@ export default function Skills() {
         subtitle={t('A directory of reusable capability snippets attached to projects and injected into mission prompts.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh skills')} />
             {canManage && (
               <button className="btn btn-primary" onClick={openCreate}>+ {t('Skill')}</button>

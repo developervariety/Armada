@@ -18,6 +18,8 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import StatusBadge from '../components/shared/StatusBadge';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
 import {
@@ -165,6 +167,7 @@ export default function CheckRuns() {
   useEffect(() => {
     load();
   }, []);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('checkruns', load);
 
   useEffect(() => {
     const state = (location.state || {}) as CheckRunPrefillState;
@@ -331,6 +334,7 @@ export default function CheckRuns() {
         subtitle={t('Structured build, test, deploy, and verification runs with durable output, artifacts, and retry support.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh check runs')} />
             <button className="btn btn-primary" onClick={() => openRunModal()}>
               + {t('Run Check')}

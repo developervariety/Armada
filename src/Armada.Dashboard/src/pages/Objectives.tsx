@@ -39,6 +39,8 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 
 export default function Objectives() {
@@ -106,6 +108,8 @@ export default function Objectives() {
   useEffect(() => {
     void load();
   }, []);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('objectives', load);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -349,6 +353,7 @@ export default function Objectives() {
         subtitle={t('Capture future work, refine it, and carry the same record through planning, dispatch, release, deployment, and incident follow-through.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh backlog')} />
             {canManage && (
               <button className="btn" onClick={() => setImportModalOpen(true)}>

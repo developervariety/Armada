@@ -30,6 +30,8 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 const INCIDENT_STATUSES: IncidentStatus[] = ['Open', 'Monitoring', 'Mitigated', 'RolledBack', 'Closed'];
 const INCIDENT_SEVERITIES: IncidentSeverity[] = ['Critical', 'High', 'Medium', 'Low'];
@@ -164,6 +166,8 @@ export default function Incidents() {
     void load();
   }, []);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('incidents', load);
+
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
   const environmentMap = useMemo(() => new Map(environments.map((environment) => [environment.id, environment.name])), [environments]);
   const deploymentMap = useMemo(() => new Map(deployments.map((deployment) => [deployment.id, deployment.title])), [deployments]);
@@ -214,6 +218,7 @@ export default function Incidents() {
         subtitle={t('Track incidents, hotfix context, rollback history, recovery notes, and postmortems alongside deployments and releases.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh incidents')} />
             {canManage && (
               <button className="btn btn-primary" onClick={openCreate}>

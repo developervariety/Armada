@@ -12,6 +12,8 @@ import {
   type ProxySessionContext,
 } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications, type Severity } from '../context/NotificationContext';
@@ -244,6 +246,8 @@ export default function Server() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('server', loadData);
 
   const handleSaveServerConfig = async () => {
     if (!settings) return;
@@ -606,7 +610,12 @@ export default function Server() {
       <PageHeader
         title={t('Server Settings')}
         subtitle={t('Admiral server health, configuration, and operational controls.')}
-        actions={<RefreshButton onRefresh={loadData} title={t('Refresh server data')} />}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={loadData} title={t('Refresh server data')} />
+          </>
+        )}
       />
 
       <ErrorModal error={error} onClose={() => setError('')} />

@@ -14,6 +14,8 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -114,6 +116,7 @@ export default function Missions() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('missions', load);
 
   // Client-side column filter + sort
   const filtered = useMemo(() => {
@@ -300,6 +303,7 @@ export default function Missions() {
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Mission')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title="Refresh mission data" />
           </>
         )}

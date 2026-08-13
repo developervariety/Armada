@@ -10,8 +10,10 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPersonaDuplicatePayload } from '../lib/duplicates';
@@ -72,6 +74,7 @@ export default function Personas() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('personas', load);
 
   // CRUD
   function openCreate() { setForm({ name: '', description: '', promptTemplateName: '' }); setEditing(null); setShowForm(true); }
@@ -126,6 +129,7 @@ export default function Personas() {
         actions={(
           <>
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Persona')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh persona data')} />
           </>
         )}

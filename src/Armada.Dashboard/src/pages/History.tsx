@@ -10,6 +10,8 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 interface SavedHistoryView {
   id: string;
@@ -230,6 +232,8 @@ export default function History() {
     void load();
   }, []);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('history', load);
+
   const groupedEntries = useMemo(() => {
     const groups = new Map<string, HistoricalTimelineEntry[]>();
     for (const entry of entries) {
@@ -379,6 +383,7 @@ export default function History() {
             <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('md')}>
               {exporting === 'md' ? t('Exporting...') : t('Export Markdown')}
             </button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh history')} />
           </>
         )}

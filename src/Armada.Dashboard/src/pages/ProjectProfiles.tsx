@@ -10,8 +10,10 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 function splitList(value: string): string[] {
   return value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
@@ -75,6 +77,8 @@ export default function ProjectProfiles() {
   useEffect(() => {
     load();
   }, []);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('projectprofiles', load);
 
   useEffect(() => {
     void listFleets().then((r) => setFleets(r.objects || [])).catch(() => {});
@@ -184,6 +188,7 @@ export default function ProjectProfiles() {
         subtitle={t('Per-project customization that binds a pipeline, workflow profile, persona prompt overrides, and skills, resolved global to fleet to vessel.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh project profiles')} />
             {canManage && (
               <button className="btn btn-primary" onClick={openCreate}>

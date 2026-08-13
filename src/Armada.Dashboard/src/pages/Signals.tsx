@@ -15,6 +15,8 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -91,6 +93,8 @@ export default function Signals() {
   }, [page, pageSize, filterType, filterToCaptain, filterUnreadOnly, t]);
 
   useEffect(() => { load(); }, [load]);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('signals', load);
 
   useEffect(() => {
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
@@ -245,6 +249,7 @@ export default function Signals() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Pagination pageNumber={page} totalPages={totalPages} totalRecords={totalRecords} totalMs={totalMs}
             pageSize={pageSize} onPageChange={setPage} onPageSizeChange={handlePageSizeChange} />
+          <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
           <RefreshButton onRefresh={load} title={t('Refresh signals')} />
         </div>
       )}

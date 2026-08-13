@@ -7,6 +7,8 @@ import ConfirmDialog from '../../components/shared/ConfirmDialog';
 import JsonViewer from '../../components/shared/JsonViewer';
 import CopyButton, { copyToClipboard } from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
+import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../../lib/useAutoRefresh';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
@@ -64,6 +66,7 @@ export default function Credentials() {
   }, [isAdmin, t, user?.tenant]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('credentials', load);
 
   const filtered = useMemo(() =>
     items.filter(c =>
@@ -210,6 +213,7 @@ export default function Credentials() {
         <div className="view-actions">
           {!remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
           {!remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Credential')}</button>}
+          <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
           <RefreshButton onRefresh={load} title="Refresh credentials" />
         </div>
       </div>

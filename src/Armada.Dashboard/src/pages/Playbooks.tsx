@@ -10,8 +10,10 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 
 export default function Playbooks() {
@@ -113,6 +115,8 @@ export default function Playbooks() {
     load();
   }, []);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('playbooks', load);
+
   const filtered = playbooks.filter((playbook) => {
     const matchesSearch = search.trim().length === 0
       || playbook.fileName.toLowerCase().includes(search.toLowerCase())
@@ -168,6 +172,7 @@ export default function Playbooks() {
         subtitle={t('Tenant-scoped markdown playbooks that can be attached to voyages and missions. Use them for durable engineering rules, architecture standards, or execution checklists.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh playbooks')} />
             {canManage && (
               <button className="btn btn-primary" onClick={openCreate}>

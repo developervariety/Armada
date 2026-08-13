@@ -22,8 +22,10 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
@@ -452,6 +454,8 @@ export default function RequestHistory() {
     loadSummary();
   }, [loadSummary]);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('requesthistory', async () => { await Promise.all([loadEntries(), loadSummary()]); });
+
   useEffect(() => {
     if (!id) {
       setDetailRecord(null);
@@ -544,6 +548,7 @@ export default function RequestHistory() {
                 {hasActiveFilters ? t('Delete Filtered') : t('Delete Visible Range')}
               </button>
             )}
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={async () => { await Promise.all([loadEntries(), loadSummary()]); }} title={t('Refresh request data')} />
           </>
         )}

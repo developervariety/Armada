@@ -10,6 +10,8 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
@@ -111,6 +113,8 @@ export default function WorkflowProfiles() {
     void listFleets({ pageSize: 9999 }).then((r) => setFleets(r.objects || [])).catch(() => {});
     void listVessels({ pageSize: 9999 }).then((r) => setVessels(r.objects || [])).catch(() => {});
   }, []);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('workflowprofiles', load);
 
   const fleetOptions = useMemo(() => fleets.filter((fleet) => fleet.active !== false), [fleets]);
   const vesselOptions = useMemo(() => vessels.filter((vessel) => vessel.active !== false), [vessels]);
@@ -239,6 +243,7 @@ export default function WorkflowProfiles() {
         subtitle={t('Tenant-scoped command profiles that tell Armada how each project builds, tests, packages, releases, deploys, and verifies itself.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh workflow profiles')} />
             {canManage && (
               <button className="btn btn-primary" onClick={openCreate}>

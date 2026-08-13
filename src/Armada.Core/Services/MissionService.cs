@@ -44,6 +44,7 @@ namespace Armada.Core.Services
         private IPromptTemplateService? _PromptTemplates;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
+        private const string ReviewerGuidanceMarker = "<!-- ARMADA:REVIEWER-GUIDANCE -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
             new System.Text.RegularExpressions.Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase |
@@ -556,7 +557,7 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
@@ -574,6 +575,14 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
                 await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+
+                // Conditionally Approve: fold the reviewer's guidance into the freshly-prepared next stage(s)
+                // before they dispatch, so the next captain is required to take that feedback into account.
+                if (conditional && !String.IsNullOrWhiteSpace(mission.ReviewComment))
+                {
+                    await ApplyConditionalFeedbackToNextStagesAsync(mission, mission.ReviewComment!, token).ConfigureAwait(false);
+                }
+
                 await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
 
@@ -611,13 +620,17 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, ReviewDenyActionEnum? actionOverride = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
             Mission mission = await RequireReviewMissionAsync(missionId, token).ConfigureAwait(false);
             Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
             string reviewComment = NormalizeReviewComment(comment) ?? "Review denied. Rework is required before this stage can continue.";
+
+            // "More Work Required" and "Deny" surface as an explicit action from the reviewer; fall back to the
+            // mission's configured deny action when the caller does not specify one.
+            ReviewDenyActionEnum effectiveAction = actionOverride ?? mission.ReviewDenyAction;
 
             mission.ReviewComment = reviewComment;
             mission.ReviewedByUserId = reviewedByUserId;
@@ -628,7 +641,7 @@ namespace Armada.Core.Services
                 await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
             }
 
-            if (mission.ReviewDenyAction == ReviewDenyActionEnum.FailPipeline)
+            if (effectiveAction == ReviewDenyActionEnum.FailPipeline)
             {
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = BuildReviewDeniedFailureReason(reviewComment);
@@ -3384,6 +3397,54 @@ namespace Armada.Core.Services
             }
 
             return existing.TrimEnd() + "\n\n---\n\n" + feedbackSection;
+        }
+
+        /// <summary>
+        /// Append reviewer guidance from a conditional approval to a downstream stage description, so the next
+        /// captain must take the prior-stage feedback into account. Idempotent: an existing guidance block is
+        /// replaced rather than stacked.
+        /// </summary>
+        private static string ApplyReviewerGuidance(string? description, string reviewComment)
+        {
+            string existing = description ?? String.Empty;
+            int markerIndex = existing.IndexOf(ReviewerGuidanceMarker, StringComparison.Ordinal);
+            if (markerIndex >= 0)
+            {
+                existing = existing.Substring(0, markerIndex).TrimEnd();
+            }
+
+            string guidanceSection =
+                ReviewerGuidanceMarker + "\n" +
+                "## Reviewer Guidance (from prior stage approval)\n" +
+                reviewComment.Trim() + "\n\n" +
+                "The previous stage was conditionally approved with the guidance above. Take it into account as you carry out this stage.\n";
+
+            if (String.IsNullOrWhiteSpace(existing))
+            {
+                return guidanceSection;
+            }
+
+            return existing.TrimEnd() + "\n\n---\n\n" + guidanceSection;
+        }
+
+        /// <summary>
+        /// After a conditional approval, fold the reviewer's guidance into the pending next-stage mission(s)
+        /// that depend on the just-approved mission, before they dispatch.
+        /// </summary>
+        private async Task ApplyConditionalFeedbackToNextStagesAsync(Mission mission, string reviewComment, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VoyageId)) return;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+            foreach (Mission next in voyageMissions)
+            {
+                if (next.DependsOnMissionId != mission.Id) continue;
+                if (next.Status != MissionStatusEnum.Pending) continue;
+
+                next.Description = ApplyReviewerGuidance(next.Description, reviewComment);
+                next.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(next, token).ConfigureAwait(false);
+            }
         }
 
         private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CaptainTierEnum? requiredTier, CancellationToken token)

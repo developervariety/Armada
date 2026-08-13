@@ -5,6 +5,8 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import StatusBadge from '../components/shared/StatusBadge';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 const TERMINAL = ['Succeeded', 'Failed', 'Cancelled'];
 
@@ -30,6 +32,8 @@ export default function Jobs() {
 
   useEffect(() => { load(); }, [load]);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('jobs', load);
+
   async function handleCancel(job: Job) {
     try {
       await cancelJob(job.id);
@@ -47,7 +51,10 @@ export default function Jobs() {
           <h2>{t('Jobs')}</h2>
           <p className="text-dim view-subtitle">{t('Background jobs and their status.')}</p>
         </div>
-        <RefreshButton onRefresh={load} title={t('Refresh jobs')} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+          <RefreshButton onRefresh={load} title={t('Refresh jobs')} />
+        </div>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}

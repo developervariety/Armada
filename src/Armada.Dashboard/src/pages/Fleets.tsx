@@ -12,6 +12,8 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildFleetDuplicatePayload } from '../lib/duplicates';
@@ -88,6 +90,8 @@ export default function Fleets() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('fleets', load);
 
   // CRUD
   function openCreate() { setForm({ name: '', description: '', defaultPipelineId: '' }); setEditing(null); setShowForm(true); }
@@ -172,6 +176,7 @@ export default function Fleets() {
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh fleet data')} />
           </>
         )}

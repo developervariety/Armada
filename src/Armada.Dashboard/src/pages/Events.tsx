@@ -11,6 +11,8 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { entityRoute } from '../lib/routing';
@@ -85,6 +87,8 @@ export default function Events() {
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
   }, []);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('events', load);
 
   // Client-side column filter + sort
   const filtered = useMemo(() => {
@@ -176,6 +180,7 @@ export default function Events() {
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh event data')} />
           </>
         )}

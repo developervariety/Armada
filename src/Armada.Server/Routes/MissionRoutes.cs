@@ -749,7 +749,7 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    Mission mission = await _missionService.ApproveReviewAsync(id, ctx.UserId, body.Comment).ConfigureAwait(false);
+                    Mission mission = await _missionService.ApproveReviewAsync(id, ctx.UserId, body.Comment, body.Conditional).ConfigureAwait(false);
                     Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " review approved");
                     await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     await _emitEvent("mission.review_approved", "Mission " + id + " review approved",
@@ -793,9 +793,15 @@ namespace Armada.Server.Routes
                 MissionReviewDecisionRequest body = JsonSerializer.Deserialize<MissionReviewDecisionRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? new MissionReviewDecisionRequest();
 
+                ReviewDenyActionEnum? denyAction = null;
+                if (!String.IsNullOrWhiteSpace(body.Action) && Enum.TryParse<ReviewDenyActionEnum>(body.Action, true, out ReviewDenyActionEnum parsedDenyAction))
+                {
+                    denyAction = parsedDenyAction;
+                }
+
                 try
                 {
-                    Mission mission = await _missionService.DenyReviewAsync(id, ctx.UserId, body.Comment).ConfigureAwait(false);
+                    Mission mission = await _missionService.DenyReviewAsync(id, ctx.UserId, body.Comment, denyAction).ConfigureAwait(false);
                     Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " review denied");
                     await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     await _emitEvent("mission.review_denied", "Mission " + id + " review denied",

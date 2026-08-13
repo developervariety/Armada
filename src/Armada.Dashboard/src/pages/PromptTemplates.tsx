@@ -9,8 +9,10 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
@@ -65,6 +67,7 @@ export default function PromptTemplates() {
   }, [translate]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('prompttemplates', load);
 
   // Filtered rows
   const filtered = useMemo(() => {
@@ -150,6 +153,7 @@ export default function PromptTemplates() {
             <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
               + {translate('Prompt Template')}
             </button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
           </>
         )}

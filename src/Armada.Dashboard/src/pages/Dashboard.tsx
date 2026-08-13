@@ -19,6 +19,8 @@ import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import JsonViewer from '../components/shared/JsonViewer';
 import FilterBar from '../components/shared/FilterBar';
@@ -164,6 +166,8 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, [loadAll]);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('dashboard', loadAll);
+
   // Compute alerts from status data
   const alerts = useMemo(() => {
     if (!status) return [];
@@ -300,6 +304,7 @@ export default function Dashboard() {
             <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a new voyage with multiple missions')}>
               + {t('Voyage')}
             </button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={loadAll} title="Refresh all dashboard data" />
           </>
         )}

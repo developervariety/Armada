@@ -29,6 +29,8 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import StatusBadge from '../components/shared/StatusBadge';
 
 const DEPLOYMENT_STATUSES: DeploymentStatus[] = [
@@ -125,6 +127,7 @@ export default function Deployments() {
   useEffect(() => {
     load();
   }, []);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('deployments', load);
 
   function openCreate() {
     setEditing(null);
@@ -266,6 +269,7 @@ export default function Deployments() {
         subtitle={t('First-class deployment records linking releases, environments, checks, approval, verification, rollback, and request-history evidence.')}
         actions={(
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh deployments')} />
             {canManage && (
               <button className="btn btn-primary" onClick={openCreate}>

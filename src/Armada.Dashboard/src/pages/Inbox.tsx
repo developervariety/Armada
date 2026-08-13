@@ -8,6 +8,8 @@ import { entityRoute } from '../lib/routing';
 import ErrorModal from '../components/shared/ErrorModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 function severityColor(severity: InboxSeverity): string {
   if (severity === 'Critical') return 'var(--danger, #ff6b6b)';
@@ -40,6 +42,8 @@ export default function Inbox() {
 
   useEffect(() => { load(); }, []);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('inbox', load);
+
   const counts = useMemo(() => ({
     critical: items.filter((i) => i.severity === 'Critical').length,
     warning: items.filter((i) => i.severity === 'Warning').length,
@@ -50,7 +54,12 @@ export default function Inbox() {
       <PageHeader
         title={t('Needs You')}
         subtitle={t('Everything across the fleet that is waiting on a decision or intervention from you.')}
-        actions={<RefreshButton onRefresh={load} title={t('Refresh inbox')} />}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh inbox')} />
+          </>
+        )}
       />
 
       <ErrorModal error={error} onClose={() => setError('')} />
