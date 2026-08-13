@@ -42,5 +42,11 @@ namespace Armada.Server.Mcp
         /// Ordered playbooks to apply during dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
+
+        /// <summary>
+        /// Optional objective (obj_ prefix) to link the dispatched voyage to, matching the REST dispatch
+        /// path. When set, the objective must exist or the dispatch is rejected.
+        /// </summary>
+        public string? ObjectiveId { get; set; }
     }
 }

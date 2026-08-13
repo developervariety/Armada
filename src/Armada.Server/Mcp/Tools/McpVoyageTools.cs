@@ -60,6 +60,7 @@ namespace Armada.Server.Mcp.Tools
                         },
                         pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" },
                         pipeline = new { type = "string", description = "Pipeline name to use (convenience alias for pipelineId -- resolves by name)" },
+                        objectiveId = new { type = "string", description = "Optional objective (obj_ prefix) to link this voyage to; must exist. Parity with REST dispatch." },
                         selectedPlaybooks = new
                         {
                             type = "array",
@@ -87,6 +88,14 @@ namespace Armada.Server.Mcp.Tools
                     List<MissionDescription> missions = request.Missions;
                     List<SelectedPlaybook> selectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
 
+                    // Validate the objective link up front (parity with the REST dispatch path).
+                    Objective? linkObjective = null;
+                    if (!String.IsNullOrWhiteSpace(request.ObjectiveId))
+                    {
+                        linkObjective = await database.Objectives.ReadAsync(request.ObjectiveId!).ConfigureAwait(false);
+                        if (linkObjective == null) return (object)new { Error = "Objective not found: " + request.ObjectiveId };
+                    }
+
                     // Use pipeline-aware dispatch if pipelineId is provided
                     string? pipelineId = request.PipelineId;
                     if (String.IsNullOrEmpty(pipelineId) && !String.IsNullOrEmpty(request.Pipeline))
@@ -97,6 +106,14 @@ namespace Armada.Server.Mcp.Tools
                         else return (object)new { Error = "Pipeline not found: " + request.Pipeline };
                     }
                     Voyage voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks).ConfigureAwait(false);
+
+                    // Link the voyage to the objective (parity with REST).
+                    if (linkObjective != null && !linkObjective.VoyageIds.Contains(voyage.Id))
+                    {
+                        linkObjective.VoyageIds.Add(voyage.Id);
+                        await database.Objectives.UpdateAsync(linkObjective).ConfigureAwait(false);
+                    }
+
                     return (object)voyage;
                 });
 
