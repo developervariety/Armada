@@ -738,6 +738,15 @@ namespace Armada.Server
                 DateTime? firstOutputUtc = null;
 
                 bool isMux = captain.Runtime == AgentRuntimeEnum.Mux;
+
+                // Claude Code streams token-by-token only in streaming-JSON mode. Enable it for the interactive
+                // planning turn so the reply renders incrementally (matching Ask Armada); the delta events are
+                // parsed in ExtractPlanningStreamText. Other planning flows (summaries) keep --print text.
+                bool isClaudeStream = captain.Runtime == AgentRuntimeEnum.ClaudeCode;
+                if (isClaudeStream && runtime is ClaudeCodeRuntime claudePlanningRuntime)
+                {
+                    claudePlanningRuntime.StreamJsonOutput = true;
+                }
                 _ActiveTurns.TryGetValue(session.Id, out TurnState? currentTurn);
                 bool showThinking = currentTurn?.ShowThinking ?? false;
                 bool streamReply = currentTurn?.Stream ?? true;
@@ -754,15 +763,17 @@ namespace Armada.Server
                     // For Mux, parse the structured protocol events: stream assistant_text into the reply and
                     // surface tool-call activity to the transcript. Other runtimes stream plain text lines.
                     // Subscribing to stdout-only keeps CLI stderr banners out of the captured transcript.
-                    string? delta = ExtractPlanningStreamText(isMux, session.Id, assistantMessage.Id, line);
+                    string? delta = ExtractPlanningStreamText(isMux, isClaudeStream, session.Id, assistantMessage.Id, line);
                     if (String.IsNullOrEmpty(delta)) return;
 
                     string updatedContent;
                     lock (outputLock)
                     {
                         if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
-                        if (isMux)
+                        if (isMux || isClaudeStream)
                         {
+                            // Mux assistant_text and Claude text_delta events are partial tokens: append raw
+                            // (no line breaks) so the streamed reply reads naturally.
                             output.Append(delta);
                             BoundedTextBuffer.Trim(output, _MaxPlanningOutputChars);
                         }
@@ -1400,8 +1411,45 @@ namespace Armada.Server
         /// <param name="messageId">The reply message ID being streamed.</param>
         /// <param name="line">The raw output line from the runtime.</param>
         /// <returns>The text to stream, or null when the line was consumed as an activity event.</returns>
-        private string? ExtractPlanningStreamText(bool isMux, string sessionId, string messageId, string line)
+        /// <summary>
+        /// Parse one line of Claude Code streaming-JSON output and return the incremental assistant text for a
+        /// content_block_delta/text_delta event, or null for any other event (init, message framing, result,
+        /// tool use). The concatenation of the returned deltas is the full reply.
+        /// </summary>
+        private string? ExtractClaudeStreamDelta(string line)
         {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(line.Trim());
+                JsonElement root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) return null;
+
+                if (!root.TryGetProperty("type", out JsonElement ty) || ty.ValueKind != JsonValueKind.String || ty.GetString() != "stream_event")
+                    return null;
+
+                if (root.TryGetProperty("event", out JsonElement ev) && ev.ValueKind == JsonValueKind.Object
+                    && ev.TryGetProperty("type", out JsonElement evt) && evt.ValueKind == JsonValueKind.String
+                    && evt.GetString() == "content_block_delta"
+                    && ev.TryGetProperty("delta", out JsonElement delta) && delta.ValueKind == JsonValueKind.Object
+                    && delta.TryGetProperty("type", out JsonElement dty) && dty.ValueKind == JsonValueKind.String
+                    && dty.GetString() == "text_delta"
+                    && delta.TryGetProperty("text", out JsonElement dtx) && dtx.ValueKind == JsonValueKind.String)
+                {
+                    return dtx.GetString();
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            return null;
+        }
+
+        private string? ExtractPlanningStreamText(bool isMux, bool isClaudeStream, string sessionId, string messageId, string line)
+        {
+            if (isClaudeStream)
+                return ExtractClaudeStreamDelta(line);
+
             if (!isMux || !MuxRuntime.IsProtocolEventLine(line))
                 return line;
 
