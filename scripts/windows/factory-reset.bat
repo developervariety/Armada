@@ -57,6 +57,19 @@ echo [factory-reset] Stopping every Armada.Server process...
 if exist "%STOP_SCRIPT%" powershell -NoProfile -ExecutionPolicy Bypass -File "%STOP_SCRIPT%"
 taskkill /F /IM Armada.Server.exe >nul 2>nul
 
+rem Never delete while the server is alive: on Windows a running Admiral keeps armada.db open, so the delete
+rem below silently fails (locked file) and the "reset" leaves the database intact. Verify nothing remains --
+rem the published Armada.Server.exe OR a dotnet host of Armada.Server.dll -- and abort if it does.
+echo [factory-reset] Verifying the server is stopped...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $p=@(Get-CimInstance Win32_Process -Filter \"Name='Armada.Server.exe'\") + @(Get-CimInstance Win32_Process -Filter \"Name='dotnet.exe'\" | Where-Object { $_.CommandLine -match 'Armada\.Server\.dll' }); if ($p.Count -gt 0) { exit 1 } else { exit 0 }"
+if errorlevel 1 (
+    echo.
+    echo ERROR: Armada.Server is still running and could not be stopped. Aborting BEFORE deleting anything.
+    echo        A running server keeps armada.db locked, so the wipe would silently fail and leave your data
+    echo        in place. Stop every Armada.Server process manually, then re-run factory-reset.
+    exit /b 1
+)
+
 echo [factory-reset] Deleting database and runtime state...
 del /q "%ARMADA_DIR%\armada.db" >nul 2>nul
 del /q "%ARMADA_DIR%\armada.db-shm" >nul 2>nul

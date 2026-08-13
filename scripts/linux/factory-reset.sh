@@ -59,7 +59,20 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl --user stop "$UNIT_NAME" 2>/dev/null || true
 fi
 pkill -f 'Armada\.Server' 2>/dev/null || true
-sleep 1
+
+# Wait for the server to actually exit before deleting anything. A still-running server can keep writing to
+# (or recreate) the database, leaving the reset incomplete; escalate to SIGKILL and abort if it will not die.
+for _ in $(seq 1 20); do
+    pgrep -f 'Armada\.Server' >/dev/null 2>&1 || break
+    pkill -9 -f 'Armada\.Server' 2>/dev/null || true
+    sleep 0.5
+done
+if pgrep -f 'Armada\.Server' >/dev/null 2>&1; then
+    echo "ERROR: Armada.Server is still running and could not be stopped. Aborting before deleting state so" >&2
+    echo "       the database is not left intact. Stop it manually (systemctl --user stop $UNIT_NAME) and" >&2
+    echo "       re-run factory-reset." >&2
+    exit 1
+fi
 
 echo "[factory-reset] Deleting database and runtime state..."
 rm -f "$ARMADA_DIR"/armada.db "$ARMADA_DIR"/armada.db-shm "$ARMADA_DIR"/armada.db-wal \
