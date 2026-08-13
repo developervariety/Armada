@@ -105,10 +105,18 @@ namespace Armada.Runtimes
                 args.Add("--dangerously-skip-permissions");
             }
 
-            args.Add(prompt);
-
+            // The prompt is delivered on stdin (see UsePromptStdin), not as a CLI argument. On Windows the
+            // claude executable is an npm ".cmd" wrapper; a multi-line argument passed through cmd.exe is
+            // truncated at the first newline, so the agent would receive only the first line of the prompt.
+            // Reading the prompt from stdin preserves the full multi-line content on every platform.
             return args;
         }
+
+        /// <summary>
+        /// Deliver the prompt on stdin rather than as a command-line argument. Claude Code reads the prompt
+        /// from stdin in --print mode, and this avoids the Windows cmd.exe multi-line-argument truncation.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         /// <summary>
         /// Apply Claude Code specific environment variables.

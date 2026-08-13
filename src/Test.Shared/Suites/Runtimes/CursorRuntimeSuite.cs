@@ -44,9 +44,12 @@ namespace Test.Shared.Suites.Runtimes
             cases.Add(Case("build_arguments_uses_non_interactive_text_output", "BuildArguments Uses NonInteractive Text Output", TestTags.Positive, () =>
             {
                 InspectableCursorRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt");
+                List<string> args = runtime.Args("line one\nline two\nUser: test prompt");
+                // -p keeps non-interactive print mode; the prompt is delivered on stdin (not as a positional
+                // argument) to avoid Windows cmd.exe multi-line-argument truncation.
                 AssertEqual("-p", args[0]);
-                AssertEqual("test prompt", args[1]);
+                AssertFalse(args.Contains("line one\nline two\nUser: test prompt"));
+                AssertTrue(runtime.PromptViaStdin);
                 AssertTrue(args.Contains("--force"));
                 AssertTrue(args.Contains("--output-format"));
                 AssertTrue(args.Contains("text"));
@@ -113,6 +116,8 @@ namespace Test.Shared.Suites.Runtimes
             }
 
             public string Command() => GetCommand();
+
+            public bool PromptViaStdin => UsePromptStdin;
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);

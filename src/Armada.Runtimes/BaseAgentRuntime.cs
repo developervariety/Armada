@@ -203,6 +203,12 @@ namespace Armada.Runtimes
                 }
                 await logWriter.WriteLineAsync("[" + timestamp + "] Agent starting: " + command + " " + firstFlag).ConfigureAwait(false);
                 await logWriter.WriteLineAsync(promptContent).ConfigureAwait(false);
+                if (UsePromptStdin)
+                {
+                    // The prompt is delivered on stdin rather than as a CLI argument, so it is not part of
+                    // the argument list above; log it explicitly so mission logs still capture the prompt.
+                    await logWriter.WriteLineAsync(prompt).ConfigureAwait(false);
+                }
                 await logWriter.WriteLineAsync("").ConfigureAwait(false);
             }
 

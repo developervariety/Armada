@@ -95,6 +95,12 @@ namespace Armada.Runtimes
             return OpenCodeCommandBuilder.BuildRunArguments(workingDirectory, prompt, model, variant, ShowThinking, AutoApprove);
         }
 
+        /// <summary>
+        /// Deliver the prompt on stdin rather than as a positional argument, avoiding the Windows cmd.exe
+        /// multi-line-argument truncation. 'opencode run' reads the prompt from stdin when none is supplied.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
+
         #endregion
     }
 }

@@ -168,6 +168,14 @@ export default function AskArmada() {
     abortRef.current?.abort();
   }
 
+  // Reset the conversation to an empty state. History is client-side only, so clearing the turns is
+  // sufficient; also drop any transient thinking/error so the next question starts clean.
+  function clearConversation() {
+    setTurns([]);
+    setThinking('');
+    setError('');
+  }
+
   return (
     <div className="ask-page">
       <div className="view-header">
@@ -176,6 +184,15 @@ export default function AskArmada() {
           <p className="text-dim view-subtitle">{t('Chat directly with a captain.')}</p>
         </div>
         <div className="ask-header-controls">
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={clearConversation}
+            disabled={busy || turns.length === 0}
+            title={t('Clear the conversation and start over')}
+          >
+            {t('Clear')}
+          </button>
           <label className="ask-stream-toggle" title={t('Stream the reply token-by-token as it is produced')}>
             <input type="checkbox" checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} disabled={busy} />
             {t('Stream responses')}

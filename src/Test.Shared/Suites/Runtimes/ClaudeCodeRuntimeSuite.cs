@@ -80,6 +80,16 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("sonnet", args[modelIndex + 1]);
             }));
 
+            cases.Add(Case("delivers_prompt_via_stdin_not_argument", "Delivers Prompt Via Stdin Not Argument", TestTags.Positive, () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                AssertTrue(runtime.PromptViaStdin);
+                // The prompt is delivered on stdin, not as a CLI argument (avoids Windows cmd.exe
+                // multi-line-argument truncation), so it must not appear in the argument list.
+                List<string> args = runtime.Args("line one\nline two\nUser: real question", "sonnet");
+                AssertFalse(args.Contains("line one\nline two\nUser: real question"));
+            }));
+
             cases.Add(CaseAsync("is_running_async_invalid_process_id_returns_false", "IsRunningAsync Invalid ProcessId Returns False", TestTags.Negative, async () =>
             {
                 ClaudeCodeRuntime runtime = CreateRuntime();
@@ -140,6 +150,8 @@ namespace Test.Shared.Suites.Runtimes
             public InspectableClaudeCodeRuntime(LoggingModule logging) : base(logging)
             {
             }
+
+            public bool PromptViaStdin => UsePromptStdin;
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);

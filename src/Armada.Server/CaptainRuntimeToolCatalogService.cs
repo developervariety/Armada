@@ -157,15 +157,38 @@ namespace Armada.Server
                 AvailabilitySource = "mux-runtime-probe"
             };
 
+            MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
+
+            // The model-endpoint probe ('mux probe --require-tools') performs a live LLM inference round-trip
+            // and can be slow or fail for reasons entirely unrelated to MCP connectivity: a cold model, network
+            // latency, or a briefly unavailable endpoint. It must NOT gate the MCP server inventory -- whether a
+            // captain can reach Armada over MCP depends only on the configured MCP servers, which are read and
+            // probed below. So a probe failure (including a timeout) degrades only the built-in tool count; it
+            // never discards the MCP server probe that determines the "connected to Armada" state.
+            MuxProbeResult? probe = null;
+            string? probeError = null;
             try
             {
                 MuxCliService muxCli = new MuxCliService(_Logging);
-                MuxProbeResult probe = await muxCli.ProbeAsync(captain, token).ConfigureAwait(false);
-                MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
+                probe = await muxCli.ProbeAsync(captain, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                probeError = ex.Message;
+                _Logging.Debug("[CaptainRuntimeToolCatalogService] mux model-endpoint probe failed for captain " +
+                    captain.Id + "; continuing with MCP server inventory only: " + ex.Message);
+            }
+
+            try
+            {
                 string configDirectory = ResolveMuxConfigDirectory(probe, options);
 
-                int builtInToolCount = Math.Max(0, probe.BuiltInToolCount);
-                if (probe.ToolsEnabled || builtInToolCount > 0)
+                int builtInToolCount = probe != null ? Math.Max(0, probe.BuiltInToolCount) : 0;
+                if (probe != null && (probe.ToolsEnabled || builtInToolCount > 0))
                 {
                     snapshot.Servers.Add(CreateMuxBuiltInSummary(probe, builtInToolCount));
                 }
@@ -180,21 +203,36 @@ namespace Armada.Server
                 snapshot.ToolsAccessible = builtInToolCount > 0 || snapshot.Tools.Count > 0;
                 snapshot.ArmadaToolCount = snapshot.Tools.Count(t => String.Equals(t.RegistrationSource, "armada", StringComparison.OrdinalIgnoreCase));
                 snapshot.EffectiveToolCount = builtInToolCount + snapshot.Tools.Count;
-                snapshot.AvailabilityVerified = probe.Success || snapshot.Servers.Count > 0;
+                snapshot.AvailabilityVerified = (probe?.Success ?? false) || snapshot.Servers.Count > 0;
 
-                if (!probe.Success)
+                bool probeSucceeded = probe?.Success ?? false;
+                string endpointName = probe?.EndpointName ?? String.Empty;
+
+                if (!probeSucceeded)
                 {
-                    snapshot.Summary = "Mux probe failed before Armada could inspect this captain runtime: " +
-                        FirstNonEmptyLine(probe.ErrorMessage, probe.ErrorCode);
+                    // The model-endpoint probe was slow, failed, or timed out. This is independent of MCP, so
+                    // report the MCP server inventory that was actually gathered rather than declaring the
+                    // captain unable to inspect tools (which the UI reads as "not connected to Armada").
+                    string probeDetail = !String.IsNullOrWhiteSpace(probeError)
+                        ? probeError!
+                        : FirstNonEmptyLine(probe?.ErrorMessage, probe?.ErrorCode);
+                    string mcpSummary = servers.Count == 0
+                        ? "No external MCP servers are configured for the active Mux config directory."
+                        : snapshot.Servers.Count(s => s.SourceKind == "McpServer" && s.Reachable) +
+                          " of " + servers.Count + " configured MCP server(s) responded and exposed " +
+                          snapshot.Tools.Count + " named tool(s).";
+                    snapshot.Summary = "Mux model-endpoint probe did not complete (" +
+                        (String.IsNullOrWhiteSpace(probeDetail) ? "endpoint unavailable or slow" : probeDetail) +
+                        "); this does not affect MCP connectivity. " + mcpSummary;
                 }
                 else if (servers.Count == 0)
                 {
-                    snapshot.Summary = "Mux endpoint '" + probe.EndpointName + "' reports " + builtInToolCount +
+                    snapshot.Summary = "Mux endpoint '" + endpointName + "' reports " + builtInToolCount +
                         " built-in tool(s). No external MCP servers are configured for the active Mux config directory, and Mux does not currently expose individual built-in tool names.";
                 }
                 else
                 {
-                    snapshot.Summary = "Mux endpoint '" + probe.EndpointName + "' reports " + builtInToolCount +
+                    snapshot.Summary = "Mux endpoint '" + endpointName + "' reports " + builtInToolCount +
                         " built-in tool(s) and " + servers.Count + " configured MCP server(s); " +
                         snapshot.Servers.Count(s => s.SourceKind == "McpServer" && s.Reachable) +
                         " MCP server(s) responded and exposed " + snapshot.Tools.Count +
@@ -1675,9 +1713,9 @@ namespace Armada.Server
             };
         }
 
-        private static string ResolveMuxConfigDirectory(MuxProbeResult probe, MuxCaptainOptions? options)
+        private static string ResolveMuxConfigDirectory(MuxProbeResult? probe, MuxCaptainOptions? options)
         {
-            if (!String.IsNullOrWhiteSpace(probe.ConfigDirectory))
+            if (!String.IsNullOrWhiteSpace(probe?.ConfigDirectory))
             {
                 return probe.ConfigDirectory;
             }

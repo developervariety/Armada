@@ -69,7 +69,9 @@ namespace Test.Shared.Suites.Runtimes
                     AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
                 else
                     AssertTrue(args.Contains("--full-auto"));
-                AssertEqual("test prompt", args[args.Count - 1]);
+                // The prompt is delivered on stdin, not as a CLI argument (avoids Windows cmd.exe
+                // multi-line-argument truncation), so it must not appear in the argument list.
+                AssertFalse(args.Contains("test prompt"));
             }));
 
             cases.Add(Case("build_arguments_dangerous_uses_dangerous_flag", "BuildArguments Dangerous Uses Dangerous Flag", TestTags.Positive, () =>
@@ -79,7 +81,15 @@ namespace Test.Shared.Suites.Runtimes
                 List<string> args = runtime.Args("test prompt");
                 AssertEqual("exec", args[0]);
                 AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
-                AssertEqual("test prompt", args[args.Count - 1]);
+                AssertFalse(args.Contains("test prompt"));
+            }));
+
+            cases.Add(Case("delivers_prompt_via_stdin_not_argument", "Delivers Prompt Via Stdin Not Argument", TestTags.Positive, () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                AssertTrue(runtime.PromptViaStdin);
+                List<string> args = runtime.Args("line one\nline two\nUser: real question");
+                AssertFalse(args.Contains("line one\nline two\nUser: real question"));
             }));
 
             cases.Add(Case("build_arguments_includes_model_when_supplied", "BuildArguments Includes Model When Supplied", TestTags.Positive, () =>
@@ -179,6 +189,8 @@ namespace Test.Shared.Suites.Runtimes
             }
 
             public string Command() => GetCommand();
+
+            public bool PromptViaStdin => UsePromptStdin;
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);

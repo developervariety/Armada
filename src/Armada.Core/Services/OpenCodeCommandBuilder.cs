@@ -65,8 +65,11 @@ namespace Armada.Core.Services
             args.Add("--dir");
             args.Add(workingDirectory);
 
-            args.Add(prompt);
-
+            // The prompt is delivered on stdin by the runtime (OpenCodeRuntime.UsePromptStdin), not as a
+            // positional argument, because on Windows the opencode executable is an npm ".cmd" wrapper and a
+            // multi-line argument passed through cmd.exe is truncated at the first newline. 'opencode run'
+            // reads the prompt from stdin when no positional message is supplied. The prompt is still
+            // validated above so an empty prompt is rejected consistently across runtimes.
             return args;
         }
 

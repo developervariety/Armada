@@ -41,14 +41,17 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("yolo", runtime.ApprovalMode);
             }));
 
-            cases.Add(Case("build_arguments_uses_prompt_and_approval_mode", "BuildArguments Uses Prompt And ApprovalMode", TestTags.Positive, () =>
+            cases.Add(Case("build_arguments_uses_approval_mode_and_stdin_prompt", "BuildArguments Uses ApprovalMode And Stdin Prompt", TestTags.Positive, () =>
             {
                 InspectableGeminiRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt");
-                AssertEqual("-p", args[0]);
-                AssertEqual("test prompt", args[1]);
+                List<string> args = runtime.Args("line one\nline two\nUser: test prompt");
                 AssertTrue(args.Contains("--approval-mode"));
                 AssertTrue(args.Contains("yolo"));
+                // The prompt is delivered on stdin, not via -p, to avoid Windows cmd.exe multi-line-argument
+                // truncation, so neither -p nor the prompt text may appear in the argument list.
+                AssertFalse(args.Contains("-p"));
+                AssertFalse(args.Contains("line one\nline two\nUser: test prompt"));
+                AssertTrue(runtime.PromptViaStdin);
             }));
 
             cases.Add(Case("build_arguments_includes_model_when_supplied", "BuildArguments Includes Model When Supplied", TestTags.Positive, () =>
@@ -116,6 +119,8 @@ namespace Test.Shared.Suites.Runtimes
             }
 
             public string Command() => GetCommand();
+
+            public bool PromptViaStdin => UsePromptStdin;
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);

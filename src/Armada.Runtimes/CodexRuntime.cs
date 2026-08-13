@@ -125,10 +125,18 @@ namespace Armada.Runtimes
                 args.Add(finalMessageFilePath);
             }
 
-            args.Add(prompt);
-
+            // The prompt is delivered on stdin (see UsePromptStdin), not as a CLI argument. On Windows the
+            // codex executable is an npm ".cmd" wrapper; a multi-line argument passed through cmd.exe is
+            // truncated at the first newline, so the agent would receive only the first line of the prompt.
+            // 'codex exec' reads the prompt from stdin when no positional prompt is supplied.
             return args;
         }
+
+        /// <summary>
+        /// Deliver the prompt on stdin rather than as a command-line argument. 'codex exec' reads the prompt
+        /// from stdin, and this avoids the Windows cmd.exe multi-line-argument truncation.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         #endregion
     }

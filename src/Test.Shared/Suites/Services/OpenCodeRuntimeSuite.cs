@@ -28,7 +28,7 @@ namespace Test.Shared.Suites.Services
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
             // ---- Command builder ----
-            cases.Add(Case("run_args_core_shape", "OpenCode run args start with run --format json and end with prompt", TestTags.Positive, () =>
+            cases.Add(Case("run_args_core_shape", "OpenCode run args start with run --format json; prompt goes to stdin", TestTags.Positive, () =>
             {
                 List<string> args = OpenCodeCommandBuilder.BuildRunArguments("/tmp/wd", "do the thing", null, null, false, true);
                 AssertEqual("run", args[0]);
@@ -38,7 +38,9 @@ namespace Test.Shared.Suites.Services
                 int dir = args.IndexOf("--dir");
                 AssertTrue(dir >= 0, "expected --dir");
                 AssertEqual("/tmp/wd", args[dir + 1]);
-                AssertEqual("do the thing", args[args.Count - 1]);
+                // The prompt is delivered on stdin (OpenCodeRuntime.UsePromptStdin), not as a positional
+                // argument, to avoid Windows cmd.exe multi-line-argument truncation.
+                AssertFalse(args.Contains("do the thing"), "prompt must not be a CLI argument");
                 AssertTrue(args.Contains("--auto"), "expected --auto when autoApprove");
             }));
 
