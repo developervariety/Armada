@@ -349,7 +349,9 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     markSetupComplete();
     onHighlightChange?.([]);
     onClose();
-  }, [onClose, onHighlightChange]);
+    // Exiting the wizard (finish, skip, or close) lands the operator on Missions.
+    navigate('/missions');
+  }, [navigate, onClose, onHighlightChange]);
 
   const finishAndNavigate = useCallback((to: string, options?: { state?: unknown; replace?: boolean }) => {
     markSetupComplete();

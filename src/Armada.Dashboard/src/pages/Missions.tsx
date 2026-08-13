@@ -8,6 +8,7 @@ import {
 } from '../api/client';
 import type { MissionSummary, Vessel, Captain, Voyage } from '../types/models';
 import Pagination from '../components/shared/Pagination';
+import LoadingIndicator from '../components/shared/LoadingIndicator';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -376,7 +377,7 @@ export default function Missions() {
         onLineCountChange={logModal ? (lines) => handleViewLog(logModal.missionId, logModal.title, lines) : undefined}
       />
 
-      {loading && missions.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {loading && missions.length === 0 && <LoadingIndicator fullHeight label={t('Loading missions...')} />}
       {!loading && missions.length === 0 && <p className="text-dim">{t('No missions found.')}</p>}
 
       {missions.length > 0 && (

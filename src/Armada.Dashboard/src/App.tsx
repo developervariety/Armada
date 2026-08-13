@@ -6,6 +6,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { WebSocketProvider } from './context/WebSocketContext';
 import { NotificationProvider } from './context/NotificationContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import LoadingIndicator from './components/shared/LoadingIndicator';
 import Layout from './components/Layout';
 import './App.css';
 
@@ -82,11 +83,7 @@ const DispatchHub = lazy(() => import('./pages/DispatchHub'));
 const DeliveryHub = lazy(() => import('./pages/DeliveryHub'));
 
 function RouteFallback() {
-  return (
-    <div style={{ padding: '2rem 2.5rem' }}>
-      <p className="text-dim">Loading page...</p>
-    </div>
-  );
+  return <LoadingIndicator fullHeight label="Loading page..." />;
 }
 
 export default function App() {

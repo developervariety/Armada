@@ -5,6 +5,7 @@ namespace Armada.Server.Routes
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Text;
     using System.Text.Json;
     using WatsonWebserver;
     using WatsonWebserver.Core;
@@ -1166,7 +1167,10 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    string[] allLines = await ReadLinesSharedAsync(logPath).ConfigureAwait(false);
+                    // Mux writes newline-delimited JSON protocol events (one per token for streamed text) to
+                    // the log, which is unreadable raw. Render those into plain, human-readable transcript lines
+                    // (contiguous assistant text, concise tool-call lines, run summaries) before paginating.
+                    string[] allLines = RenderMissionLog(await ReadLinesSharedAsync(logPath).ConfigureAwait(false));
                     int totalLines = allLines.Length;
 
                     int offset = 0;
@@ -1261,6 +1265,134 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
+        }
+
+        /// <summary>
+        /// Render a raw mission log into human-readable lines. Runtimes such as Mux write newline-delimited
+        /// JSON protocol events -- including one event per streamed token -- which is unreadable as-is. This
+        /// collapses streamed assistant text into contiguous lines, summarizes tool calls and run start/finish,
+        /// and drops protocol noise (heartbeats, approvals). Plain lines (the launch header, non-JSON runtimes)
+        /// pass through unchanged.
+        /// </summary>
+        private static string[] RenderMissionLog(string[] rawLines)
+        {
+            if (rawLines == null || rawLines.Length == 0) return rawLines ?? Array.Empty<string>();
+
+            List<string> output = new List<string>(rawLines.Length);
+            StringBuilder assistantText = new StringBuilder();
+
+            foreach (string raw in rawLines)
+            {
+                string trimmed = raw.Trim();
+                if (trimmed.Length < 2 || trimmed[0] != '{' || trimmed[trimmed.Length - 1] != '}')
+                {
+                    FlushAssistantText(output, assistantText);
+                    output.Add(raw);
+                    continue;
+                }
+
+                JsonDocument? doc = null;
+                try { doc = JsonDocument.Parse(trimmed); }
+                catch (JsonException) { }
+
+                if (doc == null
+                    || doc.RootElement.ValueKind != JsonValueKind.Object
+                    || !doc.RootElement.TryGetProperty("eventType", out JsonElement eventTypeElement)
+                    || eventTypeElement.ValueKind != JsonValueKind.String)
+                {
+                    doc?.Dispose();
+                    FlushAssistantText(output, assistantText);
+                    output.Add(raw);
+                    continue;
+                }
+
+                using (doc)
+                {
+                    JsonElement root = doc.RootElement;
+                    string eventType = eventTypeElement.GetString() ?? String.Empty;
+                    switch (eventType)
+                    {
+                        case "assistant_text":
+                            if (root.TryGetProperty("text", out JsonElement textElement) && textElement.ValueKind == JsonValueKind.String)
+                                assistantText.Append(textElement.GetString());
+                            break;
+
+                        case "tool_call_proposed":
+                            FlushAssistantText(output, assistantText);
+                            if (root.TryGetProperty("toolCall", out JsonElement toolCall) && toolCall.ValueKind == JsonValueKind.Object)
+                            {
+                                string name = GetLogString(toolCall, "name");
+                                string args = toolCall.TryGetProperty("arguments", out JsonElement argsElement)
+                                    ? TruncateForLog(argsElement.GetRawText(), 400) : String.Empty;
+                                output.Add("> tool: " + name + (args.Length > 0 ? " " + args : String.Empty));
+                            }
+                            break;
+
+                        case "tool_call_completed":
+                            FlushAssistantText(output, assistantText);
+                            {
+                                string name = GetLogString(root, "toolName");
+                                bool ok = !(root.TryGetProperty("result", out JsonElement result)
+                                    && result.ValueKind == JsonValueKind.Object
+                                    && result.TryGetProperty("success", out JsonElement success)
+                                    && success.ValueKind == JsonValueKind.False);
+                                string elapsed = root.TryGetProperty("elapsedMs", out JsonElement elapsedElement) && elapsedElement.ValueKind == JsonValueKind.Number
+                                    ? " (" + elapsedElement.GetDouble().ToString("0") + "ms)" : String.Empty;
+                                output.Add("  " + (name.Length > 0 ? name + " " : String.Empty) + "-> " + (ok ? "ok" : "failed") + elapsed);
+                            }
+                            break;
+
+                        case "run_started":
+                            FlushAssistantText(output, assistantText);
+                            output.Add("-- run started (" + GetLogString(root, "model") + ") --");
+                            break;
+
+                        case "run_completed":
+                            FlushAssistantText(output, assistantText);
+                            {
+                                string dur = root.TryGetProperty("durationMs", out JsonElement d) && d.ValueKind == JsonValueKind.Number ? d.GetDouble().ToString("0") : "?";
+                                string iters = root.TryGetProperty("iterationsCompleted", out JsonElement it) && it.ValueKind == JsonValueKind.Number ? it.GetInt32().ToString() : "?";
+                                string calls = root.TryGetProperty("toolCallCount", out JsonElement cc) && cc.ValueKind == JsonValueKind.Number ? cc.GetInt32().ToString() : "?";
+                                output.Add("-- run completed: " + dur + "ms, " + iters + " iteration(s), " + calls + " tool call(s) --");
+                            }
+                            break;
+
+                        // Protocol noise that adds nothing to a human transcript.
+                        case "assistant_thinking":
+                        case "tool_call_approved":
+                        case "heartbeat":
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            FlushAssistantText(output, assistantText);
+            return output.ToArray();
+        }
+
+        private static void FlushAssistantText(List<string> output, StringBuilder assistantText)
+        {
+            if (assistantText.Length == 0) return;
+            string text = assistantText.ToString();
+            assistantText.Clear();
+            foreach (string line in text.Split('\n'))
+            {
+                output.Add(line.TrimEnd('\r'));
+            }
+        }
+
+        private static string GetLogString(JsonElement obj, string property)
+        {
+            return obj.TryGetProperty(property, out JsonElement element) && element.ValueKind == JsonValueKind.String
+                ? (element.GetString() ?? String.Empty) : String.Empty;
+        }
+
+        private static string TruncateForLog(string? value, int max)
+        {
+            if (String.IsNullOrEmpty(value)) return String.Empty;
+            string collapsed = value!.Replace("\r", " ").Replace("\n", " ");
+            return collapsed.Length <= max ? collapsed : collapsed.Substring(0, max) + "...";
         }
 
         private static MissionHistorySummaryResult BuildMissionHistorySummary(MissionHistoryQuery query, IEnumerable<MissionHistoryPoint> points)
