@@ -6,7 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications } from '../context/NotificationContext';
 import { clearProxySessionInstance, getHealth, getProxySessionContext, listCaptains, listFleets, listVessels, logoutProxy, type ProxySessionContext } from '../api/client';
-import SetupWizard, { isSetupComplete } from './SetupWizard';
+import SetupWizard, { isSetupComplete, clearSetupComplete } from './SetupWizard';
 import LanguageSelector from './shared/LanguageSelector';
 import NotificationBell from './shared/NotificationBell';
 import CommandPalette from './shared/CommandPalette';
@@ -72,11 +72,6 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
-    if (isSetupComplete()) {
-      setShowWizard(false);
-      return;
-    }
-
     let mounted = true;
     async function evaluateWizardVisibility() {
       try {
@@ -91,6 +86,22 @@ export default function Layout() {
         const hasFleet = (fleetResult.objects || []).length > 0;
         const hasVessel = (vesselResult.objects || []).length > 0;
         const hasCaptain = (captainResult.objects || []).length > 0;
+
+        // A completely empty deployment (e.g. a fresh install or after factory-reset) always shows the
+        // wizard, even if this browser previously finished setup against another deployment. Clear that
+        // stale flag so it does not permanently suppress the wizard on the fresh deployment.
+        if (!hasFleet && !hasVessel && !hasCaptain) {
+          clearSetupComplete();
+          setShowWizard(true);
+          return;
+        }
+
+        // Otherwise honor the per-browser "completed" flag; if not set, prompt only while something is
+        // still missing.
+        if (isSetupComplete()) {
+          setShowWizard(false);
+          return;
+        }
         setShowWizard(!hasFleet || !hasVessel || !hasCaptain);
       } catch {
         if (mounted) {

@@ -36,6 +36,19 @@ export function markSetupComplete(): void {
   }
 }
 
+/**
+ * Clear the "setup complete" flag. Used when the deployment is found to be empty (e.g. after a
+ * factory-reset), so a browser that finished setup against a previous deployment does not permanently
+ * suppress the wizard on the fresh one.
+ */
+export function clearSetupComplete(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // storage unavailable
+  }
+}
+
 export interface SetupWizardProps {
   onClose: () => void;
   onHighlightChange?: (paths: string[]) => void;
