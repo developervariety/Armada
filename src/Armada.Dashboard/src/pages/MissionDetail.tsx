@@ -552,7 +552,7 @@ export default function MissionDetail() {
 
       {reviewDecision && (
         <div className="modal-overlay" onClick={() => setReviewDecision(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal review-verdict-modal" onClick={e => e.stopPropagation()}>
             <h3>{t('Resolve Review')}</h3>
             <p className="text-dim">
               {t('Choose how to resolve this review gate. Your feedback is carried into the next step or the re-run.')}
@@ -561,7 +561,7 @@ export default function MissionDetail() {
               {t('Feedback')}
               <textarea
                 value={reviewDecision.comment}
-                rows={5}
+                rows={8}
                 onChange={event => setReviewDecision(current => current ? { ...current, comment: event.target.value } : current)}
                 placeholder={t('Required for Conditionally Approve and More Work Required; optional for Approve/Deny.')}
               />
