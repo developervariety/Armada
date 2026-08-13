@@ -674,8 +674,9 @@ export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/ap
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
-export const getCaptainLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}`);
+export const getCaptainLog = (id: string, lines = 500, formatted = false) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}${formatted ? '&formatted=true' : ''}`);
 export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/stop`);
+export const unquarantineCaptain = (id: string) => post<Captain>(`/api/v1/captains/${id}/unquarantine`);
 export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
 export const listMuxEndpoints = (configDirectory?: string | null) =>

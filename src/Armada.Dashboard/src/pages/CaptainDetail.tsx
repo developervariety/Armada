@@ -6,6 +6,7 @@ import {
   getCaptainTools,
   getCaptainLog,
   stopCaptain,
+  unquarantineCaptain,
   recallCaptain,
   getMission,
   listMissionSummaries,
@@ -58,6 +59,7 @@ export default function CaptainDetail() {
   const [logText, setLogText] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [logReadable, setLogReadable] = useState(true);
   const [logInfo, setLogInfo] = useState('');
 
   // JSON viewer
@@ -153,12 +155,12 @@ export default function CaptainDetail() {
     }
   }
 
-  async function handleViewLog() {
+  async function handleViewLog(formatted = logReadable) {
     if (!id) return;
     setLogLoading(true);
     setShowLog(true);
     try {
-      const result: LogResult = await getCaptainLog(id);
+      const result: LogResult = await getCaptainLog(id, 500, formatted);
       setLogText(result.log || t('(empty log)'));
       setLogInfo(t('({{lines}} of {{totalLines}} lines)', { lines: result.lines || 0, totalLines: result.totalLines || 0 }));
     } catch {
@@ -184,6 +186,15 @@ export default function CaptainDetail() {
         } catch { setError(t('Failed to stop captain.')); }
       },
     });
+  }
+
+  async function handleUnquarantine() {
+    if (!captain) return;
+    try {
+      await unquarantineCaptain(captain.id);
+      pushToast('success', t('Quarantine lifted for "{{name}}".', { name: captain.name }));
+      load();
+    } catch { setError(t('Failed to lift quarantine.')); }
   }
 
   function handleRecall() {
@@ -435,6 +446,18 @@ export default function CaptainDetail() {
           <span className="detail-label">{t('State')}</span>
           <StatusBadge status={captain.state} />
         </div>
+        {captain.state === 'Quarantined' && (
+          <div className="detail-field">
+            <span className="detail-label">{t('Quarantine')}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <span className="text-dim">
+                {captain.quarantineReason || t('quarantined')}
+                {captain.quarantineUntilUtc ? ` (${t('until')} ${formatDateTime(captain.quarantineUntilUtc)})` : ''}
+              </span>
+              <button type="button" className="btn btn-sm" onClick={handleUnquarantine}>{t('Lift Quarantine')}</button>
+            </span>
+          </div>
+        )}
         <div className="detail-field">
           <span className="detail-label">{t('Current Mission')}</span>
           {captain.currentMissionId ? (
@@ -504,7 +527,13 @@ export default function CaptainDetail() {
         <div style={{ marginTop: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3>{t('Captain Log')} {logInfo && <span className="text-dim">{logInfo}</span>}</h3>
-            <button className="btn" onClick={() => setShowLog(false)}>{t('Hide Log')}</button>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <label className="ask-stream-toggle" title={t('Resolve tool names, redact secrets, and drop noise')}>
+                <input type="checkbox" checked={logReadable} onChange={(e) => { setLogReadable(e.target.checked); void handleViewLog(e.target.checked); }} disabled={logLoading} />
+                {t('Readable')}
+              </label>
+              <button className="btn" onClick={() => setShowLog(false)}>{t('Hide Log')}</button>
+            </span>
           </div>
           {logLoading ? (
             <p className="text-dim">{t('Loading log...')}</p>
