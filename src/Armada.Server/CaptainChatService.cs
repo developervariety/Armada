@@ -374,17 +374,19 @@ namespace Armada.Server
                 }
 
                 // Keep all timing on one wall-clock base so time-to-first-token never exceeds total and
-                // streaming always resolves. Token counts come from the captain's own telemetry (Mux
-                // reports finalEstimatedTokens); reportedDurationMs is captain-internal and, being on a
+                // streaming always resolves. reportedDurationMs is captain-internal and, being on a
                 // different base than our wall clock, is used only as a fallback total.
                 double wallClockMs = (DateTime.UtcNow - startUtc).TotalMilliseconds;
                 double totalMs = wallClockMs > 0 ? wallClockMs : (reportedDurationMs ?? wallClockMs);
                 double? ttftMs = firstOutputUtc.HasValue
                     ? Math.Min((firstOutputUtc.Value - startUtc).TotalMilliseconds, totalMs)
                     : (double?)null;
-                double? tokensPerSecond = (reportedTokens.HasValue && totalMs > 0)
-                    ? reportedTokens.Value / (totalMs / 1000.0)
-                    : (double?)null;
+
+                // Only Claude Code reports a real completion-token count (output_tokens from its "result"
+                // event). Mux's reportedTokens is finalEstimatedTokens -- a whole-context estimate, not the
+                // reply -- so it is NOT passed here; the shared builder estimates completion tokens from the
+                // reply text instead, matching planning-session metrics.
+                int? realCompletionTokens = isClaude ? reportedTokens : null;
 
                 string thinkingText;
                 lock (outputLock) thinkingText = thinking.ToString().Trim();
@@ -396,14 +398,7 @@ namespace Armada.Server
                     Thinking = String.IsNullOrEmpty(thinkingText) ? null : thinkingText,
                     Model = !String.IsNullOrEmpty(reportedModel) ? reportedModel
                         : (String.IsNullOrEmpty(captain.Model) ? captain.Runtime.ToString() : captain.Model),
-                    Metrics = new CaptainChatMetrics
-                    {
-                        TotalMs = totalMs,
-                        TimeToFirstTokenMs = ttftMs,
-                        StreamingMs = ttftMs.HasValue ? Math.Max(0, totalMs - ttftMs.Value) : (double?)null,
-                        TotalTokens = reportedTokens,
-                        TokensPerSecond = tokensPerSecond,
-                    },
+                    Metrics = Armada.Core.Services.ChatTurnMetricsBuilder.Build(totalMs, ttftMs, reply, realCompletionTokens),
                 };
 
                 _Logging.Debug(_Header + "chat turn for captain " + captainId + " (" + captain.Runtime + "): " +

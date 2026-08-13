@@ -1570,22 +1570,13 @@ namespace Armada.Server
         /// <returns>The per-turn metrics.</returns>
         private static CaptainChatMetrics BuildTurnMetrics(DateTime startUtc, DateTime? firstOutputUtc, DateTime endUtc, string content)
         {
-            CaptainChatMetrics metrics = new CaptainChatMetrics();
-            metrics.TotalMs = (endUtc - startUtc).TotalMilliseconds;
+            double totalMs = (endUtc - startUtc).TotalMilliseconds;
+            double? ttftMs = firstOutputUtc.HasValue
+                ? Math.Min((firstOutputUtc.Value - startUtc).TotalMilliseconds, totalMs)
+                : (double?)null;
 
-            if (firstOutputUtc.HasValue)
-            {
-                metrics.TimeToFirstTokenMs = (firstOutputUtc.Value - startUtc).TotalMilliseconds;
-
-                double streamingMs = (endUtc - firstOutputUtc.Value).TotalMilliseconds;
-                metrics.StreamingMs = streamingMs;
-
-                int estimatedTokens = (int)Math.Round((content?.Length ?? 0) / 3.5);
-                metrics.CompletionTokens = estimatedTokens;
-                if (streamingMs > 0) metrics.TokensPerSecond = estimatedTokens / (streamingMs / 1000.0);
-            }
-
-            return metrics;
+            // Use the shared builder so planning-session and Ask Armada metrics are computed identically.
+            return Armada.Core.Services.ChatTurnMetricsBuilder.Build(totalMs, ttftMs, content, null);
         }
 
         private Armada.Runtimes.Interfaces.IAgentRuntime CreatePlanningRuntime(Captain captain)
