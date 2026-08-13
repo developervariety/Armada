@@ -4,10 +4,10 @@ import { listVessels, listFleets, listPipelines, createVessel, updateVessel, del
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
+import BuildContextModal from '../components/vessels/BuildContextModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
-import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
@@ -69,9 +69,7 @@ export default function Vessels() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
-
-  // Row-click view modal
-  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
+  const [buildContextVessel, setBuildContextVessel] = useState<Vessel | null>(null);
 
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -307,7 +305,7 @@ export default function Vessels() {
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" style={{ width: '95vw', maxWidth: '95vw', height: '95vh', maxHeight: '95vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className="modal" style={{ width: 'min(1080px, 95vw)', maxWidth: 'min(1080px, 95vw)', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Vessel') : t('Create Vessel')}</h3>
 
             {/* Row 1: Name + Fleet + Repo URL (3 cols) */}
@@ -466,15 +464,16 @@ export default function Vessels() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
-      <RecordDetailModal
-        open={!!viewRecord}
-        title={typeof viewRecord?.name === 'string' ? viewRecord.name : t('Vessel')}
-        subtitle={t('Vessel')}
-        record={viewRecord}
-        onClose={() => setViewRecord(null)}
-        onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/vessels/${(r as { id: string }).id}`); }}
-        editLabel={t('Open Details')}
-      />
+      {buildContextVessel && (
+        <BuildContextModal
+          vessel={buildContextVessel}
+          onClose={() => setBuildContextVessel(null)}
+          onBuilt={(updated) => {
+            setVessels((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+            pushToast('success', t('Model Context updated for "{{name}}".', { name: updated.name }));
+          }}
+        />
+      )}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -536,7 +535,7 @@ export default function Vessels() {
               </thead>
               <tbody>
                 {table.paginated.map(v => (
-                  <tr key={v.id} className="clickable" onClick={() => setViewRecord(v as unknown as Record<string, unknown>)}>
+                  <tr key={v.id} className="clickable" onClick={() => openEdit(v)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={table.selected.includes(v.id)} onChange={() => table.toggleSelect(v.id)} title={t('Select this vessel')} />
                     </td>
@@ -590,6 +589,7 @@ export default function Vessels() {
                         { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${v.fleetId}`), disabled: !v.fleetId },
                         { label: 'Open Workspace', onClick: () => navigate(`/workspace/${v.id}`) },
                         { label: 'View Detail', onClick: () => navigate(`/vessels/${v.id}`) },
+                        { label: v.modelContext && v.modelContext.trim().length > 0 ? 'Refine Context' : 'Build Context', onClick: () => setBuildContextVessel(v) },
                         { label: 'Edit', onClick: () => openEdit(v) },
                         { label: 'Duplicate', onClick: () => void handleDuplicate(v) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Vessel: ${v.name}`, data: v }) },

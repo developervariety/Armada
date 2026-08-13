@@ -246,6 +246,32 @@ namespace Armada.Core.Services
                     "- This is a conversational chat, not a mission: do not modify files, run destructive commands, or dispatch work unless the operator explicitly asks you to.\n"
             };
 
+            defaults["vessel.build_context"] = new EmbeddedTemplate
+            {
+                Name = "vessel.build_context",
+                Description = "Prompt used by the Vessel \"Build Context\" action to generate or refine a vessel's Model Context.",
+                Category = "vessel",
+                Content =
+                    "You are analyzing a git repository to build its \"Model Context\": a concise, durable reference\n" +
+                    "document that future AI coding agents (captains) read before working in this repository.\n" +
+                    "\n" +
+                    "Inspect the repository in your current working directory -- read files as needed -- and produce a\n" +
+                    "Model Context document that covers:\n" +
+                    "- What the project is and its purpose.\n" +
+                    "- Architecture and how the code is organized (key directories, entry points, and important files).\n" +
+                    "- Build, test, and run commands.\n" +
+                    "- Key dependencies, frameworks, languages, and external services.\n" +
+                    "- Coding conventions, patterns, and constraints an agent should follow.\n" +
+                    "- Anything non-obvious an agent must know to work here safely and effectively.\n" +
+                    "\n" +
+                    "Rules:\n" +
+                    "- This is a READ-ONLY analysis. Do NOT modify, create, or delete any files, and do not run\n" +
+                    "  destructive commands.\n" +
+                    "- Be concise and factual. Prefer short sections and bullet points over prose.\n" +
+                    "- Output ONLY the Model Context document itself -- no preamble, no sign-off, and do not wrap the\n" +
+                    "  whole document in a code fence.\n"
+            };
+
             defaults["mission.rules"] = new EmbeddedTemplate
             {
                 Name = "mission.rules",

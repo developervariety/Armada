@@ -559,6 +559,10 @@ export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
 export const deleteVessel = (id: string) => del<void>(`/api/v1/vessels/${id}`);
+// Building a Model Context launches a captain to analyze the repository and can take minutes; allow a long
+// timeout so the request does not abort before the captain finishes.
+export const buildVesselContext = (id: string, data: { captainId: string; notes?: string }) =>
+  post<Vessel>(`/api/v1/vessels/${id}/build-context`, data, { timeout: 900000 });
 export const getVesselReadiness = (
   id: string,
   params?: {

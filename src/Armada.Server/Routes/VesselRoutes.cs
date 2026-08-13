@@ -25,6 +25,7 @@ namespace Armada.Server.Routes
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly IDockService? _dockService;
+        private readonly VesselContextService? _contextService;
 
         /// <summary>
         /// Instantiate.
@@ -35,13 +36,15 @@ namespace Armada.Server.Routes
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="dockService">Optional dock service for worktree cleanup during vessel deletion.</param>
+        /// <param name="contextService">Optional service that builds/refines a vessel's Model Context.</param>
         public VesselRoutes(
             DatabaseDriver database,
             VesselReadinessService readiness,
             LandingPreviewService landingPreview,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             JsonSerializerOptions jsonOptions,
-            IDockService? dockService = null)
+            IDockService? dockService = null,
+            VesselContextService? contextService = null)
         {
             _database = database;
             _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
@@ -49,6 +52,7 @@ namespace Armada.Server.Routes
             _emitEvent = emitEvent;
             _jsonOptions = jsonOptions;
             _dockService = dockService;
+            _contextService = contextService;
         }
 
         /// <summary>
@@ -383,6 +387,67 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithParameter(OpenApiParameterMetadata.Query("sourceBranch", "Optional branch name to preview", false))
                 .WithResponse(200, OpenApiJson.For<LandingPreviewResult>("Landing preview"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post<VesselBuildContextRequest>("/api/v1/vessels/{id}/build-context", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                if (_contextService == null)
+                {
+                    req.Http.Response.StatusCode = 501;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Model Context building is not available on this server." };
+                }
+
+                string buildId = req.Parameters["id"];
+                Vessel? buildVessel = ctx.IsAdmin
+                    ? await _database.Vessels.ReadAsync(buildId).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, buildId).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, buildId).ConfigureAwait(false);
+                if (buildVessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                VesselBuildContextRequest request = JsonSerializer.Deserialize<VesselBuildContextRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new VesselBuildContextRequest();
+                if (String.IsNullOrWhiteSpace(request.CaptainId))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "captainId is required." };
+                }
+
+                try
+                {
+                    Vessel updated = await _contextService.BuildAsync(buildVessel.Id, request.CaptainId, request.Notes).ConfigureAwait(false);
+                    return (object)updated;
+                }
+                catch (TimeoutException ex)
+                {
+                    req.Http.Response.StatusCode = 504;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Build or refine the vessel Model Context")
+                .WithDescription("Launches the chosen captain in a worktree of the vessel repository to analyze it and write a Model Context document. Refines the existing context when one is present. Runs synchronously and can take several minutes.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<VesselBuildContextRequest>("Build context request", true))
+                .WithResponse(200, OpenApiJson.For<Vessel>("Updated vessel with new Model Context"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

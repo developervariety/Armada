@@ -542,7 +542,8 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Vessels
-            new VesselRoutes(_Database, _VesselReadinessService, _LandingPreviewService, EmitEventAsync, _JsonOptions, _Docks)
+            VesselContextService vesselContextService = new VesselContextService(_Database, _RuntimeFactory, _Docks, _PromptTemplateService, _Logging);
+            new VesselRoutes(_Database, _VesselReadinessService, _LandingPreviewService, EmitEventAsync, _JsonOptions, _Docks, vesselContextService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Workspace
