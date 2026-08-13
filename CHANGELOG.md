@@ -39,9 +39,51 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - Pipeline detail now shows a visual left-to-right stage flow (persona cards with review-gate and optional badges) alongside the existing low-code stage editor
 - Live run-mode: dispatch a voyage that runs a pipeline against a chosen vessel directly from the pipeline page, then jump to the voyage to watch it
 
-### Ask Armada
-- Added a lightweight conversational assistant (`AskArmadaService`) that answers read-only questions about fleet state (status, captains, missions, failures, stalls, docks, voyages) and returns suggested navigation links; the intent layer is a clean seam for a future LLM/agent-backed upgrade
-- REST `POST /api/v1/ask`; dashboard "Ask Armada" chat page under Operations
+### Ask Armada (captain-backed conversational control)
+- Ask Armada is now a real captain-backed chat, not a fixed intent layer: it dispatches each turn to a live captain over that captain's CLI runtime (Claude Code, Codex, Gemini, Cursor, Mux, or OpenCode), so the assistant can actually reason about and act on fleet state through the captain's Armada MCP tools rather than pattern-matching a fixed question set
+- Per-turn telemetry in an `(i)` popover: time-to-first-token, streaming duration, tokens/sec, and completion/total token counts, sourced from real captain output via a shared `ChatTurnMetricsBuilder` (replacing the earlier wildly-inflated whole-context token estimates)
+- Real streaming: Claude Code turns stream token-by-token via `stream-json` output; Mux protocol events are parsed and stripped from the transcript; Codex (which cannot token-stream from `exec`) shows an explicit non-streaming notice instead of appearing hung
+- Replies stream to the browser over the Watson WebSocket, render Markdown, surface live tool-call activity, and show rotating waiting messages instead of a static "Thinking..."; optional show-thinking, an editable Ask Armada system prompt, and a Stop button to abort a turn
+- Reliability: correctly detects a missing Armada MCP connection, and loads MCP servers for headless Mux so Ask Armada can call tools; a Clear-conversation control (trash icon beside Send) with a confirmation modal
+- REST `POST /api/v1/ask`; Ask Armada is a standalone top-level nav destination
+
+### Planning sessions unified with Ask Armada
+- The planning Current Session chat now mirrors the full Ask Armada experience: the same reusable chat component, per-turn `(i)` metrics, Markdown rendering, tool-call activity, Stop button, and streaming (Claude Code planning turns stream token-by-token; Mux protocol events are stripped from the transcript)
+- Recent Sessions is collapsible with a per-row action menu and a Delete All control (confirmation modal); Clear conversation moved to a trash icon beside Send with its own confirmation; the whole Current Session card is pinned so the transcript no longer scrolls the page
+- Mission execution is explicitly non-streaming again: token streaming is used only in Ask Armada and Planning when the user opts in, never during mission runs
+
+### Agent runtimes
+- Added the OpenCode runtime (`opencode`) as a first-class captain, wired through `AgentRuntimeFactory`, with its failure-handling, admission, and auto-land cores brought to parity with the other runtimes
+- Per-captain reasoning effort: an effort level stored on the captain is translated per runtime (Claude thinking tokens, Codex `model_reasoning_effort`, Mux `--effort`, OpenCode `--variant`)
+- Model-tier routing for dispatch: missions can be routed to captains by model tier
+- Prompt delivery hardened on Windows: the five CLI runtimes (Claude Code, Codex, Gemini, Cursor, OpenCode) now deliver the prompt on stdin instead of as a command-line argument, fixing multi-line prompts being truncated at the first newline by the npm `.cmd` wrappers
+- `armada mcp install` now detects and configures Mux alongside Claude Code, Codex, Gemini, and Cursor
+
+### Vessel context building
+- Vessels gained a Build Context / Refine Context action: launch a chosen captain to write (or refine) the vessel's Model Context from a seeded, editable `vessel.build_context` prompt template plus optional operator notes, provisioning and reclaiming a dock for the run; the result is saved to the vessel's Model Context field
+- Vessel row-click now opens the full Edit Vessel modal (the previous read-only detail modal was removed for that path)
+
+### Background jobs
+- Added the background-jobs feature end to end (fork-parity): a durable job entity with its own state machine, persisted across all four database providers, surfaced through a dashboard Jobs page
+
+### Fork-parity reliability and delivery edges
+- Vessel auto-land predicate + UI and captain quarantine types (backend + four-driver persistence), including MCP auto-land arguments and an un-quarantine path
+- Resource-admission wiring and cross-runtime node reuse for launch scheduling
+- Readable runtime logs and git anchors surfaced in the mission brief
+- Objective-link parity for MCP dispatch so dispatched work stays tied to its objective
+- Captured merge-conflict file lists on landing retry so the operator sees exactly what to fix
+
+### Readable mission logs
+- Mux writes per-token JSONL during a run; the mission log endpoint now renders that stream into a readable transcript instead of returning raw one-token-per-line JSON
+
+### Operator experience
+- Cross-platform `factory-reset` scripts for Windows, Linux, and macOS that stop the running server (escalating to a forced kill and verifying it exited) before wiping state, so a reset can no longer delete the database out from under a live server
+- Setup wizard: Vessel and Captain steps sized to the viewport with pinned step actions (no scrolling to reach the register button), the wizard now reappears on an empty deployment even after a prior setup completed, and finishing the wizard lands on the Missions page
+- A shared loading indicator is shown while lazy-loaded pages resolve, replacing the transient blank screen
+- Mission History chart renders finished captain-work bars (work produced, PR open, testing, review, complete) in green
+
+### Merge-queue cleanup tools
+- Added `delete_merge` (delete a single terminal merge-queue entry) and `purge_merge_queue` / `purge_merge_entry` / `purge_merge_entries` (bulk-purge terminal entries, optionally filtered by vessel and status), leveraging the existing branch-cleanup path -- closing the gap with the mission and voyage purge tools
 
 ### In-browser dock terminal
 - `WorkspaceService.ExecAsync` runs a shell command in a vessel's working tree (cross-platform: cmd.exe on Windows, /bin/sh elsewhere), bounded by a timeout that kills the whole process tree, with captured stdout/stderr and output caps

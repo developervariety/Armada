@@ -54,7 +54,8 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **Pull-based GitHub delivery context.** Objectives can import GitHub issue or PR scope, deployments can sync GitHub Actions into `Delivery > Checks`, and mission or release detail can show GitHub PR review/check evidence without exposing raw tokens on reads.
 - **First-class delivery records and timeline history.** `Delivery > Environments`, `Deployments`, and `Releases` group rollout targets, approvals, verification evidence, linked voyages, missions, checks, versions, notes, and artifacts, while `Activity` (All Activity) lets you reconstruct the current cross-entity delivery story from one place.
 - **Operational incident and runbook support.** `Delivery > Incidents` and `Delivery > Runbooks` carry rollback context, hotfix handoff, step-by-step execution, and deployment-linked operational guidance inside Armada itself.
-- **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
+- **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches. The `Build Context` / `Refine Context` action on a vessel launches a captain to write or refine that context from an editable prompt template plus your notes.
+- **A captain-backed assistant.** `Ask Armada` is a conversational chat that dispatches each turn to a live captain over its CLI runtime, so it can reason about and act on fleet state through the captain's MCP tools, with per-turn metrics, optional streaming, and Markdown replies.
 - **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
 - **Quality gates that run automatically.** Every piece of work can flow through a pipeline: plan it, implement it, test it, review it. No manual intervention between steps.
@@ -264,6 +265,7 @@ Current planning-session behavior:
 - Planning sessions reserve the selected captain and a dock/worktree for the selected vessel while the session is active.
 - The captain can inspect and modify the repository while planning. Treat the planning session as tool-capable, not read-only.
 - Planning is transcript-backed today: each turn relaunches the runtime against the preserved transcript and repo context rather than holding a persistent stdin session open.
+- The planning chat mirrors Ask Armada: Markdown replies, live tool-call activity, per-turn metrics (time-to-first-token, tokens/sec, token counts), optional token streaming, and a Stop button. Recent Sessions supports per-row actions and a Delete All control.
 - Planning-session persistence is implemented for SQLite first. Other database backends currently reject planning-session operations with an explicit `501 Not Supported`.
 - Armada can summarize a selected planning reply into a server-owned dispatch draft before you launch the voyage.
 - You can open the current planning draft in the main `Dispatch` page without copy/paste.
@@ -643,12 +645,12 @@ armada go "Fix the login bug" --vessel my-api
 armada vessel add my-api https://github.com/you/my-api
 armada vessel add my-frontend https://github.com/you/my-frontend
 
-# Add more agents (supports claude, codex, gemini, cursor, mux, opencode)
+# Add more agents (armada captain add --runtime accepts: claude, codex, gemini, cursor, mux, custom)
 armada captain add claude-2 --runtime claude
 armada captain add codex-1 --runtime codex
 armada captain add gemini-1 --runtime gemini
+armada captain add cursor-1 --runtime cursor
 armada captain add mux-1 --runtime mux --mux-endpoint local-openai
-armada captain add opencode-1 --runtime opencode --model openai/gpt-4o
 armada captain update mux-1 --mux-config-dir C:\Users\you\.mux-work --mux-endpoint staging-openai
 
 # Emergency stop all agents
@@ -662,6 +664,8 @@ armada voyage retry "API Hardening"
 ```
 
 Mux captains require a named endpoint. Armada stores that endpoint selection on the captain, validates it through `mux probe --require-tools`, and can optionally target a non-default Mux config directory via `--mux-config-dir`. The React dashboard and legacy dashboard can both browse saved endpoints through Armada's `/api/v1/runtimes/mux/endpoints` helper APIs.
+
+The `armada captain add --runtime` CLI accepts `claude`, `codex`, `gemini`, `cursor`, `mux`, and `custom`. OpenCode is a fully supported runtime, but OpenCode captains are created through the dashboard or the REST/MCP captain APIs rather than the `captain add` CLI shortcut.
 
 ## Configuration
 
