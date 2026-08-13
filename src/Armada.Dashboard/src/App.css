@@ -6166,7 +6166,7 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     display: block;
     width: min(1280px, calc(100vw - 1.5rem));
     max-width: 1280px;
-    height: min(94vh, 920px);
+    height: min(96vh, 1040px);
     min-height: 0;
     max-height: calc(100vh - 1.5rem);
     border-radius: 18px;
@@ -6630,6 +6630,21 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     gap: 0.65rem;
     flex-wrap: wrap;
     margin-top: 0.25rem;
+}
+
+/* Pin each step's primary action (Register Vessel, Create Captain, Dispatch, ...) to the bottom of the
+   scrolling step content so it is always reachable without scrolling the (sometimes tall) form. The
+   negative margins bleed the bar to the content edges and cancel the content's bottom padding. */
+.wizard-container-objective .wizard-inline-actions {
+    position: sticky;
+    bottom: -1.15rem;
+    z-index: 2;
+    margin: 0.75rem -1.25rem -1.15rem;
+    padding: 0.8rem 1.25rem;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
 }
 
 .wizard-result {
