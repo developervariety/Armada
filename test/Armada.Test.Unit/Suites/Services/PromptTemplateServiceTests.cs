@@ -114,8 +114,9 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("persona", resolved.Category, "Specialist template category");
                         AssertTrue(resolved.IsBuiltIn, "Embedded specialist template should be built in");
                         AssertContains(kvp.Value, resolved.Content, "Specialist content should identify the role");
-                        AssertContains("{Diff}", resolved.Content, "Specialist content should include diff placeholder");
-                        AssertContains("{PreviousStageOutput}", resolved.Content, "Specialist content should include previous stage placeholder");
+                        AssertContains("Review the diff and prior-stage output carried in your mission description", resolved.Content, "Specialist content should point at the diff carried in the mission description");
+                        AssertFalse(resolved.Content.Contains("{Diff}"), "Specialist content should not carry an unsubstituted diff placeholder");
+                        AssertFalse(resolved.Content.Contains("{PreviousStageOutput}"), "Specialist content should not carry an unsubstituted previous-stage placeholder");
                         AssertContains("[ARMADA:RESULT] COMPLETE", resolved.Content, "Specialist content should include completion signal");
                     }
                 }

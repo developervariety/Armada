@@ -502,10 +502,7 @@ namespace Armada.Core.Services
                     "shape.\n" +
                     "\n" +
                     "## Diff to Review\n" +
-                    "{Diff}\n" +
-                    "\n" +
-                    "## Previous Stage Output\n" +
-                    "{PreviousStageOutput}\n" +
+                    "Review the diff and prior-stage output carried in your mission description.\n" +
                     "\n" +
                     "Evaluate only the current mission description and diff. Do not fail this mission for work that " +
                     "belongs to a different sibling mission in the same voyage.\n" +
@@ -594,10 +591,7 @@ namespace Armada.Core.Services
                     "You do not patch production code. Commit test files only.\n" +
                     "\n" +
                     "## Diff to Cover\n" +
-                    "{Diff}\n" +
-                    "\n" +
-                    "## Previous Stage Output\n" +
-                    "{PreviousStageOutput}\n" +
+                    "Review the diff and prior-stage output carried in your mission description.\n" +
                     "\n" +
                     "Scope yourself only to the current mission description and prior diff. Do not add work that " +
                     "belongs to a sibling mission in the same voyage. Assume the worker may have missed at least " +
@@ -655,9 +649,6 @@ namespace Armada.Core.Services
                     "\n" +
                     "## Work to Evaluate\n" +
                     "{MissionDescription}\n" +
-                    "\n" +
-                    "## Previous Stage Output\n" +
-                    "{PreviousStageOutput}\n" +
                     "\n" +
                     "## Instructions\n" +
                     "\n" +
@@ -925,10 +916,7 @@ namespace Armada.Core.Services
                     "Review the previous Worker stage output and diff before the TestEngineer and Judge stages run. Your job is to catch domain-specific defects early, make narrowly scoped corrective changes when the fix is clear and inside the mission scope, and leave precise notes for the following stages when a risk cannot be fully resolved.\n" +
                     "\n" +
                     "## Diff to Review\n" +
-                    "{Diff}\n" +
-                    "\n" +
-                    "## Previous Stage Output\n" +
-                    "{PreviousStageOutput}\n" +
+                    "Review the diff and prior-stage output carried in your mission description.\n" +
                     "\n" +
                     "## Specialist Focus\n" +
                     focus + "\n" +
