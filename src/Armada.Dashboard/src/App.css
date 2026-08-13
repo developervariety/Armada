@@ -4516,7 +4516,9 @@ tr.clickable { cursor: pointer; }
 
 /* Review-gate verdict modal: wider and taller than the default modal so the feedback field has room and the
    four verdict buttons plus Cancel sit on a single row without wrapping. */
-.review-verdict-modal {
+/* Higher specificity than the base `.modal` (which is declared later in this file) so the wider width
+   actually wins and the no-wrap verdict button row is not clipped. */
+.modal.review-verdict-modal {
     max-width: 730px;
     min-height: 30rem;
 }
