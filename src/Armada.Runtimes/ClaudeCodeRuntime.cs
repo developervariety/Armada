@@ -41,6 +41,14 @@ namespace Armada.Runtimes
         /// </summary>
         public bool SkipPermissions { get; set; } = true;
 
+        /// <summary>
+        /// When true, run in streaming-JSON mode (--output-format stream-json --include-partial-messages) so
+        /// the caller can render the model's reply token-by-token and read a clean final message plus metrics
+        /// from the terminal "result" event. Used by interactive chat; missions leave this false so their
+        /// output stays human-readable and progress-signal parsing is unaffected.
+        /// </summary>
+        public bool StreamJsonOutput { get; set; } = false;
+
         #endregion
 
         #region Private-Members
@@ -93,6 +101,15 @@ namespace Armada.Runtimes
 
             args.Add("--print");
             args.Add("--verbose");
+
+            if (StreamJsonOutput)
+            {
+                // Emit newline-delimited JSON events with incremental text deltas so chat can stream the
+                // reply token-by-token and read a clean final message + metrics from the "result" event.
+                args.Add("--output-format");
+                args.Add("stream-json");
+                args.Add("--include-partial-messages");
+            }
 
             if (!String.IsNullOrEmpty(model))
             {

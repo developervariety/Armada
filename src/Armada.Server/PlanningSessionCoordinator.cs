@@ -749,10 +749,11 @@ namespace Armada.Server
                     prompt = prompt + " Before your final answer, briefly work through your reasoning inside a single block delimited by <thinking> and </thinking>, then write the answer after the closing </thinking> tag.";
                 }
 
-                runtime.OnOutputReceived += (processId, line) =>
+                runtime.OnStdoutReceived += (processId, line) =>
                 {
                     // For Mux, parse the structured protocol events: stream assistant_text into the reply and
                     // surface tool-call activity to the transcript. Other runtimes stream plain text lines.
+                    // Subscribing to stdout-only keeps CLI stderr banners out of the captured transcript.
                     string? delta = ExtractPlanningStreamText(isMux, session.Id, assistantMessage.Id, line);
                     if (String.IsNullOrEmpty(delta)) return;
 
@@ -1089,9 +1090,11 @@ namespace Armada.Server
             object outputLock = new object();
             int? processId = null;
 
-            runtime.OnOutputReceived += (processId, line) =>
+            runtime.OnStdoutReceived += (processId, line) =>
             {
-                // Drop Mux structured protocol events so only assistant/summary text is captured.
+                // Drop Mux structured protocol events so only assistant/summary text is captured. Subscribing
+                // to stdout-only keeps CLI stderr banners (e.g. Codex's stdin/version preamble) out of the
+                // captured reply.
                 if (captain.Runtime == AgentRuntimeEnum.Mux && MuxRuntime.IsProtocolEventLine(line)) return;
 
                 lock (outputLock)

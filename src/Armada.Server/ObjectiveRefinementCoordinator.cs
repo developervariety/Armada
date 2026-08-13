@@ -583,8 +583,10 @@ namespace Armada.Server
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
 
-                runtime.OnOutputReceived += (processId, line) =>
+                runtime.OnStdoutReceived += (processId, line) =>
                 {
+                    // stdout-only so CLI stderr banners (e.g. Codex's stdin/version preamble) stay out of the
+                    // refinement transcript.
                     string updatedContent;
                     lock (outputLock)
                     {
@@ -846,8 +848,9 @@ namespace Armada.Server
             object outputLock = new object();
             int? processId = null;
 
-            runtime.OnOutputReceived += (runtimeProcessId, line) =>
+            runtime.OnStdoutReceived += (runtimeProcessId, line) =>
             {
+                // stdout-only so CLI stderr banners stay out of the captured refinement summary.
                 lock (outputLock)
                 {
                     BoundedTextBuffer.AppendLine(output, line, _MaxRefinementOutputChars);

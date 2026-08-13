@@ -113,6 +113,14 @@ namespace Armada.Server
                     return Fail("This captain's runtime (" + captain.Runtime + ") could not be launched for chat: " + e.Message);
                 }
 
+                // Claude Code streams token-by-token only in streaming-JSON mode; enable it for chat so the
+                // reply renders incrementally and we can read a clean final message + metrics from the
+                // terminal "result" event instead of scraping human-readable --print output.
+                if (runtime is ClaudeCodeRuntime claudeRuntime)
+                {
+                    claudeRuntime.StreamJsonOutput = true;
+                }
+
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
@@ -124,13 +132,75 @@ namespace Armada.Server
                 // events (run_started/assistant_text/run_completed) carrying model, duration, and token
                 // estimates; CLI runtimes that only stream text still yield wall-clock timing.
                 bool isMux = captain.Runtime == AgentRuntimeEnum.Mux;
+                bool isClaude = captain.Runtime == AgentRuntimeEnum.ClaudeCode;
                 double? reportedDurationMs = null;
                 int? reportedTokens = null;
                 string? reportedModel = null;
+                string? claudeFinalReply = null;
                 string? turnId = request.TurnId;
 
-                runtime.OnOutputReceived += (pid, line) =>
+                runtime.OnStdoutReceived += (pid, line) =>
                 {
+                    if (isClaude)
+                    {
+                        // Claude Code streaming-JSON: each stdout line is one JSON event. Incremental
+                        // content_block_delta/text_delta events stream the reply token-by-token; the terminal
+                        // "result" event carries the authoritative final message and metrics.
+                        try
+                        {
+                            using (JsonDocument doc = JsonDocument.Parse(line.Trim()))
+                            {
+                                JsonElement root = doc.RootElement;
+                                if (root.ValueKind != JsonValueKind.Object) return;
+                                string eventType = root.TryGetProperty("type", out JsonElement ty) && ty.ValueKind == JsonValueKind.String
+                                    ? ty.GetString() ?? String.Empty : String.Empty;
+
+                                if (eventType == "stream_event"
+                                    && root.TryGetProperty("event", out JsonElement ev) && ev.ValueKind == JsonValueKind.Object
+                                    && ev.TryGetProperty("type", out JsonElement evt) && evt.ValueKind == JsonValueKind.String
+                                    && evt.GetString() == "content_block_delta"
+                                    && ev.TryGetProperty("delta", out JsonElement delta) && delta.ValueKind == JsonValueKind.Object
+                                    && delta.TryGetProperty("type", out JsonElement dty) && dty.ValueKind == JsonValueKind.String
+                                    && dty.GetString() == "text_delta"
+                                    && delta.TryGetProperty("text", out JsonElement dtx) && dtx.ValueKind == JsonValueKind.String)
+                                {
+                                    string? deltaText = dtx.GetString();
+                                    if (!String.IsNullOrEmpty(deltaText))
+                                    {
+                                        lock (outputLock)
+                                        {
+                                            if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
+                                            if (output.Length < _MaxOutputChars) output.Append(deltaText);
+                                        }
+                                        EmitChunk(turnId, deltaText!);
+                                    }
+                                }
+                                else if (eventType == "assistant"
+                                    && root.TryGetProperty("message", out JsonElement assistantMessage)
+                                    && assistantMessage.ValueKind == JsonValueKind.Object
+                                    && assistantMessage.TryGetProperty("model", out JsonElement am) && am.ValueKind == JsonValueKind.String)
+                                {
+                                    lock (outputLock) reportedModel = am.GetString();
+                                }
+                                else if (eventType == "result")
+                                {
+                                    lock (outputLock)
+                                    {
+                                        if (root.TryGetProperty("result", out JsonElement resultText) && resultText.ValueKind == JsonValueKind.String)
+                                            claudeFinalReply = resultText.GetString();
+                                        if (root.TryGetProperty("duration_ms", out JsonElement durMs) && durMs.ValueKind == JsonValueKind.Number)
+                                            reportedDurationMs = durMs.GetDouble();
+                                        if (root.TryGetProperty("usage", out JsonElement usage) && usage.ValueKind == JsonValueKind.Object
+                                            && usage.TryGetProperty("output_tokens", out JsonElement outTok) && outTok.ValueKind == JsonValueKind.Number)
+                                            reportedTokens = outTok.GetInt32();
+                                    }
+                                }
+                            }
+                        }
+                        catch (JsonException) { }
+                        return;
+                    }
+
                     if (isMux && MuxRuntime.IsProtocolEventLine(line))
                     {
                         // Parse the Mux event for telemetry and live text. The final reply still comes
@@ -275,7 +345,10 @@ namespace Armada.Server
 
                 if (String.IsNullOrWhiteSpace(reply))
                 {
-                    lock (outputLock) reply = output.ToString().Trim();
+                    // Prefer Claude's authoritative streaming-JSON "result" text; otherwise fall back to the
+                    // accumulated streamed output (concatenated deltas for Claude, raw stdout for others).
+                    lock (outputLock)
+                        reply = (!String.IsNullOrWhiteSpace(claudeFinalReply) ? claudeFinalReply! : output.ToString()).Trim();
                 }
 
                 if (String.IsNullOrWhiteSpace(reply))

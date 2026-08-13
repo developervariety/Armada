@@ -30,9 +30,15 @@ namespace Armada.Runtimes
         public virtual bool SupportsPlanningSessions => true;
 
         /// <summary>
-        /// Event raised when the agent writes a line to stdout.
+        /// Event raised when the agent writes a line to either stdout or stderr.
         /// </summary>
         public event Action<int, string>? OnOutputReceived;
+
+        /// <summary>
+        /// Event raised only when the agent writes a line to stdout (never stderr). Interactive consumers
+        /// (chat, planning) subscribe here so CLI stderr banners are excluded from the captured reply.
+        /// </summary>
+        public event Action<int, string>? OnStdoutReceived;
 
         /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
@@ -223,6 +229,10 @@ namespace Armada.Runtimes
                     catch (ObjectDisposedException) { }
 
                     try { OnOutputReceived?.Invoke(process.Id, e.Data); }
+                    catch { }
+
+                    // stdout-only consumers (chat, planning) rely on this to exclude stderr banners.
+                    try { OnStdoutReceived?.Invoke(process.Id, e.Data); }
                     catch { }
                 }
             };

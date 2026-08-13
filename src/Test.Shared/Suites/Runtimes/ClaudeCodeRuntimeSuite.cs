@@ -90,6 +90,25 @@ namespace Test.Shared.Suites.Runtimes
                 AssertFalse(args.Contains("line one\nline two\nUser: real question"));
             }));
 
+            cases.Add(Case("build_arguments_omits_stream_json_by_default", "BuildArguments Omits StreamJson By Default", TestTags.Negative, () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("hi");
+                AssertFalse(args.Contains("stream-json"));
+                AssertFalse(args.Contains("--include-partial-messages"));
+            }));
+
+            cases.Add(Case("build_arguments_emits_stream_json_when_enabled", "BuildArguments Emits StreamJson When Enabled", TestTags.Positive, () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                runtime.StreamJsonOutput = true;
+                List<string> args = runtime.Args("hi", "sonnet");
+                int fmt = args.IndexOf("--output-format");
+                AssertTrue(fmt >= 0);
+                AssertEqual("stream-json", args[fmt + 1]);
+                AssertTrue(args.Contains("--include-partial-messages"));
+            }));
+
             cases.Add(CaseAsync("is_running_async_invalid_process_id_returns_false", "IsRunningAsync Invalid ProcessId Returns False", TestTags.Negative, async () =>
             {
                 ClaudeCodeRuntime runtime = CreateRuntime();
