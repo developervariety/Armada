@@ -37,12 +37,18 @@ interface VesselForm {
   secretScanEnabled: boolean;
   protectedPathPatterns: string;
   privateIdentifierDenylist: string;
+  autoLandEnabled: boolean;
+  autoLandMaxFiles: string;
+  autoLandMaxLines: string;
+  autoLandPathAllowGlobs: string;
+  autoLandPathDenyGlobs: string;
 }
 
 const emptyForm: VesselForm = {
   name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '',
   projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false, defaultPipelineId: '',
   secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '',
+  autoLandEnabled: false, autoLandMaxFiles: '', autoLandMaxLines: '', autoLandPathAllowGlobs: '', autoLandPathDenyGlobs: '',
 };
 
 export default function Vessels() {
@@ -159,6 +165,11 @@ export default function Vessels() {
       secretScanEnabled: v.secretScanEnabled ?? false,
       protectedPathPatterns: (v.protectedPathPatterns || []).join('\n'),
       privateIdentifierDenylist: (v.privateIdentifierDenylist || []).join('\n'),
+      autoLandEnabled: v.autoLandEnabled ?? false,
+      autoLandMaxFiles: v.autoLandMaxFiles ? String(v.autoLandMaxFiles) : '',
+      autoLandMaxLines: v.autoLandMaxLines ? String(v.autoLandMaxLines) : '',
+      autoLandPathAllowGlobs: (v.autoLandPathAllowGlobs || []).join('\n'),
+      autoLandPathDenyGlobs: (v.autoLandPathDenyGlobs || []).join('\n'),
     });
     setEditing(v);
     setShowForm(true);
@@ -178,6 +189,10 @@ export default function Vessels() {
       if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
       payload.protectedPathPatterns = form.protectedPathPatterns.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
       payload.privateIdentifierDenylist = form.privateIdentifierDenylist.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+      payload.autoLandMaxFiles = form.autoLandMaxFiles.trim() ? Math.max(0, parseInt(form.autoLandMaxFiles, 10) || 0) : 0;
+      payload.autoLandMaxLines = form.autoLandMaxLines.trim() ? Math.max(0, parseInt(form.autoLandMaxLines, 10) || 0) : 0;
+      payload.autoLandPathAllowGlobs = form.autoLandPathAllowGlobs.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+      payload.autoLandPathDenyGlobs = form.autoLandPathDenyGlobs.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
       delete payload.clearGitHubTokenOverride;
       if (editing)
       {
@@ -398,6 +413,32 @@ export default function Vessels() {
                 {t('Private Identifier Denylist')}
                 <textarea value={form.privateIdentifierDenylist} onChange={e => setForm({ ...form, privateIdentifierDenylist: e.target.value })} rows={2} placeholder={t('One value per line; do not list real secrets')} style={{ resize: 'vertical' }} />
               </label>
+            </div>
+
+            {/* Auto-land rules */}
+            <div style={{ marginBottom: '0.5rem' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', lineHeight: 1, cursor: 'pointer' }} title={t('When enabled, a passing mission must satisfy the rules below to land unattended; otherwise it holds for review.')}>
+                <input type="checkbox" checked={form.autoLandEnabled} onChange={e => setForm({ ...form, autoLandEnabled: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
+                <span style={{ verticalAlign: 'middle' }}>{t('Auto-land small changes')}</span>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1.5rem' }}>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Max Files (0 = no limit)')}
+                  <input type="number" min={0} value={form.autoLandMaxFiles} onChange={e => setForm({ ...form, autoLandMaxFiles: e.target.value })} placeholder="0" />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Max Lines (0 = no limit)')}
+                  <input type="number" min={0} value={form.autoLandMaxLines} onChange={e => setForm({ ...form, autoLandMaxLines: e.target.value })} placeholder="0" />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Auto-land Allowed Paths')}
+                  <textarea value={form.autoLandPathAllowGlobs} onChange={e => setForm({ ...form, autoLandPathAllowGlobs: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. src/**')} style={{ resize: 'vertical' }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Auto-land Denied Paths')}
+                  <textarea value={form.autoLandPathDenyGlobs} onChange={e => setForm({ ...form, autoLandPathDenyGlobs: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. infra/**')} style={{ resize: 'vertical' }} />
+                </label>
+              </div>
             </div>
 
             {/* Context textareas always 3 cols -- fills remaining vertical space */}

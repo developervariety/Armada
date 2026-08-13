@@ -126,6 +126,11 @@ export interface Vessel {
   secretScanEnabled?: boolean;
   protectedPathPatterns?: string[];
   privateIdentifierDenylist?: string[];
+  autoLandEnabled?: boolean;
+  autoLandMaxFiles?: number;
+  autoLandMaxLines?: number;
+  autoLandPathAllowGlobs?: string[];
+  autoLandPathDenyGlobs?: string[];
   allowConcurrentMissions: boolean;
   defaultPipelineId: string | null;
   active: boolean;
@@ -144,6 +149,8 @@ export interface Captain {
   model: string | null;
   reasoningEffort?: string | null;
   tier?: string | null;
+  quarantineUntilUtc?: string | null;
+  quarantineReason?: string | null;
   allowedPersonas: string | null;
   preferredPersona: string | null;
   runtimeOptionsJson?: string | null;
