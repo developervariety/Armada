@@ -178,6 +178,7 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
           t={t}
           turns={turns}
           windowRef={transcriptRef}
+          notice={captainRuntime === 'Codex' ? t('Codex responses cannot be streamed and will arrive upon completion.') : undefined}
           assistantName={captainName}
           emptyState={<p>{t('No transcript yet. Send the first planning message below.')}</p>}
           input={composer}

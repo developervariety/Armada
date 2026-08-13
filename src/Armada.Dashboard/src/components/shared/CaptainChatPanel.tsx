@@ -45,6 +45,8 @@ interface CaptainChatPanelProps {
   renderTurnFooter?: (turn: ChatTurn, index: number) => ReactNode;
   /** Optional external ref to the scrolling chat window (callers that need to scroll it themselves). */
   windowRef?: RefObject<HTMLDivElement | null>;
+  /** Optional small, always-visible notice shown at the top of the message window (e.g. a streaming caveat). */
+  notice?: ReactNode;
 }
 
 /**
@@ -71,15 +73,29 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
     inputDisabled,
     renderTurnFooter,
     windowRef,
+    notice,
   } = props;
 
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastText = turns.length > 0 ? turns[turns.length - 1].text : '';
 
-  // Keep the newest content in view as turns stream in or the thinking line appears. (Optional-call so
-  // environments without scrollIntoView, such as jsdom under test, are a no-op.)
+  // Merge the internal scroll-container ref with any external windowRef the caller passed.
+  const setScrollContainer = (node: HTMLDivElement | null) => {
+    scrollRef.current = node;
+    if (windowRef) (windowRef as { current: HTMLDivElement | null }).current = node;
+  };
+
+  // Keep the newest content in view as turns stream in. Scroll ONLY the transcript container (never via
+  // scrollIntoView, which also scrolls every scrollable ancestor and drags the whole Planning page down
+  // toward the Dispatch panel), and only when the user is already near the bottom so streaming updates
+  // never yank a user who has scrolled up to read.
   useEffect(() => {
-    endRef.current?.scrollIntoView?.({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 140) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [turns.length, lastText, busy, thinking]);
 
   function roleLabel(turn: ChatTurn): string {
@@ -90,8 +106,18 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
 
   return (
     <div className="chat-panel">
+      {notice && (
+        <div className="chat-stream-notice" role="status">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4" />
+            <path d="M12 8h.01" />
+          </svg>
+          <span>{notice}</span>
+        </div>
+      )}
       <div
-        ref={windowRef}
+        ref={setScrollContainer}
         className="card ask-chat-window"
         style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
       >
@@ -155,7 +181,6 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
             {thinking || t('Thinking...')}
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       <p className="ask-disclaimer">{t('AI can make mistakes. Check answers.')}</p>

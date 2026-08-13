@@ -251,6 +251,7 @@ export default function AskArmada() {
           <CaptainChatPanel
             t={t}
             turns={turns}
+            notice={selectedCaptain?.runtime === 'Codex' ? t('Codex responses cannot be streamed and will arrive upon completion.') : undefined}
             assistantName={selectedCaptain?.name}
             emptyState={<p>{selectedCaptain ? t('Chatting with {{name}}', { name: selectedCaptain.name }) : t('Select a captain to begin.')}</p>}
             input={input}

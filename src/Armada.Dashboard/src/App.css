@@ -7339,6 +7339,22 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .mcp-warning-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
 .mcp-warning-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: center; }
 
+/* Small, always-visible caveat at the top of a chat/transcript window (e.g. Codex cannot stream). */
+.chat-stream-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.7rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.76rem;
+    line-height: 1.3;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+    color: var(--text);
+}
+.chat-stream-notice svg { color: var(--accent); flex-shrink: 0; }
+
 /* ── Ask Armada: full-height chat layout ── */
 .ask-page {
     display: flex;
