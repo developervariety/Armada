@@ -112,6 +112,11 @@ namespace Armada.Core
         public static readonly string ObjectiveIdPrefix = "obj_";
 
         /// <summary>
+        /// ID prefix for background jobs.
+        /// </summary>
+        public static readonly string JobIdPrefix = "job_";
+
+        /// <summary>
         /// Fleet ID prefix.
         /// </summary>
         public static readonly string FleetIdPrefix = "flt_";
