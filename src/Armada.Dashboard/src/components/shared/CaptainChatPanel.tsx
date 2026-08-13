@@ -47,6 +47,10 @@ interface CaptainChatPanelProps {
   windowRef?: RefObject<HTMLDivElement | null>;
   /** Optional small, always-visible notice shown at the top of the message window (e.g. a streaming caveat). */
   notice?: ReactNode;
+  /** Invoked when the clear (trash) button beside Send is pressed. When omitted, no clear button is shown. */
+  onClear?: () => void;
+  /** Disables the clear button (e.g. while busy or when there is nothing to clear). */
+  clearDisabled?: boolean;
 }
 
 /**
@@ -74,6 +78,8 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
     renderTurnFooter,
     windowRef,
     notice,
+    onClear,
+    clearDisabled,
   } = props;
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -206,6 +212,16 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
           <button type="submit" className="btn btn-primary" disabled={!canSend}>
             {t('Send')}
           </button>
+        )}
+        {onClear && (
+          <button
+            type="button"
+            className="icon-btn icon-btn-delete"
+            onClick={onClear}
+            disabled={clearDisabled}
+            title={t('Clear conversation')}
+            aria-label={t('Clear conversation')}
+          />
         )}
       </form>
     </div>

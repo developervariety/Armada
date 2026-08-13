@@ -126,9 +126,6 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
           <button type="button" className="btn btn-sm" disabled={!canEndSession} onClick={onEndSession}>
             {endingSession || currentStatus === 'Stopping' ? t('Ending...') : t('End Session')}
           </button>
-          <button type="button" className="btn btn-sm" disabled={deleting} onClick={onDelete}>
-            {deleting ? t('Deleting...') : t('Delete Transcript')}
-          </button>
         </div>
       </div>
 
@@ -191,6 +188,8 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
           thinking={thinkingMessage}
           inputPlaceholder={t('Describe the problem, ask for a plan, or negotiate the next steps with the captain.')}
           inputDisabled={currentStatus !== 'Active'}
+          onClear={onDelete}
+          clearDisabled={busy || deleting}
           renderTurnFooter={(turn) =>
             turn.role === 'assistant' && turn.id && turn.text.trim().length > 0 ? (
               <div className="planning-chat-message-actions">

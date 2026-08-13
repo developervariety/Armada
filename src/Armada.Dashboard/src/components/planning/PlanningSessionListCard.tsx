@@ -15,6 +15,8 @@ interface PlanningSessionListCardProps {
   onSelect: (sessionId: string) => void;
   onEndSession: (session: PlanningSession) => void;
   onDeleteSession: (session: PlanningSession) => void;
+  onDeleteAll: () => void;
+  deletingAll?: boolean;
 }
 
 export default function PlanningSessionListCard(props: PlanningSessionListCardProps) {
@@ -30,6 +32,8 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
     onSelect,
     onEndSession,
     onDeleteSession,
+    onDeleteAll,
+    deletingAll,
   } = props;
 
   // Recent Sessions is a supporting list, not the primary workspace, so it starts collapsed.
@@ -37,16 +41,30 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
 
   return (
     <div className="card" style={{ padding: '1rem' }}>
-      <button
-        type="button"
-        className="collapsible-header"
-        onClick={() => setExpanded((prev) => !prev)}
-        aria-expanded={expanded}
-      >
-        <span className="collapsible-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-        <span className="collapsible-title">{t('Recent Sessions')}</span>
-        <span className="text-muted" style={{ marginLeft: 'auto' }}>{t('{{count}} total', { count: sessions.length })}</span>
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <button
+          type="button"
+          className="collapsible-header"
+          style={{ flex: 1 }}
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+        >
+          <span className="collapsible-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+          <span className="collapsible-title">{t('Recent Sessions')}</span>
+          <span className="text-muted" style={{ marginLeft: 'auto' }}>{t('{{count}} total', { count: sessions.length })}</span>
+        </button>
+        {sessions.length > 0 && (
+          <button
+            type="button"
+            className="btn btn-sm btn-danger"
+            onClick={onDeleteAll}
+            disabled={deletingAll}
+            title={t('Delete all planning sessions')}
+          >
+            {deletingAll ? t('Deleting...') : t('Delete All')}
+          </button>
+        )}
+      </div>
 
       {expanded && (
         sessions.length === 0 ? (

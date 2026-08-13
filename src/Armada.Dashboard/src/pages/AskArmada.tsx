@@ -5,6 +5,7 @@ import type { Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMes
 import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import ErrorModal from '../components/shared/ErrorModal';
+import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CaptainChatPanel, { type ChatTurn } from '../components/shared/CaptainChatPanel';
 import { applyToolEvent } from '../components/shared/ChatToolChips';
 import { randomThinkingMessage } from '../components/askThinkingMessages';
@@ -43,6 +44,7 @@ export default function AskArmada() {
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [showThinking, setShowThinking] = useState(false);
   const [thinking, setThinking] = useState('');
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const toolsCache = useRef<Record<string, CaptainToolAccessResult>>({});
 
@@ -184,15 +186,6 @@ export default function AskArmada() {
           <p className="text-dim view-subtitle">{t('Chat directly with a captain.')}</p>
         </div>
         <div className="ask-header-controls">
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={clearConversation}
-            disabled={busy || turns.length === 0}
-            title={t('Clear the conversation and start over')}
-          >
-            {t('Clear')}
-          </button>
           <label className="ask-stream-toggle" title={t('Stream the reply token-by-token as it is produced')}>
             <input type="checkbox" checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} disabled={busy} />
             {t('Stream responses')}
@@ -264,9 +257,25 @@ export default function AskArmada() {
             thinking={thinking}
             inputPlaceholder={t('Message the captain...')}
             inputDisabled={!captainId}
+            onClear={() => setConfirmClearOpen(true)}
+            clearDisabled={busy || turns.length === 0}
           />
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmClearOpen}
+        title={t('Clear Conversation')}
+        message={t('Clear this conversation? The messages shown here will be removed.')}
+        confirmLabel={t('Clear')}
+        cancelLabel={t('Cancel')}
+        danger
+        onConfirm={() => {
+          setConfirmClearOpen(false);
+          clearConversation();
+        }}
+        onCancel={() => setConfirmClearOpen(false)}
+      />
     </div>
   );
 }

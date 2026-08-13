@@ -136,7 +136,7 @@ describe('PlanningTranscriptCard', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
-  it('renders explicit end-session and transcript-delete actions', () => {
+  it('renders explicit end-session and clear-conversation actions', () => {
     render(
       <PlanningTranscriptCard
         t={t}
@@ -170,6 +170,7 @@ describe('PlanningTranscriptCard', () => {
     );
 
     expect(screen.getByRole('button', { name: 'End Session' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Delete Transcript' })).toBeInTheDocument();
+    // The transcript-delete action is now the trash icon beside Send in the composer.
+    expect(screen.getByRole('button', { name: 'Clear conversation' })).toBeInTheDocument();
   });
 });

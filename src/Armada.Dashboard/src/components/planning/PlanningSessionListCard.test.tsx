@@ -51,6 +51,7 @@ function renderCard(props: Partial<Record<string, unknown>> = {}, sessions = [se
       onSelect={props.onSelect as never ?? (() => undefined)}
       onEndSession={props.onEndSession as never ?? (() => undefined)}
       onDeleteSession={props.onDeleteSession as never ?? (() => undefined)}
+      onDeleteAll={props.onDeleteAll as never ?? (() => undefined)}
     />,
   );
 }

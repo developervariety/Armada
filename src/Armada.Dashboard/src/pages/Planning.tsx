@@ -119,6 +119,8 @@ export default function Planning() {
   const [deleting, setDeleting] = useState(false);
   const [confirmEndOpen, setConfirmEndOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [confirmDeleteAllOpen, setConfirmDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [pendingEndSession, setPendingEndSession] = useState<PlanningSession | null>(null);
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -644,6 +646,46 @@ export default function Planning() {
     }
   }
 
+  async function handleDeleteAllSessions() {
+    const targets = sessions.slice();
+    if (targets.length === 0) return;
+
+    try {
+      setDeletingAll(true);
+      setError('');
+
+      // Delete each session independently so one failure (e.g. a session that cannot be deleted while
+      // running) does not abort the rest; count failures and report them.
+      let failures = 0;
+      for (const session of targets) {
+        try {
+          await deletePlanningSession(session.id);
+          setSessions((current) => removeSession(current, session.id));
+        } catch {
+          failures += 1;
+        }
+      }
+
+      // Delete-all removes the open session too; reset the workspace back to the empty state.
+      setDetail(null);
+      setSelectedMessageId('');
+      setDispatchTitle('');
+      setDispatchDescription('');
+      dispatchSeedRef.current = null;
+      navigate('/planning');
+
+      if (failures > 0) {
+        pushToast('warning', t('{{count}} planning session(s) could not be deleted (they may still be running).', { count: failures }));
+      } else {
+        pushToast('warning', t('All planning sessions deleted.'));
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to delete planning sessions.'));
+    } finally {
+      setDeletingAll(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -727,6 +769,8 @@ export default function Planning() {
           onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
           onEndSession={requestEndSession}
           onDeleteSession={handleDeleteSessionById}
+          onDeleteAll={() => setConfirmDeleteAllOpen(true)}
+          deletingAll={deletingAll}
         />
 
         {!id ? (
@@ -835,6 +879,21 @@ export default function Planning() {
           void handleDeleteSession();
         }}
         onCancel={() => setConfirmDeleteOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteAllOpen}
+        title={t('Delete All Planning Sessions')}
+        message={t('Delete all {{count}} planning session(s) and their transcripts? This cannot be undone.', { count: sessions.length })}
+        confirmLabel={t('Delete All')}
+        cancelLabel={t('Cancel')}
+        danger
+        requireDeleteConfirm
+        onConfirm={() => {
+          setConfirmDeleteAllOpen(false);
+          void handleDeleteAllSessions();
+        }}
+        onCancel={() => setConfirmDeleteAllOpen(false)}
       />
     </div>
   );
