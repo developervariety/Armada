@@ -1200,6 +1200,20 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v48 statements: auto-land policy columns on vessels and quarantine columns on captains.
+        /// </summary>
+        public static readonly string[] MigrationV48Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN auto_land_enabled TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_max_files INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_max_lines INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_path_allow_globs_json LONGTEXT NULL;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_path_deny_globs_json LONGTEXT NULL;",
+            @"ALTER TABLE captains ADD COLUMN quarantine_until_utc DATETIME(6) NULL;",
+            @"ALTER TABLE captains ADD COLUMN quarantine_reason LONGTEXT NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

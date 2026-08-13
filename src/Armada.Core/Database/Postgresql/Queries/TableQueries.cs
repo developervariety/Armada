@@ -1024,7 +1024,15 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS tier TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS secret_scan_enabled BOOLEAN NOT NULL DEFAULT FALSE;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS protected_path_patterns_json TEXT;",
-                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS private_identifier_denylist_json TEXT;")
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS private_identifier_denylist_json TEXT;"),
+                new SchemaMigration(49, "Add vessel auto-land policy columns and captain quarantine columns",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_enabled BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_max_files INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_max_lines INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_path_allow_globs_json TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_path_deny_globs_json TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS quarantine_until_utc TIMESTAMP;",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS quarantine_reason TEXT;")
             };
         }
 

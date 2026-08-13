@@ -142,6 +142,19 @@ namespace Armada.Core.Models
         public int RecoveryAttempts { get; set; } = 0;
 
         /// <summary>
+        /// UTC time until which the captain is quarantined and excluded from dispatch selection. Null when
+        /// the captain is not quarantined; a time in the past means the quarantine has expired and will be
+        /// lifted on the next health tick.
+        /// </summary>
+        public DateTime? QuarantineUntilUtc { get; set; } = null;
+
+        /// <summary>
+        /// Why the captain was quarantined (e.g. "provider usage limit", "auth failure", "crash loop").
+        /// Null when not quarantined.
+        /// </summary>
+        public string? QuarantineReason { get; set; } = null;
+
+        /// <summary>
         /// Last heartbeat timestamp in UTC.
         /// </summary>
         public DateTime? LastHeartbeatUtc { get; set; } = null;

@@ -503,6 +503,8 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task HealthCheckAsync(CancellationToken token = default)
         {
+            await LiftExpiredQuarantinesAsync(token).ConfigureAwait(false);
+
             List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
 
             if (workingCaptains.Count > 0)
@@ -722,10 +724,65 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId);
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+
+                // Provider usage-limit / auth failures will just fail again immediately; quarantine the
+                // captain out of the dispatch pool until it resets rather than handing it more work.
+                RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason);
+                if (failureKind == RuntimeFailureKindEnum.UsageLimit || failureKind == RuntimeFailureKindEnum.AuthFailure)
+                {
+                    await QuarantineCaptainAsync(captainId, failureKind, token).ConfigureAwait(false);
+                }
             }
 
             // Try to dispatch any pending missions now that capacity may have freed up
             await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Return quarantined captains whose window has passed to the Idle pool so they can pick up work.
+        /// </summary>
+        private async Task LiftExpiredQuarantinesAsync(CancellationToken token)
+        {
+            List<Captain> quarantined = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Quarantined, token).ConfigureAwait(false);
+            foreach (Captain captain in quarantined)
+            {
+                if (!captain.QuarantineUntilUtc.HasValue || captain.QuarantineUntilUtc.Value > DateTime.UtcNow) continue;
+
+                captain.State = CaptainStateEnum.Idle;
+                captain.QuarantineUntilUtc = null;
+                captain.QuarantineReason = null;
+                captain.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "lifted quarantine for captain " + captain.Id);
+                await EmitEventAsync("captain.quarantine_lifted", "Captain " + captain.Name + " quarantine lifted",
+                    entityType: "captain", entityId: captain.Id, captainId: captain.Id, token: token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Move a captain into the Quarantined state for the configured window so tier selection stops
+        /// handing it work until its provider condition clears. Re-reads the captain to override any
+        /// release-to-Idle that just happened during failure handling.
+        /// </summary>
+        private async Task QuarantineCaptainAsync(string captainId, RuntimeFailureKindEnum kind, CancellationToken token)
+        {
+            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (captain == null) return;
+
+            string reason = kind == RuntimeFailureKindEnum.AuthFailure ? "provider auth failure" : "provider usage limit";
+            captain.State = CaptainStateEnum.Quarantined;
+            captain.QuarantineReason = reason;
+            captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(_Settings.CaptainQuarantineMinutes);
+            captain.CurrentMissionId = null;
+            captain.CurrentDockId = null;
+            captain.ProcessId = null;
+            captain.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+
+            _Logging.Warn(_Header + "quarantined captain " + captain.Id + " (" + reason + ") until " + captain.QuarantineUntilUtc.Value.ToString("o"));
+            await EmitEventAsync("captain.quarantined",
+                "Captain " + captain.Name + " quarantined: " + reason,
+                entityType: "captain", entityId: captain.Id, captainId: captain.Id, token: token).ConfigureAwait(false);
         }
 
         #endregion

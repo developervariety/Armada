@@ -874,6 +874,17 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('vessels', 'secret_scan_enabled') IS NULL ALTER TABLE vessels ADD secret_scan_enabled BIT NOT NULL CONSTRAINT DF_vessels_secret_scan_enabled DEFAULT 0;",
                     @"IF COL_LENGTH('vessels', 'protected_path_patterns_json') IS NULL ALTER TABLE vessels ADD protected_path_patterns_json NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('vessels', 'private_identifier_denylist_json') IS NULL ALTER TABLE vessels ADD private_identifier_denylist_json NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    48,
+                    "Add vessel auto-land policy fields and captain quarantine fields",
+                    @"IF COL_LENGTH('vessels', 'auto_land_enabled') IS NULL ALTER TABLE vessels ADD auto_land_enabled BIT NOT NULL CONSTRAINT DF_vessels_auto_land_enabled DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_max_files') IS NULL ALTER TABLE vessels ADD auto_land_max_files INT NOT NULL CONSTRAINT DF_vessels_auto_land_max_files DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_max_lines') IS NULL ALTER TABLE vessels ADD auto_land_max_lines INT NOT NULL CONSTRAINT DF_vessels_auto_land_max_lines DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_path_allow_globs_json') IS NULL ALTER TABLE vessels ADD auto_land_path_allow_globs_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_path_deny_globs_json') IS NULL ALTER TABLE vessels ADD auto_land_path_deny_globs_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('captains', 'quarantine_until_utc') IS NULL ALTER TABLE captains ADD quarantine_until_utc NVARCHAR(450) NULL;",
+                    @"IF COL_LENGTH('captains', 'quarantine_reason') IS NULL ALTER TABLE captains ADD quarantine_reason NVARCHAR(MAX) NULL;"
                 )
             };
         }

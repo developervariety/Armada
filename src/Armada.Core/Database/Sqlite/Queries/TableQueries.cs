@@ -1317,7 +1317,15 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE vessels ADD COLUMN private_identifier_denylist_json TEXT;"),
                 new SchemaMigration(52, "Add capability tier to captains and missions",
                     @"ALTER TABLE captains ADD COLUMN tier TEXT;",
-                    @"ALTER TABLE missions ADD COLUMN tier TEXT;")
+                    @"ALTER TABLE missions ADD COLUMN tier TEXT;"),
+                new SchemaMigration(53, "Add auto-land predicate config to vessels and captain quarantine fields",
+                    @"ALTER TABLE vessels ADD COLUMN auto_land_enabled INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD COLUMN auto_land_max_files INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD COLUMN auto_land_max_lines INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD COLUMN auto_land_path_allow_globs_json TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN auto_land_path_deny_globs_json TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN quarantine_until_utc TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN quarantine_reason TEXT;")
             };
         }
 

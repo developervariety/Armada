@@ -427,6 +427,26 @@ namespace Armada.Core.Database.SqlServer
             catch { vessel.RequirePullRequestForProtectedBranches = false; }
             try { vessel.RequireMergeQueueForReleaseBranches = Convert.ToBoolean(reader["require_merge_queue_for_release_branches"]); }
             catch { vessel.RequireMergeQueueForReleaseBranches = false; }
+            try { vessel.AutoLandEnabled = Convert.ToBoolean(reader["auto_land_enabled"]); }
+            catch { vessel.AutoLandEnabled = false; }
+            try { vessel.AutoLandMaxFiles = Convert.ToInt32(reader["auto_land_max_files"]); }
+            catch { vessel.AutoLandMaxFiles = 0; }
+            try { vessel.AutoLandMaxLines = Convert.ToInt32(reader["auto_land_max_lines"]); }
+            catch { vessel.AutoLandMaxLines = 0; }
+            try
+            {
+                string? autoLandPathAllowGlobsJson = NullableString(reader["auto_land_path_allow_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(autoLandPathAllowGlobsJson))
+                    vessel.AutoLandPathAllowGlobs = JsonSerializer.Deserialize<List<string>>(autoLandPathAllowGlobsJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? autoLandPathDenyGlobsJson = NullableString(reader["auto_land_path_deny_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(autoLandPathDenyGlobsJson))
+                    vessel.AutoLandPathDenyGlobs = JsonSerializer.Deserialize<List<string>>(autoLandPathDenyGlobsJson) ?? new List<string>();
+            }
+            catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToBoolean(reader["active"]);
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
@@ -456,6 +476,8 @@ namespace Armada.Core.Database.SqlServer
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
             try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }
+            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
+            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }

@@ -533,6 +533,11 @@ namespace Armada.Core.Database.Mysql
                     47,
                     "Add reasoning_effort/tier, redispatch_attempts, and vessel dock-boundary columns",
                     TableQueries.MigrationV47Statements
+                ),
+                new SchemaMigration(
+                    48,
+                    "Add auto-land + quarantine columns",
+                    TableQueries.MigrationV48Statements
                 )
             };
         }
@@ -668,6 +673,23 @@ namespace Armada.Core.Database.Mysql
             catch { vessel.RequirePullRequestForProtectedBranches = false; }
             try { vessel.RequireMergeQueueForReleaseBranches = Convert.ToInt64(reader["require_merge_queue_for_release_branches"]) == 1; }
             catch { vessel.RequireMergeQueueForReleaseBranches = false; }
+            try { vessel.AutoLandEnabled = Convert.ToInt64(reader["auto_land_enabled"]) == 1; } catch { }
+            try { vessel.AutoLandMaxFiles = Convert.ToInt32(reader["auto_land_max_files"]); } catch { }
+            try { vessel.AutoLandMaxLines = Convert.ToInt32(reader["auto_land_max_lines"]); } catch { }
+            try
+            {
+                string? allowGlobsJson = NullableString(reader["auto_land_path_allow_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(allowGlobsJson))
+                    vessel.AutoLandPathAllowGlobs = JsonSerializer.Deserialize<List<string>>(allowGlobsJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? denyGlobsJson = NullableString(reader["auto_land_path_deny_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(denyGlobsJson))
+                    vessel.AutoLandPathDenyGlobs = JsonSerializer.Deserialize<List<string>>(denyGlobsJson) ?? new List<string>();
+            }
+            catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
@@ -693,6 +715,8 @@ namespace Armada.Core.Database.Mysql
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
             try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
+            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
+            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return captain;

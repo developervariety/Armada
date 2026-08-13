@@ -194,6 +194,44 @@ namespace Armada.Core.Models
         public List<string> PrivateIdentifierDenylist { get; set; } = new List<string>();
 
         /// <summary>
+        /// Whether the auto-land predicate gates unattended landing on this vessel. When false, a passing
+        /// mission lands per the usual review/landing-mode rules; when true, a mission must also satisfy the
+        /// file/line/path rules below to land without review.
+        /// </summary>
+        public bool AutoLandEnabled { get; set; } = false;
+
+        /// <summary>
+        /// Maximum number of changed files that may auto-land unattended; 0 means no file-count limit.
+        /// Clamped to non-negative.
+        /// </summary>
+        public int AutoLandMaxFiles
+        {
+            get => _AutoLandMaxFiles;
+            set => _AutoLandMaxFiles = value < 0 ? 0 : value;
+        }
+
+        /// <summary>
+        /// Maximum number of changed lines (added + removed) that may auto-land unattended; 0 means no
+        /// line-count limit. Clamped to non-negative.
+        /// </summary>
+        public int AutoLandMaxLines
+        {
+            get => _AutoLandMaxLines;
+            set => _AutoLandMaxLines = value < 0 ? 0 : value;
+        }
+
+        /// <summary>
+        /// Glob patterns a changed path must match to be auto-landable. When non-empty, a mission touching
+        /// any path outside this allow-list holds for review.
+        /// </summary>
+        public List<string> AutoLandPathAllowGlobs { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Glob patterns that force a hold: a mission touching any matching path never auto-lands.
+        /// </summary>
+        public List<string> AutoLandPathDenyGlobs { get; set; } = new List<string>();
+
+        /// <summary>
         /// Prefix used to classify release branches.
         /// </summary>
         public string ReleaseBranchPrefix { get; set; } = "release/";
@@ -240,6 +278,8 @@ namespace Armada.Core.Models
 
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.VesselIdPrefix, 24);
         private string _Name = "My Vessel";
+        private int _AutoLandMaxFiles = 0;
+        private int _AutoLandMaxLines = 0;
         private string? _RepoUrl = null;
         private string? _GitHubTokenOverride = null;
         private bool? _HasGitHubTokenOverride = null;

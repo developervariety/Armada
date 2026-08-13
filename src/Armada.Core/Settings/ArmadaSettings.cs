@@ -133,6 +133,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// How long, in minutes, a captain is quarantined after a provider usage-limit / auth failure or a
+        /// crash loop before it is eligible for dispatch again. Clamped to a minimum of 1. Defaults to 15.
+        /// </summary>
+        public int CaptainQuarantineMinutes
+        {
+            get => _CaptainQuarantineMinutes;
+            set => _CaptainQuarantineMinutes = value < 1 ? 1 : value;
+        }
+
+        /// <summary>
         /// Heartbeat check interval in seconds. Must be >= 5.
         /// </summary>
         public int HeartbeatIntervalSeconds
@@ -599,6 +609,7 @@ namespace Armada.Core.Settings
         private int _AdmiralPort = Constants.DefaultAdmiralPort;
         private int _McpPort = Constants.DefaultMcpPort;
         private long _MinAvailableMemoryBytesForLaunch = 0;
+        private int _CaptainQuarantineMinutes = 15;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;

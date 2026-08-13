@@ -742,6 +742,65 @@ namespace Armada.Core.Services
             return paths;
         }
 
+        /// <summary>
+        /// Count changed lines (added + removed) in a unified diff, ignoring the +++/--- file headers.
+        /// </summary>
+        private static int CountChangedDiffLines(string? diff)
+        {
+            if (String.IsNullOrEmpty(diff)) return 0;
+            int count = 0;
+            foreach (string raw in diff!.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (raw.StartsWith("+++", StringComparison.Ordinal) || raw.StartsWith("---", StringComparison.Ordinal)) continue;
+                if (raw.StartsWith("+", StringComparison.Ordinal) || raw.StartsWith("-", StringComparison.Ordinal)) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Evaluate the vessel's auto-land predicate against a mission that would otherwise land. When the
+        /// change violates the vessel's file/line/path rules, route the mission to Review and return true so
+        /// the caller holds instead of landing. Returns false when auto-land is disabled or the change is
+        /// within the rules.
+        /// </summary>
+        private async Task<bool> TryHoldForAutoLandAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VesselId)) return false;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null || !vessel.AutoLandEnabled) return false;
+
+            List<string> changedPaths = ExtractChangedPathsFromDiff(mission.DiffSnapshot);
+            int filesChanged = changedPaths.Count;
+            int linesChanged = CountChangedDiffLines(mission.DiffSnapshot);
+
+            AutoLandPolicy policy = new AutoLandPolicy
+            {
+                Enabled = true,
+                MaxFiles = vessel.AutoLandMaxFiles,
+                MaxLines = vessel.AutoLandMaxLines,
+                PathAllowGlobs = vessel.AutoLandPathAllowGlobs ?? new List<string>(),
+                PathDenyGlobs = vessel.AutoLandPathDenyGlobs ?? new List<string>(),
+            };
+
+            AutoLandDecision decision = AutoLandPredicate.Evaluate(filesChanged, linesChanged, changedPaths, policy);
+            if (decision.Land) return false;
+
+            mission.Status = MissionStatusEnum.Review;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.ReviewRequestedUtc = DateTime.UtcNow;
+            mission.ReviewDeadlineUtc = _Settings.ReviewTimeoutMinutes > 0
+                ? DateTime.UtcNow.AddMinutes(_Settings.ReviewTimeoutMinutes)
+                : (DateTime?)null;
+            mission.ReviewComment = "Auto-land held: " + (decision.HoldReason ?? "change exceeds auto-land rules");
+            mission.ReviewedByUserId = null;
+            mission.ReviewedUtc = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            OnReviewRequested?.Invoke(mission);
+            _Logging.Info(_Header + "auto-land held mission " + mission.Id + " for review: " + (decision.HoldReason ?? "rules"));
+            return true;
+        }
+
         private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
         {
             if (!NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
@@ -980,6 +1039,14 @@ namespace Armada.Core.Services
                 !hasDependentPipelineStages &&
                 (mission.Status == MissionStatusEnum.WorkProduced ||
                 mission.Status == MissionStatusEnum.PullRequestOpen);
+
+            // Per-vessel auto-land predicate: a change that is too large or touches denied/out-of-scope
+            // paths holds for review instead of landing unattended.
+            if (shouldAttemptLanding && await TryHoldForAutoLandAsync(mission, token).ConfigureAwait(false))
+            {
+                shouldAttemptLanding = false;
+                awaitingManualReview = true;
+            }
 
             if (!shouldAttemptLanding)
             {
