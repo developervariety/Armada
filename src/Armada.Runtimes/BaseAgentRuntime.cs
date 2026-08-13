@@ -155,6 +155,13 @@ namespace Armada.Runtimes
                 CreateNoWindow = true
             };
 
+            // Cross-runtime hardening: captains frequently shell out to `dotnet`, and MSBuild node reuse
+            // leaves orphaned build-server processes behind after a mission; disable it at launch. Opt out
+            // of dotnet CLI telemetry so it does not add noise to captured captain output. Set before the
+            // caller-supplied environment and ApplyEnvironment so a runtime can still override if needed.
+            startInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+            startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+
             foreach (string arg in args)
             {
                 startInfo.ArgumentList.Add(arg);

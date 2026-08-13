@@ -72,6 +72,7 @@ namespace Armada.Core.Services
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
+        private ISystemResourceProbe _ResourceProbe = new SystemResourceProbe();
         private ICaptainService _Captains;
         private IMissionService _Missions;
         private IVoyageService _Voyages;
@@ -1337,6 +1338,21 @@ namespace Armada.Core.Services
             {
                 List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
                 if (workingCaptains.Count >= _Settings.MaxConcurrentMissions) return false;
+            }
+
+            // Resource-pressure admission: defer rather than launch a captain onto a memory-starved host,
+            // where it would be OOM-killed mid-mission and burn a redispatch. Disabled when the floor is 0,
+            // and fails open when host memory cannot be measured.
+            if (_Settings.MinAvailableMemoryBytesForLaunch > 0)
+            {
+                long available = _ResourceProbe.GetAvailablePhysicalBytes();
+                long total = _ResourceProbe.GetTotalPhysicalBytes();
+                AdmissionDecision admission = ResourceAdmission.Evaluate(available, total, _Settings.MinAvailableMemoryBytesForLaunch);
+                if (!admission.Admit)
+                {
+                    _Logging.Info(_Header + "capacity gate " + (admission.DeferReason ?? "deferred for memory pressure"));
+                    return false;
+                }
             }
 
             // Only idle captains have capacity for new assignments

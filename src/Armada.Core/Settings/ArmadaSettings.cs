@@ -121,6 +121,18 @@ namespace Armada.Core.Settings
         public bool IsolateCaptainLaunch { get; set; } = false;
 
         /// <summary>
+        /// Minimum available physical memory in bytes required before launching a captain. When available
+        /// memory falls below this floor, dispatch defers the mission (leaves it pending for a later tick)
+        /// rather than launching a captain likely to be OOM-killed mid-run. Zero (the default) disables the
+        /// gate; the check also fails open if host memory cannot be measured. Clamped to non-negative.
+        /// </summary>
+        public long MinAvailableMemoryBytesForLaunch
+        {
+            get => _MinAvailableMemoryBytesForLaunch;
+            set => _MinAvailableMemoryBytesForLaunch = value < 0 ? 0 : value;
+        }
+
+        /// <summary>
         /// Heartbeat check interval in seconds. Must be >= 5.
         /// </summary>
         public int HeartbeatIntervalSeconds
@@ -586,6 +598,7 @@ namespace Armada.Core.Settings
 
         private int _AdmiralPort = Constants.DefaultAdmiralPort;
         private int _McpPort = Constants.DefaultMcpPort;
+        private long _MinAvailableMemoryBytesForLaunch = 0;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
