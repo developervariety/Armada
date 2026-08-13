@@ -546,39 +546,52 @@ export default function Planning() {
     }
   }
 
-  function handleOpenInDispatch() {
+  // Release the reserved captain and dock once the operator commits planning output toward dispatch. The
+  // planning transcript is preserved (only the captain/dock are freed), and a release failure must not block
+  // the dispatch handoff, so this is best-effort.
+  async function releaseSessionOnDispatch() {
+    if (!currentSession) return;
+    try {
+      const result = await stopPlanningSession(currentSession.id);
+      setSessions((current) => upsertSession(current, result.session));
+    } catch {
+      // Best-effort: the operator can still end the session by hand if the automatic release fails.
+    }
+  }
+
+  async function handleOpenInDispatch() {
     if (!currentSession || !dispatchDescription.trim()) return;
 
-    navigate('/dispatch', {
-      state: {
-        fromPlanning: true,
-        vesselId: currentSession.vesselId,
-        pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
-        selectedPlaybooks: currentSession.selectedPlaybooks || [],
-        prompt: dispatchDescription.trim(),
-        voyageTitle: dispatchTitle.trim() || undefined,
-      },
-    });
+    const state = {
+      fromPlanning: true,
+      vesselId: currentSession.vesselId,
+      pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
+      selectedPlaybooks: currentSession.selectedPlaybooks || [],
+      prompt: dispatchDescription.trim(),
+      voyageTitle: dispatchTitle.trim() || undefined,
+    };
+    await releaseSessionOnDispatch();
+    navigate('/dispatch', { state });
   }
 
   // Send a specific assistant reply straight to the main Dispatch page, carrying its full text as the prompt.
-  function handleOpenMessageInDispatch(messageId: string) {
+  async function handleOpenMessageInDispatch(messageId: string) {
     if (!currentSession) return;
 
     const message = currentMessages.find((item) => item.id === messageId);
     const prompt = message?.content.trim();
     if (!prompt) return;
 
-    navigate('/dispatch', {
-      state: {
-        fromPlanning: true,
-        vesselId: currentSession.vesselId,
-        pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
-        selectedPlaybooks: currentSession.selectedPlaybooks || [],
-        prompt,
-        voyageTitle: dispatchTitle.trim() || currentSession.title || undefined,
-      },
-    });
+    const state = {
+      fromPlanning: true,
+      vesselId: currentSession.vesselId,
+      pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
+      selectedPlaybooks: currentSession.selectedPlaybooks || [],
+      prompt,
+      voyageTitle: dispatchTitle.trim() || currentSession.title || undefined,
+    };
+    await releaseSessionOnDispatch();
+    navigate('/dispatch', { state });
   }
 
   async function handleDispatch() {

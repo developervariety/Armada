@@ -63,9 +63,11 @@ namespace Armada.Core
         public static readonly string RestartWaitPidEnvVar = "ARMADA_RESTART_WAIT_PID";
 
         /// <summary>
-        /// Default heartbeat interval in seconds.
+        /// Default heartbeat interval in seconds. Drives the Admiral health-check loop, which is the cadence
+        /// on which pending missions are assigned to idle captains, stalls are detected, the merge queue is
+        /// processed, and dangling handoffs are re-driven.
         /// </summary>
-        public static readonly int DefaultHeartbeatIntervalSeconds = 30;
+        public static readonly int DefaultHeartbeatIntervalSeconds = 10;
 
         /// <summary>
         /// Default stall detection threshold in minutes.

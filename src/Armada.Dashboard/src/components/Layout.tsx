@@ -11,6 +11,7 @@ import LanguageSelector from './shared/LanguageSelector';
 import NotificationBell from './shared/NotificationBell';
 import CommandPalette from './shared/CommandPalette';
 import { dashboardItem, askArmadaItem, navSections, DEFAULT_EXPANDED_SECTIONS, type NavItem } from './navConfig';
+import { useInboxCount } from '../lib/useInboxCount';
 
 type HealthStatus = 'healthy' | 'warning' | 'error' | 'unknown';
 
@@ -20,6 +21,7 @@ export default function Layout() {
   const { t } = useLocale();
   const { darkMode, toggleTheme } = useTheme();
   const { connected } = useWebSocket();
+  const inboxAttention = useInboxCount();
   const { toasts, dismissToast } = useNotifications();
   const [showWizard, setShowWizard] = useState(false);
   const [wizardHighlights, setWizardHighlights] = useState<string[]>([]);
@@ -171,18 +173,34 @@ export default function Layout() {
   const renderNavItem = useCallback((item: NavItem) => {
     if (item.hidden) return null;
 
+    const showAttention = item.to === '/inbox' && inboxAttention.count > 0;
+    const attentionClass = inboxAttention.hasCritical
+      ? ' sidebar-nav-badge-critical'
+      : inboxAttention.hasWarning
+      ? ' sidebar-nav-badge-warning'
+      : '';
+
     return (
       <NavLink
         key={item.key || item.to}
         to={item.to}
-        className={({ isActive }) => `sidebar-nav-item${isActive || isItemActive(item) ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}`}
+        className={({ isActive }) => `sidebar-nav-item${isActive || isItemActive(item) ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}${showAttention ? ' has-attention' : ''}`}
         title={collapsed ? t(item.label) : t(item.tooltip || item.label)}
       >
         {item.icon}
         <span className="sidebar-label">{t(item.label)}</span>
+        {showAttention && (
+          <span
+            className={`sidebar-nav-badge${attentionClass}`}
+            title={t('{{count}} items need your attention', { count: inboxAttention.count })}
+            aria-label={t('{{count}} items need your attention', { count: inboxAttention.count })}
+          >
+            {inboxAttention.count > 99 ? '99+' : inboxAttention.count}
+          </span>
+        )}
       </NavLink>
     );
-  }, [collapsed, isItemActive, t, wizardHighlights]);
+  }, [collapsed, isItemActive, t, wizardHighlights, inboxAttention]);
 
   const handleSwitchDeployment = useCallback(async () => {
     try {

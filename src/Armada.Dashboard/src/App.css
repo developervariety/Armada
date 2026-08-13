@@ -245,6 +245,48 @@ body {
     border-right: 3px solid var(--accent);
 }
 
+/* Live "Needs You" attention count, rendered next to the nav label. */
+.sidebar-nav-badge {
+    margin-left: auto;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--accent, #5078ff);
+    color: #ffffff;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.15rem;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+
+.sidebar-nav-badge-warning {
+    background: var(--warning, #d98a00);
+}
+
+.sidebar-nav-badge-critical {
+    background: var(--danger, #ff6b6b);
+}
+
+/* Collapsed rail: the label is hidden, so collapse the numeric badge into a small corner dot. */
+.sidebar-collapsed .sidebar-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    margin: 0;
+    min-width: 0.5rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    overflow: hidden;
+}
+
 .sidebar-nav-node {
     display: block;
 }

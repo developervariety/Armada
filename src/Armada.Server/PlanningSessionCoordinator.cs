@@ -393,6 +393,18 @@ namespace Armada.Server
                 session.VesselId,
                 voyage.Id).ConfigureAwait(false);
 
+            // The planning session has served its purpose once the work is dispatched, so release the reserved
+            // captain and dock automatically instead of leaving them pinned until the operator ends the session
+            // by hand. Best-effort: a release failure must not fail the dispatch that already succeeded.
+            try
+            {
+                await RequestStopAsync(session, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error releasing planning session " + session.Id + " after dispatch: " + ex.Message);
+            }
+
             return voyage;
         }
 

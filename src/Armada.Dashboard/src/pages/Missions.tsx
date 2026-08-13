@@ -13,7 +13,6 @@ import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
-import RecordDetailModal from '../components/shared/RecordDetailModal';
 import PageHeader from '../components/shared/PageHeader';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
@@ -53,9 +52,6 @@ export default function Missions() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
-
-  // Row-click view modal
-  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -354,15 +350,6 @@ export default function Missions() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
-      <RecordDetailModal
-        open={!!viewRecord}
-        title={typeof viewRecord?.title === 'string' ? viewRecord.title : t('Mission')}
-        subtitle={t('Mission')}
-        record={viewRecord}
-        onClose={() => setViewRecord(null)}
-        onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/missions/${(r as { id: string }).id}`); }}
-        editLabel={t('Open Details')}
-      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
       <DiffViewer open={diffModal !== null} title={diffModal?.title ?? ''} rawDiff={diffModal?.rawDiff ?? ''} onClose={() => setDiffModal(null)} />
@@ -424,7 +411,7 @@ export default function Missions() {
               </thead>
               <tbody>
                 {sorted.map(m => (
-                  <tr key={m.id} className="clickable" onClick={() => setViewRecord(m as unknown as Record<string, unknown>)}>
+                  <tr key={m.id} className="clickable" onClick={() => navigate(`/missions/${m.id}`)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggleSelect(m.id)} title={t('Select this mission')} />
                     </td>
