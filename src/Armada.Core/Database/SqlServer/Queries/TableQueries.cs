@@ -29,7 +29,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 Signals,
                 Events,
                 MergeEntries,
-                CoordinationLeases
+                CoordinationLeases,
+                Jobs
             };
 
             foreach (string index in Indexes)
@@ -885,6 +886,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('vessels', 'auto_land_path_deny_globs_json') IS NULL ALTER TABLE vessels ADD auto_land_path_deny_globs_json NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('captains', 'quarantine_until_utc') IS NULL ALTER TABLE captains ADD quarantine_until_utc NVARCHAR(450) NULL;",
                     @"IF COL_LENGTH('captains', 'quarantine_reason') IS NULL ALTER TABLE captains ADD quarantine_reason NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    49,
+                    "Add jobs table for request-independent background jobs",
+                    Jobs
                 )
             };
         }
@@ -1160,6 +1166,27 @@ namespace Armada.Core.Database.SqlServer.Queries
                 tenant_id NVARCHAR(255) NULL,
                 acquired_utc DATETIME2 NOT NULL,
                 expires_utc DATETIME2 NOT NULL
+            );";
+
+        /// <summary>
+        /// Jobs table. Backs request-independent background jobs with a time-ordered id and pollable status.
+        /// </summary>
+        public static readonly string Jobs = @"
+            IF OBJECT_ID(N'jobs') IS NULL
+            CREATE TABLE jobs (
+                id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id NVARCHAR(450),
+                user_id NVARCHAR(450),
+                name NVARCHAR(MAX) NOT NULL,
+                kind NVARCHAR(64) NOT NULL CONSTRAINT DF_jobs_kind DEFAULT 'Generic',
+                status NVARCHAR(64) NOT NULL CONSTRAINT DF_jobs_status DEFAULT 'Queued',
+                progress INT NOT NULL CONSTRAINT DF_jobs_progress DEFAULT 0,
+                result_json NVARCHAR(MAX),
+                error_reason NVARCHAR(MAX),
+                created_utc NVARCHAR(450) NOT NULL,
+                started_utc NVARCHAR(450),
+                completed_utc NVARCHAR(450),
+                last_update_utc NVARCHAR(450) NOT NULL
             );";
 
         #endregion

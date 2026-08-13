@@ -87,9 +87,10 @@ export const navSections: NavSection[] = [
   {
     key: 'activity',
     label: 'ACTIVITY',
-    matchers: ['/activity', '/history', '/requests', '/events', '/signals'],
+    matchers: ['/activity', '/history', '/requests', '/events', '/signals', '/jobs'],
     items: [
       { to: '/activity', label: 'Activity', tooltip: 'One log across requests, events, signals, and history; filter by source type', icon: icons.activity },
+      { to: '/jobs', label: 'Jobs', tooltip: 'Background jobs and their status', icon: icons.activity },
     ],
   },
   {

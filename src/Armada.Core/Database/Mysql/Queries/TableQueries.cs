@@ -1214,6 +1214,33 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// DDL for the jobs table.
+        /// </summary>
+        public static readonly string Jobs = @"CREATE TABLE IF NOT EXISTS jobs (
+            id VARCHAR(450) NOT NULL PRIMARY KEY,
+            tenant_id VARCHAR(450),
+            user_id VARCHAR(450),
+            name VARCHAR(450) NOT NULL,
+            kind VARCHAR(64) NOT NULL DEFAULT 'Generic',
+            status VARCHAR(64) NOT NULL DEFAULT 'Queued',
+            progress INT NOT NULL DEFAULT 0,
+            result_json LONGTEXT,
+            error_reason LONGTEXT,
+            created_utc DATETIME(6) NOT NULL,
+            started_utc DATETIME(6) NULL,
+            completed_utc DATETIME(6) NULL,
+            last_update_utc DATETIME(6) NOT NULL
+        );";
+
+        /// <summary>
+        /// Migration v49 statements: add the jobs table.
+        /// </summary>
+        public static readonly string[] MigrationV49Statements = new string[]
+        {
+            Jobs
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

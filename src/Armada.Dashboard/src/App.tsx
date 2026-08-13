@@ -17,6 +17,7 @@ const Missions = lazy(() => import('./pages/Missions'));
 const Voyages = lazy(() => import('./pages/Voyages'));
 const Events = lazy(() => import('./pages/Events'));
 const MergeQueue = lazy(() => import('./pages/MergeQueue'));
+const Jobs = lazy(() => import('./pages/Jobs'));
 const Docks = lazy(() => import('./pages/Docks'));
 const Doctor = lazy(() => import('./pages/Doctor'));
 const Tenants = lazy(() => import('./pages/admin/Tenants'));
@@ -142,6 +143,8 @@ export default function App() {
 
                       <Route path="merge-queue" element={<Navigate to="/missions?tab=merge-queue" replace />} />
                       <Route path="merge-queue/:id" element={<MergeQueueDetail />} />
+
+                      <Route path="jobs" element={<Jobs />} />
 
                       <Route path="configuration" element={<Configuration />} />
                       <Route path="personas" element={<Navigate to="/configuration?tab=personas" replace />} />

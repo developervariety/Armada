@@ -59,6 +59,7 @@ namespace Armada.Server
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
+        private Armada.Core.Services.JobService _JobService = null!;
         private LandingService _LandingService = null!;
         private IMessageTemplateService _TemplateService = null!;
         private IPromptTemplateService _PromptTemplateService = null!;
@@ -160,6 +161,7 @@ namespace Armada.Server
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
             _Admiral = admiralService;
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git);
+            _JobService = new Armada.Core.Services.JobService(_Database, _Logging);
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
@@ -642,6 +644,10 @@ namespace Armada.Server
             new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Background jobs
+            new Routes.JobRoutes(_Database, _JobService)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Prompt templates
             new PromptTemplateRoutes(_Database, _PromptTemplateService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -1092,6 +1098,10 @@ namespace Armada.Server
                     // Drive the merge queue so auto-enqueued entries land without a manual trigger.
                     try { await _MergeQueue.ProcessQueueAsync(token).ConfigureAwait(false); }
                     catch (Exception mqEx) { _Logging.Warn(_Header + "merge queue processing error: " + mqEx.Message); }
+
+                    // Reap background jobs whose worker died so they do not hang in Running.
+                    try { await _JobService.MaintainAsync(token).ConfigureAwait(false); }
+                    catch (Exception jobEx) { _Logging.Warn(_Header + "job maintenance error: " + jobEx.Message); }
 
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;

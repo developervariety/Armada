@@ -22,13 +22,13 @@ describe('navConfig', () => {
     const present = [
       '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
       '/delivery', '/vessels', '/captains', '/configuration', '/activity',
-      '/api-explorer', '/server',
+      '/jobs', '/api-explorer', '/server',
     ];
     for (const target of present) {
       expect(allTargets).toContain(target);
     }
-    // 13 top-level destinations; admin (Tenants/Users/Credentials) live as tabs under Settings.
-    expect(commands).toHaveLength(13);
+    // 14 top-level destinations (Jobs added under Activity); admin lives as tabs under Settings.
+    expect(commands).toHaveLength(14);
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {

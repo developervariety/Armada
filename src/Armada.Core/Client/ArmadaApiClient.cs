@@ -1484,6 +1484,42 @@ namespace Armada.Core.Client
 
         #endregion
 
+        #region Public-Methods-Jobs
+
+        /// <summary>
+        /// List background jobs (newest first), scoped to the caller.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The jobs enumeration result, or null on failure.</returns>
+        public async Task<EnumerationResult<Job>?> ListJobsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Job>>("/api/v1/jobs", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a single background job by id.
+        /// </summary>
+        /// <param name="id">Job id (job_ prefix).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The job, or null when not found.</returns>
+        public async Task<Job?> GetJobAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Job>("/api/v1/jobs/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Cancel a background job.
+        /// </summary>
+        /// <param name="id">Job id (job_ prefix).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The updated job, or null on failure.</returns>
+        public async Task<Job?> CancelJobAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Job>("/api/v1/jobs/" + id + "/cancel", new { }, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
         #region Public-Methods-Dispose
 
         /// <summary>

@@ -139,7 +139,23 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_events_vessel ON events(vessel_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_events_voyage ON events(voyage_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);",
-                    @"CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_utc DESC);"
+                    @"CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_utc DESC);",
+                    @"CREATE TABLE IF NOT EXISTS jobs (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        name TEXT NOT NULL DEFAULT '',
+                        kind TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        progress INTEGER NOT NULL DEFAULT 0,
+                        result_json TEXT,
+                        error_reason TEXT,
+                        created_utc TEXT NOT NULL,
+                        started_utc TEXT,
+                        completed_utc TEXT,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc DESC);"
                 ),
                 new SchemaMigration(2, "Add working_directory to vessels for local merge support",
                     @"ALTER TABLE vessels ADD COLUMN working_directory TEXT;"
@@ -1325,7 +1341,24 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE vessels ADD COLUMN auto_land_path_allow_globs_json TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN auto_land_path_deny_globs_json TEXT;",
                     @"ALTER TABLE captains ADD COLUMN quarantine_until_utc TEXT;",
-                    @"ALTER TABLE captains ADD COLUMN quarantine_reason TEXT;")
+                    @"ALTER TABLE captains ADD COLUMN quarantine_reason TEXT;"),
+                new SchemaMigration(54, "Add jobs table for background job tracking",
+                    @"CREATE TABLE IF NOT EXISTS jobs (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        name TEXT NOT NULL DEFAULT '',
+                        kind TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        progress INTEGER NOT NULL DEFAULT 0,
+                        result_json TEXT,
+                        error_reason TEXT,
+                        created_utc TEXT NOT NULL,
+                        started_utc TEXT,
+                        completed_utc TEXT,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc DESC);")
             };
         }
 

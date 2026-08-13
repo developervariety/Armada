@@ -8,6 +8,7 @@ import type {
   UserUpsertRequest,
   Credential,
   EnumerationResult,
+  Job,
   Fleet,
   Vessel,
   Captain,
@@ -679,6 +680,11 @@ export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/st
 export const unquarantineCaptain = (id: string) => post<Captain>(`/api/v1/captains/${id}/unquarantine`);
 export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
+
+// Background jobs
+export const listJobs = () => get<EnumerationResult<Job>>('/api/v1/jobs');
+export const getJob = (id: string) => get<Job>(`/api/v1/jobs/${id}`);
+export const cancelJob = (id: string) => post<Job>(`/api/v1/jobs/${id}/cancel`);
 export const listMuxEndpoints = (configDirectory?: string | null) =>
   get<MuxEndpointListResult>(`/api/v1/runtimes/mux/endpoints${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
 export const getMuxEndpoint = (name: string, configDirectory?: string | null) =>

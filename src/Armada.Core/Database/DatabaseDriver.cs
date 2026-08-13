@@ -45,6 +45,11 @@ namespace Armada.Core.Database
         public IPlanningSessionMessageMethods PlanningSessionMessages { get; protected set; } = null!;
 
         /// <summary>
+        /// Background job operations.
+        /// </summary>
+        public IJobMethods Jobs { get; protected set; } = null!;
+
+        /// <summary>
         /// Objective/backlog operations.
         /// </summary>
         public IObjectiveMethods Objectives { get; protected set; } = null!;

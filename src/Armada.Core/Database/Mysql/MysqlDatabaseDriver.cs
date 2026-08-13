@@ -61,6 +61,7 @@ namespace Armada.Core.Database.Mysql
             PlanningSessions = new PlanningSessionMethods(_ConnectionString);
             PlanningSessionMessages = new PlanningSessionMessageMethods(_ConnectionString);
             Objectives = new ObjectiveMethods(_ConnectionString);
+            Jobs = new JobMethods(_ConnectionString);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(_ConnectionString);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(_ConnectionString);
             Docks = new DockMethods(_ConnectionString);
@@ -344,7 +345,8 @@ namespace Armada.Core.Database.Mysql
                 TableQueries.Signals,
                 TableQueries.Events,
                 TableQueries.MergeEntries,
-                TableQueries.CoordinationLeases
+                TableQueries.CoordinationLeases,
+                TableQueries.Jobs
             };
 
             foreach (string index in TableQueries.Indexes)
@@ -538,6 +540,11 @@ namespace Armada.Core.Database.Mysql
                     48,
                     "Add auto-land + quarantine columns",
                     TableQueries.MigrationV48Statements
+                ),
+                new SchemaMigration(
+                    49,
+                    "Add jobs table",
+                    TableQueries.MigrationV49Statements
                 )
             };
         }

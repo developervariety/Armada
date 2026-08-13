@@ -311,7 +311,28 @@ namespace Armada.Core.Database.Postgresql.Queries
                         acquired_utc TIMESTAMP NOT NULL,
                         expires_utc TIMESTAMP NOT NULL
                     );",
-                    @"CREATE INDEX IF NOT EXISTS idx_coordination_leases_expires ON coordination_leases(expires_utc);"
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_leases_expires ON coordination_leases(expires_utc);",
+
+                    // Jobs
+                    @"CREATE TABLE IF NOT EXISTS jobs (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        name TEXT NOT NULL,
+                        kind TEXT NOT NULL DEFAULT 'Generic',
+                        status TEXT NOT NULL DEFAULT 'Queued',
+                        progress INTEGER NOT NULL DEFAULT 0,
+                        result_json TEXT,
+                        error_reason TEXT,
+                        created_utc TIMESTAMP NOT NULL,
+                        started_utc TIMESTAMP,
+                        completed_utc TIMESTAMP,
+                        last_update_utc TIMESTAMP NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_tenant_created ON jobs(tenant_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_tenant_user_created ON jobs(tenant_id, user_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);"
                 ),
                 new SchemaMigration(2, "Protected resources and user ownership",
                     @"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_protected BOOLEAN NOT NULL DEFAULT FALSE;",
@@ -1032,7 +1053,27 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_path_allow_globs_json TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_path_deny_globs_json TEXT;",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS quarantine_until_utc TIMESTAMP;",
-                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS quarantine_reason TEXT;")
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS quarantine_reason TEXT;"),
+                new SchemaMigration(50, "Add background jobs table",
+                    @"CREATE TABLE IF NOT EXISTS jobs (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        name TEXT NOT NULL,
+                        kind TEXT NOT NULL DEFAULT 'Generic',
+                        status TEXT NOT NULL DEFAULT 'Queued',
+                        progress INTEGER NOT NULL DEFAULT 0,
+                        result_json TEXT,
+                        error_reason TEXT,
+                        created_utc TIMESTAMP NOT NULL,
+                        started_utc TIMESTAMP,
+                        completed_utc TIMESTAMP,
+                        last_update_utc TIMESTAMP NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_tenant_created ON jobs(tenant_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_tenant_user_created ON jobs(tenant_id, user_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);")
             };
         }
 

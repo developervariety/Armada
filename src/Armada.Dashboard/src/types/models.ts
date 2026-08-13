@@ -874,6 +874,22 @@ export interface CaptainChatMetrics {
   tokensPerSecond: number | null;
 }
 
+export interface Job {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  kind: string;
+  status: string;
+  progress: number;
+  resultJson: string | null;
+  errorReason: string | null;
+  createdUtc: string;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  lastUpdateUtc: string;
+}
+
 export interface CaptainChatRequest {
   message: string;
   history: CaptainChatMessage[];
