@@ -1173,20 +1173,6 @@ v0.5.0 is focused on dispatch and pipeline stability. It adds captain model sele
 - Mission detail now shows total runtime, and dispatch cleanup removes the redundant parsed-task UI
 - Docker image tags, release metadata, and API documentation are updated for `v0.5.0`
 
-### v0.7.0 to v0.9.0
-
-v0.9.0 is focused on backlog-first delivery management. This release adds normalized objective storage, explicit backlog refinement sessions with captain selection, ranked backlog management, and end-to-end linkage from backlog items into release, deployment, and incident records. The Armada server applies the required schema migrations automatically on first startup (SQLite schema version 43, PostgreSQL/MySQL/SQL Server schema version 42).
-
-Key changes:
-
-- New normalized `objectives`, `objective_refinement_sessions`, and `objective_refinement_messages` persistence across SQLite, MySQL, PostgreSQL, and SQL Server
-- Objective/backlog CRUD, filtering, ranking, reorder, and backlog alias routes under `/api/v1/backlog`
-- Backlog refinement sessions with explicit captain selection, transcript persistence, summary generation, and objective apply-back support
-- MCP backlog CRUD and reorder coverage, plus backlog-named aliases for first-class backlog operations
-- Release, deployment, and incident flows now preserve linkage back to the same objective record
-- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.9.0`
-- Versioned migration handoff scripts are available in `migrations/` for `v0.7.0 -> v0.9.0`
-
 ### v0.6.0 to v0.7.0
 
 v0.7.0 is focused on remote access. This release adds the local outbound tunnel client, the first shipped `Armada.Proxy` service, tunnel telemetry, server/dashboard configuration surfaces, and a bounded remote management shell for day-one operator workflows. No database schema migration is required for this release.
@@ -1203,6 +1189,36 @@ Key changes:
 - New operator docs: `docs/REMOTE_MGMT.md`, `docs/TUNNEL_PROTOCOL.md`, `docs/PROXY_API.md`, and `docs/TUNNEL_OPERATIONS.md`
 - Release metadata, Docker image tags, Postman examples, and API documentation are updated for `v0.7.0`
 - Standalone no-op release scripts are available in `migrations/` for `v0.6.0 -> v0.7.0`
+
+### v0.7.0 to v0.8.0
+
+v0.8.0 is focused on backlog-first delivery management. This release adds normalized objective storage, explicit backlog refinement sessions with captain selection, ranked backlog management, and end-to-end linkage from backlog items into release, deployment, and incident records. The Armada server applies the required schema migration (startup migration 43) automatically on first startup across SQLite, PostgreSQL, MySQL, and SQL Server.
+
+Key changes:
+
+- New normalized `objectives`, `objective_refinement_sessions`, and `objective_refinement_messages` persistence across SQLite, MySQL, PostgreSQL, and SQL Server
+- Objective/backlog CRUD, filtering, ranking, reorder, and backlog alias routes under `/api/v1/backlog`
+- Backlog refinement sessions with explicit captain selection, transcript persistence, summary generation, and objective apply-back support
+- MCP backlog CRUD and reorder coverage, plus backlog-named aliases for first-class backlog operations
+- Release, deployment, and incident flows now preserve linkage back to the same objective record
+- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.8.0`
+- Versioned migration handoff scripts are available in `migrations/` for `v0.7.0 -> v0.8.0`
+
+### v0.8.0 to v0.9.0
+
+v0.9.0 is focused on reliability: it eliminates the stuck-dock and dangling-handoff failure modes and hardens the orchestrator for multi-instance operation. The Armada server applies startup migration 44 automatically on first startup across SQLite, PostgreSQL, MySQL, and SQL Server.
+
+Key changes:
+
+- Fixed stall detection (process liveness is tracked separately from the output heartbeat, so a live-but-silent agent is still caught) plus a configurable max-mission-runtime backstop for runaways
+- Cross-platform process supervision with PID-identity verification, and automatic re-drive of dangling pipeline handoffs each health cycle
+- Review-timeout watchdog, an enforced global `MaxConcurrentMissions` ceiling, and non-destructive dock repair/unstick operator tools (REST + MCP)
+- Merge queue background driver with hard subprocess timeouts and multi-instance-safe processing via a durable coordination lease
+- Centralized, tested mission state machine (single authoritative transition table and classifiers)
+- Startup migration 44 adds dock state/lease, captain process-liveness, mission review deadline, merge-entry retry/lease, and a durable coordination-lease table
+- Opt-in OpenTelemetry export (OTLP collector, in-process Prometheus scrape, and/or Loki); the Docker stack ships Prometheus, Loki, and Grafana with an "Armada Reliability" dashboard
+- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.9.0`
+- Versioned migration handoff scripts are available in `migrations/` for `v0.8.0 -> v0.9.0`
 
 ## Issues and Discussions
 
