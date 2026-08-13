@@ -25,7 +25,6 @@ interface PlanningTranscriptCardProps {
   onStreamingChange?: (value: boolean) => void;
   showThinking?: boolean;
   onShowThinkingChange?: (value: boolean) => void;
-  selectedMessageId: string;
   composer: string;
   sending: boolean;
   canSend: boolean;
@@ -34,7 +33,8 @@ interface PlanningTranscriptCardProps {
   deleting: boolean;
   formatDateTime: (value: string) => string;
   formatRelativeTime: (value: string) => string;
-  onSelectMessage: (messageId: string) => void;
+  /** Sends a specific assistant reply to the main Dispatch page (its full text becomes the dispatch prompt). */
+  onOpenMessageInDispatch: (messageId: string) => void;
   onComposerChange: (value: string) => void;
   onSend: () => void;
   onStopTurn: () => void;
@@ -64,7 +64,6 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
     onStreamingChange,
     showThinking = false,
     onShowThinkingChange,
-    selectedMessageId,
     composer,
     sending,
     canSend,
@@ -73,7 +72,7 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
     deleting,
     formatDateTime,
     formatRelativeTime,
-    onSelectMessage,
+    onOpenMessageInDispatch,
     onComposerChange,
     onSend,
     onStopTurn,
@@ -195,10 +194,11 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
               <div className="planning-chat-message-actions">
                 <button
                   type="button"
-                  className={`btn btn-sm${selectedMessageId === turn.id ? ' btn-primary' : ''}`}
-                  onClick={() => onSelectMessage(turn.id!)}
+                  className="btn btn-sm btn-primary"
+                  onClick={() => onOpenMessageInDispatch(turn.id!)}
+                  title={t('Open the main Dispatch page with this reply as the prompt')}
                 >
-                  {selectedMessageId === turn.id ? t('Selected For Dispatch') : t('Use For Dispatch')}
+                  {t('Open in Dispatch')}
                 </button>
               </div>
             ) : null

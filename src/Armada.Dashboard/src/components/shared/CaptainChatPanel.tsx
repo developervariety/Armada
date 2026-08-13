@@ -41,7 +41,7 @@ interface CaptainChatPanelProps {
   inputPlaceholder?: string;
   /** Disables the composer input independently of busy (e.g. no target selected / session inactive). */
   inputDisabled?: boolean;
-  /** Optional per-turn footer (e.g. Planning's "Use For Dispatch" action) rendered under the bubble. */
+  /** Optional per-turn footer (e.g. Planning's "Open in Dispatch" action) rendered under the bubble. */
   renderTurnFooter?: (turn: ChatTurn, index: number) => ReactNode;
   /** Optional external ref to the scrolling chat window (callers that need to scroll it themselves). */
   windowRef?: RefObject<HTMLDivElement | null>;

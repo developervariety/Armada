@@ -561,6 +561,26 @@ export default function Planning() {
     });
   }
 
+  // Send a specific assistant reply straight to the main Dispatch page, carrying its full text as the prompt.
+  function handleOpenMessageInDispatch(messageId: string) {
+    if (!currentSession) return;
+
+    const message = currentMessages.find((item) => item.id === messageId);
+    const prompt = message?.content.trim();
+    if (!prompt) return;
+
+    navigate('/dispatch', {
+      state: {
+        fromPlanning: true,
+        vesselId: currentSession.vesselId,
+        pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
+        selectedPlaybooks: currentSession.selectedPlaybooks || [],
+        prompt,
+        voyageTitle: dispatchTitle.trim() || currentSession.title || undefined,
+      },
+    });
+  }
+
   async function handleDispatch() {
     if (!currentSession || !dispatchDescription.trim()) return;
 
@@ -811,7 +831,6 @@ export default function Planning() {
               onStreamingChange={setStreamingEnabled}
               showThinking={showThinking}
               onShowThinkingChange={setShowThinking}
-              selectedMessageId={selectedMessageId}
               composer={composer}
               sending={sending}
               canSend={canSend}
@@ -820,10 +839,7 @@ export default function Planning() {
               deleting={deleting}
               formatDateTime={formatDateTime}
               formatRelativeTime={formatRelativeTime}
-              onSelectMessage={(messageId) => {
-                setSelectedMessageId(messageId);
-                dispatchSeedRef.current = null;
-              }}
+              onOpenMessageInDispatch={handleOpenMessageInDispatch}
               onComposerChange={setComposer}
               onSend={handleSendMessage}
               onStopTurn={handleStopTurn}

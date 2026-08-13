@@ -3987,14 +3987,10 @@ tr.clickable { cursor: pointer; }
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    /* Pin the whole Current Session card in the scroll area and size it to the viewport so the transcript
-       (which scrolls internally) and composer stay put while chatting -- the page no longer drifts down to
-       the Dispatch card. A fixed viewport-relative height lets the transcript flex to fill the space; top:0
-       is relative to the .main scroll container, which sits below the fixed top bar. */
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    height: calc(100dvh - var(--shell-chrome-height) - 1.5rem);
+    /* Content-sized card: the transcript window below owns a bounded internal scroll region (see
+       .planning-chat-shell .ask-chat-window), so streaming replies scroll inside the transcript rather than
+       drifting the page, while the Dispatch card underneath stays reachable instead of being pushed a full
+       viewport below the fold. */
 }
 
 .planning-current-session-head {
@@ -7434,6 +7430,9 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
+    /* Keep wheel/touch scrolling inside the transcript instead of chaining to the page once it reaches an
+       edge. */
+    overscroll-behavior: contain;
 }
 .ask-disclaimer {
     text-align: center;
@@ -7455,10 +7454,16 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     flex-direction: column;
 }
 
-/* Planning embeds the shared chat panel in a scrolling page rather than a full-height view, so it gets a
-   bounded height here; the panel then behaves exactly like the Ask Armada window. */
+/* Planning embeds the shared chat panel in a normally-scrolling page (not a full-height view), so the
+   transcript cannot flex-fill an ancestor the way Ask Armada does. Instead the window gets its own bounded
+   height and scrolls internally; the card and the Dispatch panel below it size to content. */
 .planning-chat-shell {
-    display: flex;
-    flex: 1 1 0;
-    min-height: 12rem;
+    display: block;
+    min-height: 0;
+}
+
+.planning-chat-shell .ask-chat-window {
+    flex: none;
+    min-height: 16rem;
+    max-height: 58vh;
 }
