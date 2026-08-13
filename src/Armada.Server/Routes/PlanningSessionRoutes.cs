@@ -218,7 +218,7 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Planning session not found" };
                     }
 
-                    await _planningSessions.SendMessageAsync(session, request.Content).ConfigureAwait(false);
+                    await _planningSessions.SendMessageAsync(session, request.Content, request.ShowThinking, request.Stream).ConfigureAwait(false);
                     return await BuildDetailResponseAsync(session, ctx).ConfigureAwait(false);
                 }
                 catch (NotSupportedException ex)

@@ -60,7 +60,7 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **Git isolation by default.** Every agent works in its own worktree on its own branch. Agents can't step on each other. Your main branch stays clean until you merge.
 - **Configurable and extensible workflows.** Prompt templates, personas, and pipelines are user-controlled, so you can adapt the system to your project instead of fitting your project to the built-ins.
 - **Reusable playbooks at dispatch time.** Store markdown guidance such as `CSHARP_BACKEND_ARCHITECTURE.md`, manage it in the dashboard, and select it per voyage or mission with inline or file-based delivery modes.
-- **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor, and Mux -- pluggable runtime system.
+- **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor, Mux, and OpenCode -- pluggable runtime system.
 - **Guided setup in the dashboard.** First-run configuration can stay inside the setup wizard instead of bouncing between unrelated pages.
 - **Internationalized dashboard UX.** Login, shared shell UI, list/detail/admin routes, setup flows, notifications, pagination, server management, and legacy embedded dashboard surfaces support live language selection and locale-aware formatting.
 
@@ -181,6 +181,7 @@ Special thanks to the community that helps build and improve Armada.
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
   - [Cursor](https://docs.cursor.com/cli) (`cursor-agent`)
   - Mux (`mux`)
+  - [OpenCode](https://opencode.ai) (`opencode`)
 
 ### Install
 
@@ -252,7 +253,7 @@ If you want to negotiate a plan with a captain before launching work, use the da
 
 Current planning-session behavior:
 
-- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, and `Mux` runtimes. `Custom` captains are not yet supported there.
+- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, and `OpenCode` runtimes. `Custom` captains are not yet supported there.
 - Planning sessions reserve the selected captain and a dock/worktree for the selected vessel while the session is active.
 - The captain can inspect and modify the repository while planning. Treat the planning session as tool-capable, not read-only.
 - Planning is transcript-backed today: each turn relaunches the runtime against the preserved transcript and repo context rather than holding a persistent stdin session open.
@@ -275,7 +276,7 @@ Dashboard at `http://localhost:7890/dashboard`. API access with `Authorization: 
 
 The dashboard supports language selection from the login screen and keeps the chosen locale for the authenticated session.
 
-> **Security:** Armada runs agents with auto-approve flags by default (Claude Code: `--dangerously-skip-permissions`, Codex: `--full-auto`, Gemini: `--approval-mode yolo`, Mux: `--yolo`). Agents can read, write, and execute in their worktrees without confirmation. Review the [configuration](#configuration) section before running in sensitive environments.
+> **Security:** Armada runs agents with auto-approve flags by default (Claude Code: `--dangerously-skip-permissions`, Codex: `--full-auto`, Gemini: `--approval-mode yolo`, Mux: `--yolo`, OpenCode: `--auto`). Agents can read, write, and execute in their worktrees without confirmation. Review the [configuration](#configuration) section before running in sensitive environments.
 
 > **Important:** Change the default password in production environments.
 
@@ -458,7 +459,7 @@ Armada is a C#/.NET solution with five main projects:
 | Project | Description |
 |---------|-------------|
 | **Armada.Core** | Domain models (including tenants, users, credentials), database interfaces, service interfaces, settings |
-| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, extensible via `IAgentRuntime`) |
+| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, extensible via `IAgentRuntime`) |
 | **Armada.Server** | Admiral process: REST API + WebSocket ([Watson](https://github.com/jchristn/watson)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), embedded dashboard |
 | **Armada.Dashboard** | Standalone React dashboard for Docker/production deployments |
 | **Armada.Helm** | CLI ([Spectre.Console](https://spectreconsole.net/)), thin HTTP client to Admiral |
@@ -468,7 +469,7 @@ Armada is a C#/.NET solution with five main projects:
 | Term | Plain Language | Description |
 |------|---------------|-------------|
 | **Admiral** | Coordinator | The server process that manages everything. Auto-starts when needed. |
-| **Captain** | Agent/worker | An AI agent instance (Claude Code, Codex, Gemini, Cursor, Mux, etc.). Auto-created on demand. |
+| **Captain** | Agent/worker | An AI agent instance (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, etc.). Auto-created on demand. |
 | **Fleet** | Group of repos | Collection of repositories. A default fleet is auto-created. |
 | **Vessel** | Repository | A git repository registered with Armada. Auto-registered from your current directory. |
 | **Mission** | Task | An atomic work unit assigned to a captain. |
@@ -635,11 +636,12 @@ armada go "Fix the login bug" --vessel my-api
 armada vessel add my-api https://github.com/you/my-api
 armada vessel add my-frontend https://github.com/you/my-frontend
 
-# Add more agents (supports claude, codex, gemini, cursor, mux)
+# Add more agents (supports claude, codex, gemini, cursor, mux, opencode)
 armada captain add claude-2 --runtime claude
 armada captain add codex-1 --runtime codex
 armada captain add gemini-1 --runtime gemini
 armada captain add mux-1 --runtime mux --mux-endpoint local-openai
+armada captain add opencode-1 --runtime opencode --model openai/gpt-4o
 armada captain update mux-1 --mux-config-dir C:\Users\you\.mux-work --mux-endpoint staging-openai
 
 # Emergency stop all agents

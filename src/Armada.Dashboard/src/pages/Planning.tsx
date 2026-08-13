@@ -104,6 +104,9 @@ export default function Planning() {
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
   const [composer, setComposer] = useState('');
   const [messageTools, setMessageTools] = useState<Record<string, ToolEvent[]>>({});
+  const [messageThinking, setMessageThinking] = useState<Record<string, string>>({});
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [showThinking, setShowThinking] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [dispatchTitle, setDispatchTitle] = useState('');
   const [dispatchDescription, setDispatchDescription] = useState('');
@@ -169,6 +172,7 @@ export default function Planning() {
 
   useEffect(() => {
     setMessageTools({});
+    setMessageThinking({});
     if (!id) {
       setDetail(null);
       setSelectedMessageId('');
@@ -236,6 +240,13 @@ export default function Planning() {
         const d = msg.data as ({ sessionId?: string; messageId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
         if (!d || d.sessionId !== id || !d.messageId || !d.id) return;
         setMessageTools((current) => ({ ...current, [d.messageId!]: applyToolEvent(current[d.messageId!], d) }));
+        return;
+      }
+
+      if (msg.type === 'planning-session.thinking') {
+        const d = msg.data as { sessionId?: string; messageId?: string; delta?: string } | undefined;
+        if (!d || d.sessionId !== id || !d.messageId || !d.delta) return;
+        setMessageThinking((current) => ({ ...current, [d.messageId!]: (current[d.messageId!] ?? '') + d.delta }));
         return;
       }
 
@@ -483,7 +494,7 @@ export default function Planning() {
     try {
       setSending(true);
       setError('');
-      const result = await sendPlanningSessionMessage(currentSession.id, { content: composer.trim() });
+      const result = await sendPlanningSessionMessage(currentSession.id, { content: composer.trim(), showThinking, stream: streamingEnabled });
       setComposer('');
       setDetail(result);
       setSessions((current) => upsertSession(current, result.session));
@@ -750,7 +761,12 @@ export default function Planning() {
               updatedUtc={detail.session.lastUpdateUtc}
               messages={currentMessages}
               messageTools={messageTools}
+              messageThinking={messageThinking}
               thinkingMessage={thinking}
+              streamingEnabled={streamingEnabled}
+              onStreamingChange={setStreamingEnabled}
+              showThinking={showThinking}
+              onShowThinkingChange={setShowThinking}
               selectedMessageId={selectedMessageId}
               composer={composer}
               sending={sending}

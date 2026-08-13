@@ -101,24 +101,37 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
           </div>
         ) : (
           turns.map((turn, i) => (
-            <div key={turn.id ?? i} style={{ alignSelf: turn.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+            <div
+              key={turn.id ?? i}
+              className="chat-turn"
+              style={{
+                alignSelf: turn.role === 'user' ? 'flex-end' : 'flex-start',
+                maxWidth: '85%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: turn.role === 'user' ? 'flex-end' : 'flex-start',
+                gap: '0.35rem',
+              }}
+            >
+              {/* Tool-call cards render as a fixed-width sibling of the answer bubble, not inside it, so
+                  streaming text and tool output never stretch each other's width. */}
+              {turn.role === 'assistant' && (
+                <ChatToolChips
+                  tools={turn.tools}
+                  runningLabel={t('running…')}
+                  argumentsLabel={t('Arguments')}
+                  resultLabel={t('Result')}
+                  noDetailsLabel={t('No details available.')}
+                />
+              )}
               <div
-                className="card"
-                style={{ padding: '0.6rem 0.85rem', background: turn.role === 'user' ? 'var(--accent-soft, rgba(80,120,255,0.12))' : undefined }}
+                className="card chat-bubble"
+                style={{ padding: '0.6rem 0.85rem', maxWidth: '100%', background: turn.role === 'user' ? 'var(--accent-soft, rgba(80,120,255,0.12))' : undefined }}
               >
                 <div className="text-dim chat-turn-header" style={{ fontSize: '0.7rem', marginBottom: '0.2rem' }}>
                   <span>{roleLabel(turn)}</span>
                   {turn.role === 'assistant' && turn.metrics && <ChatMetricsInfo metrics={turn.metrics} />}
                 </div>
-                {turn.role === 'assistant' && (
-                  <ChatToolChips
-                    tools={turn.tools}
-                    runningLabel={t('running…')}
-                    argumentsLabel={t('Arguments')}
-                    resultLabel={t('Result')}
-                    noDetailsLabel={t('No details available.')}
-                  />
-                )}
                 {turn.role === 'assistant' && turn.thinking && turn.thinking.trim().length > 0 && (
                   <details className="chat-thinking" open={turn.streaming} style={{ marginBottom: '0.4rem' }}>
                     <summary className="text-dim" style={{ fontSize: '0.72rem', cursor: 'pointer' }}>

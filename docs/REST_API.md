@@ -4778,6 +4778,7 @@ All enumerations serialize as strings in JSON (e.g., `"InProgress"`, not `2`).
 | `Gemini` | Google Gemini CLI |
 | `Cursor` | Cursor agent CLI |
 | `Mux` | Mux CLI |
+| `OpenCode` | OpenCode CLI (OpenAI-compatible providers) |
 | `Custom` | Custom agent runtime |
 
 ---

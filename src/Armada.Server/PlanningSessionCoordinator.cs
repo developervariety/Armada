@@ -24,6 +24,16 @@ namespace Armada.Server
         private sealed class TurnState
         {
             public bool StopRequested { get; set; } = false;
+
+            /// <summary>
+            /// Whether to surface the model's reasoning for this turn (Ask-Armada parity).
+            /// </summary>
+            public bool ShowThinking { get; set; } = false;
+
+            /// <summary>
+            /// Whether to stream the reply incrementally. When false the reply is broadcast once at the end.
+            /// </summary>
+            public bool Stream { get; set; } = true;
         }
 
         private readonly string _Header = "[PlanningSessionCoordinator] ";
@@ -204,7 +214,7 @@ namespace Armada.Server
         /// <summary>
         /// Append a user message and start a background planning turn.
         /// </summary>
-        public async Task<PlanningSessionMessage> SendMessageAsync(PlanningSession session, string content, CancellationToken token = default)
+        public async Task<PlanningSessionMessage> SendMessageAsync(PlanningSession session, string content, bool showThinking = false, bool stream = true, CancellationToken token = default)
         {
             if (session == null) throw new ArgumentNullException(nameof(session));
             if (String.IsNullOrWhiteSpace(content)) throw new ArgumentNullException(nameof(content));
@@ -213,7 +223,8 @@ namespace Armada.Server
             if (session.Status != PlanningSessionStatusEnum.Active)
                 throw new InvalidOperationException("Planning session " + session.Id + " is not ready for a new message.");
 
-            if (!_ActiveTurns.TryAdd(session.Id, new TurnState()))
+            TurnState turnState = new TurnState { ShowThinking = showThinking, Stream = stream };
+            if (!_ActiveTurns.TryAdd(session.Id, turnState))
                 throw new InvalidOperationException("Planning session " + session.Id + " is already generating a response.");
 
             List<PlanningSessionMessage> existingMessages = await _Database.PlanningSessionMessages
@@ -727,6 +738,17 @@ namespace Armada.Server
                 DateTime? firstOutputUtc = null;
 
                 bool isMux = captain.Runtime == AgentRuntimeEnum.Mux;
+                _ActiveTurns.TryGetValue(session.Id, out TurnState? currentTurn);
+                bool showThinking = currentTurn?.ShowThinking ?? false;
+                bool streamReply = currentTurn?.Stream ?? true;
+
+                // For non-Mux runtimes (no native thinking channel), ask the model to emit a delimited
+                // reasoning block that we lift out of the final reply, mirroring Ask Armada.
+                if (showThinking && !isMux)
+                {
+                    prompt = prompt + " Before your final answer, briefly work through your reasoning inside a single block delimited by <thinking> and </thinking>, then write the answer after the closing </thinking> tag.";
+                }
+
                 runtime.OnOutputReceived += (processId, line) =>
                 {
                     // For Mux, parse the structured protocol events: stream assistant_text into the reply and
@@ -752,7 +774,7 @@ namespace Armada.Server
 
                     assistantMessage.Content = updatedContent;
                     assistantMessage.LastUpdateUtc = DateTime.UtcNow;
-                    BroadcastMessageUpdated(assistantMessage);
+                    if (streamReply) BroadcastMessageUpdated(assistantMessage);
                 };
                 runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);
 
@@ -765,7 +787,8 @@ namespace Armada.Server
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
-                    captain: captain).ConfigureAwait(false);
+                    captain: captain,
+                    showThinking: showThinking).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -796,6 +819,18 @@ namespace Armada.Server
                 if (String.IsNullOrWhiteSpace(finalContent) && exitCode.HasValue && exitCode.Value != 0)
                 {
                     finalContent = "Planning turn exited with code " + exitCode.Value + " before producing a final response.";
+                }
+
+                // Lift the prompt-instructed reasoning out of a non-Mux reply into the thinking channel.
+                if (showThinking && !isMux)
+                {
+                    string reply = finalContent;
+                    string extractedThinking = ExtractThinkingBlock(ref reply);
+                    if (!String.IsNullOrEmpty(extractedThinking))
+                    {
+                        finalContent = reply;
+                        EmitPlanningThinking(new { sessionId = session.Id, messageId = assistantMessage.Id, delta = extractedThinking });
+                    }
                 }
 
                 assistantMessage.Content = finalContent.Trim();
@@ -1379,6 +1414,16 @@ namespace Armada.Server
                     if (root.TryGetProperty("text", out JsonElement tx) && tx.ValueKind == JsonValueKind.String)
                         return tx.GetString();
                 }
+                else if (eventType == "assistant_thinking")
+                {
+                    // Mux reasoning channel (--show-thinking): stream it as its own event, mirroring Ask Armada.
+                    if (root.TryGetProperty("text", out JsonElement think) && think.ValueKind == JsonValueKind.String)
+                    {
+                        string? thinkingDelta = think.GetString();
+                        if (!String.IsNullOrEmpty(thinkingDelta))
+                            EmitPlanningThinking(new { sessionId, messageId, delta = thinkingDelta });
+                    }
+                }
                 else if (eventType == "tool_call_proposed" && root.TryGetProperty("toolCall", out JsonElement proposed))
                 {
                     string? toolId = proposed.TryGetProperty("id", out JsonElement propId) && propId.ValueKind == JsonValueKind.String ? propId.GetString() : null;
@@ -1414,6 +1459,45 @@ namespace Armada.Server
         {
             try { _WebSocketHub?.BroadcastEvent("planning-session.tool", String.Empty, payload); }
             catch { }
+        }
+
+        private void EmitPlanningThinking(object payload)
+        {
+            try { _WebSocketHub?.BroadcastEvent("planning-session.thinking", String.Empty, payload); }
+            catch { }
+        }
+
+        /// <summary>
+        /// Lift the prompt-instructed reasoning out of a non-Mux reply: return the concatenated text of
+        /// every &lt;thinking&gt;...&lt;/thinking&gt; block and rewrite <paramref name="reply"/> to the answer with
+        /// those blocks removed. If removing them would leave no answer, the reply is left intact and empty
+        /// is returned.
+        /// </summary>
+        private static string ExtractThinkingBlock(ref string reply)
+        {
+            if (String.IsNullOrEmpty(reply)) return String.Empty;
+
+            System.Text.RegularExpressions.MatchCollection matches = System.Text.RegularExpressions.Regex.Matches(
+                reply, "<thinking>(.*?)</thinking>",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (matches.Count == 0) return String.Empty;
+
+            StringBuilder collected = new StringBuilder();
+            foreach (System.Text.RegularExpressions.Match match in matches)
+            {
+                string piece = match.Groups[1].Value.Trim();
+                if (piece.Length == 0) continue;
+                if (collected.Length > 0) collected.AppendLine();
+                collected.Append(piece);
+            }
+
+            string stripped = System.Text.RegularExpressions.Regex.Replace(
+                reply, "<thinking>.*?</thinking>", String.Empty,
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            if (String.IsNullOrWhiteSpace(stripped)) return String.Empty;
+
+            reply = stripped;
+            return collected.ToString().Trim();
         }
 
         private static string? TruncateJson(string? value, int max)

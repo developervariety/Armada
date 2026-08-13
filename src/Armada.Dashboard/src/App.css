@@ -7207,10 +7207,17 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .chat-tools {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 0.25rem;
-    margin: 0.15rem 0 0.5rem;
+    margin: 0.15rem 0 0.1rem;
+    max-width: 100%;
 }
+/* Tool-call cards are a uniform fixed width so they never stretch with the streamed answer text
+   (they are rendered as a sibling of the answer bubble, not inside it). On narrow viewports they cap
+   at the available width; oversized argument/result JSON scrolls inside the card via .chat-tool-pre. */
 .chat-tool {
+    width: 30rem;
+    max-width: 100%;
     border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
     border-radius: 6px;
     background: rgba(148, 163, 184, 0.06);
