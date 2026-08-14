@@ -903,8 +903,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = NullableDateTime(reader["last_heartbeat_utc"]);
             try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }
-            captain.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            captain.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            captain.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            captain.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
@@ -943,7 +943,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return DateTime.SpecifyKind((DateTime)value, DateTimeKind.Utc);
         }
 
         #endregion

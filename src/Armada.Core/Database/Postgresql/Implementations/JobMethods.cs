@@ -324,7 +324,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return Convert.ToDateTime(value).ToUniversalTime();
+            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
         }
     }
 }

@@ -448,8 +448,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             pipeline.Description = NullableString(reader["description"]);
             pipeline.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
             pipeline.Active = Convert.ToBoolean(reader["active"]);
-            pipeline.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            pipeline.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            pipeline.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            pipeline.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             return pipeline;
         }
 

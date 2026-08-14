@@ -732,8 +732,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { dock.State = Enum.Parse<DockStateEnum>(reader["state"].ToString()!); } catch { }
             try { dock.LeaseExpiresUtc = NullableDateTime(reader["lease_expires_utc"]); } catch { }
             try { dock.OwnerToken = NullableString(reader["owner_token"]); } catch { }
-            dock.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            dock.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            dock.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            dock.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             return dock;
         }
 
@@ -747,7 +747,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return DateTime.SpecifyKind((DateTime)value, DateTimeKind.Utc);
         }
 
         #endregion

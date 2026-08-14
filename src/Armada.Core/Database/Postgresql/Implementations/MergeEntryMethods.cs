@@ -716,7 +716,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return DateTime.SpecifyKind((DateTime)value, DateTimeKind.Utc);
         }
 
         private static MergeEntry MergeEntryFromReader(NpgsqlDataReader reader)

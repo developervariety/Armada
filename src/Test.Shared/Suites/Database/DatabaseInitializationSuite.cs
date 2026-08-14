@@ -66,8 +66,13 @@ namespace Test.Shared.Suites.Database
                     List<Voyage> voyages = await db.Voyages.EnumerateAsync();
                     AssertEqual(0, voyages.Count);
 
-                    List<PlanningSession> planningSessions = await db.PlanningSessions.EnumerateAsync();
-                    AssertEqual(0, planningSessions.Count);
+                    // Planning sessions are implemented for SQLite-backed deployments only; the server
+                    // drivers intentionally throw NotSupportedException for this entity.
+                    if (TestDatabaseConfig.IsSqlite)
+                    {
+                        List<PlanningSession> planningSessions = await db.PlanningSessions.EnumerateAsync();
+                        AssertEqual(0, planningSessions.Count);
+                    }
 
                     List<Dock> docks = await db.Docks.EnumerateAsync();
                     AssertEqual(0, docks.Count);

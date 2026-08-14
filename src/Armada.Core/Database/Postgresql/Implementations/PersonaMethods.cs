@@ -344,8 +344,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             persona.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
             persona.Active = Convert.ToBoolean(reader["active"]);
             persona.DefaultCaptainId = NullableString(reader["default_captain_id"]);
-            persona.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            persona.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            persona.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            persona.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             return persona;
         }
 

@@ -766,8 +766,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = (bool)reader["active"];
-            vessel.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            vessel.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            vessel.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            vessel.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             return vessel;
         }
 

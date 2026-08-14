@@ -190,8 +190,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             lease.Name = reader["name"].ToString()!;
             lease.Holder = reader["holder"].ToString()!;
             lease.TenantId = NullableString(reader["tenant_id"]);
-            lease.AcquiredUtc = ((DateTime)reader["acquired_utc"]).ToUniversalTime();
-            lease.ExpiresUtc = ((DateTime)reader["expires_utc"]).ToUniversalTime();
+            lease.AcquiredUtc = DateTime.SpecifyKind((DateTime)reader["acquired_utc"], DateTimeKind.Utc);
+            lease.ExpiresUtc = DateTime.SpecifyKind((DateTime)reader["expires_utc"], DateTimeKind.Utc);
             return lease;
         }
 

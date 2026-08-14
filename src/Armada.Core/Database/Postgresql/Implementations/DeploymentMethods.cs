@@ -392,7 +392,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 Notes = NullableString(reader["notes"]),
                 ApprovalRequired = Convert.ToBoolean(reader["approval_required"]),
                 ApprovedByUserId = NullableString(reader["approved_by_user_id"]),
-                ApprovedUtc = reader["approved_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["approved_utc"]).ToUniversalTime(),
+                ApprovedUtc = reader["approved_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["approved_utc"]), DateTimeKind.Utc),
                 ApprovalComment = NullableString(reader["approval_comment"]),
                 DeployCheckRunId = NullableString(reader["deploy_check_run_id"]),
                 SmokeTestCheckRunId = NullableString(reader["smoke_test_check_run_id"]),
@@ -400,17 +400,17 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 DeploymentVerificationCheckRunId = NullableString(reader["deployment_verification_check_run_id"]),
                 RollbackCheckRunId = NullableString(reader["rollback_check_run_id"]),
                 RollbackVerificationCheckRunId = NullableString(reader["rollback_verification_check_run_id"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                StartedUtc = reader["started_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["started_utc"]).ToUniversalTime(),
-                CompletedUtc = reader["completed_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["completed_utc"]).ToUniversalTime(),
-                VerifiedUtc = reader["verified_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["verified_utc"]).ToUniversalTime(),
-                RolledBackUtc = reader["rolled_back_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["rolled_back_utc"]).ToUniversalTime(),
-                MonitoringWindowEndsUtc = reader["monitoring_window_ends_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["monitoring_window_ends_utc"]).ToUniversalTime(),
-                LastMonitoredUtc = reader["last_monitored_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["last_monitored_utc"]).ToUniversalTime(),
-                LastRegressionAlertUtc = reader["last_regression_alert_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["last_regression_alert_utc"]).ToUniversalTime(),
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                StartedUtc = reader["started_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["started_utc"]), DateTimeKind.Utc),
+                CompletedUtc = reader["completed_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["completed_utc"]), DateTimeKind.Utc),
+                VerifiedUtc = reader["verified_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["verified_utc"]), DateTimeKind.Utc),
+                RolledBackUtc = reader["rolled_back_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["rolled_back_utc"]), DateTimeKind.Utc),
+                MonitoringWindowEndsUtc = reader["monitoring_window_ends_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["monitoring_window_ends_utc"]), DateTimeKind.Utc),
+                LastMonitoredUtc = reader["last_monitored_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["last_monitored_utc"]), DateTimeKind.Utc),
+                LastRegressionAlertUtc = reader["last_regression_alert_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["last_regression_alert_utc"]), DateTimeKind.Utc),
                 LatestMonitoringSummary = NullableString(reader["latest_monitoring_summary"]),
                 MonitoringFailureCount = reader["monitoring_failure_count"] == DBNull.Value ? 0 : Convert.ToInt32(reader["monitoring_failure_count"]),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
             };
 
             if (Enum.TryParse(reader["status"].ToString(), true, out DeploymentStatusEnum status))

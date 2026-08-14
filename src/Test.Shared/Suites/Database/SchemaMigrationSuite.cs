@@ -82,7 +82,7 @@ namespace Test.Shared.Suites.Database
                         }
                     }
                 }
-            }));
+            }, sqliteOnly: true));
 
             cases.Add(CaseAsync("initialize_async_records_migration_version", "InitializeAsync records migration version", TestTags.Positive, async () =>
             {
@@ -112,7 +112,7 @@ namespace Test.Shared.Suites.Database
                         AssertTrue(await ColumnExistsAsync(conn, "missions", "total_runtime_ms").ConfigureAwait(false), "missions.total_runtime_ms should exist");
                     }
                 }
-            }));
+            }, sqliteOnly: true));
 
             cases.Add(CaseAsync("versioned_migration_scripts_include_captain_model_and_mission_runtime_statements", "Versioned migration scripts include captain model and mission runtime statements", TestTags.Positive, async () =>
             {
@@ -196,7 +196,7 @@ namespace Test.Shared.Suites.Database
                         AssertTrue(await ColumnExistsAsync(conn, "objectives", "incident_ids_json").ConfigureAwait(false), "objectives.incident_ids_json should exist");
                     }
                 }
-            }));
+            }, sqliteOnly: true));
 
             cases.Add(CaseAsync("initialize_async_idempotent_run_twice", "InitializeAsync idempotent run twice", TestTags.Positive, async () =>
             {
@@ -247,7 +247,7 @@ namespace Test.Shared.Suites.Database
                         }
                     }
                 }
-            }));
+            }, sqliteOnly: true));
 
             cases.Add(CaseAsync("get_schema_version_async_fresh_database_returns_zero", "GetSchemaVersionAsync fresh database returns zero", TestTags.Negative, async () =>
             {
@@ -342,14 +342,22 @@ namespace Test.Shared.Suites.Database
                 tags: new List<string> { tag });
         }
 
-        private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
+        private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body, bool sqliteOnly = false)
         {
+            // Cases that introspect the schema through a raw SqliteConnection (sqlite_master, PRAGMA
+            // table_info) cannot run against a server provider's connection string; the provider-agnostic
+            // migration coverage lives in the GetSchemaVersionAsync-based cases, which run everywhere.
+            bool skip = sqliteOnly && !TestDatabaseConfig.IsSqlite;
+            string? skipReason = skip ? "Case uses SQLite-specific schema introspection; not applicable to server providers." : null;
+
             return new TestCaseDescriptor(
                 suiteId: "Database.SchemaMigration",
                 caseId: caseId,
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
-                tags: new List<string> { tag });
+                tags: new List<string> { tag },
+                skip: skip,
+                skipReason: skipReason);
         }
 
         #endregion

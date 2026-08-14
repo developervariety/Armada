@@ -807,11 +807,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
             mission.CommitHash = NullableString(reader["commit_hash"]);
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);
             try { mission.AgentOutput = NullableString(reader["agent_output"]); } catch { }
-            mission.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
+            mission.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
             mission.StartedUtc = NullableDateTime(reader["started_utc"]);
             mission.CompletedUtc = NullableDateTime(reader["completed_utc"]);
             try { mission.TotalRuntimeMs = NullableLong(reader["total_runtime_ms"]); } catch { }
-            mission.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            mission.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
@@ -863,7 +863,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return DateTime.SpecifyKind((DateTime)value, DateTimeKind.Utc);
         }
 
         #endregion

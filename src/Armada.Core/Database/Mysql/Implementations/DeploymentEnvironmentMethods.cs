@@ -307,8 +307,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 RequiresApproval = Convert.ToBoolean(reader["requires_approval"]),
                 IsDefault = Convert.ToBoolean(reader["is_default"]),
                 Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
             };
 
             if (Enum.TryParse(reader["kind"].ToString(), true, out EnvironmentKindEnum kind))

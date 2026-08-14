@@ -300,8 +300,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 Active = Convert.ToInt64(reader["active"]) == 1,
                 DefaultPipelineId = MysqlDatabaseDriver.NullableString(reader["default_pipeline_id"]),
                 WorkflowProfileId = MysqlDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
             };
 
             if (Enum.TryParse(reader["scope"].ToString(), true, out ProjectProfileScopeEnum scope))

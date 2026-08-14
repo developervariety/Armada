@@ -603,8 +603,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             fleet.Description = NullableString(reader["description"]);
             try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             fleet.Active = (bool)reader["active"];
-            fleet.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            fleet.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            fleet.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            fleet.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             return fleet;
         }
 
