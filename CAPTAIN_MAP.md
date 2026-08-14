@@ -63,7 +63,7 @@ New persisted fields (Structured Persistence Rule — typed columns, not JSON bl
 
 ### Migration and schema definitions
 
-- [ ] **CM-007** Determine the current schema head via `GetSchemaVersionAsync` / `TableQueries`; add the next sequential startup migration (currently expected to be **47**) that adds `personas.default_captain_id`, `missions.requested_captain_id`, and `voyages.captain_overrides_json`. Follow BACKEND_ARCHITECTURE Migrations rules; migration must be idempotent and safe on an existing populated database.
+- [ ] **CM-007** Add startup migration **47** that adds `personas.default_captain_id`, `missions.requested_captain_id`, and `voyages.captain_overrides_json` (current head is 46 — project profiles 45, skills 46). Follow BACKEND_ARCHITECTURE Migrations rules; migration must be idempotent and safe on an existing populated database.
 - [ ] **CM-008** Update `CREATE TABLE` definitions and column lists in `TableQueries.cs` for all four providers so a fresh install creates the columns: `src/Armada.Core/Database/{Sqlite,Postgresql,Mysql,SqlServer}/Queries/TableQueries.cs`.
 - [ ] **CM-009** Update `PersonaMethods` (Create/Update INSERT/UPDATE column lists, parameter binding, and `SELECT`→model mapping) for all four providers.
 - [ ] **CM-010** Update `MissionMethods` (Create/Update/read mapping) for `requested_captain_id` across all four providers (use the existing `tier` handling as the template).
@@ -127,7 +127,7 @@ Build shared pieces first so every surface is consistent (DASHBOARD_STYLE Shared
 - [ ] **CM-062** **Dispatch page** (`Dispatch.tsx` / `DispatchHub`): when a pipeline is selected, render each stage (persona) with a `CaptainPicker` (pre-filled from that persona's default) and a `FallbackTierSelect`. Submit as `captainAssignments`. Clear empty/loading states when no captains exist; disable with guidance rather than silently.
 - [ ] **CM-063** **Mission detail** (`MissionDetail.tsx`): show **Preferred captain** (from `requestedCaptainId`) AND **Actual captain used** (from `captainId`), with a subtle "fell back to tier" indicator when they differ and a preferred captain was set. Localized labels; deep-links to captain detail.
 - [ ] **CM-064** **Voyage detail**: show the per-step captain assignments (overrides) for the voyage.
-- [ ] **CM-065** **Setup wizard / OOBE** (`SetupWizard.tsx`): during fleet + captain definition, capture each captain's `Tier` (and role via `AllowedPersonas`/`PreferredPersona`), and offer to seed persona default captains so a fresh install routes sensibly out of the box. Keep the wizard steps sized to the viewport with pinned actions (no scroll-to-submit); polished, aesthetic, and localized. Account for the empty-deployment first-run path.
+- [ ] **CM-065** **Setup wizard / OOBE** (`SetupWizard.tsx`): during fleet + captain definition, capture each captain's `Tier` and role (`AllowedPersonas`/`PreferredPersona`) so a fresh install has the capability metadata that fallback-by-tier and preferred-captain routing depend on. The wizard sets tier/role only — it does NOT seed per-persona default captains; that is a separate, later step the operator does in the dashboard (Persona detail, CM-061). Keep the wizard steps sized to the viewport with pinned actions (no scroll-to-submit); polished, aesthetic, and localized. Account for the empty-deployment first-run path.
 - [ ] **CM-066** Responsive + accessibility QA pass across CM-060..CM-065 (DASHBOARD_STYLE Mandatory Visual QA; keyboard nav, focus, contrast, `aria-*`).
 
 ---
@@ -223,7 +223,7 @@ A task is DONE only when all of the following hold for the code it touches:
 | CM-004 | Model | CaptainAssignmentOverride | TODO | | |
 | CM-005 | DTO | DispatchCaptainAssignment | TODO | | |
 | CM-006 | Model | MissionDescription.RequestedCaptainId | TODO | | |
-| CM-007 | DB | Startup migration (next head, ~47) | TODO | | |
+| CM-007 | DB | Startup migration 47 (head is 46) | TODO | | |
 | CM-008 | DB | TableQueries ×4 | TODO | | |
 | CM-009 | DB | PersonaMethods ×4 | TODO | | |
 | CM-010 | DB | MissionMethods ×4 | TODO | | |
@@ -297,7 +297,8 @@ A task is DONE only when all of the following hold for the code it touches:
 
 ---
 
-## 14. Open decisions
+## 14. Decisions
 
-- **OOBE depth (CM-065):** whether the setup wizard only sets captain tier/role or also walks the operator through picking a default captain per persona. Pending product confirmation; the plan supports both — the wizard captures tier/role at minimum and offers persona-default seeding as an optional step.
-- **Fallback tier default:** when a preferred captain is chosen without an explicit fallback tier, default the fallback to that captain's own `Tier`. Revisit if operators want an explicit "no fallback, wait" mode (would add a per-step toggle).
+- **OOBE depth (CM-065) — DECIDED:** the setup wizard sets captain **tier and role only**. Adjusting per-persona default captains is a separate step the operator performs in the dashboard (Persona detail, CM-061), not part of first-run.
+- **Migration number (CM-007) — DECIDED:** startup migration **47** (current head 46).
+- **Fallback tier default (open):** when a preferred captain is chosen without an explicit fallback tier, default the fallback to that captain's own `Tier`. Revisit if operators want an explicit "no fallback, wait" mode (would add a per-step toggle).
