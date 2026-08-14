@@ -1,7 +1,9 @@
 namespace Test.Shared.Infrastructure
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
+    using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
     using Armada.Core.Database;
@@ -10,14 +12,15 @@ namespace Test.Shared.Infrastructure
     using SyslogLogging;
 
     /// <summary>
-    /// Creates disposable, fully-initialized databases for tests. Every call yields a fresh, isolated store.
+    /// Creates fully-initialized databases for tests. Every call yields a clean, isolated store.
     ///
-    /// The provider is selected by <see cref="TestDatabaseConfig"/>. For SQLite (the default) the
-    /// migrated-and-seeded schema is built once into a template file and each database is a fast file copy of
-    /// that template (~5-10ms), avoiding the per-test migration tax. For a server provider (PostgreSQL,
-    /// MySQL, SQL Server) each call creates a uniquely-named database on the server, runs the full
-    /// migrate-and-seed, and drops the database on dispose -- so the identical suite validates every
-    /// provider's schema and DB-method implementations.
+    /// The provider is selected by <see cref="TestDatabaseConfig"/>. To keep the identical suite fast on every
+    /// backend, the expensive migrate-and-seed is paid once and reused: for SQLite the migrated-and-seeded
+    /// schema is built once into a template file and each database is a fast file copy (~5-10ms); for a server
+    /// provider (PostgreSQL, MySQL, SQL Server) one shared database is migrated and seeded once per run, and
+    /// each call resets it to a clean state (every table truncated, default data re-seeded) instead of
+    /// re-migrating -- turning a ~30s-per-case cost on MySQL into a sub-second reset. The same suite still
+    /// validates every provider's schema and DB-method implementations.
     /// </summary>
     public static class TestDatabaseHelper
     {
@@ -26,25 +29,28 @@ namespace Test.Shared.Infrastructure
         private static readonly object _TemplateLock = new object();
         private static string? _TemplatePath;
 
+        private static readonly SemaphoreSlim _ServerInitLock = new SemaphoreSlim(1, 1);
+        private static DatabaseDriver? _SharedServerDriver;
+        private static string? _SharedServerConnectionString;
+        private static List<string>? _SharedServerTables;
+
         #endregion
 
         #region Public-Methods
 
         /// <summary>
-        /// Create and initialize a database driver for the configured provider. The returned wrapper disposes
-        /// the driver and tears down the backing store (delete temp file or drop database) when disposed.
+        /// Create and initialize a database for the configured provider and hand it to a single test case.
+        /// For SQLite each call is an isolated temp-file copy of the migrated template. For a server provider
+        /// the harness migrates one shared database per run and returns a reset-to-clean view of it: every
+        /// table is emptied and default data re-seeded, so the case sees the same clean state a fresh database
+        /// would have -- without paying the (30s on MySQL) migrate-and-seed tax per case. The returned wrapper
+        /// is disposed by the case; for the shared server database dispose is a no-op on the reused driver.
         /// </summary>
         /// <returns>An initialized, disposable <see cref="TestDatabase"/>.</returns>
         public static async Task<TestDatabase> CreateDatabaseAsync()
         {
             if (TestDatabaseConfig.IsSqlite) return CreateSqliteDatabase();
-
-            string databaseName = "at_" + Guid.NewGuid().ToString("N").Substring(0, 20);
-            await TestDatabaseProvisioner.CreateDatabaseAsync(databaseName).ConfigureAwait(false);
-
-            DatabaseSettings settings = TestDatabaseConfig.BuildSettings(databaseName);
-            DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings).ConfigureAwait(false);
-            return new TestDatabase(driver, settings.GetConnectionString(), () => TestDatabaseProvisioner.DropDatabaseAsync(databaseName).GetAwaiter().GetResult());
+            return await CreateServerDatabaseAsync().ConfigureAwait(false);
         }
 
         /// <summary>
@@ -88,6 +94,58 @@ namespace Test.Shared.Infrastructure
             // migrations + seeding) is intentionally not run here.
             SqliteDatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
             return new TestDatabase(driver, connectionString, () => TestTemp.TryDelete(tempFile));
+        }
+
+        /// <summary>
+        /// Return a clean view of the shared server database. The shared database is migrated and seeded once
+        /// per run (<see cref="EnsureSharedServerDatabaseAsync"/>); each call empties every table and re-seeds
+        /// default data so the case starts from the same clean state a freshly migrated database would have.
+        /// The returned wrapper does not own the driver -- disposing it leaves the shared database in place for
+        /// the next case. Cases run sequentially and never hold two databases at once, so a single shared
+        /// database is safe.
+        /// </summary>
+        private static async Task<TestDatabase> CreateServerDatabaseAsync()
+        {
+            await EnsureSharedServerDatabaseAsync().ConfigureAwait(false);
+
+            // Empty every table (schema_migrations is preserved) then re-seed defaults by re-running
+            // InitializeAsync, which finds the schema already current, skips all migrations, and re-seeds the
+            // default tenant/user/credential because the tables are now empty.
+            await TestDatabaseProvisioner.ResetDatabaseAsync(_SharedServerConnectionString!, _SharedServerTables!).ConfigureAwait(false);
+            await _SharedServerDriver!.InitializeAsync().ConfigureAwait(false);
+
+            return new TestDatabase(_SharedServerDriver!, _SharedServerConnectionString!, cleanup: null, ownsDriver: false);
+        }
+
+        /// <summary>
+        /// Lazily create, migrate, and seed the single shared server database for this run, and capture the
+        /// list of tables to reset between cases. Any pre-existing database of the same name (from an earlier
+        /// run against a persistent server) is dropped first so the run starts from a known-clean schema.
+        /// </summary>
+        private static async Task EnsureSharedServerDatabaseAsync()
+        {
+            if (_SharedServerDriver != null) return;
+
+            await _ServerInitLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_SharedServerDriver != null) return;
+
+                string databaseName = TestDatabaseConfig.BaseDatabaseName + "_shared";
+                await TestDatabaseProvisioner.DropDatabaseAsync(databaseName).ConfigureAwait(false);
+                await TestDatabaseProvisioner.CreateDatabaseAsync(databaseName).ConfigureAwait(false);
+
+                DatabaseSettings settings = TestDatabaseConfig.BuildSettings(databaseName);
+                DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings).ConfigureAwait(false);
+
+                _SharedServerConnectionString = settings.GetConnectionString();
+                _SharedServerTables = await TestDatabaseProvisioner.GetTableNamesAsync(_SharedServerConnectionString).ConfigureAwait(false);
+                _SharedServerDriver = driver;
+            }
+            finally
+            {
+                _ServerInitLock.Release();
+            }
         }
 
         private static string EnsureTemplate()

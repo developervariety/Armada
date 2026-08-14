@@ -4,11 +4,11 @@ namespace Test.Shared.Infrastructure
     using Armada.Core.Database;
 
     /// <summary>
-    /// Wraps an initialized database driver for a single test case and tears the backing store down on
-    /// dispose. For SQLite the store is a temp file that is deleted; for a server backend it is a uniquely
-    /// named database that is dropped. Each case that needs a database creates one via
-    /// <see cref="TestDatabaseHelper.CreateDatabaseAsync"/>, giving every case a fully isolated store with no
-    /// cross-suite or cross-case state bleed, regardless of the configured provider.
+    /// Wraps an initialized database driver for a single test case. For SQLite the store is a per-case temp
+    /// file that is deleted on dispose. For a server backend the harness migrates one shared database per run
+    /// and hands each case a reset-to-clean view of it (owns the driver = false), so dispose is a no-op on the
+    /// shared driver -- the expensive migrate-and-seed happens once instead of per case. Each case still sees
+    /// a clean, isolated store with no cross-case state bleed, regardless of the configured provider.
     /// </summary>
     public sealed class TestDatabase : IDisposable
     {
@@ -29,17 +29,24 @@ namespace Test.Shared.Infrastructure
 
         #region Private-Members
 
-        private readonly Action _Cleanup;
+        private readonly Action? _Cleanup;
+        private readonly bool _OwnsDriver;
 
         #endregion
 
         #region Constructors-and-Factories
 
-        internal TestDatabase(DatabaseDriver driver, string connectionString, Action cleanup)
+        /// <summary>
+        /// Wrap a driver for a single case. When <paramref name="ownsDriver"/> is true the driver is disposed
+        /// and <paramref name="cleanup"/> runs on dispose (SQLite temp-file path). When false the driver is a
+        /// shared, reused instance and dispose leaves it untouched (server shared-database path).
+        /// </summary>
+        internal TestDatabase(DatabaseDriver driver, string connectionString, Action? cleanup, bool ownsDriver = true)
         {
             Driver = driver ?? throw new ArgumentNullException(nameof(driver));
             ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-            _Cleanup = cleanup ?? throw new ArgumentNullException(nameof(cleanup));
+            _Cleanup = cleanup;
+            _OwnsDriver = ownsDriver;
         }
 
         #endregion
@@ -47,15 +54,18 @@ namespace Test.Shared.Infrastructure
         #region Public-Methods
 
         /// <summary>
-        /// Dispose the driver and tear down the backing store (delete the temp file or drop the database).
-        /// Cleanup failures are swallowed so a teardown problem never masks the test result.
+        /// For an owned (SQLite) database, dispose the driver and tear down the backing store. For the shared
+        /// server database, leave the reused driver in place for the next case. Cleanup failures are swallowed
+        /// so a teardown problem never masks the test result.
         /// </summary>
         public void Dispose()
         {
+            if (!_OwnsDriver) return;
+
             Driver.Dispose();
             try
             {
-                _Cleanup();
+                _Cleanup?.Invoke();
             }
             catch
             {
