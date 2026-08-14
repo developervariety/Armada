@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -33,7 +34,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     bool acquired = await db.CoordinationLeases.TryAcquireAsync("merge-queue:process", "holder-a", TimeSpan.FromMinutes(5));
                     AssertTrue(acquired, "first acquire");
 
@@ -47,7 +48,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "holder-a", TimeSpan.FromMinutes(5)), "holder-a acquire");
 
                     bool second = await db.CoordinationLeases.TryAcquireAsync("lock", "holder-b", TimeSpan.FromMinutes(5));
@@ -62,7 +63,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "holder-a", TimeSpan.FromMinutes(5)));
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "holder-a", TimeSpan.FromMinutes(5)), "same holder re-acquire");
                 }
@@ -72,7 +73,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     // Acquire with an already-elapsed TTL so the lease is immediately eligible for takeover.
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "dead-holder", TimeSpan.Zero));
 
@@ -88,7 +89,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "holder-a", TimeSpan.FromMinutes(1)));
                     CoordinationLease? before = await db.CoordinationLeases.ReadAsync("lock");
 
@@ -104,7 +105,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "holder-a", TimeSpan.FromMinutes(5)));
 
                     bool renewed = await db.CoordinationLeases.TryRenewAsync("lock", "holder-b", TimeSpan.FromMinutes(10));
@@ -116,7 +117,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "holder-a", TimeSpan.FromMinutes(5)));
 
                     await db.CoordinationLeases.ReleaseAsync("lock", "holder-a");
@@ -131,7 +132,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertTrue(await db.CoordinationLeases.TryAcquireAsync("lock", "holder-a", TimeSpan.FromMinutes(5)));
 
                     await db.CoordinationLeases.ReleaseAsync("lock", "holder-b");
@@ -145,7 +146,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertNull(await db.CoordinationLeases.ReadAsync("nonexistent"));
                 }
             }));
@@ -154,7 +155,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.CoordinationLeases.TryAcquireAsync("live", "holder-a", TimeSpan.FromMinutes(5));
                     await db.CoordinationLeases.TryAcquireAsync("dead", "holder-b", TimeSpan.Zero);
 

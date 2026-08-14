@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -38,7 +39,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Signal signal = new Signal(SignalTypeEnum.Assignment, "{\"test\":true}");
                     Signal result = await db.Signals.CreateAsync(signal);
 
@@ -51,7 +52,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Signal signal = new Signal(SignalTypeEnum.Heartbeat);
                     await db.Signals.CreateAsync(signal);
 
@@ -66,7 +67,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("receiver");
                     await db.Captains.CreateAsync(captain);
 
@@ -93,7 +94,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     for (int i = 0; i < 5; i++)
                     {
                         await db.Signals.CreateAsync(new Signal(SignalTypeEnum.Nudge, "msg" + i));
@@ -108,7 +109,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Signal signal = new Signal(SignalTypeEnum.Mail, "test");
                     await db.Signals.CreateAsync(signal);
                     AssertFalse(signal.Read);
@@ -125,7 +126,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Signal? result = await db.Signals.ReadAsync("sig_nonexistent");
                     AssertNull(result);
                 }

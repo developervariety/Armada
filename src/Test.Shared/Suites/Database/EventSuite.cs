@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -40,7 +41,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     ArmadaEvent evt = CreateEvent(
                         "mission.created",
@@ -71,7 +72,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     DateTime baseTime = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -101,7 +102,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Events.CreateAsync(CreateEvent("mission.created", "Created 1"));
                     await db.Events.CreateAsync(CreateEvent("mission.completed", "Completed 1"));
@@ -129,7 +130,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Events.CreateAsync(CreateEvent("mission.created", "M1", entityType: "mission", entityId: "msn_aaa"));
                     await db.Events.CreateAsync(CreateEvent("mission.updated", "M2", entityType: "mission", entityId: "msn_aaa"));
@@ -156,7 +157,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Events.CreateAsync(CreateEvent("captain.launched", "L1", captainId: "cpt_alpha"));
                     await db.Events.CreateAsync(CreateEvent("captain.stalled", "S1", captainId: "cpt_alpha"));
@@ -182,7 +183,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Events.CreateAsync(CreateEvent("mission.created", "M1", missionId: "msn_target"));
                     await db.Events.CreateAsync(CreateEvent("mission.updated", "M2", missionId: "msn_target"));
@@ -209,7 +210,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Events.CreateAsync(CreateEvent("vessel.updated", "V1", vesselId: "vsl_repo1"));
                     await db.Events.CreateAsync(CreateEvent("mission.created", "V2", vesselId: "vsl_repo1"));
@@ -235,7 +236,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Events.CreateAsync(CreateEvent("voyage.created", "V1", voyageId: "vyg_batch1"));
                     await db.Events.CreateAsync(CreateEvent("mission.dispatched", "V2", voyageId: "vyg_batch1"));
@@ -262,7 +263,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     DateTime baseTime = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -358,7 +359,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     List<ArmadaEvent> recent = await db.Events.EnumerateRecentAsync(5);
                     AssertEqual(0, recent.Count);

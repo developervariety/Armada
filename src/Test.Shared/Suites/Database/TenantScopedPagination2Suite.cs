@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -42,7 +43,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     List<string> captainIds = new List<string>();
@@ -81,7 +82,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -115,7 +116,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -150,7 +151,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string validateCaptainId = await CreateCaptainAsync(db, t1, "capt_validate");
@@ -183,7 +184,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -220,7 +221,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -252,7 +253,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -285,7 +286,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -316,7 +317,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -367,7 +368,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -401,7 +402,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -432,7 +433,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -464,7 +465,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -499,7 +500,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -548,7 +549,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -581,7 +582,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -615,7 +616,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTenantAsync(db, "TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
                     string t2 = await CreateTenantAsync(db, "TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
 
@@ -659,14 +660,14 @@ namespace Test.Shared.Suites.Database
 
         private static DateTime BaseTime => new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        private static async Task<string> CreateTenantAsync(SqliteDatabaseDriver db, string name)
+        private static async Task<string> CreateTenantAsync(DatabaseDriver db, string name)
         {
             TenantMetadata tenant = new TenantMetadata(name);
             await db.Tenants.CreateAsync(tenant);
             return tenant.Id;
         }
 
-        private static async Task<string> CreateCaptainAsync(SqliteDatabaseDriver db, string tenantId, string name)
+        private static async Task<string> CreateCaptainAsync(DatabaseDriver db, string tenantId, string name)
         {
             Captain captain = new Captain(name);
             captain.TenantId = tenantId;

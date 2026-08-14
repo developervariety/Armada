@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -38,7 +39,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("claude-1", AgentRuntimeEnum.ClaudeCode);
                     captain.Model = "gpt-5.4";
                     Captain result = await db.Captains.CreateAsync(captain);
@@ -57,7 +58,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("read-test");
                     await db.Captains.CreateAsync(captain);
 
@@ -72,7 +73,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("name-lookup");
                     await db.Captains.CreateAsync(captain);
 
@@ -86,7 +87,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("update-test");
                     await db.Captains.CreateAsync(captain);
 
@@ -110,7 +111,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("clear-model-test");
                     captain.Model = "gpt-5.4";
                     await db.Captains.CreateAsync(captain);
@@ -127,7 +128,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("to-delete");
                     await db.Captains.CreateAsync(captain);
 
@@ -140,7 +141,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain c1 = new Captain("idle-1");
                     Captain c2 = new Captain("working-1");
                     c2.State = CaptainStateEnum.Working;
@@ -162,7 +163,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("state-test");
                     await db.Captains.CreateAsync(captain);
 
@@ -177,7 +178,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("heartbeat-test");
                     await db.Captains.CreateAsync(captain);
                     AssertNull(captain.LastHeartbeatUtc);
@@ -193,7 +194,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("exists-test");
                     await db.Captains.CreateAsync(captain);
 
@@ -207,7 +208,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain? result = await db.Captains.ReadAsync("cpt_does_not_exist");
                     AssertNull(result);
                 }

@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -39,7 +40,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -59,7 +60,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -76,7 +77,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -93,7 +94,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -119,7 +120,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -139,7 +140,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -159,7 +160,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -189,7 +190,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
                     string tenantB = tenants[1];
@@ -212,7 +213,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     List<string> tenants = await CreateTwoTenantsAsync(db);
                     string tenantA = tenants[0];
 
@@ -239,7 +240,7 @@ namespace Test.Shared.Suites.Database
 
         #region Private-Methods
 
-        private static async Task<List<string>> CreateTwoTenantsAsync(SqliteDatabaseDriver db)
+        private static async Task<List<string>> CreateTwoTenantsAsync(DatabaseDriver db)
         {
             TenantMetadata tA = new TenantMetadata("Tenant A " + Guid.NewGuid().ToString("N").Substring(0, 6));
             TenantMetadata tB = new TenantMetadata("Tenant B " + Guid.NewGuid().ToString("N").Substring(0, 6));

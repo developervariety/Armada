@@ -1,23 +1,24 @@
 namespace Test.Shared.Infrastructure
 {
     using System;
-    using System.IO;
-    using Armada.Core.Database.Sqlite;
+    using Armada.Core.Database;
 
     /// <summary>
-    /// Wraps an initialized SQLite driver backed by a temp file and deletes that file on
-    /// dispose. Each test case that needs a database creates one of these via
-    /// <see cref="TestDatabaseHelper.CreateDatabaseAsync"/>, giving every case a fully
-    /// isolated store with no cross-suite or cross-case state bleed.
+    /// Wraps an initialized database driver for a single test case and tears the backing store down on
+    /// dispose. For SQLite the store is a temp file that is deleted; for a server backend it is a uniquely
+    /// named database that is dropped. Each case that needs a database creates one via
+    /// <see cref="TestDatabaseHelper.CreateDatabaseAsync"/>, giving every case a fully isolated store with no
+    /// cross-suite or cross-case state bleed, regardless of the configured provider.
     /// </summary>
     public sealed class TestDatabase : IDisposable
     {
         #region Public-Members
 
         /// <summary>
-        /// The initialized SQLite database driver under test.
+        /// The initialized database driver under test. Typed as the provider-agnostic base so tests run
+        /// unchanged against SQLite, PostgreSQL, MySQL, or SQL Server.
         /// </summary>
-        public SqliteDatabaseDriver Driver { get; }
+        public DatabaseDriver Driver { get; }
 
         /// <summary>
         /// The connection string used for this test database.
@@ -28,17 +29,17 @@ namespace Test.Shared.Infrastructure
 
         #region Private-Members
 
-        private readonly string _TempFile;
+        private readonly Action _Cleanup;
 
         #endregion
 
         #region Constructors-and-Factories
 
-        internal TestDatabase(SqliteDatabaseDriver driver, string tempFile, string connectionString)
+        internal TestDatabase(DatabaseDriver driver, string connectionString, Action cleanup)
         {
             Driver = driver ?? throw new ArgumentNullException(nameof(driver));
-            _TempFile = tempFile ?? throw new ArgumentNullException(nameof(tempFile));
             ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            _Cleanup = cleanup ?? throw new ArgumentNullException(nameof(cleanup));
         }
 
         #endregion
@@ -46,14 +47,20 @@ namespace Test.Shared.Infrastructure
         #region Public-Methods
 
         /// <summary>
-        /// Dispose the driver and delete the backing temp file (best effort).
+        /// Dispose the driver and tear down the backing store (delete the temp file or drop the database).
+        /// Cleanup failures are swallowed so a teardown problem never masks the test result.
         /// </summary>
         public void Dispose()
         {
             Driver.Dispose();
-            // Delete the backing temp file and drop it from TestTemp's tracking set so the process-exit
-            // sweep does not retain a handle to every per-test database for the life of the run.
-            TestTemp.TryDelete(_TempFile);
+            try
+            {
+                _Cleanup();
+            }
+            catch
+            {
+                // Best effort: a failed drop/delete must not fail the test.
+            }
         }
 
         #endregion

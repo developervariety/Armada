@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -40,7 +41,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db);
 
                     AuthenticationService svc = CreateService(db);
@@ -57,7 +58,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await CreateTestEntitiesAsync(db);
 
                     AuthenticationService svc = CreateService(db);
@@ -71,7 +72,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db, userActive: false);
 
                     AuthenticationService svc = CreateService(db);
@@ -85,7 +86,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db, credentialActive: false);
 
                     AuthenticationService svc = CreateService(db);
@@ -101,7 +102,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db);
 
                     SessionTokenService tokenSvc = new SessionTokenService();
@@ -121,7 +122,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await CreateTestEntitiesAsync(db);
 
                     AuthenticationService svc = CreateService(db);
@@ -137,7 +138,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     AuthenticationService svc = CreateService(db, apiKey: "testkey");
                     AuthContext ctx = await svc.AuthenticateAsync(null, null, "testkey");
@@ -154,7 +155,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     AuthenticationService svc = CreateService(db, apiKey: "testkey");
                     AuthContext ctx = await svc.AuthenticateAsync(null, null, "wrongkey");
@@ -169,7 +170,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     AuthenticationService svc = CreateService(db);
                     AuthContext ctx = await svc.AuthenticateAsync(null, null, null);
@@ -184,7 +185,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db);
 
                     AuthenticationService svc = CreateService(db, apiKey: "testkey");
@@ -203,7 +204,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string password = "secretPassword123";
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db, password: password);
 
@@ -221,7 +222,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db, password: "correctPassword");
 
                     AuthenticationService svc = CreateService(db);
@@ -235,7 +236,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db);
 
                     AuthenticationService svc = CreateService(db);
@@ -251,7 +252,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string password = "secretPassword123";
                     AuthFixtureResult entities = await CreateTestEntitiesAsync(db, password: password, userActive: false);
 
@@ -273,7 +274,7 @@ namespace Test.Shared.Suites.Services
         #region Private-Methods
 
         private static AuthenticationService CreateService(
-            SqliteDatabaseDriver db,
+            DatabaseDriver db,
             ISessionTokenService? sessionTokenService = null,
             string? apiKey = null)
         {
@@ -289,7 +290,7 @@ namespace Test.Shared.Suites.Services
         }
 
         private static async Task<AuthFixtureResult> CreateTestEntitiesAsync(
-            SqliteDatabaseDriver db,
+            DatabaseDriver db,
             string? password = null,
             bool userActive = true,
             bool credentialActive = true)

@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Database
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -35,7 +36,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create 3 fleets
                     for (int i = 0; i < 3; i++)
@@ -69,7 +70,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create 5 fleets
                     for (int i = 0; i < 5; i++)
@@ -93,7 +94,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     int count = 5;
                     for (int i = 0; i < count; i++)
@@ -128,7 +129,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create fleets with known timestamps in random order
                     await db.Fleets.CreateAsync(CreateFleet("Third", BaseTime.AddHours(3)));
@@ -160,7 +161,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create fleets with known timestamps in random order
                     await db.Fleets.CreateAsync(CreateFleet("Second", BaseTime.AddHours(2)));
@@ -192,7 +193,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create fleets at hours 1, 2, 3, 4, 5
                     for (int i = 1; i <= 5; i++)
@@ -219,7 +220,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create some fleets
                     for (int i = 0; i < 3; i++)
@@ -243,7 +244,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Emoji name
                     string emojiName = "\U0001F680 Rocket Fleet \U0001F31F";
@@ -286,7 +287,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Fleet with null description
                     Fleet fleet = new Fleet("Null Test Fleet");
@@ -358,7 +359,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create one Idle captain
                     Captain captain = new Captain("Contested Captain");
@@ -405,7 +406,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // Create 100 fleets
                     int totalRecords = 100;
@@ -456,7 +457,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet? missing = await db.Fleets.ReadAsync("flt_does_not_exist");
                     AssertNull(missing, "Reading a non-existent fleet id should return null");
                 }
@@ -467,7 +468,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Fleets.CreateAsync(CreateFleet("Survivor", BaseTime));
 
                     await db.Fleets.DeleteAsync("flt_does_not_exist");

@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -36,7 +37,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 15; i++)
                     {
@@ -96,7 +97,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Oldest", BaseTime));
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Middle", BaseTime.AddHours(1)));
@@ -117,7 +118,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Oldest", BaseTime));
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Middle", BaseTime.AddHours(1)));
@@ -138,7 +139,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Old", BaseTime));
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Mid", BaseTime.AddHours(2)));
@@ -160,7 +161,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Old", BaseTime));
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Mid", BaseTime.AddHours(2)));
@@ -182,7 +183,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Old", BaseTime));
                     await db.Fleets.CreateAsync(CreateFleet("Fleet-Mid", BaseTime.AddHours(2)));
@@ -203,7 +204,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     EnumerationQuery query = new EnumerationQuery();
                     EnumerationResult<Fleet> result = await db.Fleets.EnumerateAsync(query);
@@ -218,7 +219,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 5; i++)
                     {
@@ -243,7 +244,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 15; i++)
                     {
@@ -296,7 +297,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Fleet fleetA = await db.Fleets.CreateAsync(CreateFleet("Fleet-A", BaseTime));
                     Fleet fleetB = await db.Fleets.CreateAsync(CreateFleet("Fleet-B", BaseTime.AddMinutes(1)));
@@ -332,7 +333,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Vessels.CreateAsync(CreateVessel("Vessel-Oldest", null, BaseTime));
                     await db.Vessels.CreateAsync(CreateVessel("Vessel-Middle", null, BaseTime.AddHours(1)));
@@ -358,7 +359,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Vessels.CreateAsync(CreateVessel("Vessel-Old", null, BaseTime));
                     await db.Vessels.CreateAsync(CreateVessel("Vessel-Mid", null, BaseTime.AddHours(2)));
@@ -379,7 +380,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Fleet fleet = await db.Fleets.CreateAsync(CreateFleet("BigFleet", BaseTime));
 
@@ -412,7 +413,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 20; i++)
                         await db.Missions.CreateAsync(CreateMission("Mission-" + i.ToString("D2"), MissionStatusEnum.Pending, null, null, null, BaseTime.AddMinutes(i)));
@@ -452,7 +453,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 4; i++)
                         await db.Missions.CreateAsync(CreateMission("Pending-" + i, MissionStatusEnum.Pending, null, null, null, BaseTime.AddMinutes(i)));
@@ -490,7 +491,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vesselA = await db.Vessels.CreateAsync(CreateVessel("VesselA", null, BaseTime));
                     Vessel vesselB = await db.Vessels.CreateAsync(CreateVessel("VesselB", null, BaseTime.AddMinutes(1)));
@@ -514,7 +515,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Captain captainA = await db.Captains.CreateAsync(CreateCaptain("CaptainA", CaptainStateEnum.Working, BaseTime));
                     Captain captainB = await db.Captains.CreateAsync(CreateCaptain("CaptainB", CaptainStateEnum.Idle, BaseTime.AddMinutes(1)));
@@ -538,7 +539,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Voyage voyageA = await db.Voyages.CreateAsync(CreateVoyage("VoyageA", VoyageStatusEnum.Open, BaseTime));
                     Voyage voyageB = await db.Voyages.CreateAsync(CreateVoyage("VoyageB", VoyageStatusEnum.Open, BaseTime.AddMinutes(1)));
@@ -562,7 +563,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vessel = await db.Vessels.CreateAsync(CreateVessel("CombinedVessel", null, BaseTime));
 
@@ -591,7 +592,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Missions.CreateAsync(CreateMission("Mission-Oldest", MissionStatusEnum.Pending, null, null, null, BaseTime));
                     await db.Missions.CreateAsync(CreateMission("Mission-Middle", MissionStatusEnum.Pending, null, null, null, BaseTime.AddHours(1)));
@@ -617,7 +618,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Missions.CreateAsync(CreateMission("Mission-Old", MissionStatusEnum.Pending, null, null, null, BaseTime));
                     await db.Missions.CreateAsync(CreateMission("Mission-Mid", MissionStatusEnum.Pending, null, null, null, BaseTime.AddHours(2)));
@@ -637,7 +638,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 10; i++)
                         await db.Missions.CreateAsync(CreateMission("Pending-" + i.ToString("D2"), MissionStatusEnum.Pending, null, null, null, BaseTime.AddMinutes(i)));
@@ -667,7 +668,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 12; i++)
                         await db.Voyages.CreateAsync(CreateVoyage("Voyage-" + i.ToString("D2"), VoyageStatusEnum.Open, BaseTime.AddMinutes(i)));
@@ -707,7 +708,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 3; i++)
                         await db.Voyages.CreateAsync(CreateVoyage("Open-" + i, VoyageStatusEnum.Open, BaseTime.AddMinutes(i)));
@@ -745,7 +746,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Voyages.CreateAsync(CreateVoyage("Voyage-Oldest", VoyageStatusEnum.Open, BaseTime));
                     await db.Voyages.CreateAsync(CreateVoyage("Voyage-Middle", VoyageStatusEnum.Open, BaseTime.AddHours(1)));
@@ -771,7 +772,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Voyages.CreateAsync(CreateVoyage("Voyage-Old", VoyageStatusEnum.Open, BaseTime));
                     await db.Voyages.CreateAsync(CreateVoyage("Voyage-Mid", VoyageStatusEnum.Open, BaseTime.AddHours(2)));
@@ -791,7 +792,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 9; i++)
                         await db.Voyages.CreateAsync(CreateVoyage("Open-" + i.ToString("D2"), VoyageStatusEnum.Open, BaseTime.AddMinutes(i)));
@@ -821,7 +822,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 10; i++)
                         await db.Captains.CreateAsync(CreateCaptain("Captain-" + i.ToString("D2"), CaptainStateEnum.Idle, BaseTime.AddMinutes(i)));
@@ -852,7 +853,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 3; i++)
                         await db.Captains.CreateAsync(CreateCaptain("Idle-" + i, CaptainStateEnum.Idle, BaseTime.AddMinutes(i)));
@@ -890,7 +891,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Captains.CreateAsync(CreateCaptain("Captain-Oldest", CaptainStateEnum.Idle, BaseTime));
                     await db.Captains.CreateAsync(CreateCaptain("Captain-Middle", CaptainStateEnum.Idle, BaseTime.AddHours(1)));
@@ -916,7 +917,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     await db.Captains.CreateAsync(CreateCaptain("Captain-Old", CaptainStateEnum.Idle, BaseTime));
                     await db.Captains.CreateAsync(CreateCaptain("Captain-Mid", CaptainStateEnum.Idle, BaseTime.AddHours(2)));
@@ -936,7 +937,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 7; i++)
                         await db.Captains.CreateAsync(CreateCaptain("Idle-" + i.ToString("D2"), CaptainStateEnum.Idle, BaseTime.AddMinutes(i)));
@@ -965,7 +966,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 15; i++)
                         await db.Signals.CreateAsync(CreateSignal(SignalTypeEnum.Nudge, null, false, BaseTime.AddMinutes(i)));
@@ -1005,7 +1006,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Captain captainA = await db.Captains.CreateAsync(CreateCaptain("CaptainA", CaptainStateEnum.Idle, BaseTime));
                     Captain captainB = await db.Captains.CreateAsync(CreateCaptain("CaptainB", CaptainStateEnum.Idle, BaseTime.AddMinutes(1)));
@@ -1031,7 +1032,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 4; i++)
                         await db.Signals.CreateAsync(CreateSignal(SignalTypeEnum.Assignment, null, false, BaseTime.AddMinutes(i)));
@@ -1069,7 +1070,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 5; i++)
                         await db.Signals.CreateAsync(CreateSignal(SignalTypeEnum.Nudge, null, false, BaseTime.AddMinutes(i)));
@@ -1098,7 +1099,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Signal oldest = await db.Signals.CreateAsync(CreateSignal(SignalTypeEnum.Nudge, null, false, BaseTime));
                     Signal middle = await db.Signals.CreateAsync(CreateSignal(SignalTypeEnum.Nudge, null, false, BaseTime.AddHours(1)));
@@ -1124,7 +1125,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Signal old = await db.Signals.CreateAsync(CreateSignal(SignalTypeEnum.Nudge, null, false, BaseTime));
                     Signal mid = await db.Signals.CreateAsync(CreateSignal(SignalTypeEnum.Mail, null, false, BaseTime.AddHours(2)));
@@ -1144,7 +1145,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Captain captain = await db.Captains.CreateAsync(CreateCaptain("FilterCaptain", CaptainStateEnum.Idle, BaseTime));
 
@@ -1177,7 +1178,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 20; i++)
                         await db.Events.CreateAsync(CreateEvent("test.event", null, null, null, null, BaseTime.AddMinutes(i)));
@@ -1217,7 +1218,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 4; i++)
                         await db.Events.CreateAsync(CreateEvent("mission.created", null, null, null, null, BaseTime.AddMinutes(i)));
@@ -1249,7 +1250,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Captain captainA = await db.Captains.CreateAsync(CreateCaptain("EvtCaptainA", CaptainStateEnum.Idle, BaseTime));
                     Captain captainB = await db.Captains.CreateAsync(CreateCaptain("EvtCaptainB", CaptainStateEnum.Idle, BaseTime.AddMinutes(1)));
@@ -1275,7 +1276,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Mission missionA = await db.Missions.CreateAsync(CreateMission("EvtMissionA", MissionStatusEnum.Pending, null, null, null, BaseTime));
                     Mission missionB = await db.Missions.CreateAsync(CreateMission("EvtMissionB", MissionStatusEnum.Pending, null, null, null, BaseTime.AddMinutes(1)));
@@ -1299,7 +1300,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vesselA = await db.Vessels.CreateAsync(CreateVessel("EvtVesselA", null, BaseTime));
                     Vessel vesselB = await db.Vessels.CreateAsync(CreateVessel("EvtVesselB", null, BaseTime.AddMinutes(1)));
@@ -1323,7 +1324,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Voyage voyageA = await db.Voyages.CreateAsync(CreateVoyage("EvtVoyageA", VoyageStatusEnum.Open, BaseTime));
                     Voyage voyageB = await db.Voyages.CreateAsync(CreateVoyage("EvtVoyageB", VoyageStatusEnum.Open, BaseTime.AddMinutes(1)));
@@ -1347,7 +1348,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     ArmadaEvent oldest = await db.Events.CreateAsync(CreateEvent("test.oldest", null, null, null, null, BaseTime));
                     ArmadaEvent middle = await db.Events.CreateAsync(CreateEvent("test.middle", null, null, null, null, BaseTime.AddHours(1)));
@@ -1373,7 +1374,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     ArmadaEvent old = await db.Events.CreateAsync(CreateEvent("old.event", null, null, null, null, BaseTime));
                     ArmadaEvent mid = await db.Events.CreateAsync(CreateEvent("mid.event", null, null, null, null, BaseTime.AddHours(2)));
@@ -1393,7 +1394,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Captain captain = await db.Captains.CreateAsync(CreateCaptain("CombinedEvtCaptain", CaptainStateEnum.Idle, BaseTime));
                     Vessel vessel = await db.Vessels.CreateAsync(CreateVessel("CombinedEvtVessel", null, BaseTime));
@@ -1423,7 +1424,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 11; i++)
                         await db.Events.CreateAsync(CreateEvent("mission.progress", null, null, null, null, BaseTime.AddMinutes(i)));
@@ -1453,7 +1454,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vessel = await db.Vessels.CreateAsync(CreateVessel("DockVessel", null, BaseTime));
 
@@ -1500,7 +1501,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vesselA = await db.Vessels.CreateAsync(CreateVessel("DockVesselA", null, BaseTime));
                     Vessel vesselB = await db.Vessels.CreateAsync(CreateVessel("DockVesselB", null, BaseTime.AddMinutes(1)));
@@ -1528,7 +1529,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vessel = await db.Vessels.CreateAsync(CreateVessel("DockCptVessel", null, BaseTime));
                     Captain captainA = await db.Captains.CreateAsync(CreateCaptain("DockCaptainA", CaptainStateEnum.Working, BaseTime));
@@ -1555,7 +1556,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vessel = await db.Vessels.CreateAsync(CreateVessel("DockOrderVessel", null, BaseTime));
 
@@ -1583,7 +1584,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vessel = await db.Vessels.CreateAsync(CreateVessel("DockDateVessel", null, BaseTime));
 
@@ -1605,7 +1606,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vesselA = await db.Vessels.CreateAsync(CreateVessel("PagDockVesselA", null, BaseTime));
                     Vessel vesselB = await db.Vessels.CreateAsync(CreateVessel("PagDockVesselB", null, BaseTime.AddMinutes(1)));
@@ -1636,7 +1637,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Vessel vesselA = await db.Vessels.CreateAsync(CreateVessel("CombDockVesselA", null, BaseTime));
                     Vessel vesselB = await db.Vessels.CreateAsync(CreateVessel("CombDockVesselB", null, BaseTime.AddMinutes(1)));
@@ -1668,7 +1669,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     EnumerationQuery query = new EnumerationQuery();
 
                     EnumerationResult<Fleet> fleets = await db.Fleets.EnumerateAsync(query);
@@ -1710,7 +1711,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Fleet fleet = await db.Fleets.CreateAsync(CreateFleet("TestFleet", BaseTime));
                     Vessel vessel = await db.Vessels.CreateAsync(CreateVessel("TestVessel", fleet.Id, BaseTime));
@@ -1763,7 +1764,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 3; i++)
                         await db.Fleets.CreateAsync(CreateFleet("PageSizeOneFleet-" + i, BaseTime.AddMinutes(i)));
@@ -1799,7 +1800,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 5; i++)
                         await db.Fleets.CreateAsync(CreateFleet("LargePageFleet-" + i, BaseTime.AddMinutes(i)));
@@ -1819,7 +1820,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 10; i++)
                         await db.Fleets.CreateAsync(CreateFleet("OrderedFleet-" + i.ToString("D2"), BaseTime.AddMinutes(i)));

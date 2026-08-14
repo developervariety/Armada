@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -290,7 +291,7 @@ namespace Test.Shared.Suites.Services
                 tags: new List<string> { tag });
         }
 
-        private static async Task<RoutingHarness> BuildHarnessAsync(SqliteDatabaseDriver db)
+        private static async Task<RoutingHarness> BuildHarnessAsync(DatabaseDriver db)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -321,7 +322,7 @@ namespace Test.Shared.Suites.Services
             return new RoutingHarness { Missions = missionService, Vessel = vessel };
         }
 
-        private static async Task<Captain> AddCaptainAsync(SqliteDatabaseDriver db, string name, CaptainStateEnum state, string? allowedPersonasJson, CaptainTierEnum? tier)
+        private static async Task<Captain> AddCaptainAsync(DatabaseDriver db, string name, CaptainStateEnum state, string? allowedPersonasJson, CaptainTierEnum? tier)
         {
             Captain captain = new Captain(name);
             captain.State = state;
@@ -330,7 +331,7 @@ namespace Test.Shared.Suites.Services
             return await db.Captains.CreateAsync(captain).ConfigureAwait(false);
         }
 
-        private static async Task<Mission> AddMissionAsync(SqliteDatabaseDriver db, Vessel vessel, string persona, string? requestedCaptainId, CaptainTierEnum? tier)
+        private static async Task<Mission> AddMissionAsync(DatabaseDriver db, Vessel vessel, string persona, string? requestedCaptainId, CaptainTierEnum? tier)
         {
             Mission mission = new Mission("route " + persona, "do the work");
             mission.VesselId = vessel.Id;

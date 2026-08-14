@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -38,7 +39,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("TestFleet");
                     Fleet result = await db.Fleets.CreateAsync(fleet);
 
@@ -55,7 +56,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("ReadTest");
                     fleet.Description = "A test fleet";
                     fleet.Active = true;
@@ -74,7 +75,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("NameLookup");
                     Fleet created = await db.Fleets.CreateAsync(fleet);
 
@@ -89,7 +90,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("Original");
                     Fleet created = await db.Fleets.CreateAsync(fleet);
                     DateTime originalLastUpdate = created.LastUpdateUtc;
@@ -114,7 +115,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("ExistTest");
                     Fleet created = await db.Fleets.CreateAsync(fleet);
 
@@ -130,7 +131,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet1 = await db.Fleets.CreateAsync(new Fleet("Alpha"));
                     Fleet fleet2 = await db.Fleets.CreateAsync(new Fleet("Beta"));
                     Fleet fleet3 = await db.Fleets.CreateAsync(new Fleet("Charlie"));
@@ -154,7 +155,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Fleets.CreateAsync(new Fleet("Page1"));
                     await db.Fleets.CreateAsync(new Fleet("Page2"));
                     await db.Fleets.CreateAsync(new Fleet("Page3"));
@@ -187,7 +188,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("ToDelete");
                     Fleet created = await db.Fleets.CreateAsync(fleet);
 
@@ -202,7 +203,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet? result = await db.Fleets.ReadAsync("flt_nonexistent_id_12345");
                     AssertNull(result, "Non-existent fleet");
                 }
@@ -212,7 +213,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     bool exists = await db.Fleets.ExistsAsync("flt_nonexistent_id_12345");
                     AssertFalse(exists, "Non-existent fleet");
                 }

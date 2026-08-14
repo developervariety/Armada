@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -57,7 +58,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Missions.CreateAsync(new Mission("Needs review") { Status = MissionStatusEnum.Review });
                     await db.Missions.CreateAsync(new Mission("Could not land") { Status = MissionStatusEnum.LandingFailed });
                     await db.Missions.CreateAsync(new Mission("Broke") { Status = MissionStatusEnum.Failed });
@@ -78,7 +79,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Missions.CreateAsync(new Mission("Broke") { Status = MissionStatusEnum.Failed });
                     await db.Missions.CreateAsync(new Mission("Could not land") { Status = MissionStatusEnum.LandingFailed });
 
@@ -95,7 +96,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Mission overdue = new Mission("Old review") { Status = MissionStatusEnum.Review };
                     overdue.ReviewDeadlineUtc = DateTime.UtcNow.AddHours(-1);
                     await db.Missions.CreateAsync(overdue);

@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Services
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -40,7 +41,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_other").ConfigureAwait(false);
@@ -57,7 +58,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await CreateEventAsync(db, "mission.progress", missionId: "msn_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "mission.progress", missionId: "msn_other").ConfigureAwait(false);
 
@@ -73,7 +74,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await CreateEventAsync(db, "voyage.updated", voyageId: "vyg_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "voyage.updated", voyageId: "vyg_other").ConfigureAwait(false);
 
@@ -89,7 +90,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await CreateEventAsync(db, "captain.assigned", captainId: "cpt_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "captain.assigned", captainId: "cpt_other").ConfigureAwait(false);
                     await CreatePlanningSessionAsync(db, "cpt_target").ConfigureAwait(false);
@@ -111,7 +112,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_keep").ConfigureAwait(false);
 
                     int removed = await CascadeCleanup.RemoveEventsForVesselAsync(db, String.Empty).ConfigureAwait(false);
@@ -132,7 +133,7 @@ namespace Test.Shared.Suites.Services
         #region Private-Methods
 
         private static async Task CreateEventAsync(
-            SqliteDatabaseDriver db,
+            DatabaseDriver db,
             string eventType,
             string? captainId = null,
             string? missionId = null,
@@ -152,7 +153,7 @@ namespace Test.Shared.Suites.Services
             await db.Events.CreateAsync(armadaEvent).ConfigureAwait(false);
         }
 
-        private static async Task CreatePlanningSessionAsync(SqliteDatabaseDriver db, string captainId)
+        private static async Task CreatePlanningSessionAsync(DatabaseDriver db, string captainId)
         {
             PlanningSession session = new PlanningSession
             {

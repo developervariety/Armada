@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -39,7 +40,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     RequestHistoryEntry entry = BuildEntry("GET", "/api/v1/fleets", 200, "usr_one");
                     RequestHistoryDetail detail = BuildDetail(entry.Id, "{\"route\":\"/api/v1/fleets\"}");
@@ -58,7 +59,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     RequestHistoryEntry successEntry = BuildEntry("GET", "/api/v1/fleets", 200, "usr_one");
                     RequestHistoryEntry failureEntry = BuildEntry("POST", "/api/v1/missions", 500, "usr_two");
@@ -89,7 +90,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     RequestHistoryEntry oldEntry = BuildEntry("GET", "/api/v1/status", 200, "usr_old");
                     oldEntry.CreatedUtc = DateTime.UtcNow.AddDays(-10);
@@ -114,7 +115,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     RequestHistoryRecord? result = await db.RequestHistory.ReadAsync("req_nonexistent").ConfigureAwait(false);
                     AssertNull(result);
                 }
@@ -124,7 +125,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     RequestHistoryEntry entry = BuildEntry("GET", "/api/v1/fleets", 200, "usr_keep");
                     await db.RequestHistory.CreateAsync(entry, BuildDetail(entry.Id, "{\"keep\":true}")).ConfigureAwait(false);

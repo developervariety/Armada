@@ -6,6 +6,7 @@ namespace Test.Shared.Suites.Services
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -219,7 +220,7 @@ namespace Test.Shared.Suites.Services
         }
 
         private static async Task<ReviewScenario> CreateScenarioAsync(
-            SqliteDatabaseDriver db,
+            DatabaseDriver db,
             bool includeDownstreamStage,
             ReviewDenyActionEnum firstStageDenyAction = ReviewDenyActionEnum.RetryStage)
         {

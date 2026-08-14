@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -38,7 +39,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("TestVessel", "https://github.com/test/repo");
                     Vessel result = await db.Vessels.CreateAsync(vessel);
 
@@ -51,7 +52,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("ReadTest", "https://github.com/test/repo");
                     await db.Vessels.CreateAsync(vessel);
 
@@ -66,7 +67,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("NameLookup", "https://github.com/test/repo");
                     await db.Vessels.CreateAsync(vessel);
 
@@ -80,7 +81,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("TestFleet");
                     await db.Fleets.CreateAsync(fleet);
 
@@ -101,7 +102,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("Original", "https://github.com/test/repo");
                     await db.Vessels.CreateAsync(vessel);
 
@@ -121,7 +122,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("ToDelete", "https://github.com/test/repo");
                     await db.Vessels.CreateAsync(vessel);
 
@@ -134,7 +135,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("ExistsTest", "https://github.com/test/repo");
                     await db.Vessels.CreateAsync(vessel);
 
@@ -147,7 +148,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("ContextVessel", "https://github.com/test/repo");
                     vessel.ProjectContext = "This is a .NET 8 web API with PostgreSQL backend.";
                     vessel.StyleGuide = "Use PascalCase for public members, camelCase for private.";
@@ -164,7 +165,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("NullContextVessel", "https://github.com/test/repo");
                     await db.Vessels.CreateAsync(vessel);
 
@@ -179,7 +180,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("UpdateContextVessel", "https://github.com/test/repo");
                     await db.Vessels.CreateAsync(vessel);
 
@@ -197,7 +198,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("ClearContextVessel", "https://github.com/test/repo");
                     vessel.ProjectContext = "Initial context";
                     vessel.StyleGuide = "Initial style";
@@ -217,7 +218,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("NameLookupContext", "https://github.com/test/repo");
                     vessel.ProjectContext = "Context via name lookup";
                     vessel.StyleGuide = "Style via name lookup";
@@ -234,7 +235,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("ContextFleet");
                     await db.Fleets.CreateAsync(fleet);
 
@@ -255,7 +256,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("Token Vessel", "https://github.com/test/repo");
                     vessel.GitHubTokenOverride = "  ghp_repo_token  ";
                     vessel.NormalizeGitHubTokenOverride();
@@ -282,7 +283,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel? result = await db.Vessels.ReadAsync("vsl_nonexistent");
                     AssertNull(result);
                 }

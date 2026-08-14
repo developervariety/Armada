@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -87,7 +88,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MergeQueueService queue = CreateQueue(db);
                     MergeEntry entry = await queue.EnqueueAsync(NewEntry("feature/done"));
                     await SetStatusAsync(db, entry, MergeStatusEnum.Failed);
@@ -124,7 +125,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MergeQueueService queue = CreateQueue(db);
                     MergeEntry queued = await queue.EnqueueAsync(NewEntry("feature/keep"));
                     MergeEntry landed = await queue.EnqueueAsync(NewEntry("feature/landed"));
@@ -144,7 +145,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MergeQueueService queue = CreateQueue(db);
                     MergeEntry landed = await queue.EnqueueAsync(NewEntry("feature/l"));
                     MergeEntry failed = await queue.EnqueueAsync(NewEntry("feature/f"));
@@ -178,13 +179,13 @@ namespace Test.Shared.Suites.Services
             };
         }
 
-        private static async Task SetStatusAsync(SqliteDatabaseDriver db, MergeEntry entry, MergeStatusEnum status)
+        private static async Task SetStatusAsync(DatabaseDriver db, MergeEntry entry, MergeStatusEnum status)
         {
             entry.Status = status;
             await db.MergeEntries.UpdateAsync(entry);
         }
 
-        private static MergeQueueService CreateQueue(SqliteDatabaseDriver db)
+        private static MergeQueueService CreateQueue(DatabaseDriver db)
         {
             return new MergeQueueService(CreateLogging(), db, CreateSettings(), new StubGitService());
         }

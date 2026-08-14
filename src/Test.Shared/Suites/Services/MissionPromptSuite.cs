@@ -6,6 +6,7 @@ namespace Test.Shared.Suites.Services
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -967,14 +968,14 @@ namespace Test.Shared.Suites.Services
             return settings;
         }
 
-        private static MissionService CreateMissionService(LoggingModule logging, SqliteDatabaseDriver db, ArmadaSettings settings, StubGitService git)
+        private static MissionService CreateMissionService(LoggingModule logging, DatabaseDriver db, ArmadaSettings settings, StubGitService git)
         {
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             return new MissionService(logging, db, settings, dockService, captainService);
         }
 
-        private static MissionService CreateMissionServiceWithTemplates(LoggingModule logging, SqliteDatabaseDriver db, ArmadaSettings settings, StubGitService git, out IPromptTemplateService templateService)
+        private static MissionService CreateMissionServiceWithTemplates(LoggingModule logging, DatabaseDriver db, ArmadaSettings settings, StubGitService git, out IPromptTemplateService templateService)
         {
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);

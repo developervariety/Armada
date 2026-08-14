@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -38,7 +39,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ArmadaEvent evt = new ArmadaEvent("mission.created", "Mission created");
                     ArmadaEvent result = await db.Events.CreateAsync(evt);
 
@@ -51,7 +52,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     for (int i = 0; i < 10; i++)
                     {
                         await db.Events.CreateAsync(new ArmadaEvent("test.event", "Event " + i));
@@ -66,7 +67,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Events.CreateAsync(new ArmadaEvent("mission.created", "Created"));
                     await db.Events.CreateAsync(new ArmadaEvent("mission.completed", "Completed"));
                     await db.Events.CreateAsync(new ArmadaEvent("mission.created", "Created 2"));
@@ -80,7 +81,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ArmadaEvent evt1 = new ArmadaEvent("mission.created", "Created");
                     evt1.EntityType = "mission";
                     evt1.EntityId = "msn_abc";
@@ -101,7 +102,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ArmadaEvent evt1 = new ArmadaEvent("captain.launched", "Launched");
                     evt1.CaptainId = "cpt_test";
                     await db.Events.CreateAsync(evt1);
@@ -119,7 +120,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ArmadaEvent evt = new ArmadaEvent("mission.updated", "Updated");
                     evt.MissionId = "msn_target";
                     await db.Events.CreateAsync(evt);
@@ -135,7 +136,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ArmadaEvent evt = new ArmadaEvent("vessel.event", "Vessel event");
                     evt.VesselId = "vsl_target";
                     await db.Events.CreateAsync(evt);
@@ -149,7 +150,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ArmadaEvent evt = new ArmadaEvent("voyage.completed", "Completed");
                     evt.VoyageId = "vyg_target";
                     await db.Events.CreateAsync(evt);
@@ -164,7 +165,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ArmadaEvent evt = new ArmadaEvent("mission.updated", "Updated");
                     evt.MissionId = "msn_present";
                     await db.Events.CreateAsync(evt);

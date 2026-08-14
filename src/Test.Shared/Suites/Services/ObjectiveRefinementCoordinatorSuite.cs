@@ -183,7 +183,7 @@ namespace Test.Shared.Suites.Services
                 public string UserId { get; set; } = String.Empty;
             }
 
-            public SqliteDatabaseDriver Database { get; }
+            public DatabaseDriver Database { get; }
             public ArmadaSettings Settings { get; }
             public ObjectiveRefinementCoordinator Coordinator { get; }
             public ObjectiveService Objectives { get; }
@@ -191,7 +191,7 @@ namespace Test.Shared.Suites.Services
             private readonly string _rootDirectory;
             private readonly LoggingModule _logging;
 
-            public CoordinatorFixture(SqliteDatabaseDriver database)
+            public CoordinatorFixture(DatabaseDriver database)
             {
                 Database = database;
                 Objectives = new ObjectiveService(database);

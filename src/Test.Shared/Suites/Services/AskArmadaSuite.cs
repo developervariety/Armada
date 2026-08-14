@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -79,7 +80,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain idle = new Captain("idle-1") { State = CaptainStateEnum.Idle };
                     Captain working = new Captain("working-1") { State = CaptainStateEnum.Working };
                     await db.Captains.CreateAsync(idle);
@@ -96,7 +97,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Captains.CreateAsync(new Captain("c1") { State = CaptainStateEnum.Idle });
                     AskArmadaService ask = CreateAsk(db);
                     AskResponse response = await ask.AskAsync("how many captains?");
@@ -109,7 +110,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Mission m = new Mission("Broken") { Status = MissionStatusEnum.Failed };
                     await db.Missions.CreateAsync(m);
                     AskArmadaService ask = CreateAsk(db);
@@ -129,7 +130,7 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Methods
 
-        private static AskArmadaService CreateAsk(SqliteDatabaseDriver db)
+        private static AskArmadaService CreateAsk(DatabaseDriver db)
         {
             LoggingModule logging = CreateLogging();
             ArmadaSettings settings = CreateSettings();

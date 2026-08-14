@@ -185,6 +185,14 @@ namespace Armada.Core.Database
         public abstract Task InitializeAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Get the current schema version (the highest applied migration), or 0 when the database has not
+        /// been migrated yet.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The current schema version.</returns>
+        public abstract Task<int> GetSchemaVersionAsync(CancellationToken token = default);
+
+        /// <summary>
         /// Dispose.
         /// </summary>
         public abstract void Dispose();

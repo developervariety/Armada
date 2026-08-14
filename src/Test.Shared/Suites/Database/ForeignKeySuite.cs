@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -42,7 +43,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("FK Fleet");
                     await db.Fleets.CreateAsync(fleet);
 
@@ -62,7 +63,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Voyage voyage = new Voyage("FK Voyage");
                     await db.Voyages.CreateAsync(voyage);
 
@@ -82,7 +83,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("fk-captain");
                     await db.Captains.CreateAsync(captain);
 
@@ -102,7 +103,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("FK Fleet2");
                     await db.Fleets.CreateAsync(fleet);
 
@@ -126,7 +127,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("Cascade Fleet");
                     await db.Fleets.CreateAsync(fleet);
 
@@ -149,7 +150,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Fleet fleet = new Fleet("Dock FK Fleet");
                     await db.Fleets.CreateAsync(fleet);
 
@@ -177,7 +178,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain sender = new Captain("signal-sender");
                     Captain receiver = new Captain("signal-receiver");
                     await db.Captains.CreateAsync(sender);
@@ -201,7 +202,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Vessel vessel = new Vessel("Orphan Vessel", "https://github.com/test/orphan");
                     vessel.FleetId = "flt_does_not_exist";
                     await AssertThrowsAsync<Exception>(() => db.Vessels.CreateAsync(vessel));

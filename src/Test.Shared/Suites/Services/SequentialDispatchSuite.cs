@@ -6,6 +6,7 @@ namespace Test.Shared.Suites.Services
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -45,7 +46,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -128,7 +129,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -234,7 +235,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -280,7 +281,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -323,7 +324,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -354,7 +355,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -393,7 +394,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -423,7 +424,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
@@ -482,7 +483,7 @@ namespace Test.Shared.Suites.Services
         /// Create a MissionService with a CaptainService that has a stub OnLaunchAgent.
         /// Returns the mission service, captain service, and dock service.
         /// </summary>
-        private static ServiceSet CreateServices(LoggingModule logging, SqliteDatabaseDriver db, ArmadaSettings settings, StubGitService git)
+        private static ServiceSet CreateServices(LoggingModule logging, DatabaseDriver db, ArmadaSettings settings, StubGitService git)
         {
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
@@ -501,7 +502,7 @@ namespace Test.Shared.Suites.Services
         /// Create a fleet, vessel, voyage, captains, and pending missions.
         /// </summary>
         private static async Task<TestFixture> SetupFixtureAsync(
-            SqliteDatabaseDriver db,
+            DatabaseDriver db,
             int captainCount,
             int missionCount)
         {

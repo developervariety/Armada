@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -42,7 +43,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -92,7 +93,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -119,7 +120,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -162,7 +163,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -181,7 +182,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -209,7 +210,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -271,7 +272,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -309,7 +310,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Fleet fleet = prereqs.Fleet;
                     Vessel vessel = prereqs.Vessel;
@@ -346,7 +347,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
 
@@ -385,7 +386,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
 
@@ -446,7 +447,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -473,7 +474,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     Mission? result = await db.Missions.ReadAsync("msn_nonexistent_id_12345");
                     AssertNull(result);
@@ -484,7 +485,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     bool exists = await db.Missions.ExistsAsync("msn_nonexistent_id_12345");
                     AssertFalse(exists);
@@ -495,7 +496,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -521,7 +522,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
                     Vessel vessel = prereqs.Vessel;
                     Voyage voyage = prereqs.Voyage;
@@ -550,7 +551,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
 
                     Mission mission = new Mission("Heartbeat mission")
@@ -590,7 +591,7 @@ namespace Test.Shared.Suites.Database
 
         #region Private-Methods
 
-        private static async Task<MissionTestPrerequisites> CreatePrerequisitesAsync(SqliteDatabaseDriver db)
+        private static async Task<MissionTestPrerequisites> CreatePrerequisitesAsync(DatabaseDriver db)
         {
             Fleet fleet = new Fleet("Test Fleet");
             fleet.CreatedUtc = _BaseTime;

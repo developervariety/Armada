@@ -305,7 +305,7 @@ namespace Armada.Core.Database.Sqlite
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Current schema version number, or 0 if no migrations have been applied.</returns>
-        public async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+        public override async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
         {
             using (SqliteConnection conn = new SqliteConnection(_ConnectionString))
             {

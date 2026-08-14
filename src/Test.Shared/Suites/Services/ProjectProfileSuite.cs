@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -138,7 +139,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ProjectProfile profile = new ProjectProfile();
                     profile.Name = "Round Trip";
                     profile.Description = "desc";
@@ -179,7 +180,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.ProjectProfiles.CreateAsync(new ProjectProfile { Name = "G", Scope = ProjectProfileScopeEnum.Global });
                     await db.ProjectProfiles.CreateAsync(new ProjectProfile { Name = "V", Scope = ProjectProfileScopeEnum.Vessel, VesselId = "vsl_x" });
 
@@ -198,7 +199,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ProjectProfileService service = new ProjectProfileService(db, CreateLogging());
 
                     Fleet fleet = new Fleet("Fleet A");
@@ -223,7 +224,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ProjectProfileService service = new ProjectProfileService(db, CreateLogging());
 
                     Fleet fleet = new Fleet("Fleet B");
@@ -246,7 +247,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ProjectProfileService service = new ProjectProfileService(db, CreateLogging());
                     Vessel vessel = new Vessel("Lonely", "https://github.com/test/c");
                     await db.Vessels.CreateAsync(vessel);
@@ -262,7 +263,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     ProjectProfileService service = new ProjectProfileService(db, CreateLogging());
                     Vessel vessel = new Vessel("Explicit", "https://github.com/test/d");
                     await db.Vessels.CreateAsync(vessel);

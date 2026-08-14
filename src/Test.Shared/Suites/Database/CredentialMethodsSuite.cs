@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -38,7 +39,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId = tenantUser.Id;
@@ -58,7 +59,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId = tenantUser.Id;
@@ -77,7 +78,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId = tenantUser.Id;
@@ -96,7 +97,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId = tenantUser.Id;
@@ -114,7 +115,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId = tenantUser.Id;
@@ -133,7 +134,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Credential? result = await db.Credentials.ReadByBearerTokenAsync("nonexistent_token_value");
                     AssertNull(result);
                 }
@@ -143,7 +144,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId = tenantUser.Id;
@@ -165,7 +166,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId = tenantUser.Id;
@@ -182,7 +183,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser1 = await CreateTestTenantAndUserAsync(db, "Tenant 1");
                     string tenant1 = tenantUser1.TenantId;
                     string user1 = tenantUser1.Id;
@@ -206,7 +207,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
                     string userId1 = tenantUser.Id;
@@ -230,7 +231,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster tenantUser = await CreateTestTenantAndUserAsync(db);
                     string tenantId = tenantUser.TenantId;
 
@@ -243,7 +244,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Credential? result = await db.Credentials.ReadByIdAsync("cred_nonexistent");
                     AssertNull(result);
                 }
@@ -260,7 +261,7 @@ namespace Test.Shared.Suites.Database
         #region Private-Methods
 
         private static async Task<UserMaster> CreateTestTenantAndUserAsync(
-            SqliteDatabaseDriver db, string tenantName = "Test Tenant")
+            DatabaseDriver db, string tenantName = "Test Tenant")
         {
             TenantMetadata tenant = new TenantMetadata(tenantName);
             await db.Tenants.CreateAsync(tenant);

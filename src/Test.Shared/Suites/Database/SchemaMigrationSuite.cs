@@ -208,12 +208,12 @@ namespace Test.Shared.Suites.Database
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    SqliteDatabaseDriver driver1 = new SqliteDatabaseDriver(connectionString, logging);
+                    DatabaseDriver driver1 = new SqliteDatabaseDriver(connectionString, logging);
                     await driver1.InitializeAsync();
                     int v1 = await driver1.GetSchemaVersionAsync();
                     driver1.Dispose();
 
-                    SqliteDatabaseDriver driver2 = new SqliteDatabaseDriver(connectionString, logging);
+                    DatabaseDriver driver2 = new SqliteDatabaseDriver(connectionString, logging);
                     await driver2.InitializeAsync();
                     int v2 = await driver2.GetSchemaVersionAsync();
                     driver2.Dispose();
@@ -259,7 +259,7 @@ namespace Test.Shared.Suites.Database
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    SqliteDatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
+                    DatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
                     int version = await driver.GetSchemaVersionAsync();
                     AssertEqual(0, version);
                     driver.Dispose();

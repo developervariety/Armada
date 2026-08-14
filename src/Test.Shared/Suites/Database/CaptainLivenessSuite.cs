@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -33,7 +34,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = await CreateCaptainAsync(db);
                     AssertNull(captain.LastProcessAliveUtc, "liveness starts null");
 
@@ -49,7 +50,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = await CreateCaptainAsync(db);
 
                     // Establish an output heartbeat, then capture it.
@@ -72,7 +73,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Captain captain = await CreateCaptainAsync(db);
 
                     await db.Captains.UpdateHeartbeatAsync(captain.Id);
@@ -91,7 +92,7 @@ namespace Test.Shared.Suites.Database
 
         #region Private-Methods
 
-        private static async Task<Captain> CreateCaptainAsync(SqliteDatabaseDriver db)
+        private static async Task<Captain> CreateCaptainAsync(DatabaseDriver db)
         {
             TenantMetadata tenant = new TenantMetadata("Liveness " + Guid.NewGuid().ToString("N").Substring(0, 6));
             await db.Tenants.CreateAsync(tenant);

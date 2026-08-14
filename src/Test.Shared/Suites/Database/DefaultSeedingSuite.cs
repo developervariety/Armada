@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Database
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -41,7 +42,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     TenantMetadata? tenant = await db.Tenants.ReadAsync(Constants.DefaultTenantId);
                     AssertNotNull(tenant);
                     AssertEqual(Constants.DefaultTenantId, tenant!.Id);
@@ -54,7 +55,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster? user = await db.Users.ReadAsync(Constants.DefaultTenantId, Constants.DefaultUserId);
                     AssertNotNull(user);
                     AssertEqual(Constants.DefaultUserId, user!.Id);
@@ -69,7 +70,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     UserMaster? user = await db.Users.ReadAsync(Constants.DefaultTenantId, Constants.DefaultUserId);
                     AssertNotNull(user);
 
@@ -83,7 +84,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Credential? cred = await db.Credentials.ReadAsync(Constants.DefaultTenantId, Constants.DefaultCredentialId);
                     AssertNotNull(cred);
                     AssertEqual(Constants.DefaultCredentialId, cred!.Id);
@@ -99,7 +100,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Credential? cred = await db.Credentials.ReadByBearerTokenAsync(Constants.DefaultBearerToken);
                     AssertNotNull(cred);
                     AssertEqual(Constants.DefaultCredentialId, cred!.Id);
@@ -110,7 +111,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     AssertTrue(await db.Tenants.ExistsAnyAsync());
                 }
             }));
@@ -119,7 +120,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     // The database was already initialized once.
                     // Count tenants before
@@ -137,7 +138,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     TenantMetadata? tenant = await db.Tenants.ReadAsync("ten_nonexistent");
                     AssertNull(tenant);
                 }

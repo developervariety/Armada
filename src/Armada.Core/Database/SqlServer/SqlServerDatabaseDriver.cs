@@ -216,7 +216,7 @@ namespace Armada.Core.Database.SqlServer
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Current schema version number, or 0 if no migrations have been applied.</returns>
-        public async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+        public override async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
         {
             using (SqlConnection conn = new SqlConnection(_ConnectionString))
             {

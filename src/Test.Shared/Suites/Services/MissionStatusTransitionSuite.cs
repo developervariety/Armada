@@ -6,6 +6,7 @@ namespace Test.Shared.Suites.Services
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -390,7 +391,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
@@ -442,7 +443,7 @@ namespace Test.Shared.Suites.Services
             return settings;
         }
 
-        private static async Task<TestEntitiesResult> CreateTestEntitiesAsync(SqliteDatabaseDriver db)
+        private static async Task<TestEntitiesResult> CreateTestEntitiesAsync(DatabaseDriver db)
         {
             // Create a vessel (fleet is optional)
             Vessel vessel = new Vessel("test-vessel", "https://github.com/test/repo.git");

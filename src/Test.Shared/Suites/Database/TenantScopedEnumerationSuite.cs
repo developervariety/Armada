@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -42,7 +43,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string t2 = await CreateTestTenantAsync(db, "T2");
 
@@ -72,7 +73,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string t2 = await CreateTestTenantAsync(db, "T2");
 
@@ -101,7 +102,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string t2 = await CreateTestTenantAsync(db, "T2");
 
@@ -129,7 +130,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string t2 = await CreateTestTenantAsync(db, "T2");
 
@@ -157,7 +158,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string t2 = await CreateTestTenantAsync(db, "T2");
 
@@ -185,7 +186,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
 
                     // Create users with time gaps via explicit CreatedUtc
@@ -212,7 +213,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
 
                     DateTime baseTime = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -243,7 +244,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
 
                     UserMaster user = new UserMaster(t1, "fullprop@example.com", "securepass");
@@ -281,7 +282,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string u1 = (await CreateTestUserAsync(db, t1)).Id;
                     string t2 = await CreateTestTenantAsync(db, "T2");
@@ -314,7 +315,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string u1 = (await CreateTestUserAsync(db, t1)).Id;
                     string t2 = await CreateTestTenantAsync(db, "T2");
@@ -346,7 +347,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string u1 = (await CreateTestUserAsync(db, t1)).Id;
                     string t2 = await CreateTestTenantAsync(db, "T2");
@@ -377,7 +378,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string u1 = (await CreateTestUserAsync(db, t1)).Id;
                     string t2 = await CreateTestTenantAsync(db, "T2");
@@ -408,7 +409,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     string t1 = await CreateTestTenantAsync(db, "T1");
                     string u1 = (await CreateTestUserAsync(db, t1)).Id;
 
@@ -441,7 +442,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     for (int i = 0; i < 5; i++)
                     {
@@ -466,7 +467,7 @@ namespace Test.Shared.Suites.Database
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
 
                     TenantMetadata tenant = new TenantMetadata("PropCheck Tenant");
                     await db.Tenants.CreateAsync(tenant);
@@ -503,14 +504,14 @@ namespace Test.Shared.Suites.Database
 
         #region Private-Methods
 
-        private static async Task<string> CreateTestTenantAsync(SqliteDatabaseDriver db, string name = "Test Tenant")
+        private static async Task<string> CreateTestTenantAsync(DatabaseDriver db, string name = "Test Tenant")
         {
             TenantMetadata tenant = new TenantMetadata(name);
             await db.Tenants.CreateAsync(tenant);
             return tenant.Id;
         }
 
-        private static async Task<UserMaster> CreateTestUserAsync(SqliteDatabaseDriver db, string tenantId)
+        private static async Task<UserMaster> CreateTestUserAsync(DatabaseDriver db, string tenantId)
         {
             UserMaster user = new UserMaster(tenantId, "user_" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@example.com", "password");
             await db.Users.CreateAsync(user);

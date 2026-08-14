@@ -8,6 +8,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -77,7 +78,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -104,7 +105,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -131,7 +132,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -173,7 +174,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -229,7 +230,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -278,7 +279,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -300,7 +301,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -325,7 +326,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -356,7 +357,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.MaxRecoveryAttempts = 3;
@@ -417,7 +418,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -439,7 +440,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.MaxRecoveryAttempts = 0;
@@ -466,7 +467,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
@@ -508,7 +509,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
@@ -545,7 +546,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -572,7 +573,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -599,7 +600,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -629,7 +630,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -658,7 +659,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -707,7 +708,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
 
@@ -789,7 +790,7 @@ namespace Test.Shared.Suites.Services
             return settings;
         }
 
-        private static AdmiralService CreateAdmiralService(LoggingModule logging, SqliteDatabaseDriver db, ArmadaSettings settings, StubGitService git)
+        private static AdmiralService CreateAdmiralService(LoggingModule logging, DatabaseDriver db, ArmadaSettings settings, StubGitService git)
         {
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);

@@ -6,6 +6,7 @@ namespace Test.Shared.Suites.Services
     using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -170,7 +171,7 @@ namespace Test.Shared.Suites.Services
             return settings;
         }
 
-        private static MissionService CreateMissionService(LoggingModule logging, SqliteDatabaseDriver db, ArmadaSettings settings)
+        private static MissionService CreateMissionService(LoggingModule logging, DatabaseDriver db, ArmadaSettings settings)
         {
             StubGitService git = new StubGitService();
             IDockService dockService = new DockService(logging, db, settings, git);

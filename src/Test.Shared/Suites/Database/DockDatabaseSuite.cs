@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Database
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -38,7 +39,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
                     Dock dock = new Dock(setup.Vessel.Id);
                     dock.WorktreePath = "/tmp/worktree";
                     dock.BranchName = "armada/test";
@@ -59,7 +60,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
                     Dock dock = new Dock(setup.Vessel.Id);
                     dock.WorktreePath = "/tmp/worktree";
                     dock.BranchName = "armada/test";
@@ -81,7 +82,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
                     Dock dock = new Dock(setup.Vessel.Id);
                     dock.WorktreePath = "/tmp/worktree";
                     dock.BranchName = "armada/test";
@@ -110,7 +111,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
                     Dock dock = new Dock(setup.Vessel.Id);
                     await db.Docks.CreateAsync(dock);
 
@@ -124,7 +125,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
                     Dock d1 = new Dock(setup.Vessel.Id);
                     Dock d2 = new Dock(setup.Vessel.Id);
                     Dock d3 = new Dock(setup.Vessel.Id);
@@ -144,7 +145,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
                     for (int i = 0; i < 5; i++)
                     {
                         Dock dock = new Dock(setup.Vessel.Id);
@@ -181,7 +182,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
 
                     Vessel otherVessel = new Vessel("OtherVessel", "https://github.com/test/other");
                     otherVessel.FleetId = setup.Vessel.FleetId;
@@ -209,7 +210,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
 
                     Dock available = new Dock(setup.Vessel.Id);
                     available.Active = true;
@@ -235,7 +236,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
 
                     Captain captain = new Captain("test-captain");
                     await db.Captains.CreateAsync(captain);
@@ -259,7 +260,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
                     Dock dock = new Dock(setup.Vessel.Id);
                     await db.Docks.CreateAsync(dock);
 
@@ -275,7 +276,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
 
                     Dock? result = await db.Docks.ReadAsync("dck_nonexistent");
 
@@ -288,7 +289,7 @@ namespace Test.Shared.Suites.Database
                 TestDatabaseSetup setup = await SetupWithVesselAsync();
                 using (setup.Database)
                 {
-                    SqliteDatabaseDriver db = setup.Database.Driver;
+                    DatabaseDriver db = setup.Database.Driver;
 
                     bool exists = await db.Docks.ExistsAsync("dck_nonexistent");
 
@@ -309,7 +310,7 @@ namespace Test.Shared.Suites.Database
         private static async Task<TestDatabaseSetup> SetupWithVesselAsync()
         {
             TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
-            SqliteDatabaseDriver db = testDb.Driver;
+            DatabaseDriver db = testDb.Driver;
 
             Fleet fleet = new Fleet("TestFleet");
             await db.Fleets.CreateAsync(fleet);

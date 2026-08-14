@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
@@ -59,7 +60,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     Skill skill = new Skill { Name = "Write ADRs", Category = "engineering", Content = "Always record architecture decisions." };
                     await db.Skills.CreateAsync(skill);
 
@@ -83,7 +84,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Skills.CreateAsync(new Skill { Name = "TDD", Category = "testing", Content = "x" });
                     await db.Skills.CreateAsync(new Skill { Name = "ADR", Category = "engineering", Content = "y" });
 
@@ -97,7 +98,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    SqliteDatabaseDriver db = testDb.Driver;
+                    DatabaseDriver db = testDb.Driver;
                     await db.Skills.CreateAsync(new Skill { Name = "Active One", Content = "x", Active = true });
                     await db.Skills.CreateAsync(new Skill { Name = "Inactive One", Content = "y", Active = false });
 

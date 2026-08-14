@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -363,7 +364,7 @@ namespace Test.Shared.Suites.Services
         }
 
         private static async Task<LandingTestEntitiesResult> CreateTestEntitiesAsync(
-            SqliteDatabaseDriver db, LandingModeEnum? landingMode = null, BranchCleanupPolicyEnum? cleanupPolicy = null)
+            DatabaseDriver db, LandingModeEnum? landingMode = null, BranchCleanupPolicyEnum? cleanupPolicy = null)
         {
             Vessel vessel = new Vessel("test-vessel", "https://github.com/test/repo.git");
             vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
