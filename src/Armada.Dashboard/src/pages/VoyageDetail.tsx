@@ -11,7 +11,8 @@ import {
   listVessels,
   listCaptains,
 } from '../api/client';
-import type { Voyage, Mission, Vessel, Captain, MissionPlaybookSnapshot, SelectedPlaybook } from '../types/models';
+import type { Voyage, Mission, Vessel, Captain, MissionPlaybookSnapshot, SelectedPlaybook, CaptainAssignmentOverride } from '../types/models';
+import CaptainTierBadge from '../components/shared/CaptainTierBadge';
 import StatusBadge from '../components/shared/StatusBadge';
 import ErrorModal from '../components/shared/ErrorModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -313,6 +314,34 @@ export default function VoyageDetail() {
             <div><span className="text-muted" style={{ fontSize: 12 }}>{t('Landing Mode')}</span><div>{voyage.landingMode || '-'}</div></div>
           </div>
         </div>
+
+        {(() => {
+          let overrides: CaptainAssignmentOverride[] = [];
+          try { overrides = voyage.captainOverridesJson ? JSON.parse(voyage.captainOverridesJson) : []; } catch { overrides = []; }
+          if (!overrides.length) return null;
+          return (
+            <div className="card">
+              <h3>{t('Captain Assignments')}</h3>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {overrides.map((override, index) => {
+                  const captain = captains.find(c => c.id === override.captainId);
+                  return (
+                    <div key={`${override.persona}-${index}`}>
+                      <span className="text-muted" style={{ fontSize: 12 }}>{override.persona}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {override.captainId
+                          ? (captain ? <Link to={`/captains/${captain.id}`}>{captain.name}</Link> : <span className="mono">{override.captainId}</span>)
+                          : <span className="text-muted">{t('Auto (default routing)')}</span>}
+                        {captain?.tier ? <CaptainTierBadge tier={captain.tier} /> : null}
+                        {override.fallbackTier ? <span className="text-muted" style={{ fontSize: 11 }}>{t('fallback: {{tier}}', { tier: t(override.fallbackTier) })}</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="card">
           <h3>{t('Timestamps')}</h3>
