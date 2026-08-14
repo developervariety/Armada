@@ -640,6 +640,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);
@@ -667,9 +668,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             voyage.Title = reader["title"].ToString()!;
             voyage.Description = NullableString(reader["description"]);
             voyage.Status = Enum.Parse<VoyageStatusEnum>(reader["status"].ToString()!);
-            voyage.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            voyage.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
             voyage.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            voyage.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            voyage.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             voyage.AutoPush = NullableBool(reader["auto_push"]);
             voyage.AutoCreatePullRequests = NullableBool(reader["auto_create_pull_requests"]);
             voyage.AutoMergePullRequests = NullableBool(reader["auto_merge_pull_requests"]);

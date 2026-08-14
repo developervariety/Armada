@@ -410,7 +410,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                         {
                             results.Add(new MissionHistoryPoint
                             {
-                                CreatedUtc = FromIso8601(reader["created_utc"].ToString()!),
+                                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
                                 Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!),
                                 VesselId = NullableString(reader["vessel_id"])
                             });
@@ -500,11 +500,11 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 DescriptionLength = Convert.ToInt32(reader["description_length"]),
                 DiffSnapshotLength = Convert.ToInt32(reader["diff_snapshot_length"]),
                 AgentOutputLength = Convert.ToInt32(reader["agent_output_length"]),
-                CreatedUtc = FromIso8601(reader["created_utc"].ToString()!),
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
                 StartedUtc = FromIso8601Nullable(reader["started_utc"]),
                 CompletedUtc = FromIso8601Nullable(reader["completed_utc"]),
                 TotalRuntimeMs = reader["total_runtime_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["total_runtime_ms"]),
-                LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!)
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
             };
 
             string? reviewDenyAction = NullableString(reader["review_deny_action"]);

@@ -208,7 +208,13 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "DELETE FROM captains WHERE id = @id;";
+                    // SQL Server forbids two ON DELETE SET NULL foreign keys from one table to the same parent
+                    // (error 1785, "multiple cascade paths"), so the signals->captains FKs are NO ACTION and the
+                    // null-on-delete that PostgreSQL does at the DB level is done here in application code.
+                    cmd.CommandText =
+                        "UPDATE signals SET from_captain_id = NULL WHERE from_captain_id = @id; " +
+                        "UPDATE signals SET to_captain_id = NULL WHERE to_captain_id = @id; " +
+                        "DELETE FROM captains WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -436,7 +442,12 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "DELETE FROM captains WHERE tenant_id = @tenantId AND id = @id;";
+                    // See DeleteAsync(id): null the signals->captains references in application code because
+                    // SQL Server cannot express two ON DELETE SET NULL FKs from signals to captains.
+                    cmd.CommandText =
+                        "UPDATE signals SET from_captain_id = NULL WHERE from_captain_id = @id; " +
+                        "UPDATE signals SET to_captain_id = NULL WHERE to_captain_id = @id; " +
+                        "DELETE FROM captains WHERE tenant_id = @tenantId AND id = @id;";
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
                     cmd.Parameters.AddWithValue("@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

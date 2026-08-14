@@ -190,8 +190,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             lease.Name = reader["name"].ToString()!;
             lease.Holder = reader["holder"].ToString()!;
             lease.TenantId = NullableString(reader["tenant_id"]);
-            lease.AcquiredUtc = FromIso8601(reader["acquired_utc"].ToString()!);
-            lease.ExpiresUtc = FromIso8601(reader["expires_utc"].ToString()!);
+            lease.AcquiredUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["acquired_utc"]), DateTimeKind.Utc);
+            lease.ExpiresUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["expires_utc"]), DateTimeKind.Utc);
             return lease;
         }
 

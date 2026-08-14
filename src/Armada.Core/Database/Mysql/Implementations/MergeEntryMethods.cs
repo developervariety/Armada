@@ -695,6 +695,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);
@@ -731,8 +732,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
             try { entry.RetryCount = Convert.ToInt32(reader["retry_count"]); } catch { }
             try { entry.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
-            entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            entry.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            entry.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             return entry;

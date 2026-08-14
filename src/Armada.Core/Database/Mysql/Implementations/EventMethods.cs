@@ -772,7 +772,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             evt.VoyageId = NullableString(reader["voyage_id"]);
             evt.Message = reader["message"].ToString()!;
             evt.Payload = NullableString(reader["payload"]);
-            evt.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            evt.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
             return evt;
         }
 

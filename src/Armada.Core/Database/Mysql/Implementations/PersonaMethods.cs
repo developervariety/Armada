@@ -374,8 +374,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             persona.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
             persona.Active = Convert.ToInt64(reader["active"]) == 1;
             persona.DefaultCaptainId = MysqlDatabaseDriver.NullableString(reader["default_captain_id"]);
-            persona.CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            persona.LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
+            persona.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            persona.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return persona;
         }
 

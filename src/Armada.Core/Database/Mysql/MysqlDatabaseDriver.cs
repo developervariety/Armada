@@ -567,6 +567,7 @@ namespace Armada.Core.Database.Mysql
         internal static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);
@@ -592,8 +593,8 @@ namespace Armada.Core.Database.Mysql
             tenant.Name = reader["name"].ToString()!;
             tenant.Active = Convert.ToInt64(reader["active"]) == 1;
             tenant.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            tenant.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            tenant.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            tenant.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            tenant.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return tenant;
         }
 
@@ -610,8 +611,8 @@ namespace Armada.Core.Database.Mysql
             user.IsTenantAdmin = Convert.ToInt64(reader["is_tenant_admin"]) == 1;
             user.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
             user.Active = Convert.ToInt64(reader["active"]) == 1;
-            user.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            user.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            user.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            user.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return user;
         }
 
@@ -625,8 +626,8 @@ namespace Armada.Core.Database.Mysql
             cred.BearerToken = reader["bearer_token"].ToString()!;
             cred.Active = Convert.ToInt64(reader["active"]) == 1;
             cred.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            cred.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            cred.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            cred.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            cred.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return cred;
         }
 
@@ -639,8 +640,8 @@ namespace Armada.Core.Database.Mysql
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
-            fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            fleet.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            fleet.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return fleet;
         }
 
@@ -704,8 +705,8 @@ namespace Armada.Core.Database.Mysql
             catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
-            vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            vessel.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            vessel.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            vessel.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return vessel;
         }
 
@@ -729,8 +730,8 @@ namespace Armada.Core.Database.Mysql
             try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
             try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
             try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
-            captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            captain.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            captain.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return captain;
         }
 
@@ -745,7 +746,7 @@ namespace Armada.Core.Database.Mysql
             signal.Type = Enum.Parse<SignalTypeEnum>(reader["type"].ToString()!);
             signal.Payload = NullableString(reader["payload"]);
             signal.Read = Convert.ToBoolean(reader["read"]);
-            signal.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            signal.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
             return signal;
         }
 
@@ -764,7 +765,7 @@ namespace Armada.Core.Database.Mysql
             evt.VoyageId = NullableString(reader["voyage_id"]);
             evt.Message = reader["message"].ToString()!;
             evt.Payload = NullableString(reader["payload"]);
-            evt.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            evt.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
             return evt;
         }
 
@@ -786,8 +787,8 @@ namespace Armada.Core.Database.Mysql
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
             try { entry.RetryCount = Convert.ToInt32(reader["retry_count"]); } catch { }
             try { entry.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
-            entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            entry.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            entry.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             return entry;

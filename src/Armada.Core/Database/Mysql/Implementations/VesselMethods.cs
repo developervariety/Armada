@@ -839,8 +839,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { vessel.RequirePassingChecksToLand = Convert.ToInt64(reader["require_passing_checks_to_land"]) == 1; } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
-            vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            vessel.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            vessel.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            vessel.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return vessel;
         }
 

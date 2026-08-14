@@ -697,6 +697,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);
@@ -728,8 +729,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { dock.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
             try { dock.OwnerToken = NullableString(reader["owner_token"]); } catch { }
             dock.Active = Convert.ToInt64(reader["active"]) == 1;
-            dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            dock.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            dock.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return dock;
         }
 
