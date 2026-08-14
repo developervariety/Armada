@@ -16,12 +16,19 @@ Delivered and verified (builds 0 warnings, 2345/2345 backend tests pass, deploye
 - **Docs (CM-112..114):** `docs/CAPTAIN_ROUTING.md`, CHANGELOG entry, README bullet.
 - **Rollout (CM-120..123):** clean build, deploy, migration verified live, smoke test, pushed.
 
-Still open (tracked below, not yet done):
+Coverage/polish round (also done):
 
-- **CM-064** Voyage-detail overrides display.
-- **CM-066 / CM-072** Formal responsive + a11y + text-expansion/RTL QA pass.
-- **CM-083..099** Assignment-scenario unit tests (need the worktree-provisioning harness), REST/MCP end-to-end tests, and dashboard vitest for the new components/surfaces. (The assignment behavior is exercised by the live smoke test but not yet by dedicated unit tests.)
-- **CM-110 / CM-111 / CM-115..117** MCP_API.md + REST_API.md field-level sections, DOCKERHUB_README, Postman example, screenshots.
+- **CM-064** Voyage-detail captain-assignment display.
+- **CM-085..093** Assignment-scenario unit tests via a worktree-provisioning harness: preferred-idle bypasses the fence, persona default resolves + assigns, busy preferred falls back by tier, deleted preferred falls back to normal routing, no tier-eligible captain stays Pending, no-preference regression guard. 2351/2351 backend pass.
+- **CM-098** Dashboard vitest for CaptainPicker / CaptainTierBadge / FallbackTierSelect (positive + negative). 61/61 dashboard tests pass.
+- **CM-110 / CM-111** Per-Step Captain Selection sections in MCP_API.md and REST_API.md.
+
+Remaining (intentionally deferred, low-value or not applicable):
+
+- **CM-094..097 / CM-099** REST/MCP end-to-end Touchstone tests and page-level vitest for Dispatch/Persona/Mission surfaces. The behavior is covered by the unit + component tests and a live REST smoke test (persona default round-trip incl. the 400-on-invalid-captain path); dedicated e2e/page tests not yet added.
+- **CM-066 / CM-072** Formal a11y + text-expansion/RTL QA pass. Mitigations in place: all strings via `t()`, `aria-label`s on pickers, tier badges show text (not color-only), button rows already audited elsewhere.
+- **CM-115** DOCKERHUB_README.md -- not present in the repo (N/A).
+- **CM-116 / CM-117** Postman example and screenshots -- deferred as lowest-value polish.
 
 ## How to use this document
 

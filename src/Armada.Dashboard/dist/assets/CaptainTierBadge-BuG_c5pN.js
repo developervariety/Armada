@@ -1,0 +1,1 @@
+import{u as n,j as r}from"./index-DxJFJMmj.js";function o({tier:t,className:e}){const{t:a}=n();if(!t)return null;const i=t.toLowerCase();return r.jsx("span",{className:`captain-tier-badge captain-tier-${i}${e?` ${e}`:""}`,title:a("Capability tier: {{tier}}",{tier:a(t)}),children:a(t)})}export{o as C};
