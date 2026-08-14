@@ -4,6 +4,25 @@ Implementation plan for letting an operator assign specific captains to specific
 
 This document is the working checklist. A developer picks up any task, sets its status, and records notes inline. Do not delete completed items — flip their status so the history stays visible.
 
+## Implementation progress
+
+Delivered and verified (builds 0 warnings, 2345/2345 backend tests pass, deployed to the local SQLite instance, end-to-end REST smoke test green including the 400-on-invalid-captain path):
+
+- **Models + schema (CM-001..013):** all five model changes; startup migration **55** across SQLite/PostgreSQL/MySQL/SQL Server with the 4-provider method + reader wiring.
+- **Server (CM-020..026):** preferred-then-tier-fallback assignment, per-mission + persona-default + voyage-override resolution, fan-out inheritance, invalid-captain handling, fallback logging.
+- **REST + MCP (CM-030..044):** persona `defaultCaptainId` (validated), dispatch `captainAssignments`, per-mission `requestedCaptainId`/`tier`, mission reads exposing preferred + actual.
+- **Dashboard (CM-050..063, CM-065):** CaptainPicker / CaptainTierBadge / FallbackTierSelect; persona-detail default captain; Dispatch per-step pickers; mission-detail preferred vs. actual with fell-back indicator; Captains-table tier badge; setup-wizard tier step. All strings via `t()`.
+- **Tests (CM-080..082, CM-100):** captain-routing suite (serialization + persistence, positive + negative).
+- **Docs (CM-112..114):** `docs/CAPTAIN_ROUTING.md`, CHANGELOG entry, README bullet.
+- **Rollout (CM-120..123):** clean build, deploy, migration verified live, smoke test, pushed.
+
+Still open (tracked below, not yet done):
+
+- **CM-064** Voyage-detail overrides display.
+- **CM-066 / CM-072** Formal responsive + a11y + text-expansion/RTL QA pass.
+- **CM-083..099** Assignment-scenario unit tests (need the worktree-provisioning harness), REST/MCP end-to-end tests, and dashboard vitest for the new components/surfaces. (The assignment behavior is exercised by the live smoke test but not yet by dedicated unit tests.)
+- **CM-110 / CM-111 / CM-115..117** MCP_API.md + REST_API.md field-level sections, DOCKERHUB_README, Postman example, screenshots.
+
 ## How to use this document
 
 - Every task has an ID (`CM-###`) and a checkbox. Check the box only when the task meets its acceptance criteria AND the compliance gate in section 12.
@@ -63,8 +82,8 @@ New persisted fields (Structured Persistence Rule — typed columns, not JSON bl
 
 ### Migration and schema definitions
 
-- [ ] **CM-007** Add startup migration **47** that adds `personas.default_captain_id`, `missions.requested_captain_id`, and `voyages.captain_overrides_json` (current head is 46 — project profiles 45, skills 46). Follow BACKEND_ARCHITECTURE Migrations rules; migration must be idempotent and safe on an existing populated database.
-- [ ] **CM-008** Update `CREATE TABLE` definitions and column lists in `TableQueries.cs` for all four providers so a fresh install creates the columns: `src/Armada.Core/Database/{Sqlite,Postgresql,Mysql,SqlServer}/Queries/TableQueries.cs`.
+- [ ] **CM-007** Add startup migration **55** that adds `personas.default_captain_id`, `missions.requested_captain_id`, and `voyages.captain_overrides_json`. (Correction: the live migration head is **54** — the "Yes, 47" answer was based on my mistaken read of 46; 47 is already taken by "Name the default admin credential". Next free version is 55.) Follow BACKEND_ARCHITECTURE Migrations rules; the runner already skips already-applied versions and tolerates existing columns, so the migration is idempotent and safe on a populated DB.
+- [ ] **CM-008** No `CREATE TABLE` edits required: the base table definitions are the original schema and every later column (including `tier`) is added via `GetMigrations()`, which runs in full on fresh installs. Verify all four providers add the three columns via migration 55 in `src/Armada.Core/Database/{Sqlite,Postgresql,Mysql,SqlServer}/Queries/TableQueries.cs`.
 - [ ] **CM-009** Update `PersonaMethods` (Create/Update INSERT/UPDATE column lists, parameter binding, and `SELECT`→model mapping) for all four providers.
 - [ ] **CM-010** Update `MissionMethods` (Create/Update/read mapping) for `requested_captain_id` across all four providers (use the existing `tier` handling as the template).
 - [ ] **CM-011** Update `VoyageMethods` (Create/Update/read mapping) for `captain_overrides_json` across all four providers.
@@ -223,7 +242,7 @@ A task is DONE only when all of the following hold for the code it touches:
 | CM-004 | Model | CaptainAssignmentOverride | TODO | | |
 | CM-005 | DTO | DispatchCaptainAssignment | TODO | | |
 | CM-006 | Model | MissionDescription.RequestedCaptainId | TODO | | |
-| CM-007 | DB | Startup migration 47 (head is 46) | TODO | | |
+| CM-007 | DB | Startup migration 55 (head is 54) | TODO | | |
 | CM-008 | DB | TableQueries ×4 | TODO | | |
 | CM-009 | DB | PersonaMethods ×4 | TODO | | |
 | CM-010 | DB | MissionMethods ×4 | TODO | | |
@@ -300,5 +319,5 @@ A task is DONE only when all of the following hold for the code it touches:
 ## 14. Decisions
 
 - **OOBE depth (CM-065) — DECIDED:** the setup wizard sets captain **tier and role only**. Adjusting per-persona default captains is a separate step the operator performs in the dashboard (Persona detail, CM-061), not part of first-run.
-- **Migration number (CM-007) — DECIDED:** startup migration **47** (current head 46).
+- **Migration number (CM-007) — CORRECTED:** startup migration **55**. The earlier "47" was based on a mistaken head-of-46 read; the live migration head is **54** (47 is already taken). 55 is the next free version.
 - **Fallback tier default (open):** when a preferred captain is chosen without an explicit fallback tier, default the fallback to that captain's own `Tier`. Revisit if operators want an explicit "no fallback, wait" mode (would add a per-step toggle).
