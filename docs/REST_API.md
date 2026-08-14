@@ -3914,6 +3914,14 @@ Return the interactive Swagger UI for the same OpenAPI surface.
 
 ---
 
+## Per-Step Captain Selection
+
+Personas can carry a default captain, and dispatch can dictate which captain runs each pipeline step, with a capability-tier fallback when that captain is busy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for the full model.
+
+- `POST` / `PUT /api/v1/personas` accept and return `defaultCaptainId` (a `cpt_` id). An invalid captain id is rejected with `400`. `PUT` sets the field to the request value, so an omitted/null value clears the default.
+- `POST /api/v1/voyages` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier }` binding each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Each entry in `missions` may also carry `requestedCaptainId` and `tier`. The overrides are stored on the voyage and resolved at assignment time, including for fan-out missions.
+- Mission reads (`GET /api/v1/missions/{id}`, enumerate, summaries) include both `requestedCaptainId` (the preferred captain) and `captainId` (the captain that actually ran).
+
 ## Data Types
 
 ### Models
