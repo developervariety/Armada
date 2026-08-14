@@ -20,6 +20,7 @@ LENGTH(COALESCE(description, '')) AS description_length,
 LENGTH(COALESCE(diff_snapshot, '')) AS diff_snapshot_length,
 LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
 
+        /// <inheritdoc />
         public async Task<MissionSummary?> ReadSummaryAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
@@ -42,6 +43,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             return null;
         }
 
+        /// <inheritdoc />
         public async Task<EnumerationResult<MissionSummary>> EnumerateSummariesAsync(EnumerationQuery query, CancellationToken token = default)
         {
             return await EnumerateSummariesCoreAsync(
@@ -51,24 +53,28 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionSummary>> EnumerateSummariesByVoyageAsync(string voyageId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(voyageId)) throw new ArgumentNullException(nameof(voyageId));
             return await EnumerateSummariesByColumnAsync("voyage_id", voyageId, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionSummary>> EnumerateSummariesByVesselAsync(string vesselId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             return await EnumerateSummariesByColumnAsync("vessel_id", vesselId, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionSummary>> EnumerateSummariesByCaptainAsync(string captainId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             return await EnumerateSummariesByColumnAsync("captain_id", captainId, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default)
         {
             return await CountByStatusCoreAsync(
@@ -77,6 +83,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(MissionHistoryQuery query, CancellationToken token = default)
         {
             return await EnumerateHistoryPointsCoreAsync(
@@ -86,6 +93,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<MissionSummary?> ReadSummaryAsync(string tenantId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -110,6 +118,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             return null;
         }
 
+        /// <inheritdoc />
         public async Task<EnumerationResult<MissionSummary>> EnumerateSummariesAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -120,6 +129,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionSummary>> EnumerateSummariesByVoyageAsync(string tenantId, string voyageId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -127,6 +137,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             return await EnumerateTenantSummariesByColumnAsync(tenantId, "voyage_id", voyageId, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionSummary>> EnumerateSummariesByVesselAsync(string tenantId, string vesselId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -134,6 +145,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             return await EnumerateTenantSummariesByColumnAsync(tenantId, "vessel_id", vesselId, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionSummary>> EnumerateSummariesByCaptainAsync(string tenantId, string captainId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -141,6 +153,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             return await EnumerateTenantSummariesByColumnAsync(tenantId, "captain_id", captainId, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(string tenantId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -150,6 +163,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(string tenantId, MissionHistoryQuery query, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -160,6 +174,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<MissionSummary?> ReadSummaryAsync(string tenantId, string userId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -186,6 +201,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             return null;
         }
 
+        /// <inheritdoc />
         public async Task<EnumerationResult<MissionSummary>> EnumerateSummariesAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -201,6 +217,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(string tenantId, string userId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -215,6 +232,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(string tenantId, string userId, MissionHistoryQuery query, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));

@@ -8,11 +8,11 @@ namespace Armada.Helm.Commands
     /// <summary>
     /// Remove MCP integration for supported clients.
     /// </summary>
-    [Description("Remove MCP integration for Claude Code, Codex, Gemini, and Cursor")]
+    [Description("Remove MCP integration for Claude Code, Codex, Gemini, Cursor, and Mux (when detected)")]
     public class McpRemoveCommand : BaseCommand<McpRemoveSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, McpRemoveSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, McpRemoveSettings settings, CancellationToken cancellationToken)
         {
             ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
             List<McpConfigHelper.ConfigTarget> targets = McpConfigHelper.BuildTargets(armadaSettings.McpPort);

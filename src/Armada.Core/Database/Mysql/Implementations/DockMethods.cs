@@ -53,8 +53,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, state, lease_expires_utc, owner_token, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @state, @lease_expires_utc, @owner_token, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", dock.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)dock.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)dock.UserId ?? DBNull.Value);
@@ -62,6 +62,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@captain_id", (object?)dock.CaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@worktree_path", (object?)dock.WorktreePath ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)dock.BranchName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@state", dock.State.ToString());
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", dock.LeaseExpiresUtc.HasValue ? (object)ToIso8601(dock.LeaseExpiresUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@owner_token", (object?)dock.OwnerToken ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", dock.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@created_utc", ToIso8601(dock.CreatedUtc));
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(dock.LastUpdateUtc));
@@ -123,6 +126,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                         captain_id = @captain_id,
                         worktree_path = @worktree_path,
                         branch_name = @branch_name,
+                        state = @state,
+                        lease_expires_utc = @lease_expires_utc,
+                        owner_token = @owner_token,
                         active = @active,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -133,6 +139,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@captain_id", (object?)dock.CaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@worktree_path", (object?)dock.WorktreePath ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)dock.BranchName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@state", dock.State.ToString());
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", dock.LeaseExpiresUtc.HasValue ? (object)ToIso8601(dock.LeaseExpiresUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@owner_token", (object?)dock.OwnerToken ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", dock.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(dock.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -685,6 +694,15 @@ namespace Armada.Core.Database.Mysql.Implementations
             return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         }
 
+        private static DateTime? FromIso8601Nullable(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+            string str = value.ToString()!;
+            if (string.IsNullOrEmpty(str)) return null;
+            return FromIso8601(str);
+        }
+
         private static string? NullableString(object value)
         {
             if (value == null || value == DBNull.Value) return null;
@@ -701,9 +719,18 @@ namespace Armada.Core.Database.Mysql.Implementations
             dock.CaptainId = NullableString(reader["captain_id"]);
             dock.WorktreePath = NullableString(reader["worktree_path"]);
             dock.BranchName = NullableString(reader["branch_name"]);
+            try
+            {
+                string? stateStr = NullableString(reader["state"]);
+                if (!String.IsNullOrEmpty(stateStr) && Enum.TryParse<DockStateEnum>(stateStr, out DockStateEnum ds))
+                    dock.State = ds;
+            }
+            catch { }
+            try { dock.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
+            try { dock.OwnerToken = NullableString(reader["owner_token"]); } catch { }
             dock.Active = Convert.ToInt64(reader["active"]) == 1;
-            dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            dock.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            dock.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return dock;
         }
 

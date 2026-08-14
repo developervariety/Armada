@@ -7,10 +7,14 @@ import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
+import CaptainTierBadge from '../components/shared/CaptainTierBadge';
 import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -25,6 +29,8 @@ type CaptainFormState = {
   runtime: string;
   systemInstructions: string;
   model: string;
+  reasoningEffort: string;
+  tier: string;
 } & MuxCaptainFormFields;
 
 export default function Captains() {
@@ -38,7 +44,8 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', reasoningEffort: '', tier: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [saving, setSaving] = useState(false);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -81,6 +88,7 @@ export default function Captains() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('captains', load);
 
   // Filtered rows
   const filtered = useMemo(() => {
@@ -138,7 +146,7 @@ export default function Captains() {
 
   // CRUD
   function openCreate() {
-    setForm({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+    setForm({ name: '', runtime: '', systemInstructions: '', model: '', reasoningEffort: '', tier: '', ...EMPTY_MUX_CAPTAIN_FORM });
     setEditing(null);
     setShowForm(true);
   }
@@ -149,6 +157,8 @@ export default function Captains() {
       runtime: c.runtime,
       systemInstructions: c.systemInstructions ?? '',
       model: c.model ?? '',
+      reasoningEffort: c.reasoningEffort ?? '',
+      tier: c.tier ?? '',
       ...muxFormFromCaptain(c),
     });
     setEditing(c);
@@ -157,15 +167,19 @@ export default function Captains() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     try {
       if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
         setError(t('Mux captains require a named Mux endpoint.'));
         return;
       }
 
+      setSaving(true);
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.reasoningEffort = form.reasoningEffort ? form.reasoningEffort : null;
+      payload.tier = form.tier ? form.tier : null;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
       delete payload.muxConfigDirectory;
       delete payload.muxEndpoint;
@@ -184,6 +198,8 @@ export default function Captains() {
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -341,58 +357,84 @@ export default function Captains() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Captains')}</h2>
-          <p className="text-dim view-subtitle">{t('AI agent processes that execute missions. Monitor heartbeat, state, and manage captain lifecycle.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
-          <RefreshButton onRefresh={load} title={t('Refresh captain data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Captains')}
+        subtitle={t('AI agent harness processes that execute missions. Monitor state, current mission, and captain lifecycle.')}
+        actions={(
+          <>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh captain data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className={`modal modal-captain${isMuxRuntime(form.runtime) ? ' modal-mux' : ''}`} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Captain') : t('Create Captain')}</h3>
             <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
-              <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
-                <option value="">{t('Select runtime...')}</option>
-                <option value="ClaudeCode">Claude Code</option>
-                <option value="Codex">Codex</option>
-                <option value="Gemini">Gemini</option>
-                <option value="Cursor">Cursor</option>
-                <option value="Mux">Mux</option>
-              </select>
-            </label>
-            <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
-              {t('Model')}
-              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
-            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+              <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
+                <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
+                  <option value="">{t('Select runtime...')}</option>
+                  <option value="ClaudeCode">Claude Code</option>
+                  <option value="Codex">Codex</option>
+                  <option value="Gemini">Gemini</option>
+                  <option value="Cursor">Cursor</option>
+                  <option value="Mux">Mux</option>
+                  <option value="OpenCode">OpenCode</option>
+                </select>
+              </label>
+              <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
+                {t('Model')}
+                <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+              </label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+              <label>
+                {t('Reasoning effort')}
+                <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })}>
+                  <option value="">{t('Runtime default')}</option>
+                  <option value="Off">{t('Off')}</option>
+                  <option value="Minimal">{t('Minimal')}</option>
+                  <option value="Low">{t('Low')}</option>
+                  <option value="Medium">{t('Medium')}</option>
+                  <option value="High">{t('High')}</option>
+                </select>
+              </label>
+              <label>
+                {t('Capability tier')}
+                <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                  <option value="">{t('Auto (classify from model)')}</option>
+                  <option value="Economy">{t('Economy')}</option>
+                  <option value="Standard">{t('Standard')}</option>
+                  <option value="Premium">{t('Premium')}</option>
+                </select>
+              </label>
+            </div>
             <MuxRuntimeFields
               runtime={form.runtime}
               form={form}
               onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
               t={t}
             />
-            <label title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
+            <label className="captain-instructions-field" title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
               {t('System Instructions')}
               <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -464,7 +506,7 @@ export default function Captains() {
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} title={t('Select this captain')} />
                     </td>
-                    <td><strong>{c.name}</strong></td>
+                    <td><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
                         <span className="id-value" title={c.id}>{c.id}</span>
@@ -490,6 +532,7 @@ export default function Captains() {
                         { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
                         { label: 'View Tools', onClick: () => void handleViewTools(c) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
+                        { label: 'View Notifications', onClick: () => navigate('/inbox') },
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
                         { label: 'Restart', onClick: () => handleRestart(c.id, c.name) },

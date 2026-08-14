@@ -123,6 +123,14 @@ export interface Vessel {
   hotfixBranchPrefix: string;
   requirePullRequestForProtectedBranches: boolean;
   requireMergeQueueForReleaseBranches: boolean;
+  secretScanEnabled?: boolean;
+  protectedPathPatterns?: string[];
+  privateIdentifierDenylist?: string[];
+  autoLandEnabled?: boolean;
+  autoLandMaxFiles?: number;
+  autoLandMaxLines?: number;
+  autoLandPathAllowGlobs?: string[];
+  autoLandPathDenyGlobs?: string[];
   allowConcurrentMissions: boolean;
   defaultPipelineId: string | null;
   active: boolean;
@@ -139,6 +147,10 @@ export interface Captain {
   planningSessionSupportReason: string | null;
   systemInstructions: string | null;
   model: string | null;
+  reasoningEffort?: string | null;
+  tier?: string | null;
+  quarantineUntilUtc?: string | null;
+  quarantineReason?: string | null;
   allowedPersonas: string | null;
   preferredPersona: string | null;
   runtimeOptionsJson?: string | null;
@@ -206,6 +218,7 @@ export interface Mission {
   voyageId: string | null;
   vesselId: string | null;
   captainId: string | null;
+  requestedCaptainId?: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -305,6 +318,17 @@ export interface Voyage {
   sourcePlanningSessionId?: string | null;
   sourcePlanningMessageId?: string | null;
   selectedPlaybooks?: SelectedPlaybook[];
+  captainOverridesJson?: string | null;
+}
+
+/** Capability tier used for fallback routing when a preferred captain is busy. */
+export type CaptainTier = 'Economy' | 'Standard' | 'Premium';
+
+/** Per-persona captain override selected at dispatch (preferred captain + fallback tier). */
+export interface CaptainAssignmentOverride {
+  persona: string;
+  captainId?: string | null;
+  fallbackTier?: CaptainTier | null;
 }
 
 export type ObjectiveStatus =
@@ -558,6 +582,7 @@ export interface PlanningSessionMessage {
   isSelectedForDispatch: boolean;
   createdUtc: string;
   lastUpdateUtc: string;
+  metrics?: CaptainChatMetrics | null;
 }
 
 export interface PlanningSessionDetail {
@@ -767,6 +792,163 @@ export interface WorkflowProfileValidationResult {
   warnings: string[];
   availableCheckTypes: string[];
   commandPreviews: WorkflowProfileCommandPreview[];
+}
+
+export type ProjectProfileScope = 'Global' | 'Fleet' | 'Vessel';
+export type ProjectProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global' | 'None';
+
+export interface PersonaOverride {
+  personaName: string;
+  promptTemplateName: string | null;
+  additionalInstructions: string | null;
+  enabled: boolean;
+}
+
+export interface ProjectProfile {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  scope: ProjectProfileScope;
+  fleetId: string | null;
+  vesselId: string | null;
+  isDefault: boolean;
+  active: boolean;
+  defaultPipelineId: string | null;
+  workflowProfileId: string | null;
+  personaOverrides: PersonaOverride[];
+  skills: string[];
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface ProjectProfileValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface ProjectProfileResolutionResult {
+  profile: ProjectProfile | null;
+  mode: ProjectProfileResolutionMode;
+}
+
+export interface PersonaPromptPreview {
+  personaName: string;
+  baseTemplateName: string;
+  effectiveTemplateName: string;
+  basePrompt: string;
+  effectivePrompt: string;
+  additionalInstructions: string | null;
+  isOverridden: boolean;
+}
+
+export interface Skill {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  category: string | null;
+  content: string;
+  isBuiltIn: boolean;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface AskLink {
+  label: string;
+  href: string;
+}
+
+export type AskResponseKind = 'Answer' | 'Help' | 'Unknown';
+
+export interface AskResponse {
+  reply: string;
+  kind: AskResponseKind;
+  links: AskLink[];
+}
+
+export interface CaptainChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface CaptainChatMetrics {
+  timeToFirstTokenMs: number | null;
+  streamingMs: number | null;
+  totalMs: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  tokensPerSecond: number | null;
+}
+
+export interface Job {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  kind: string;
+  status: string;
+  progress: number;
+  resultJson: string | null;
+  errorReason: string | null;
+  createdUtc: string;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  lastUpdateUtc: string;
+}
+
+export interface CaptainChatRequest {
+  message: string;
+  history: CaptainChatMessage[];
+  turnId?: string;
+  showThinking?: boolean;
+}
+
+export interface CaptainChatResponse {
+  success: boolean;
+  reply: string;
+  model: string | null;
+  metrics: CaptainChatMetrics;
+  error: string | null;
+  thinking?: string | null;
+}
+
+export interface WorkspaceExecRequest {
+  command: string;
+  timeoutSeconds?: number;
+}
+
+export interface WorkspaceExecResult {
+  command: string;
+  workingDirectory: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  durationMs: number;
+}
+
+export interface WorkspaceDiffResult {
+  path: string | null;
+  diff: string;
+  error: string | null;
+}
+
+export type InboxSeverity = 'Info' | 'Warning' | 'Critical';
+
+export interface InboxItem {
+  kind: string;
+  severity: InboxSeverity;
+  title: string;
+  detail: string;
+  entityType: string | null;
+  entityId: string | null;
+  href: string;
 }
 
 export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
@@ -1801,6 +1983,8 @@ export interface PlanningSessionCreateRequest {
 
 export interface PlanningSessionMessageRequest {
   content: string;
+  showThinking?: boolean;
+  stream?: boolean;
 }
 
 export interface PlanningSessionDispatchRequest {
@@ -1818,6 +2002,7 @@ export interface VoyageCreateRequest {
   missions: DispatchRequest[];
   selectedPlaybooks?: SelectedPlaybook[];
   objectiveId?: string;
+  captainAssignments?: CaptainAssignmentOverride[];
 }
 
 export interface TransitionRequest {
@@ -1878,6 +2063,7 @@ export interface Persona {
   promptTemplateName: string;
   isBuiltIn: boolean;
   active: boolean;
+  defaultCaptainId?: string | null;
   createdUtc: string;
   lastUpdateUtc: string;
 }

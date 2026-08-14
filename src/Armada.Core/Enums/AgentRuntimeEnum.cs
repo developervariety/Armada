@@ -40,6 +40,12 @@ namespace Armada.Core.Enums
         Mux,
 
         /// <summary>
+        /// OpenCode CLI (OpenAI-compatible providers, JSONL event output).
+        /// </summary>
+        [EnumMember(Value = "OpenCode")]
+        OpenCode,
+
+        /// <summary>
         /// Custom agent runtime.
         /// </summary>
         [EnumMember(Value = "Custom")]

@@ -99,7 +99,7 @@ namespace Armada.Core.Services
             // must never reach the store or a grouping.
             if (IsTemplatePlaceholder(payload)) return null;
 
-            string title = Sanitize(payload.Title);
+            string? title = Sanitize(payload.Title);
             if (String.IsNullOrWhiteSpace(title)) return null;
 
             Papercut papercut = new Papercut();

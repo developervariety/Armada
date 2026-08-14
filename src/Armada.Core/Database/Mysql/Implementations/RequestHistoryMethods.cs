@@ -294,7 +294,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 IsSuccess = Convert.ToInt64(reader["is_success"]) == 1,
                 ClientIp = MysqlDatabaseDriver.NullableString(reader["client_ip"]),
                 CorrelationId = MysqlDatabaseDriver.NullableString(reader["correlation_id"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime()
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc)
             };
         }
 

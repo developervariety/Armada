@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using SyslogLogging;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
@@ -236,6 +237,7 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "unable to persist dock start commit for " + dock.Id + ": " + metadataEx.Message);
                 }
 
+                ArmadaMetrics.DocksProvisioned.Add(1);
                 _Logging.Info(_Header + "provisioned dock " + dock.Id + " at " + worktreePath);
                 return dock;
             }
@@ -313,6 +315,7 @@ namespace Armada.Core.Services
             dock.CaptainId = null;
             dock.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Docks.UpdateAsync(dock, token).ConfigureAwait(false);
+            ArmadaMetrics.DocksReclaimed.Add(1);
         }
 
         /// <inheritdoc />
@@ -330,6 +333,36 @@ namespace Armada.Core.Services
                 await _Git.RepairWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "repaired dock " + dockId);
             }
+        }
+
+        /// <inheritdoc />
+        public async Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
+
+            Dock? dock = !String.IsNullOrEmpty(tenantId)
+                ? await _Database.Docks.ReadAsync(tenantId, dockId, token).ConfigureAwait(false)
+                : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
+            if (dock == null) throw new InvalidOperationException("Dock not found: " + dockId);
+
+            // Free any captain still holding this dock so it stops counting as "in use".
+            if (!String.IsNullOrEmpty(dock.CaptainId))
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(dock.CaptainId, token).ConfigureAwait(false);
+                if (captain != null && captain.CurrentDockId == dock.Id)
+                {
+                    _Logging.Warn(_Header + "unstick: releasing captain " + captain.Id + " holding dock " + dockId);
+                    captain.State = CaptainStateEnum.Idle;
+                    captain.CurrentMissionId = null;
+                    captain.CurrentDockId = null;
+                    captain.ProcessId = null;
+                    captain.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                }
+            }
+
+            await ReclaimAsync(dockId, tenantId, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "unstuck dock " + dockId);
         }
 
         /// <inheritdoc />

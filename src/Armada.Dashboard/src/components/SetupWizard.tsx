@@ -36,6 +36,19 @@ export function markSetupComplete(): void {
   }
 }
 
+/**
+ * Clear the "setup complete" flag. Used when the deployment is found to be empty (e.g. after a
+ * factory-reset), so a browser that finished setup against a previous deployment does not permanently
+ * suppress the wizard on the fresh one.
+ */
+export function clearSetupComplete(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // storage unavailable
+  }
+}
+
 export interface SetupWizardProps {
   onClose: () => void;
   onHighlightChange?: (paths: string[]) => void;
@@ -75,6 +88,7 @@ interface CaptainForm extends MuxCaptainFormFields {
   name: string;
   runtime: string;
   model: string;
+  tier: string;
   systemInstructions: string;
 }
 
@@ -205,6 +219,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     name: t('Setup Captain'),
     runtime: 'Codex',
     model: '',
+    tier: 'Standard',
     systemInstructions: t('For setup missions, prefer read-only repository inspection unless the mission explicitly asks for code changes.'),
     ...EMPTY_MUX_CAPTAIN_FORM,
   }));
@@ -317,12 +332,15 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
   }, [loadResources]);
 
   useEffect(() => {
+    // Highlights map to consolidated nav destinations: Fleets/Workspace fold
+    // into Vessels, Backlog into Dispatch, config pages into Configuration, and
+    // Environments/Checks into Delivery.
     const highlightsByStep: Record<number, string[]> = {
-      1: ['/fleets'],
+      1: ['/vessels'],
       2: ['/vessels'],
       3: ['/captains'],
       4: ['/dispatch'],
-      5: ['/vessels', '/workspace', '/backlog', '/planning', '/workflow-profiles', '/environments', '/checks', '/playbooks'],
+      5: ['/vessels', '/dispatch', '/planning', '/configuration', '/delivery'],
     };
 
     onHighlightChange?.(highlightsByStep[current] || []);
@@ -333,7 +351,9 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     markSetupComplete();
     onHighlightChange?.([]);
     onClose();
-  }, [onClose, onHighlightChange]);
+    // Exiting the wizard (finish, skip, or close) lands the operator on Missions.
+    navigate('/missions');
+  }, [navigate, onClose, onHighlightChange]);
 
   const finishAndNavigate = useCallback((to: string, options?: { state?: unknown; replace?: boolean }) => {
     markSetupComplete();
@@ -513,6 +533,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         name: captainForm.name.trim(),
         runtime: captainForm.runtime,
         model: captainForm.model.trim() || null,
+        tier: captainForm.tier || null,
         systemInstructions: captainForm.systemInstructions.trim() || null,
         runtimeOptionsJson: buildMuxRuntimeOptionsJson(captainForm.runtime, captainForm),
       });
@@ -915,6 +936,18 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
               onChange={(event) => setCaptainForm({ ...captainForm, model: event.target.value })}
               placeholder={t('Optional runtime-specific model override')}
             />
+          </div>
+          <div className="form-group">
+            <label title={t('Capability tier for routing. Cheaper tiers handle routine work; stronger tiers handle complex work and serve as fallback when a preferred captain is busy.')}>{t('Capability Tier')}</label>
+            <select
+              value={captainForm.tier}
+              onChange={(event) => setCaptainForm({ ...captainForm, tier: event.target.value })}
+            >
+              <option value="">{t('Not set')}</option>
+              <option value="Economy">{t('Economy')}</option>
+              <option value="Standard">{t('Standard')}</option>
+              <option value="Premium">{t('Premium')}</option>
+            </select>
           </div>
           <div className="form-group">
             <label title={t(tooltips.systemInstructions)}>{t('System Instructions')}</label>

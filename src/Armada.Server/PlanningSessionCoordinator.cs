@@ -24,6 +24,16 @@ namespace Armada.Server
         private sealed class TurnState
         {
             public bool StopRequested { get; set; } = false;
+
+            /// <summary>
+            /// Whether to surface the model's reasoning for this turn (Ask-Armada parity).
+            /// </summary>
+            public bool ShowThinking { get; set; } = false;
+
+            /// <summary>
+            /// Whether to stream the reply incrementally. When false the reply is broadcast once at the end.
+            /// </summary>
+            public bool Stream { get; set; } = true;
         }
 
         private readonly string _Header = "[PlanningSessionCoordinator] ";
@@ -204,7 +214,7 @@ namespace Armada.Server
         /// <summary>
         /// Append a user message and start a background planning turn.
         /// </summary>
-        public async Task<PlanningSessionMessage> SendMessageAsync(PlanningSession session, string content, CancellationToken token = default)
+        public async Task<PlanningSessionMessage> SendMessageAsync(PlanningSession session, string content, bool showThinking = false, bool stream = true, CancellationToken token = default)
         {
             if (session == null) throw new ArgumentNullException(nameof(session));
             if (String.IsNullOrWhiteSpace(content)) throw new ArgumentNullException(nameof(content));
@@ -213,7 +223,8 @@ namespace Armada.Server
             if (session.Status != PlanningSessionStatusEnum.Active)
                 throw new InvalidOperationException("Planning session " + session.Id + " is not ready for a new message.");
 
-            if (!_ActiveTurns.TryAdd(session.Id, new TurnState()))
+            TurnState turnState = new TurnState { ShowThinking = showThinking, Stream = stream };
+            if (!_ActiveTurns.TryAdd(session.Id, turnState))
                 throw new InvalidOperationException("Planning session " + session.Id + " is already generating a response.");
 
             List<PlanningSessionMessage> existingMessages = await _Database.PlanningSessionMessages
@@ -291,6 +302,42 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Abort the in-flight planning turn without ending the session. Kills the current turn's captain
+        /// runtime process; the background turn task then finalizes the assistant reply with whatever streamed
+        /// so far and returns the session to <see cref="PlanningSessionStatusEnum.Active"/> on its own (no
+        /// session-level stop is requested, so the completion path re-activates it). No-op unless the session
+        /// is currently <see cref="PlanningSessionStatusEnum.Responding"/>. Mirrors Ask Armada's Stop, which
+        /// cancels the runtime while leaving the chat usable.
+        /// </summary>
+        public async Task<PlanningSession> AbortTurnAsync(PlanningSession session, CancellationToken token = default)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+
+            session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+            if (session.Status != PlanningSessionStatusEnum.Responding)
+                return session;
+
+            if (session.ProcessId.HasValue)
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(session.CaptainId, token).ConfigureAwait(false);
+                if (captain != null)
+                {
+                    try
+                    {
+                        Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
+                        await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error aborting planning turn process " + session.ProcessId.Value + " for session " + session.Id + ": " + ex.Message);
+                    }
+                }
+            }
+
+            return session;
+        }
+
+        /// <summary>
         /// Create a voyage from a planning session.
         /// </summary>
         public async Task<Voyage> DispatchAsync(PlanningSession session, PlanningSessionDispatchRequest request, CancellationToken token = default)
@@ -345,6 +392,18 @@ namespace Armada.Server
                 null,
                 session.VesselId,
                 voyage.Id).ConfigureAwait(false);
+
+            // The planning session has served its purpose once the work is dispatched, so release the reserved
+            // captain and dock automatically instead of leaving them pinned until the operator ends the session
+            // by hand. Best-effort: a release failure must not fail the dispatch that already succeeded.
+            try
+            {
+                await RequestStopAsync(session, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error releasing planning session " + session.Id + " after dispatch: " + ex.Message);
+            }
 
             return voyage;
         }
@@ -687,19 +746,59 @@ namespace Armada.Server
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
+                DateTime turnStartUtc = DateTime.UtcNow;
+                DateTime? firstOutputUtc = null;
 
-                runtime.OnOutputReceived += (processId, line) =>
+                bool isMux = captain.Runtime == AgentRuntimeEnum.Mux;
+
+                // Claude Code streams token-by-token only in streaming-JSON mode. Enable it for the interactive
+                // planning turn so the reply renders incrementally (matching Ask Armada); the delta events are
+                // parsed in ExtractPlanningStreamText. Other planning flows (summaries) keep --print text.
+                bool isClaudeStream = captain.Runtime == AgentRuntimeEnum.ClaudeCode;
+                if (isClaudeStream && runtime is ClaudeCodeRuntime claudePlanningRuntime)
                 {
+                    claudePlanningRuntime.StreamJsonOutput = true;
+                }
+                _ActiveTurns.TryGetValue(session.Id, out TurnState? currentTurn);
+                bool showThinking = currentTurn?.ShowThinking ?? false;
+                bool streamReply = currentTurn?.Stream ?? true;
+
+                // For non-Mux runtimes (no native thinking channel), ask the model to emit a delimited
+                // reasoning block that we lift out of the final reply, mirroring Ask Armada.
+                if (showThinking && !isMux)
+                {
+                    prompt = prompt + " Before your final answer, briefly work through your reasoning inside a single block delimited by <thinking> and </thinking>, then write the answer after the closing </thinking> tag.";
+                }
+
+                runtime.OnStdoutReceived += (processId, line) =>
+                {
+                    // For Mux, parse the structured protocol events: stream assistant_text into the reply and
+                    // surface tool-call activity to the transcript. Other runtimes stream plain text lines.
+                    // Subscribing to stdout-only keeps CLI stderr banners out of the captured transcript.
+                    string? delta = ExtractPlanningStreamText(isMux, isClaudeStream, session.Id, assistantMessage.Id, line);
+                    if (String.IsNullOrEmpty(delta)) return;
+
                     string updatedContent;
                     lock (outputLock)
                     {
-                        BoundedTextBuffer.AppendLine(output, line, _MaxPlanningOutputChars);
+                        if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
+                        if (isMux || isClaudeStream)
+                        {
+                            // Mux assistant_text and Claude text_delta events are partial tokens: append raw
+                            // (no line breaks) so the streamed reply reads naturally.
+                            output.Append(delta);
+                            BoundedTextBuffer.Trim(output, _MaxPlanningOutputChars);
+                        }
+                        else
+                        {
+                            BoundedTextBuffer.AppendLine(output, delta, _MaxPlanningOutputChars);
+                        }
                         updatedContent = output.ToString();
                     }
 
                     assistantMessage.Content = updatedContent;
                     assistantMessage.LastUpdateUtc = DateTime.UtcNow;
-                    BroadcastMessageUpdated(assistantMessage);
+                    if (streamReply) BroadcastMessageUpdated(assistantMessage);
                 };
                 runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);
 
@@ -712,7 +811,8 @@ namespace Armada.Server
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
-                    captain: captain).ConfigureAwait(false);
+                    captain: captain,
+                    showThinking: showThinking).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -745,8 +845,21 @@ namespace Armada.Server
                     finalContent = "Planning turn exited with code " + exitCode.Value + " before producing a final response.";
                 }
 
+                // Lift the prompt-instructed reasoning out of a non-Mux reply into the thinking channel.
+                if (showThinking && !isMux)
+                {
+                    string reply = finalContent;
+                    string extractedThinking = ExtractThinkingBlock(ref reply);
+                    if (!String.IsNullOrEmpty(extractedThinking))
+                    {
+                        finalContent = reply;
+                        EmitPlanningThinking(new { sessionId = session.Id, messageId = assistantMessage.Id, delta = extractedThinking });
+                    }
+                }
+
                 assistantMessage.Content = finalContent.Trim();
                 assistantMessage.LastUpdateUtc = DateTime.UtcNow;
+                assistantMessage.Metrics = BuildTurnMetrics(turnStartUtc, firstOutputUtc, DateTime.UtcNow, assistantMessage.Content);
                 await _Database.PlanningSessionMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
                 BroadcastMessageUpdated(assistantMessage);
 
@@ -1000,8 +1113,13 @@ namespace Armada.Server
             object outputLock = new object();
             int? processId = null;
 
-            runtime.OnOutputReceived += (processId, line) =>
+            runtime.OnStdoutReceived += (processId, line) =>
             {
+                // Drop Mux structured protocol events so only assistant/summary text is captured. Subscribing
+                // to stdout-only keeps CLI stderr banners (e.g. Codex's stdin/version preamble) out of the
+                // captured reply.
+                if (captain.Runtime == AgentRuntimeEnum.Mux && MuxRuntime.IsProtocolEventLine(line)) return;
+
                 lock (outputLock)
                 {
                     BoundedTextBuffer.AppendLine(output, line, _MaxPlanningOutputChars);
@@ -1293,6 +1411,174 @@ namespace Armada.Server
             {
                 _StopOperations.TryRemove(sessionId, out _);
             }
+        }
+
+        /// <summary>
+        /// Parse one line of Claude Code streaming-JSON output and return the incremental assistant text for a
+        /// content_block_delta/text_delta event, or null for any other event (init, message framing, result,
+        /// tool use). The concatenation of the returned deltas is the full reply.
+        /// </summary>
+        private string? ExtractClaudeStreamDelta(string line)
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(line.Trim());
+                JsonElement root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) return null;
+
+                if (!root.TryGetProperty("type", out JsonElement ty) || ty.ValueKind != JsonValueKind.String || ty.GetString() != "stream_event")
+                    return null;
+
+                if (root.TryGetProperty("event", out JsonElement ev) && ev.ValueKind == JsonValueKind.Object
+                    && ev.TryGetProperty("type", out JsonElement evt) && evt.ValueKind == JsonValueKind.String
+                    && evt.GetString() == "content_block_delta"
+                    && ev.TryGetProperty("delta", out JsonElement delta) && delta.ValueKind == JsonValueKind.Object
+                    && delta.TryGetProperty("type", out JsonElement dty) && dty.ValueKind == JsonValueKind.String
+                    && dty.GetString() == "text_delta"
+                    && delta.TryGetProperty("text", out JsonElement dtx) && dtx.ValueKind == JsonValueKind.String)
+                {
+                    return dtx.GetString();
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            return null;
+        }
+
+        private string? ExtractPlanningStreamText(bool isMux, bool isClaudeStream, string sessionId, string messageId, string line)
+        {
+            if (isClaudeStream)
+                return ExtractClaudeStreamDelta(line);
+
+            if (!isMux || !MuxRuntime.IsProtocolEventLine(line))
+                return line;
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(line.Trim());
+                JsonElement root = doc.RootElement;
+                string eventType = root.TryGetProperty("eventType", out JsonElement et) && et.ValueKind == JsonValueKind.String
+                    ? et.GetString() ?? String.Empty : String.Empty;
+
+                if (eventType == "assistant_text")
+                {
+                    if (root.TryGetProperty("text", out JsonElement tx) && tx.ValueKind == JsonValueKind.String)
+                        return tx.GetString();
+                }
+                else if (eventType == "assistant_thinking")
+                {
+                    // Mux reasoning channel (--show-thinking): stream it as its own event, mirroring Ask Armada.
+                    if (root.TryGetProperty("text", out JsonElement think) && think.ValueKind == JsonValueKind.String)
+                    {
+                        string? thinkingDelta = think.GetString();
+                        if (!String.IsNullOrEmpty(thinkingDelta))
+                            EmitPlanningThinking(new { sessionId, messageId, delta = thinkingDelta });
+                    }
+                }
+                else if (eventType == "tool_call_proposed" && root.TryGetProperty("toolCall", out JsonElement proposed))
+                {
+                    string? toolId = proposed.TryGetProperty("id", out JsonElement propId) && propId.ValueKind == JsonValueKind.String ? propId.GetString() : null;
+                    string? toolName = proposed.TryGetProperty("name", out JsonElement pnm) && pnm.ValueKind == JsonValueKind.String ? pnm.GetString() : null;
+                    string? argsJson = proposed.TryGetProperty("arguments", out JsonElement parg) ? TruncateJson(parg.GetRawText(), 4000) : null;
+                    EmitPlanningTool(new { sessionId, messageId, phase = "started", id = toolId, name = toolName, arguments = argsJson });
+                }
+                else if (eventType == "tool_call_completed")
+                {
+                    string? toolId = root.TryGetProperty("toolCallId", out JsonElement cid) && cid.ValueKind == JsonValueKind.String ? cid.GetString() : null;
+                    string? toolName = root.TryGetProperty("toolName", out JsonElement cnm) && cnm.ValueKind == JsonValueKind.String ? cnm.GetString() : null;
+                    double? elapsedMs = root.TryGetProperty("elapsedMs", out JsonElement cel) && cel.ValueKind == JsonValueKind.Number ? cel.GetDouble() : (double?)null;
+                    bool? ok = null;
+                    string? resultJson = null;
+                    if (root.TryGetProperty("result", out JsonElement res))
+                    {
+                        if (res.TryGetProperty("success", out JsonElement suc) && (suc.ValueKind == JsonValueKind.True || suc.ValueKind == JsonValueKind.False))
+                            ok = suc.GetBoolean();
+                        JsonElement resultBody = res.TryGetProperty("content", out JsonElement content) ? content : res;
+                        resultJson = TruncateJson(resultBody.GetRawText(), 16000);
+                    }
+                    EmitPlanningTool(new { sessionId, messageId, phase = "completed", id = toolId, name = toolName, ok, elapsedMs, result = resultJson });
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            return null;
+        }
+
+        private void EmitPlanningTool(object payload)
+        {
+            try { _WebSocketHub?.BroadcastEvent("planning-session.tool", String.Empty, payload); }
+            catch { }
+        }
+
+        private void EmitPlanningThinking(object payload)
+        {
+            try { _WebSocketHub?.BroadcastEvent("planning-session.thinking", String.Empty, payload); }
+            catch { }
+        }
+
+        /// <summary>
+        /// Lift the prompt-instructed reasoning out of a non-Mux reply: return the concatenated text of
+        /// every &lt;thinking&gt;...&lt;/thinking&gt; block and rewrite <paramref name="reply"/> to the answer with
+        /// those blocks removed. If removing them would leave no answer, the reply is left intact and empty
+        /// is returned.
+        /// </summary>
+        private static string ExtractThinkingBlock(ref string reply)
+        {
+            if (String.IsNullOrEmpty(reply)) return String.Empty;
+
+            System.Text.RegularExpressions.MatchCollection matches = System.Text.RegularExpressions.Regex.Matches(
+                reply, "<thinking>(.*?)</thinking>",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (matches.Count == 0) return String.Empty;
+
+            StringBuilder collected = new StringBuilder();
+            foreach (System.Text.RegularExpressions.Match match in matches)
+            {
+                string piece = match.Groups[1].Value.Trim();
+                if (piece.Length == 0) continue;
+                if (collected.Length > 0) collected.AppendLine();
+                collected.Append(piece);
+            }
+
+            string stripped = System.Text.RegularExpressions.Regex.Replace(
+                reply, "<thinking>.*?</thinking>", String.Empty,
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            if (String.IsNullOrWhiteSpace(stripped)) return String.Empty;
+
+            reply = stripped;
+            return collected.ToString().Trim();
+        }
+
+        private static string? TruncateJson(string? value, int max)
+        {
+            if (String.IsNullOrEmpty(value) || value!.Length <= max) return value;
+            return value.Substring(0, max) + "... (truncated)";
+        }
+
+        /// <summary>
+        /// Build per-turn statistics for a planning reply from wall-clock timing and a character-based
+        /// token estimate. Planning drives a runtime CLI rather than a direct model client, so exact
+        /// provider token usage is not available here; time to first token and total time are measured
+        /// directly, and tokens (and tokens/sec) are estimated from the reply length (~3.5 chars/token).
+        /// </summary>
+        /// <param name="startUtc">When the turn was launched.</param>
+        /// <param name="firstOutputUtc">When the first non-protocol output line arrived, if any.</param>
+        /// <param name="endUtc">When the turn finished.</param>
+        /// <param name="content">The final reply text.</param>
+        /// <returns>The per-turn metrics.</returns>
+        private static CaptainChatMetrics BuildTurnMetrics(DateTime startUtc, DateTime? firstOutputUtc, DateTime endUtc, string content)
+        {
+            double totalMs = (endUtc - startUtc).TotalMilliseconds;
+            double? ttftMs = firstOutputUtc.HasValue
+                ? Math.Min((firstOutputUtc.Value - startUtc).TotalMilliseconds, totalMs)
+                : (double?)null;
+
+            // Use the shared builder so planning-session and Ask Armada metrics are computed identically.
+            return Armada.Core.Services.ChatTurnMetricsBuilder.Build(totalMs, ttftMs, content, null);
         }
 
         private Armada.Runtimes.Interfaces.IAgentRuntime CreatePlanningRuntime(Captain captain)

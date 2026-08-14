@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   createPlanningSession,
   deletePlanningSession,
@@ -13,6 +14,7 @@ import {
   listVessels,
   sendPlanningSessionMessage,
   stopPlanningSession,
+  stopPlanningTurn,
   summarizePlanningSession,
 } from '../api/client';
 import type {
@@ -36,6 +38,8 @@ import PlanningSessionListCard from '../components/planning/PlanningSessionListC
 import PlanningStartCard from '../components/planning/PlanningStartCard';
 import PlanningTranscriptCard from '../components/planning/PlanningTranscriptCard';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
+import { applyToolEvent, type ToolEvent } from '../components/shared/ChatToolChips';
+import { randomThinkingMessage } from '../components/askThinkingMessages';
 import { canCaptainStartPlanning } from '../lib/captains';
 import {
   type DispatchSeedState,
@@ -99,6 +103,10 @@ export default function Planning() {
   const [objectiveId, setObjectiveId] = useState('');
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
   const [composer, setComposer] = useState('');
+  const [messageTools, setMessageTools] = useState<Record<string, ToolEvent[]>>({});
+  const [messageThinking, setMessageThinking] = useState<Record<string, string>>({});
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [showThinking, setShowThinking] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [dispatchTitle, setDispatchTitle] = useState('');
   const [dispatchDescription, setDispatchDescription] = useState('');
@@ -111,9 +119,13 @@ export default function Planning() {
   const [deleting, setDeleting] = useState(false);
   const [confirmEndOpen, setConfirmEndOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [confirmDeleteAllOpen, setConfirmDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [pendingEndSession, setPendingEndSession] = useState<PlanningSession | null>(null);
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const scrollToSessionRef = useRef(false);
+  const [thinking, setThinking] = useState('');
   const dispatchSeedRef = useRef<DispatchSeedState | null>(null);
   const planningPrefillAppliedRef = useRef(false);
 
@@ -161,6 +173,8 @@ export default function Planning() {
   }, [loadCatalog]);
 
   useEffect(() => {
+    setMessageTools({});
+    setMessageThinking({});
     if (!id) {
       setDetail(null);
       setSelectedMessageId('');
@@ -221,6 +235,20 @@ export default function Planning() {
             messages: upsertMessage(current.messages, payload.message!),
           };
         });
+        return;
+      }
+
+      if (msg.type === 'planning-session.tool') {
+        const d = msg.data as ({ sessionId?: string; messageId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
+        if (!d || d.sessionId !== id || !d.messageId || !d.id) return;
+        setMessageTools((current) => ({ ...current, [d.messageId!]: applyToolEvent(current[d.messageId!], d) }));
+        return;
+      }
+
+      if (msg.type === 'planning-session.thinking') {
+        const d = msg.data as { sessionId?: string; messageId?: string; delta?: string } | undefined;
+        if (!d || d.sessionId !== id || !d.messageId || !d.delta) return;
+        setMessageThinking((current) => ({ ...current, [d.messageId!]: (current[d.messageId!] ?? '') + d.delta }));
         return;
       }
 
@@ -409,6 +437,24 @@ export default function Planning() {
   const canDispatch = !!currentSession && !!selectedMessage?.content.trim() && dispatchDescription.trim().length > 0 && !dispatching;
   const planningPrefill = location.state as PlanningPrefillState | null;
 
+  // After starting a session, jump down to the Current Session chat window once it loads.
+  useEffect(() => {
+    if (detail && scrollToSessionRef.current) {
+      scrollToSessionRef.current = false;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        transcriptRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }));
+    }
+  }, [detail]);
+
+  // Rotate the "waiting" message every 4 seconds while the captain is responding.
+  useEffect(() => {
+    if (currentSession?.status !== 'Responding') return;
+    setThinking((prev) => randomThinkingMessage(prev));
+    const timer = window.setInterval(() => setThinking((prev) => randomThinkingMessage(prev)), 4000);
+    return () => window.clearInterval(timer);
+  }, [currentSession?.status]);
+
   async function handleCreateSession() {
     if (!captainId || !vesselId) return;
 
@@ -427,6 +473,7 @@ export default function Planning() {
 
       setSessions((current) => upsertSession(current, result.session));
       pushToast('success', t('Planning session started.'));
+      scrollToSessionRef.current = true;
       navigate(`/planning/${result.session.id}`, {
         state: composer.trim() ? { fromWorkspace: true, initialPrompt: composer.trim() } : undefined,
       });
@@ -449,7 +496,7 @@ export default function Planning() {
     try {
       setSending(true);
       setError('');
-      const result = await sendPlanningSessionMessage(currentSession.id, { content: composer.trim() });
+      const result = await sendPlanningSessionMessage(currentSession.id, { content: composer.trim(), showThinking, stream: streamingEnabled });
       setComposer('');
       setDetail(result);
       setSessions((current) => upsertSession(current, result.session));
@@ -457,6 +504,19 @@ export default function Planning() {
       setError(err instanceof Error ? err.message : t('Failed to send message.'));
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleStopTurn() {
+    if (!currentSession) return;
+
+    try {
+      setError('');
+      const result = await stopPlanningTurn(currentSession.id);
+      setDetail(result);
+      setSessions((current) => upsertSession(current, result.session));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to stop the current turn.'));
     }
   }
 
@@ -486,19 +546,52 @@ export default function Planning() {
     }
   }
 
-  function handleOpenInDispatch() {
+  // Release the reserved captain and dock once the operator commits planning output toward dispatch. The
+  // planning transcript is preserved (only the captain/dock are freed), and a release failure must not block
+  // the dispatch handoff, so this is best-effort.
+  async function releaseSessionOnDispatch() {
+    if (!currentSession) return;
+    try {
+      const result = await stopPlanningSession(currentSession.id);
+      setSessions((current) => upsertSession(current, result.session));
+    } catch {
+      // Best-effort: the operator can still end the session by hand if the automatic release fails.
+    }
+  }
+
+  async function handleOpenInDispatch() {
     if (!currentSession || !dispatchDescription.trim()) return;
 
-    navigate('/dispatch', {
-      state: {
-        fromPlanning: true,
-        vesselId: currentSession.vesselId,
-        pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
-        selectedPlaybooks: currentSession.selectedPlaybooks || [],
-        prompt: dispatchDescription.trim(),
-        voyageTitle: dispatchTitle.trim() || undefined,
-      },
-    });
+    const state = {
+      fromPlanning: true,
+      vesselId: currentSession.vesselId,
+      pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
+      selectedPlaybooks: currentSession.selectedPlaybooks || [],
+      prompt: dispatchDescription.trim(),
+      voyageTitle: dispatchTitle.trim() || undefined,
+    };
+    await releaseSessionOnDispatch();
+    navigate('/dispatch', { state });
+  }
+
+  // Send a specific assistant reply straight to the main Dispatch page, carrying its full text as the prompt.
+  async function handleOpenMessageInDispatch(messageId: string) {
+    if (!currentSession) return;
+
+    const message = currentMessages.find((item) => item.id === messageId);
+    const prompt = message?.content.trim();
+    if (!prompt) return;
+
+    const state = {
+      fromPlanning: true,
+      vesselId: currentSession.vesselId,
+      pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
+      selectedPlaybooks: currentSession.selectedPlaybooks || [],
+      prompt,
+      voyageTitle: dispatchTitle.trim() || currentSession.title || undefined,
+    };
+    await releaseSessionOnDispatch();
+    navigate('/dispatch', { state });
   }
 
   async function handleDispatch() {
@@ -570,16 +663,68 @@ export default function Planning() {
     }
   }
 
+  async function handleDeleteSessionById(session: PlanningSession) {
+    try {
+      setError('');
+      await deletePlanningSession(session.id);
+      setSessions((current) => removeSession(current, session.id));
+      if (currentSession?.id === session.id) {
+        setDetail(null);
+        setSelectedMessageId('');
+        navigate('/planning');
+      }
+      pushToast('warning', t('Planning session deleted.'));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to delete planning session.'));
+    }
+  }
+
+  async function handleDeleteAllSessions() {
+    const targets = sessions.slice();
+    if (targets.length === 0) return;
+
+    try {
+      setDeletingAll(true);
+      setError('');
+
+      // Delete each session independently so one failure (e.g. a session that cannot be deleted while
+      // running) does not abort the rest; count failures and report them.
+      let failures = 0;
+      for (const session of targets) {
+        try {
+          await deletePlanningSession(session.id);
+          setSessions((current) => removeSession(current, session.id));
+        } catch {
+          failures += 1;
+        }
+      }
+
+      // Delete-all removes the open session too; reset the workspace back to the empty state.
+      setDetail(null);
+      setSelectedMessageId('');
+      setDispatchTitle('');
+      setDispatchDescription('');
+      dispatchSeedRef.current = null;
+      navigate('/planning');
+
+      if (failures > 0) {
+        pushToast('warning', t('{{count}} planning session(s) could not be deleted (they may still be running).', { count: failures }));
+      } else {
+        pushToast('warning', t('All planning sessions deleted.'));
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to delete planning sessions.'));
+    } finally {
+      setDeletingAll(false);
+    }
+  }
+
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Planning')}</h2>
-          <p className="text-muted">
-            {t('Chat with a captain against a specific vessel, preserve the transcript, and dispatch directly from the planning output.')}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title={t('Planning')}
+        subtitle={t('Chat with a captain against a specific vessel, preserve the transcript, and dispatch directly from the planning output.')}
+      />
 
       {error && (
         <div className="alert alert-error" style={{ marginBottom: '1rem' }}>
@@ -656,6 +801,9 @@ export default function Planning() {
           resolvePipelineName={resolvePipelineName}
           onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
           onEndSession={requestEndSession}
+          onDeleteSession={handleDeleteSessionById}
+          onDeleteAll={() => setConfirmDeleteAllOpen(true)}
+          deletingAll={deletingAll}
         />
 
         {!id ? (
@@ -689,7 +837,13 @@ export default function Planning() {
               failureReason={detail.session.failureReason}
               updatedUtc={detail.session.lastUpdateUtc}
               messages={currentMessages}
-              selectedMessageId={selectedMessageId}
+              messageTools={messageTools}
+              messageThinking={messageThinking}
+              thinkingMessage={thinking}
+              streamingEnabled={streamingEnabled}
+              onStreamingChange={setStreamingEnabled}
+              showThinking={showThinking}
+              onShowThinkingChange={setShowThinking}
               composer={composer}
               sending={sending}
               canSend={canSend}
@@ -698,12 +852,10 @@ export default function Planning() {
               deleting={deleting}
               formatDateTime={formatDateTime}
               formatRelativeTime={formatRelativeTime}
-              onSelectMessage={(messageId) => {
-                setSelectedMessageId(messageId);
-                dispatchSeedRef.current = null;
-              }}
+              onOpenMessageInDispatch={handleOpenMessageInDispatch}
               onComposerChange={setComposer}
               onSend={handleSendMessage}
+              onStopTurn={handleStopTurn}
               onEndSession={() => currentSession && requestEndSession(currentSession)}
               onDelete={() => setConfirmDeleteOpen(true)}
             />
@@ -756,6 +908,21 @@ export default function Planning() {
           void handleDeleteSession();
         }}
         onCancel={() => setConfirmDeleteOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteAllOpen}
+        title={t('Delete All Planning Sessions')}
+        message={t('Delete all {{count}} planning session(s) and their transcripts? This cannot be undone.', { count: sessions.length })}
+        confirmLabel={t('Delete All')}
+        cancelLabel={t('Cancel')}
+        danger
+        requireDeleteConfirm
+        onConfirm={() => {
+          setConfirmDeleteAllOpen(false);
+          void handleDeleteAllSessions();
+        }}
+        onCancel={() => setConfirmDeleteAllOpen(false)}
       />
     </div>
   );

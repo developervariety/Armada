@@ -8,19 +8,19 @@ namespace Armada.Helm.Commands
     /// <summary>
     /// Configure MCP integration for supported clients.
     /// </summary>
-    [Description("Configure MCP integration for Claude Code, Codex, Gemini, and Cursor")]
+    [Description("Configure MCP integration for Claude Code, Codex, Gemini, Cursor, and Mux (when detected)")]
     public class McpInstallCommand : BaseCommand<McpInstallSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, McpInstallSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, McpInstallSettings settings, CancellationToken cancellationToken)
         {
             ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
-            string mcpRpcUrl = McpConfigHelper.GetMcpRpcUrl(armadaSettings.McpPort);
+            string mcpUrl = McpConfigHelper.GetMcpUrl(armadaSettings.McpPort);
             List<McpConfigHelper.ConfigTarget> targets = McpConfigHelper.BuildTargets(armadaSettings.McpPort);
             List<McpConfigHelper.InstructionTarget> instructionTargets = McpConfigHelper.BuildInstructionTargets();
 
             AnsiConsole.MarkupLine("[bold dodgerblue1]Armada MCP Install[/]");
-            AnsiConsole.MarkupLine($"[dim]MCP endpoint:[/] [green]{Markup.Escape(mcpRpcUrl)}[/]");
+            AnsiConsole.MarkupLine($"[dim]MCP endpoint:[/] [green]{Markup.Escape(mcpUrl)}[/]");
             AnsiConsole.WriteLine();
 
             if (settings.DryRun)
@@ -101,7 +101,7 @@ namespace Armada.Helm.Commands
             AnsiConsole.MarkupLine("[bold]What You Need To Do[/]");
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[bold]Required[/]");
-            AnsiConsole.MarkupLine("[green]1.[/] Start the Admiral server for Claude Code, Gemini CLI, and Cursor: [green]armada server start[/]");
+            AnsiConsole.MarkupLine("[green]1.[/] Start the Admiral server for the HTTP clients (Claude Code, Gemini CLI, Cursor, Mux): [green]armada server start[/]");
             AnsiConsole.MarkupLine("[green]2.[/] Restart any MCP client you want to use so it reloads the new config.");
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[bold]Only If Needed[/]");
@@ -142,6 +142,10 @@ namespace Armada.Helm.Commands
                 AnsiConsole.MarkupLine("[dim]Claude stdio alternative:[/]");
                 AnsiConsole.MarkupLine($"[green]  {Markup.Escape(McpConfigHelper.BuildClaudeStdioCommand())}[/]");
                 AnsiConsole.MarkupLine($"[dim]Claude agent file:[/] [green]{Markup.Escape(McpConfigHelper.GetClaudeAgentPath())}[/]");
+            }
+            if (target.ClientName == "Mux")
+            {
+                AnsiConsole.MarkupLine("[dim]Or add it interactively:[/] start [green]mux[/], run [green]/mcp[/], choose [green]+ Add MCP server[/], then set transport [green]http[/], url [green]http://localhost:" + mcpPort + "[/], mcp path [green]/mcp[/], auth [green]none[/].");
             }
             AnsiConsole.WriteLine();
         }

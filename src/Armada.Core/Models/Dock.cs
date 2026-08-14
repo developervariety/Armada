@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// A git worktree provisioned for a captain.
@@ -64,6 +65,27 @@ namespace Armada.Core.Models
         /// Whether the dock is active and usable.
         /// </summary>
         public bool Active { get; set; } = true;
+
+        /// <summary>
+        /// Authoritative lifecycle state of the dock. Occupancy is tracked here rather than
+        /// inferred from captain/mission rows, so a stuck or orphaned dock can be detected and
+        /// reclaimed deterministically.
+        /// </summary>
+        public DockStateEnum State { get; set; } = DockStateEnum.Available;
+
+        /// <summary>
+        /// UTC time at which the current lease expires. A leased dock whose lease has elapsed
+        /// without renewal is eligible for reclamation even in a multi-instance deployment.
+        /// Null when the dock is not leased.
+        /// </summary>
+        public DateTime? LeaseExpiresUtc { get; set; } = null;
+
+        /// <summary>
+        /// Opaque token identifying the current lease holder (typically the owning captain plus
+        /// a generation stamp). Used for compare-and-swap lease acquisition and renewal so two
+        /// instances cannot both claim the same dock. Null when the dock is not leased.
+        /// </summary>
+        public string? OwnerToken { get; set; } = null;
 
         /// <summary>
         /// Creation timestamp in UTC.

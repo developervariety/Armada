@@ -21,6 +21,14 @@
   "database": {
     "type": "Sqlite",
     "filename": "/app/data/db/armada.db"
+  },
+  "telemetry": {
+    "enabled": true,
+    "serviceName": "armada",
+    "otlpEndpoint": null,
+    "prometheusEnabled": true,
+    "prometheusPort": 9464,
+    "lokiEndpoint": "http://loki:3100"
   }
 }
 

@@ -27,6 +27,23 @@ namespace Armada.Core.Services
         private IGitService _Git;
 
         private bool _Processing = false;
+
+        /// <summary>
+        /// Hard ceiling on any single merge-queue git or test subprocess. A hung operation is
+        /// killed and surfaced as a failure rather than wedging the queue (and its _Processing
+        /// guard) indefinitely.
+        /// </summary>
+        private static readonly TimeSpan _OperationTimeout = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// Identity of this Admiral instance for the cross-instance merge-queue processing lease.
+        /// </summary>
+        private readonly string _InstanceId = "mq-" + Guid.NewGuid().ToString("N");
+
+        /// <summary>
+        /// Name of the durable lease that serializes queue processing across instances.
+        /// </summary>
+        private const string _ProcessLeaseName = "merge-queue:process";
         private readonly object _ProcessLock = new object();
 
         #endregion
@@ -77,8 +94,21 @@ namespace Armada.Core.Services
                 _Processing = true;
             }
 
+            bool leaseAcquired = false;
             try
             {
+                // Cross-instance guard: only one Admiral processes the queue at a time. The lease
+                // TTL guarantees a crashed holder does not block the queue forever, and takeover is
+                // automatic once it expires.
+                leaseAcquired = await _Database.CoordinationLeases
+                    .TryAcquireAsync(_ProcessLeaseName, _InstanceId, TimeSpan.FromMinutes(15), null, token)
+                    .ConfigureAwait(false);
+                if (!leaseAcquired)
+                {
+                    _Logging.Debug(_Header + "merge queue already being processed by another instance -- skipping");
+                    return;
+                }
+
                 // Get all queued entries ordered by priority then created_utc
                 List<MergeEntry> queued = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Queued, token).ConfigureAwait(false);
 
@@ -105,6 +135,17 @@ namespace Armada.Core.Services
             }
             finally
             {
+                if (leaseAcquired)
+                {
+                    try
+                    {
+                        await _Database.CoordinationLeases.ReleaseAsync(_ProcessLeaseName, _InstanceId, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error releasing merge-queue processing lease: " + ex.Message);
+                    }
+                }
                 lock (_ProcessLock) { _Processing = false; }
             }
         }
@@ -479,6 +520,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                ArmadaMetrics.MergeEntriesProcessed.Add(1);
                 _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
 
                 // Reconcile linked mission to Complete
@@ -493,6 +535,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                ArmadaMetrics.MergeEntriesProcessed.Add(1);
 
                 // Reconcile linked mission to LandingFailed
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
@@ -566,20 +609,33 @@ namespace Armada.Core.Services
                 CreateNoWindow = true
             };
 
-            using (Process process = new Process { StartInfo = startInfo })
+            using (CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
-                process.Start();
+                cts.CancelAfter(_OperationTimeout);
+                using (Process process = new Process { StartInfo = startInfo })
+                {
+                    process.Start();
+                    try
+                    {
+                        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+                        Task<string> stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+                        await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+                        string stdout = await stdoutTask.ConfigureAwait(false);
+                        string stderr = await stderrTask.ConfigureAwait(false);
 
-                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                        string output = stdout;
+                        if (!String.IsNullOrEmpty(stderr))
+                            output += "\n--- STDERR ---\n" + stderr;
 
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-
-                string output = stdout;
-                if (!String.IsNullOrEmpty(stderr))
-                    output += "\n--- STDERR ---\n" + stderr;
-
-                return new TestResult(process.ExitCode, output);
+                        return new TestResult(process.ExitCode, output);
+                    }
+                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                    {
+                        try { process.Kill(entireProcessTree: true); } catch { }
+                        throw new TimeoutException("merge-queue test run '" + testCommand + "' timed out after " +
+                            _OperationTimeout.TotalSeconds.ToString("0") + "s and was killed");
+                    }
+                }
             }
         }
 
@@ -602,16 +658,29 @@ namespace Armada.Core.Services
 
             string argsDisplay = String.Join(" ", args);
 
-            using (Process process = new Process { StartInfo = startInfo })
+            using (CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
-                process.Start();
-
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-
-                if (process.ExitCode != 0)
+                cts.CancelAfter(_OperationTimeout);
+                using (Process process = new Process { StartInfo = startInfo })
                 {
-                    throw new InvalidOperationException("git " + argsDisplay + " failed: " + stderr);
+                    process.Start();
+                    try
+                    {
+                        Task<string> stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+                        await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+                        string stderr = await stderrTask.ConfigureAwait(false);
+
+                        if (process.ExitCode != 0)
+                        {
+                            throw new InvalidOperationException("git " + argsDisplay + " failed: " + stderr);
+                        }
+                    }
+                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                    {
+                        try { process.Kill(entireProcessTree: true); } catch { }
+                        throw new TimeoutException("git " + argsDisplay + " timed out after " +
+                            _OperationTimeout.TotalSeconds.ToString("0") + "s and was killed");
+                    }
                 }
             }
         }

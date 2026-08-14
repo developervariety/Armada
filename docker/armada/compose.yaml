@@ -6,6 +6,7 @@ services:
     ports:
       - "7890:7890"
       - "7891:7891"
+      - "9464:9464"
     volumes:
       - ./armada.json:/app/data/armada.json
       - ./db:/app/data/db
@@ -21,3 +22,51 @@ services:
       - ARMADA_SERVER_URL=http://armada-server:7890
     depends_on:
       - armada-server
+
+  # --- Observability stack (Prometheus / Loki / Grafana) ---
+  # Prometheus scrapes the Admiral's in-process /metrics endpoint (port 9464); Loki receives logs
+  # pushed by the Admiral's telemetry host; Grafana visualizes both via provisioned datasources.
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    depends_on:
+      - armada-server
+
+  loki:
+    image: grafana/loki:3.3.2
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command:
+      - "-config.file=/etc/loki/local-config.yaml"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:

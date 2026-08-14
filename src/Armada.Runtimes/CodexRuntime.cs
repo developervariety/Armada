@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
     using SyslogLogging;
 
@@ -64,6 +65,14 @@ namespace Armada.Runtimes
         /// <summary>
         /// Get the codex CLI command.
         /// </summary>
+        /// <summary>
+        /// The runtime this adapter drives.
+        /// </summary>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Codex;
+
+        /// <summary>
+        /// Get the command to execute for this runtime.
+        /// </summary>
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);
@@ -102,16 +111,32 @@ namespace Armada.Runtimes
                 args.Add(model);
             }
 
+            // Per-captain reasoning effort -> Codex config override (minimal/low/medium/high).
+            string? reasoningEffort = ReasoningEffortTranslator.ToCodexReasoningEffort(captain?.ReasoningEffort);
+            if (!String.IsNullOrEmpty(reasoningEffort))
+            {
+                args.Add("-c");
+                args.Add("model_reasoning_effort=" + reasoningEffort);
+            }
+
             if (!String.IsNullOrEmpty(finalMessageFilePath))
             {
                 args.Add("--output-last-message");
                 args.Add(finalMessageFilePath);
             }
 
-            args.Add(prompt);
-
+            // The prompt is delivered on stdin (see UsePromptStdin), not as a CLI argument. On Windows the
+            // codex executable is an npm ".cmd" wrapper; a multi-line argument passed through cmd.exe is
+            // truncated at the first newline, so the agent would receive only the first line of the prompt.
+            // 'codex exec' reads the prompt from stdin when no positional prompt is supplied.
             return args;
         }
+
+        /// <summary>
+        /// Deliver the prompt on stdin rather than as a command-line argument. 'codex exec' reads the prompt
+        /// from stdin, and this avoids the Windows cmd.exe multi-line-argument truncation.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         #endregion
     }

@@ -39,9 +39,149 @@ namespace Armada.Helm
             AnsiConsole.WriteLine();
         }
 
+        /// <summary>
+        /// Write a section heading in the help menu.
+        /// </summary>
+        private static void HelpHeading(string title)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"[bold dodgerblue1]{Markup.Escape(title)}[/]");
+        }
+
+        /// <summary>
+        /// Write a single command row in the help menu: green command, dim description, aligned.
+        /// </summary>
+        private static void HelpRow(string command, string description)
+        {
+            string padded = command.Length >= 30 ? command + "  " : command.PadRight(30);
+            AnsiConsole.MarkupLine($"  [green]{Markup.Escape(padded)}[/][dim]{Markup.Escape(description)}[/]");
+        }
+
+        /// <summary>
+        /// Render the full grouped command menu shown for `armada`, `armada help`, `armada --help`, `-h`, `/?`, and `-?`.
+        /// </summary>
+        private static void PrintHelp()
+        {
+            AnsiConsole.MarkupLine("[dim]Usage:[/] armada <command> [[options]]");
+            AnsiConsole.MarkupLine("[dim]Per-command help:[/] armada <command> --help   (also -h, /?, -?)");
+
+            HelpHeading("Common");
+            HelpRow("go \"<task>\"", "Dispatch a task in natural language");
+            HelpRow("status [--all]", "System status dashboard (--all for everything)");
+            HelpRow("watch [--interval N]", "Live-updating status dashboard");
+            HelpRow("ask \"<question>\"", "Ask Armada about fleet state in plain language");
+            HelpRow("inbox [--critical]", "Items awaiting your attention");
+            HelpRow("log <captain> [--follow]", "Tail a captain's output log");
+            HelpRow("diff <mission>", "Show a mission's code changes");
+            HelpRow("doctor", "Check system health and report issues");
+
+            HelpHeading("Missions (armada mission ...)");
+            HelpRow("mission list", "List missions");
+            HelpRow("mission show <id|name>", "Show mission details");
+            HelpRow("mission create", "Create a standalone mission");
+            HelpRow("mission cancel <id>", "Cancel a mission");
+            HelpRow("mission restart <id>", "Restart a failed mission (edit instructions)");
+            HelpRow("mission retry <id>", "Retry a failed mission (new copy)");
+
+            HelpHeading("Voyages (armada voyage ...)");
+            HelpRow("voyage list", "List all voyages");
+            HelpRow("voyage show <id|name>", "Show voyage details");
+            HelpRow("voyage create", "Launch a new voyage with missions");
+            HelpRow("voyage cancel <id>", "Cancel a voyage and its pending missions");
+            HelpRow("voyage retry <id>", "Retry failed missions in a voyage");
+
+            HelpHeading("Backlog (armada backlog ...)");
+            HelpRow("backlog list", "List backlog items");
+            HelpRow("backlog show <id|title>", "Show a backlog item");
+            HelpRow("backlog create", "Create a backlog item");
+            HelpRow("backlog update <id>", "Update a backlog item");
+            HelpRow("backlog delete <id>", "Delete a backlog item");
+            HelpRow("backlog reorder <id>", "Change a backlog item's rank");
+
+            HelpHeading("Playbooks (armada playbook ...)");
+            HelpRow("playbook list", "List reusable markdown playbooks");
+            HelpRow("playbook show <id|file>", "Show a playbook");
+            HelpRow("playbook add", "Create a new playbook");
+            HelpRow("playbook remove <id|file>", "Delete a playbook");
+
+            HelpHeading("Vessels (armada vessel ...)");
+            HelpRow("vessel list", "List all vessels (repositories)");
+            HelpRow("vessel add", "Register a new vessel");
+            HelpRow("vessel remove <id|name>", "Decommission a vessel");
+
+            HelpHeading("Captains (armada captain ...)");
+            HelpRow("captain list", "List all captains (agents)");
+            HelpRow("captain add", "Recruit a new captain");
+            HelpRow("captain update <id>", "Update an existing captain");
+            HelpRow("captain stop <id|name>", "Recall a captain");
+            HelpRow("captain remove <id|name>", "Remove a captain");
+            HelpRow("captain stop-all", "Emergency recall of all captains");
+
+            HelpHeading("Fleets (armada fleet ...)");
+            HelpRow("fleet list", "List all fleets (groups of repos)");
+            HelpRow("fleet add", "Create a new fleet");
+            HelpRow("fleet remove <id|name>", "Remove a fleet");
+
+            HelpHeading("Server (armada server ...)");
+            HelpRow("server start", "Start the Admiral server");
+            HelpRow("server status", "Check Admiral server health");
+            HelpRow("server stop", "Stop the Admiral server");
+            HelpRow("server restart", "Restart the Admiral server");
+
+            HelpHeading("Configuration (armada config ...)");
+            HelpRow("config show", "Display current settings");
+            HelpRow("config set <key> <value>", "Set a configuration value");
+            HelpRow("config init", "Interactive setup (config auto-initializes)");
+
+            HelpHeading("MCP integration (armada mcp ...)");
+            HelpRow("mcp install", "Configure MCP for Claude Code, Codex, Gemini, Cursor, Mux");
+            HelpRow("mcp remove", "Remove MCP integration from those clients");
+            HelpRow("mcp stdio", "Run the MCP server over stdio (subprocess bridge)");
+
+            HelpHeading("Danger zone");
+            HelpRow("reset", "Destructively reset all Armada data back to zero");
+
+            HelpHeading("Global options");
+            HelpRow("--help, -h, /?, -?", "Show help (top-level or per-command)");
+            HelpRow("--version", "Show the Armada version");
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[dim]Docs:[/] https://github.com/jchristn/Armada");
+            AnsiConsole.WriteLine();
+        }
+
         static int Main(string[] args)
         {
-            // First-run welcome
+            // Normalize Windows-style help flags (/?  -?) to the standard --help everywhere,
+            // so `armada /?`, `armada mission /?`, etc. all work.
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i] == "/?" || args[i] == "-?")
+                    args[i] = "--help";
+            }
+
+            // `armada help` -> top-level menu; `armada help <command...>` -> that command's help.
+            if (args.Length >= 1 && string.Equals(args[0], "help", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length == 1)
+                {
+                    args = new string[] { "--help" };
+                }
+                else
+                {
+                    string[] rewritten = new string[args.Length];
+                    Array.Copy(args, 1, rewritten, 0, args.Length - 1);
+                    rewritten[args.Length - 1] = "--help";
+                    args = rewritten;
+                }
+            }
+
+            bool wantsTopLevelHelp =
+                args.Length == 0
+                || string.Equals(args[0], "--help", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(args[0], "-h", StringComparison.OrdinalIgnoreCase);
+
+            // First-run welcome (no config yet, and no explicit help request)
             if (args.Length == 0 && !File.Exists(ArmadaSettings.DefaultSettingsPath))
             {
                 WriteBanner();
@@ -50,15 +190,17 @@ namespace Armada.Helm
                 AnsiConsole.WriteLine();
                 AnsiConsole.MarkupLine("  [green]armada go \"your task description\"[/]");
                 AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine("Run [green]armada --help[/] for more options.");
+                AnsiConsole.MarkupLine("Run [green]armada help[/] to see everything Armada can do.");
                 return 0;
             }
 
-            // Show banner for help/no-args
-            if (args.Length == 0 || args[0] == "--help" || args[0] == "-h")
+            // Top-level help: render the full grouped command menu (banner + sections).
+            if (wantsTopLevelHelp)
             {
                 WriteBanner();
                 WriteVersionSubtitle();
+                PrintHelp();
+                return 0;
             }
 
             TypeRegistrar registrar = new TypeRegistrar();
@@ -97,6 +239,16 @@ namespace Armada.Helm
 
                 config.AddCommand<DoctorCommand>("doctor")
                     .WithDescription("Check system health and report issues");
+
+                config.AddCommand<InboxCommand>("inbox")
+                    .WithDescription("Show items awaiting your attention")
+                    .WithExample("inbox")
+                    .WithExample("inbox", "--critical");
+
+                config.AddCommand<AskCommand>("ask")
+                    .WithDescription("Ask Armada about fleet state in plain language")
+                    .WithExample("ask", "\"any failures?\"")
+                    .WithExample("ask", "\"how many captains?\"");
 
                 config.AddCommand<ResetCommand>("reset")
                     .WithDescription("Destructively reset all Armada data back to zero");
@@ -221,6 +373,8 @@ namespace Armada.Helm
                         .WithDescription("Check Admiral server health");
                     server.AddCommand<ServerStopCommand>("stop")
                         .WithDescription("Stop the Admiral server");
+                    server.AddCommand<ServerRestartCommand>("restart")
+                        .WithDescription("Restart the Admiral server");
                 });
 
                 config.AddBranch("config", cfg =>
@@ -238,9 +392,9 @@ namespace Armada.Helm
                 {
                     mcp.SetDescription("MCP integration");
                     mcp.AddCommand<McpInstallCommand>("install")
-                        .WithDescription("Configure MCP integration for Claude Code, Codex, Gemini, and Cursor");
+                        .WithDescription("Configure MCP integration for Claude Code, Codex, Gemini, Cursor, and Mux");
                     mcp.AddCommand<McpRemoveCommand>("remove")
-                        .WithDescription("Remove MCP integration for Claude Code, Codex, Gemini, and Cursor");
+                        .WithDescription("Remove MCP integration for Claude Code, Codex, Gemini, Cursor, and Mux");
                     mcp.AddCommand<McpStdioCommand>("stdio")
                         .WithDescription("Run MCP server over stdio (for Claude Code subprocess)");
                 });

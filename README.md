@@ -7,12 +7,13 @@
 <p align="center">
   <strong>Reduce context switching across projects. Keep agent work in queryable memory.</strong>
   <br />
-  <em>v0.8.0 alpha -- APIs and schemas may change</em>
+  <em>v0.9.0 alpha -- APIs and schemas may change</em>
 </p>
 
 <p align="center">
   <a href="#why-armada">Why Armada</a> |
   <a href="#how-it-works">How It Works</a> |
+  <a href="#community">Community</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#pipelines">Pipelines</a> |
   <a href="#use-cases">Use Cases</a> |
@@ -45,22 +46,24 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 - **Less project-switch overhead.** Leave one repo, work somewhere else, then come back to a current view of what happened.
 - **A queryable memory layer.** Logs, diffs, status history, and agent output stay available through the dashboard, API, and MCP instead of vanishing into scrollback.
-- **Integrated API tooling.** `System > Requests` preserves request history, while `System > API Explorer` lets you execute live OpenAPI-backed requests and replay captured traffic without leaving the dashboard.
-- **A first-class repository workspace.** `Workspace` gives you a vessel-aware file tree, in-browser editing, search, git-aware status, and direct handoff into planning, dispatch, and context curation.
-- **Project-specific delivery profiles.** `Delivery > Workflow Profiles` lets each vessel or fleet declare how it lints, builds, tests, packages, versions, deploys, rolls back, and verifies itself.
+- **Integrated API tooling.** `Activity` preserves request history (filter by the Requests source), while `API Explorer` lets you execute live OpenAPI-backed requests and replay captured traffic without leaving the dashboard.
+- **A first-class repository workspace.** The `Vessels > Workspace` tab gives you a vessel-aware file tree, in-browser editing, search, git-aware status, and direct handoff into planning, dispatch, and context curation.
+- **Project-specific delivery profiles.** `Configuration > Workflow Profiles` lets each vessel or fleet declare how it lints, builds, tests, packages, versions, deploys, rolls back, and verifies itself.
 - **Structured check execution.** `Delivery > Checks` turns build, test, deploy, and verification runs into queryable records with logs, artifacts, retry, branch/commit metadata, and links back to missions and voyages.
-- **Scoped objectives and delivery memory.** `Operations > Objectives` captures acceptance criteria, non-goals, linked vessels, and evidence so work can be scoped before dispatch without falling back to external notes.
+- **Scoped objectives and delivery memory.** `Dispatch > Backlog` captures acceptance criteria, non-goals, linked vessels, and evidence so work can be scoped before dispatch without falling back to external notes.
 - **Pull-based GitHub delivery context.** Objectives can import GitHub issue or PR scope, deployments can sync GitHub Actions into `Delivery > Checks`, and mission or release detail can show GitHub PR review/check evidence without exposing raw tokens on reads.
-- **First-class delivery records and timeline history.** `Delivery > Environments`, `Deployments`, and `Releases` group rollout targets, approvals, verification evidence, linked voyages, missions, checks, versions, notes, and artifacts, while `Activity > History` lets you reconstruct the current cross-entity delivery story from one place.
-- **Operational incident and runbook support.** `Activity > Incidents` and `System > Runbooks` carry rollback context, hotfix handoff, step-by-step execution, and deployment-linked operational guidance inside Armada itself.
-- **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
+- **First-class delivery records and timeline history.** `Delivery > Environments`, `Deployments`, and `Releases` group rollout targets, approvals, verification evidence, linked voyages, missions, checks, versions, notes, and artifacts, while `Activity` (All Activity) lets you reconstruct the current cross-entity delivery story from one place.
+- **Operational incident and runbook support.** `Delivery > Incidents` and `Delivery > Runbooks` carry rollback context, hotfix handoff, step-by-step execution, and deployment-linked operational guidance inside Armada itself.
+- **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches. The `Build Context` / `Refine Context` action on a vessel launches a captain to write or refine that context from an editable prompt template plus your notes.
+- **A captain-backed assistant.** `Ask Armada` is a conversational chat that dispatches each turn to a live captain over its CLI runtime, so it can reason about and act on fleet state through the captain's MCP tools, with per-turn metrics, optional streaming, and Markdown replies.
 - **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
 - **Quality gates that run automatically.** Every piece of work can flow through a pipeline: plan it, implement it, test it, review it. No manual intervention between steps.
 - **Git isolation by default.** Every agent works in its own worktree on its own branch. Agents can't step on each other. Your main branch stays clean until you merge.
 - **Configurable and extensible workflows.** Prompt templates, personas, and pipelines are user-controlled, so you can adapt the system to your project instead of fitting your project to the built-ins.
 - **Reusable playbooks at dispatch time.** Store markdown guidance such as `CSHARP_BACKEND_ARCHITECTURE.md`, manage it in the dashboard, and select it per voyage or mission with inline or file-based delivery modes.
-- **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor, and Mux -- pluggable runtime system.
+- **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor, Mux, and OpenCode -- pluggable runtime system.
+- **Per-step captain selection.** Give each persona a default captain and dictate which captain runs each pipeline step at dispatch, with a capability-tier fallback when that captain is busy. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
 - **Guided setup in the dashboard.** First-run configuration can stay inside the setup wizard instead of bouncing between unrelated pages.
 - **Internationalized dashboard UX.** Login, shared shell UI, list/detail/admin routes, setup flows, notifications, pagination, server management, and legacy embedded dashboard surfaces support live language selection and locale-aware formatting.
 
@@ -147,7 +150,7 @@ Each step is a **persona** with its own prompt template. A sequence of personas 
 
 You can set a default pipeline per repository and override it on a single dispatch when needed. If the built-in roles are not enough, define your own personas and compose them into custom pipelines for security review, documentation, migration planning, release checks, architecture review, or any other project-specific step.
 
-Armada also lets each project define its own delivery commands. `Delivery > Workflow Profiles` stores the repo-specific commands for build, test, package, publish, deploy, rollback, smoke-test, and health-check flows, and `Delivery > Checks` executes those commands as durable records you can inspect and retry later.
+Armada also lets each project define its own delivery commands. `Configuration > Workflow Profiles` stores the repo-specific commands for build, test, package, publish, deploy, rollback, smoke-test, and health-check flows, and `Delivery > Checks` executes those commands as durable records you can inspect and retry later.
 
 ### Parallel Tasks
 
@@ -163,6 +166,19 @@ armada go "1. Add auth middleware 2. Add login endpoint 3. Add token validation"
 
 If a captain crashes, the Admiral can repair the worktree and relaunch the agent up to `MaxRecoveryAttempts` times (default: 3).
 
+## Community
+
+Armada has a growing community building on and around it.
+
+- **Community fork:** [@developervariety/Armada](https://github.com/developervariety/Armada)
+
+## Contributors
+
+Special thanks to the community that helps build and improve Armada.
+
+- [@kevin-v96](https://github.com/kevin-v96)
+- [@developervariety](https://github.com/developervariety)
+
 ## Quick Start
 
 ### Prerequisites
@@ -174,6 +190,7 @@ If a captain crashes, the Admiral can repair the worktree and relaunch the agent
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
   - [Cursor](https://docs.cursor.com/cli) (`cursor-agent`)
   - Mux (`mux`)
+  - [OpenCode](https://opencode.ai) (`opencode`)
 
 ### Install
 
@@ -245,10 +262,11 @@ If you want to negotiate a plan with a captain before launching work, use the da
 
 Current planning-session behavior:
 
-- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, and `Mux` runtimes. `Custom` captains are not yet supported there.
+- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, and `OpenCode` runtimes. `Custom` captains are not yet supported there.
 - Planning sessions reserve the selected captain and a dock/worktree for the selected vessel while the session is active.
 - The captain can inspect and modify the repository while planning. Treat the planning session as tool-capable, not read-only.
 - Planning is transcript-backed today: each turn relaunches the runtime against the preserved transcript and repo context rather than holding a persistent stdin session open.
+- The planning chat mirrors Ask Armada: Markdown replies, live tool-call activity, per-turn metrics (time-to-first-token, tokens/sec, token counts), optional token streaming, and a Stop button. Recent Sessions supports per-row actions and a Delete All control.
 - Planning-session persistence is implemented for SQLite first. Other database backends currently reject planning-session operations with an explicit `501 Not Supported`.
 - Armada can summarize a selected planning reply into a server-owned dispatch draft before you launch the voyage.
 - You can open the current planning draft in the main `Dispatch` page without copy/paste.
@@ -268,7 +286,7 @@ Dashboard at `http://localhost:7890/dashboard`. API access with `Authorization: 
 
 The dashboard supports language selection from the login screen and keeps the chosen locale for the authenticated session.
 
-> **Security:** Armada runs agents with auto-approve flags by default (Claude Code: `--dangerously-skip-permissions`, Codex: `--full-auto`, Gemini: `--approval-mode yolo`, Mux: `--yolo`). Agents can read, write, and execute in their worktrees without confirmation. Review the [configuration](#configuration) section before running in sensitive environments.
+> **Security:** Armada runs agents with auto-approve flags by default (Claude Code: `--dangerously-skip-permissions`, Codex: `--full-auto`, Gemini: `--approval-mode yolo`, Mux: `--yolo`, OpenCode: `--auto`). Agents can read, write, and execute in their worktrees without confirmation. Review the [configuration](#configuration) section before running in sensitive environments.
 
 > **Important:** Change the default password in production environments.
 
@@ -337,7 +355,7 @@ For the full pipeline reference, see [docs/PIPELINES.md](docs/PIPELINES.md).
 
 Playbooks are tenant-scoped markdown instruction documents that you can manage in the dashboard and attach to work at dispatch time.
 
-- Create, edit, delete, and browse playbooks from the `Playbooks` area in the dashboard.
+- Create, edit, delete, and browse playbooks from `Configuration > Playbooks` in the dashboard.
 - Select any number of playbooks when creating a voyage or standalone mission.
 - Choose delivery per selection: `InlineFullContent`, `InstructionWithReference`, or `AttachIntoWorktree`.
 - Armada snapshots the exact playbook content, filename, order, and resolved delivery mode used for a mission so later edits do not change historical execution context.
@@ -451,8 +469,8 @@ Armada is a C#/.NET solution with five main projects:
 | Project | Description |
 |---------|-------------|
 | **Armada.Core** | Domain models (including tenants, users, credentials), database interfaces, service interfaces, settings |
-| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, extensible via `IAgentRuntime`) |
-| **Armada.Server** | Admiral process: REST API ([SwiftStack](https://github.com/jchristn/swiftstack)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), WebSocket hub, embedded dashboard |
+| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, extensible via `IAgentRuntime`) |
+| **Armada.Server** | Admiral process: REST API + WebSocket ([Watson](https://github.com/jchristn/watson)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), embedded dashboard |
 | **Armada.Dashboard** | Standalone React dashboard for Docker/production deployments |
 | **Armada.Helm** | CLI ([Spectre.Console](https://spectreconsole.net/)), thin HTTP client to Admiral |
 
@@ -461,7 +479,7 @@ Armada is a C#/.NET solution with five main projects:
 | Term | Plain Language | Description |
 |------|---------------|-------------|
 | **Admiral** | Coordinator | The server process that manages everything. Auto-starts when needed. |
-| **Captain** | Agent/worker | An AI agent instance (Claude Code, Codex, Gemini, Cursor, Mux, etc.). Auto-created on demand. |
+| **Captain** | Agent/worker | An AI agent instance (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, etc.). Auto-created on demand. |
 | **Fleet** | Group of repos | Collection of repositories. A default fleet is auto-created. |
 | **Vessel** | Repository | A git repository registered with Armada. Auto-registered from your current directory. |
 | **Mission** | Task | An atomic work unit assigned to a captain. |
@@ -566,7 +584,7 @@ Direct Dispatch (CLI / API / MCP)                Dashboard Planning UI
 |-----------|-----------|-------|
 | Language | C# / .NET 8+ | Cross-platform |
 | Database | SQLite, PostgreSQL, SQL Server, MySQL | SQLite default; zero-install, embedded |
-| REST API | [SwiftStack](https://github.com/jchristn/swiftstack) | OpenAPI built-in |
+| REST API + WebSocket | [Watson](https://github.com/jchristn/watson) | OpenAPI built-in |
 | MCP/JSON-RPC | [Voltaic](https://github.com/jchristn/voltaic) | Standards-compliant MCP server |
 | CLI | [Spectre.Console](https://spectreconsole.net/) | Rich terminal UI |
 | Logging | [SyslogLogging](https://github.com/jchristn/sysloglogging) | Structured logging |
@@ -628,10 +646,11 @@ armada go "Fix the login bug" --vessel my-api
 armada vessel add my-api https://github.com/you/my-api
 armada vessel add my-frontend https://github.com/you/my-frontend
 
-# Add more agents (supports claude, codex, gemini, cursor, mux)
+# Add more agents (armada captain add --runtime accepts: claude, codex, gemini, cursor, mux, custom)
 armada captain add claude-2 --runtime claude
 armada captain add codex-1 --runtime codex
 armada captain add gemini-1 --runtime gemini
+armada captain add cursor-1 --runtime cursor
 armada captain add mux-1 --runtime mux --mux-endpoint local-openai
 armada captain update mux-1 --mux-config-dir C:\Users\you\.mux-work --mux-endpoint staging-openai
 
@@ -647,6 +666,8 @@ armada voyage retry "API Hardening"
 
 Mux captains require a named endpoint. Armada stores that endpoint selection on the captain, validates it through `mux probe --require-tools`, and can optionally target a non-default Mux config directory via `--mux-config-dir`. The React dashboard and legacy dashboard can both browse saved endpoints through Armada's `/api/v1/runtimes/mux/endpoints` helper APIs.
 
+The `armada captain add --runtime` CLI accepts `claude`, `codex`, `gemini`, `cursor`, `mux`, and `custom`. OpenCode is a fully supported runtime, but OpenCode captains are created through the dashboard or the REST/MCP captain APIs rather than the `captain add` CLI shortcut.
+
 ## Configuration
 
 Settings live in `~/.armada/settings.json` and are created on first use.
@@ -655,7 +676,7 @@ For GitHub-backed integrations, Armada supports a server-global `GitHubToken` in
 
 Armada currently uses that token resolution for three pull-based GitHub workflows:
 
-- importing a GitHub issue or pull request into `Operations > Objectives`
+- importing a GitHub issue or pull request into `Dispatch > Backlog`
 - syncing recent GitHub Actions workflow runs into `Delivery > Checks`
 - loading GitHub pull-request review, comment, and required-check evidence for mission and release detail views
 
@@ -736,20 +757,22 @@ Armada also ships first-class REST surfaces for:
 - Mux runtime endpoint discovery helpers under `/api/v1/runtimes/mux/endpoints...`
 - live OpenAPI discovery at `/openapi.json` and `/swagger`
 
-The React dashboard exposes that API surface through first-class `Delivery` and `System` tools:
+The React dashboard exposes that API surface through consolidated, workflow-grouped tools:
 
-- `Operations > Objectives` for internal-first intake, acceptance criteria, scope capture, and lifecycle linkage before dispatch.
-- `Delivery > Workflow Profiles` for project-specific build/test/release/deploy command definitions and validation.
+- `Dispatch > Backlog` for internal-first intake, acceptance criteria, scope capture, and lifecycle linkage before dispatch.
+- `Configuration > Workflow Profiles` for project-specific build/test/release/deploy command definitions and validation.
 - `Delivery > Checks` for running, retrying, and inspecting structured validation and delivery commands.
 - `Delivery > Environments` and `Delivery > Deployments` for named rollout targets, approvals, verification, rollback, and linked evidence.
 - `Delivery > Releases` for drafting, curating, and inspecting release records linked to voyages, missions, checks, versions, notes, and artifacts.
-- `Activity > Incidents` for operational incident records, hotfix handoff, and rollback/postmortem context.
-- `Activity > History` for a cross-entity operational timeline spanning objectives, planning, dispatch, checks, releases, deployments, incidents, merge activity, events, and request history.
-- `System > Requests` for persisted request history, filtering, payload inspection, and replay.
-- `System > API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.
-- `System > Runbooks` for playbook-backed operational runbooks with parameters, step tracking, and deployment/incident linkage.
+- `Delivery > Incidents` for operational incident records, hotfix handoff, and rollback/postmortem context.
+- `Delivery > Runbooks` for playbook-backed operational runbooks with parameters, step tracking, and deployment/incident linkage.
+- `Activity` (All Activity source) for a cross-entity operational timeline spanning objectives, planning, dispatch, checks, releases, deployments, incidents, merge activity, events, and request history.
+- `Activity` (Requests source) for persisted request history, filtering, payload inspection, and replay.
+- `API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.
 
 For the current internal-first operator workflow across releases, deployments, rollback, incidents, and runbooks, see [docs/DELIVERY_OPERATIONS.md](docs/DELIVERY_OPERATIONS.md).
+
+For metrics, dashboards, and the Prometheus/Loki/Grafana observability stack, see [docs/TELEMETRY.md](docs/TELEMETRY.md).
 
 Start the Admiral as a standalone server:
 
@@ -776,13 +799,13 @@ Captains report friction they meet on an `[ARMADA:PAPERCUT]` line: a stale
 document, a dead link, a brief that contradicts itself, a missing sibling
 repository, a test that fails under load. Armada stores each report as a
 `papercut` event with the reporting mission, captain, vessel, and voyage, and
-the `armada_list_papercuts` MCP tool reads them back collapsed into groups of
+the `papercut_summary` MCP tool reads them back collapsed into groups of
 the same vessel, category, and problem.
 
 Read them on a schedule. A report that nobody reads is worse than no report:
 the captain paid to write it and the next captain still pays the same cost.
 
-1. Run `armada_list_papercuts` after a voyage closes, and again in the weekly
+1. Run `papercut_summary` after a voyage closes, and again in the weekly
    sweep with `sinceHours: 168`.
 2. Read the count and the distinct-captain count first. One captain reporting
    a problem is an anecdote. Several captains reporting it is a defect with
@@ -883,7 +906,7 @@ armada go "your task here"
 ### Run Tests
 
 ```bash
-dotnet run --project test/Armada.Test.Unit
+dotnet run --project src/Test.Automated --framework net10.0
 ```
 
 ## Running Locally (with Docker)
@@ -1151,20 +1174,6 @@ v0.5.0 is focused on dispatch and pipeline stability. It adds captain model sele
 - Mission detail now shows total runtime, and dispatch cleanup removes the redundant parsed-task UI
 - Docker image tags, release metadata, and API documentation are updated for `v0.5.0`
 
-### v0.7.0 to v0.8.0
-
-v0.8.0 is focused on backlog-first delivery management. This release adds normalized objective storage, explicit backlog refinement sessions with captain selection, ranked backlog management, and end-to-end linkage from backlog items into release, deployment, and incident records. The Armada server applies the required schema migrations automatically on first startup (SQLite schema version 43, PostgreSQL/MySQL/SQL Server schema version 42).
-
-Key changes:
-
-- New normalized `objectives`, `objective_refinement_sessions`, and `objective_refinement_messages` persistence across SQLite, MySQL, PostgreSQL, and SQL Server
-- Objective/backlog CRUD, filtering, ranking, reorder, and backlog alias routes under `/api/v1/backlog`
-- Backlog refinement sessions with explicit captain selection, transcript persistence, summary generation, and objective apply-back support
-- MCP backlog CRUD and reorder coverage, plus backlog-named aliases for first-class backlog operations
-- Release, deployment, and incident flows now preserve linkage back to the same objective record
-- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.8.0`
-- Versioned migration handoff scripts are available in `migrations/` for `v0.7.0 -> v0.8.0`
-
 ### v0.6.0 to v0.7.0
 
 v0.7.0 is focused on remote access. This release adds the local outbound tunnel client, the first shipped `Armada.Proxy` service, tunnel telemetry, server/dashboard configuration surfaces, and a bounded remote management shell for day-one operator workflows. No database schema migration is required for this release.
@@ -1181,6 +1190,36 @@ Key changes:
 - New operator docs: `docs/REMOTE_MGMT.md`, `docs/TUNNEL_PROTOCOL.md`, `docs/PROXY_API.md`, and `docs/TUNNEL_OPERATIONS.md`
 - Release metadata, Docker image tags, Postman examples, and API documentation are updated for `v0.7.0`
 - Standalone no-op release scripts are available in `migrations/` for `v0.6.0 -> v0.7.0`
+
+### v0.7.0 to v0.8.0
+
+v0.8.0 is focused on backlog-first delivery management. This release adds normalized objective storage, explicit backlog refinement sessions with captain selection, ranked backlog management, and end-to-end linkage from backlog items into release, deployment, and incident records. The Armada server applies the required schema migration (startup migration 43) automatically on first startup across SQLite, PostgreSQL, MySQL, and SQL Server.
+
+Key changes:
+
+- New normalized `objectives`, `objective_refinement_sessions`, and `objective_refinement_messages` persistence across SQLite, MySQL, PostgreSQL, and SQL Server
+- Objective/backlog CRUD, filtering, ranking, reorder, and backlog alias routes under `/api/v1/backlog`
+- Backlog refinement sessions with explicit captain selection, transcript persistence, summary generation, and objective apply-back support
+- MCP backlog CRUD and reorder coverage, plus backlog-named aliases for first-class backlog operations
+- Release, deployment, and incident flows now preserve linkage back to the same objective record
+- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.8.0`
+- Versioned migration handoff scripts are available in `migrations/` for `v0.7.0 -> v0.8.0`
+
+### v0.8.0 to v0.9.0
+
+v0.9.0 is focused on reliability: it eliminates the stuck-dock and dangling-handoff failure modes and hardens the orchestrator for multi-instance operation. The Armada server applies startup migration 44 automatically on first startup across SQLite, PostgreSQL, MySQL, and SQL Server.
+
+Key changes:
+
+- Fixed stall detection (process liveness is tracked separately from the output heartbeat, so a live-but-silent agent is still caught) plus a configurable max-mission-runtime backstop for runaways
+- Cross-platform process supervision with PID-identity verification, and automatic re-drive of dangling pipeline handoffs each health cycle
+- Review-timeout watchdog, an enforced global `MaxConcurrentMissions` ceiling, and non-destructive dock repair/unstick operator tools (REST + MCP)
+- Merge queue background driver with hard subprocess timeouts and multi-instance-safe processing via a durable coordination lease
+- Centralized, tested mission state machine (single authoritative transition table and classifiers)
+- Startup migration 44 adds dock state/lease, captain process-liveness, mission review deadline, merge-entry retry/lease, and a durable coordination-lease table
+- Opt-in OpenTelemetry export (OTLP collector, in-process Prometheus scrape, and/or Loki); the Docker stack ships Prometheus, Loki, and Grafana with an "Armada Reliability" dashboard
+- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.9.0`
+- Versioned migration handoff scripts are available in `migrations/` for `v0.8.0 -> v0.9.0`
 
 ## Issues and Discussions
 

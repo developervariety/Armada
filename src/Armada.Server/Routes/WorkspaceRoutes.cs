@@ -81,6 +81,37 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<WorkspaceTreeResult>("Workspace directory listing"))
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/workspace/vessels/{vesselId}/diff", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                Vessel? vessel = await ReadVesselForContextAsync(ctx, req.Parameters["vesselId"]).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                string? path = req.Query.GetValueOrDefault("path");
+                try
+                {
+                    return await _workspace.GetDiffAsync(vessel, path).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (TryMapWorkspaceException(req, ex, out ApiErrorResponse error))
+                {
+                    return error;
+                }
+            },
+            api => api
+                .WithTag("Workspace")
+                .WithSummary("Get a working-tree diff")
+                .WithDescription("Returns a unified git diff of the vessel working tree against HEAD, optionally scoped to one path.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("path", "Optional repository-relative path to scope the diff", false))
+                .WithResponse(200, OpenApiJson.For<WorkspaceDiffResult>("Working-tree diff"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/workspace/vessels/{vesselId}/file", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
@@ -149,6 +180,44 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<WorkspaceSaveRequest>("Workspace save request", true))
                 .WithResponse(200, OpenApiJson.For<WorkspaceSaveResult>("Save result"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<WorkspaceExecRequest>("/api/v1/workspace/vessels/{vesselId}/exec", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                if (!ctx.IsAdmin && !ctx.IsTenantAdmin)
+                {
+                    req.Http.Response.StatusCode = 403;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only tenant administrators can run workspace commands" };
+                }
+
+                Vessel? vessel = await ReadVesselForContextAsync(ctx, req.Parameters["vesselId"]).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                WorkspaceExecRequest execRequest = JsonSerializer.Deserialize<WorkspaceExecRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? throw new InvalidOperationException("Request body could not be deserialized as WorkspaceExecRequest.");
+
+                try
+                {
+                    return await _workspace.ExecAsync(vessel, execRequest).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (TryMapWorkspaceException(req, ex, out ApiErrorResponse error))
+                {
+                    return error;
+                }
+            },
+            api => api
+                .WithTag("Workspace")
+                .WithSummary("Run a command in the vessel workspace")
+                .WithDescription("Executes a shell command in the vessel working tree (the in-browser dock terminal), bounded by a timeout. Tenant administrators only.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<WorkspaceExecRequest>("Command to run", true))
+                .WithResponse(200, OpenApiJson.For<WorkspaceExecResult>("Command result"))
                 .WithSecurity("ApiKey"));
 
             app.Post<WorkspaceCreateDirectoryRequest>("/api/v1/workspace/vessels/{vesselId}/directory", async (ApiRequest req) =>

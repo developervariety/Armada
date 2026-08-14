@@ -348,8 +348,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 PerformanceCommand = NullableString(reader["performance_command"]),
                 DeploymentVerificationCommand = NullableString(reader["deployment_verification_command"]),
                 RollbackVerificationCommand = NullableString(reader["rollback_verification_command"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
             };
 
             if (Enum.TryParse(reader["scope"].ToString(), true, out WorkflowProfileScopeEnum scope))

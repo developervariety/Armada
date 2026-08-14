@@ -98,6 +98,19 @@ namespace Armada.Core.Models
         public string? PreferredPersona { get; set; } = null;
 
         /// <summary>
+        /// Optional reasoning-effort level for this captain, translated to each runtime's native control
+        /// at launch (Claude Code thinking budget, Codex model_reasoning_effort, Mux --effort). Runtimes
+        /// without a native control ignore it. Null means "use the runtime default".
+        /// </summary>
+        public ReasoningEffortEnum? ReasoningEffort { get; set; } = null;
+
+        /// <summary>
+        /// Optional capability/cost tier used by dispatch to route missions of a given complexity. Null
+        /// means the tier is auto-classified from the model name at selection time (defaulting to Standard).
+        /// </summary>
+        public CaptainTierEnum? Tier { get; set; } = null;
+
+        /// <summary>
         /// Runtime-specific configuration serialized as JSON.
         /// Use this for settings that should not be promoted into generic captain fields.
         /// </summary>
@@ -129,9 +142,30 @@ namespace Armada.Core.Models
         public int RecoveryAttempts { get; set; } = 0;
 
         /// <summary>
+        /// UTC time until which the captain is quarantined and excluded from dispatch selection. Null when
+        /// the captain is not quarantined; a time in the past means the quarantine has expired and will be
+        /// lifted on the next health tick.
+        /// </summary>
+        public DateTime? QuarantineUntilUtc { get; set; } = null;
+
+        /// <summary>
+        /// Why the captain was quarantined (e.g. "provider usage limit", "auth failure", "crash loop").
+        /// Null when not quarantined.
+        /// </summary>
+        public string? QuarantineReason { get; set; } = null;
+
+        /// <summary>
         /// Last heartbeat timestamp in UTC.
         /// </summary>
         public DateTime? LastHeartbeatUtc { get; set; } = null;
+
+        /// <summary>
+        /// UTC time the captain's OS process was last observed alive by the supervisor. This is
+        /// distinct from <see cref="LastHeartbeatUtc"/>, which advances only on real agent output:
+        /// stall detection compares output-heartbeat age so a process that is alive but silent is
+        /// still detected as stalled, while liveness telemetry stays fresh here.
+        /// </summary>
+        public DateTime? LastProcessAliveUtc { get; set; } = null;
 
         /// <summary>
         /// Creation timestamp in UTC.

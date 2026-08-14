@@ -28,6 +28,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import PageHeader from '../components/shared/PageHeader';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -443,40 +444,43 @@ export default function RunbookDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/runbooks">{t('Runbooks')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Runbook') : title}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Runbook') : title}</h2>
-        <div className="inline-actions">
-          {!createMode && runbook && <StatusBadge status={runbook.active ? 'Active' : 'Inactive'} />}
-          {!createMode && (
-            <button className="btn btn-sm" onClick={() => { resetExecutionForm(); setShowStartPanel((current) => !current); }}>
-              {showStartPanel ? t('Hide Start Panel') : t('Start Execution')}
-            </button>
-          )}
-          {!createMode && executionDraft && (
-            <>
-              <button className="btn btn-sm" onClick={() => void handleSaveExecution()}>{t('Save Execution')}</button>
-              <button className="btn btn-sm" onClick={() => void handleSaveExecution('Completed')}>{t('Mark Completed')}</button>
-              <button className="btn btn-sm" onClick={() => void handleSaveExecution('Cancelled')}>{t('Cancel Execution')}</button>
-            </>
-          )}
-          {!createMode && canLaunchCheck() && (
-            <button className="btn btn-sm" onClick={handleLaunchCheck}>{t('Run Check')}</button>
-          )}
-          {!createMode && runbook && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: runbook })}>{t('View JSON')}</button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>{t('Duplicate')}</button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/runbooks">{t('Runbooks')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Runbook') : title}</span>
+          </>
+        }
+        title={createMode ? t('Create Runbook') : title}
+        actions={
+          <>
+            {!createMode && runbook && <StatusBadge status={runbook.active ? 'Active' : 'Inactive'} />}
+            {!createMode && (
+              <button className="btn btn-sm" onClick={() => { resetExecutionForm(); setShowStartPanel((current) => !current); }}>
+                {showStartPanel ? t('Hide Start Panel') : t('Start Execution')}
+              </button>
+            )}
+            {!createMode && executionDraft && (
+              <>
+                <button className="btn btn-sm" onClick={() => void handleSaveExecution()}>{t('Save Execution')}</button>
+                <button className="btn btn-sm" onClick={() => void handleSaveExecution('Completed')}>{t('Mark Completed')}</button>
+                <button className="btn btn-sm" onClick={() => void handleSaveExecution('Cancelled')}>{t('Cancel Execution')}</button>
+              </>
+            )}
+            {!createMode && canLaunchCheck() && (
+              <button className="btn btn-sm" onClick={handleLaunchCheck}>{t('Run Check')}</button>
+            )}
+            {!createMode && runbook && (
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: runbook })}>{t('View JSON')}</button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>{t('Duplicate')}</button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

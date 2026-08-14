@@ -374,8 +374,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             template.Content = reader["content"].ToString()!;
             template.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
             template.Active = Convert.ToInt64(reader["active"]) == 1;
-            template.CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            template.LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
+            template.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            template.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return template;
         }
 

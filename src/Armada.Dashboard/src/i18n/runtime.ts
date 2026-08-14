@@ -523,11 +523,21 @@ function shouldSkipElement(element: Element | null): boolean {
 
 function translateTextNode(node: Text, locale: string, catalog: I18nCatalog | null | undefined) {
   if (shouldSkipElement(node.parentElement)) return;
-  const original = getOriginalText(node);
+  const textNode = node as Text & { __armadaI18nOriginal?: string; __armadaI18nApplied?: string };
+  const current = node.nodeValue ?? '';
+  // If the node's current value is not the translation we last wrote, it was
+  // changed externally (e.g. a React re-render swapping "Checking..." for
+  // "Healthy"). Adopt that new value as the source text so the observer does
+  // not revert React's update to a stale first-seen original.
+  if (textNode.__armadaI18nApplied === undefined || current !== textNode.__armadaI18nApplied) {
+    textNode.__armadaI18nOriginal = current;
+  }
+  const original = textNode.__armadaI18nOriginal ?? current;
   const translated = translateText(locale, original, catalog);
-  if (translated !== (node.nodeValue ?? '')) {
+  if (translated !== current) {
     node.nodeValue = translated;
   }
+  textNode.__armadaI18nApplied = translated;
 }
 
 function translateElementAttributes(element: HTMLElement, locale: string, catalog: I18nCatalog | null | undefined) {

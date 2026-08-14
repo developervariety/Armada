@@ -45,6 +45,11 @@ namespace Armada.Core.Database
         public IPlanningSessionMessageMethods PlanningSessionMessages { get; protected set; } = null!;
 
         /// <summary>
+        /// Background job operations.
+        /// </summary>
+        public IJobMethods Jobs { get; protected set; } = null!;
+
+        /// <summary>
         /// Objective/backlog operations.
         /// </summary>
         public IObjectiveMethods Objectives { get; protected set; } = null!;
@@ -125,6 +130,16 @@ namespace Armada.Core.Database
         public IWorkflowProfileMethods WorkflowProfiles { get; protected set; } = null!;
 
         /// <summary>
+        /// Project-profile operations.
+        /// </summary>
+        public IProjectProfileMethods ProjectProfiles { get; protected set; } = null!;
+
+        /// <summary>
+        /// Skill operations.
+        /// </summary>
+        public ISkillMethods Skills { get; protected set; } = null!;
+
+        /// <summary>
         /// Deployment environment operations.
         /// </summary>
         public IDeploymentEnvironmentMethods Environments { get; protected set; } = null!;
@@ -143,6 +158,11 @@ namespace Armada.Core.Database
         /// Deployment operations.
         /// </summary>
         public IDeploymentMethods Deployments { get; protected set; } = null!;
+
+        /// <summary>
+        /// Durable coordination lease operations (restart-safe, multi-instance-safe mutual exclusion).
+        /// </summary>
+        public ICoordinationLeaseMethods CoordinationLeases { get; protected set; } = null!;
 
         #endregion
 
@@ -163,6 +183,14 @@ namespace Armada.Core.Database
         /// Initialize the database schema and seed data.
         /// </summary>
         public abstract Task InitializeAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Get the current schema version (the highest applied migration), or 0 when the database has not
+        /// been migrated yet.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The current schema version.</returns>
+        public abstract Task<int> GetSchemaVersionAsync(CancellationToken token = default);
 
         /// <summary>
         /// Dispose.

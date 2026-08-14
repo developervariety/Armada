@@ -43,6 +43,13 @@ namespace Armada.Core.Enums
         /// Captain is in the process of stopping.
         /// </summary>
         [EnumMember(Value = "Stopping")]
-        Stopping
+        Stopping,
+
+        /// <summary>
+        /// Captain is quarantined (provider usage-limit / auth failure or crash-loop) and excluded from
+        /// dispatch selection until its quarantine expires.
+        /// </summary>
+        [EnumMember(Value = "Quarantined")]
+        Quarantined
     }
 }

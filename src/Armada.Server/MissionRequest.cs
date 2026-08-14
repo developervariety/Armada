@@ -35,5 +35,17 @@ namespace Armada.Server
         /// Mission description.
         /// </summary>
         public string Description { get; set; } = "";
+
+        /// <summary>
+        /// Optional required/fallback capability tier for dispatch routing. When a preferred captain is set
+        /// via <see cref="RequestedCaptainId"/>, this is the fallback tier used when that captain is busy.
+        /// </summary>
+        public CaptainTierEnum? Tier { get; set; } = null;
+
+        /// <summary>
+        /// Optional preferred (dictated) captain identifier for this mission. When set and idle, dispatch
+        /// assigns it; when busy, dispatch falls back by <see cref="Tier"/>.
+        /// </summary>
+        public string? RequestedCaptainId { get; set; } = null;
     }
 }

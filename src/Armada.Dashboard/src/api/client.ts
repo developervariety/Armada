@@ -8,6 +8,7 @@ import type {
   UserUpsertRequest,
   Credential,
   EnumerationResult,
+  Job,
   Fleet,
   Vessel,
   Captain,
@@ -61,6 +62,15 @@ import type {
   WorkflowProfile,
   WorkflowProfileResolutionPreviewResult,
   WorkflowProfileValidationResult,
+  ProjectProfile,
+  ProjectProfileValidationResult,
+  ProjectProfileResolutionResult,
+  PersonaPromptPreview,
+  Skill,
+  AskResponse,
+  CaptainChatRequest,
+  CaptainChatResponse,
+  InboxItem,
   CheckRun,
   CheckRunImportRequest,
   CheckRunRequest,
@@ -91,6 +101,8 @@ import type {
   WorkspaceSaveResult,
   WorkspaceSearchResult,
   WorkspaceStatusResult,
+  WorkspaceExecResult,
+  WorkspaceDiffResult,
   WorkspaceTreeResult,
   RequestHistoryEntry,
   RequestHistoryQuery,
@@ -138,6 +150,8 @@ function camelizeKeys(obj: any): any {
 interface RequestOptions {
   timeout?: number;
   rawText?: boolean;
+  /** External abort signal; when it fires the in-flight request is cancelled (used by chat Stop). */
+  signal?: AbortSignal;
 }
 
 export interface ProxySessionContext {
@@ -168,6 +182,15 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
   const timeoutMs = opts?.timeout ?? 30000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  // An external signal (e.g. the chat Stop button) cancels the in-flight request; the server observes
+  // the dropped request and cancels the captain runtime, so the stop is real rather than cosmetic.
+  const external = opts?.signal;
+  const onExternalAbort = () => controller.abort();
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener('abort', onExternalAbort);
+  }
+
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
       method,
@@ -175,8 +198,6 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     if (res.status === 401) {
       onUnauthorized?.();
@@ -205,11 +226,20 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
     const json = await res.json();
     return camelizeKeys(json) as T;
   } catch (err) {
-    clearTimeout(timeoutId);
+    // An external abort is a deliberate cancel (Stop), not a timeout — surface it distinctly so callers
+    // can treat it as a clean stop instead of an error.
+    if (external?.aborted) {
+      const aborted = new Error('Aborted');
+      aborted.name = 'AbortError';
+      throw aborted;
+    }
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error('Request timed out');
     }
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (external) external.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -529,6 +559,10 @@ export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
 export const deleteVessel = (id: string) => del<void>(`/api/v1/vessels/${id}`);
+// Building a Model Context launches a captain to analyze the repository and can take minutes; allow a long
+// timeout so the request does not abort before the captain finishes.
+export const buildVesselContext = (id: string, data: { captainId: string; notes?: string }) =>
+  post<Vessel>(`/api/v1/vessels/${id}/build-context`, data, { timeout: 900000 });
 export const getVesselReadiness = (
   id: string,
   params?: {
@@ -639,14 +673,22 @@ export const deleteObjectiveRefinementSession = (sessionId: string) =>
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
-export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`);
+// The runtime tool probe (e.g. Mux) launches the CLI and can take tens of seconds; allow well
+// beyond the default 30s so slow probes resolve instead of aborting and reading as "unknown".
+export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`, { timeout: 120000 });
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
-export const getCaptainLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}`);
+export const getCaptainLog = (id: string, lines = 500, formatted = false) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}${formatted ? '&formatted=true' : ''}`);
 export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/stop`);
+export const unquarantineCaptain = (id: string) => post<Captain>(`/api/v1/captains/${id}/unquarantine`);
 export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
+
+// Background jobs
+export const listJobs = () => get<EnumerationResult<Job>>('/api/v1/jobs');
+export const getJob = (id: string) => get<Job>(`/api/v1/jobs/${id}`);
+export const cancelJob = (id: string) => post<Job>(`/api/v1/jobs/${id}/cancel`);
 export const listMuxEndpoints = (configDirectory?: string | null) =>
   get<MuxEndpointListResult>(`/api/v1/runtimes/mux/endpoints${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
 export const getMuxEndpoint = (name: string, configDirectory?: string | null) =>
@@ -691,8 +733,10 @@ export const dispatchMission = (data: DispatchRequest) => post<Mission>('/api/v1
 export const restartMission = (id: string) => post<Mission>(`/api/v1/missions/${id}/restart`);
 export const retryMissionLanding = (id: string) => post<any>(`/api/v1/missions/${id}/retry-landing`, {});
 export const transitionMission = (id: string, data: TransitionRequest) => put<Mission>(`/api/v1/missions/${id}/status`, data);
-export const approveMissionReview = (id: string, comment?: string) => post<Mission>(`/api/v1/missions/${id}/review/approve`, comment ? { comment } : {});
-export const denyMissionReview = (id: string, comment?: string) => post<Mission>(`/api/v1/missions/${id}/review/deny`, comment ? { comment } : {});
+export const approveMissionReview = (id: string, options?: { comment?: string; conditional?: boolean }) =>
+  post<Mission>(`/api/v1/missions/${id}/review/approve`, { comment: options?.comment || undefined, conditional: options?.conditional || undefined });
+export const denyMissionReview = (id: string, options?: { comment?: string; action?: 'RetryStage' | 'FailPipeline' }) =>
+  post<Mission>(`/api/v1/missions/${id}/review/deny`, { comment: options?.comment || undefined, action: options?.action || undefined });
 export const getMissionDiff = (id: string) => get<DiffResult>(`/api/v1/missions/${id}/diff`, { timeout: 30000 });
 export const getMissionLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/missions/${id}/log?lines=${lines}`);
 export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/api/v1/missions/${id}/instructions`);
@@ -716,6 +760,8 @@ export const summarizePlanningSession = (id: string, data: PlanningSessionSummar
   post<PlanningSessionSummaryResponse>(`/api/v1/planning-sessions/${id}/summarize`, data, { timeout: PLANNING_SUMMARIZE_TIMEOUT_MS });
 export const dispatchPlanningSession = (id: string, data: PlanningSessionDispatchRequest) => post<Voyage>(`/api/v1/planning-sessions/${id}/dispatch`, data);
 export const stopPlanningSession = (id: string) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/stop`);
+// Abort the in-flight planning turn without ending the session (Stop button parity with Ask Armada).
+export const stopPlanningTurn = (id: string) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/stop-turn`);
 export const deletePlanningSession = (id: string) => del<void>(`/api/v1/planning-sessions/${id}`);
 
 // ==================== Events ====================
@@ -763,6 +809,47 @@ export const previewWorkflowProfileForVessel = (vesselId: string, workflowProfil
   get<WorkflowProfileResolutionPreviewResult>(`/api/v1/workflow-profiles/preview/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
 export const resolveWorkflowProfile = (vesselId: string, workflowProfileId?: string | null) =>
   get<WorkflowProfile>(`/api/v1/workflow-profiles/resolve/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
+
+// Project profiles
+export const listProjectProfiles = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<ProjectProfile>>(`/api/v1/project-profiles${buildQuery(params)}`);
+export const getProjectProfile = (id: string) => get<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`);
+export const createProjectProfile = (data: Partial<ProjectProfile>) => post<ProjectProfile>('/api/v1/project-profiles', data);
+export const updateProjectProfile = (id: string, data: Partial<ProjectProfile>) => put<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`, data);
+export const deleteProjectProfile = (id: string) => del<void>(`/api/v1/project-profiles/${encodeURIComponent(id)}`);
+export const validateProjectProfile = (data: Partial<ProjectProfile>) => post<ProjectProfileValidationResult>('/api/v1/project-profiles/validate', data);
+export const resolveProjectProfileForVessel = (vesselId: string, projectProfileId?: string | null) =>
+  get<ProjectProfileResolutionResult>(`/api/v1/project-profiles/resolve/vessels/${encodeURIComponent(vesselId)}${projectProfileId ? `?projectProfileId=${encodeURIComponent(projectProfileId)}` : ''}`);
+export const previewPersonaPrompt = (profileId: string, persona: string) =>
+  get<PersonaPromptPreview>(`/api/v1/project-profiles/${encodeURIComponent(profileId)}/persona-preview/${encodeURIComponent(persona)}`);
+
+// Skills directory
+export const listSkills = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<Skill>>(`/api/v1/skills${buildQuery(params)}`);
+export const getSkill = (id: string) => get<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`);
+export const createSkill = (data: Partial<Skill>) => post<Skill>('/api/v1/skills', data);
+export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`, data);
+export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURIComponent(id)}`);
+
+// Ask Armada
+export const askArmada = (message: string) => post<AskResponse>('/api/v1/ask', { message });
+export const chatWithCaptain = (captainId: string, body: CaptainChatRequest, opts?: { signal?: AbortSignal }) =>
+  // A chat turn launches the captain's CLI runtime headlessly, which can take minutes for slower
+  // agents (e.g. Codex). Allow more than the default 30s so the reply is not aborted client-side;
+  // keep it above the server-side chat timeout so the backend's clean message wins on timeout.
+  // An optional signal lets the Stop button abort the request (the server then cancels the runtime).
+  post<CaptainChatResponse>('/api/v1/captains/' + captainId + '/chat', body, { timeout: 330000, signal: opts?.signal });
+
+// Needs-you inbox
+export const getInbox = () => get<InboxItem[]>('/api/v1/inbox');
+
+// Workspace terminal
+export const execWorkspaceCommand = (vesselId: string, command: string, timeoutSeconds?: number) =>
+  post<WorkspaceExecResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/exec`, { command, timeoutSeconds });
+
+// Workspace diff (review)
+export const getWorkspaceDiff = (vesselId: string, path?: string) =>
+  get<WorkspaceDiffResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/diff${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
 
 // ==================== Environments ====================
 export const listEnvironments = (params?: DeploymentEnvironmentQuery) =>
@@ -881,6 +968,8 @@ export const updateSettings = (data: SettingsData) => put<SettingsData>('/api/v1
 
 // ==================== Server ====================
 export const stopServer = () => post<void>('/api/v1/server/stop');
+
+export const restartServer = () => post<void>('/api/v1/server/restart');
 export const resetServer = () => post<void>('/api/v1/server/reset');
 
 // ==================== Backup / Restore ====================

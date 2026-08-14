@@ -7,6 +7,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -175,22 +176,25 @@ export default function MergeQueueDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/merge-queue">{t('Merge Queue')}</Link> <span className="breadcrumb-sep">&gt;</span> <span className="mono">{entry.id}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{t('Merge Entry')}</h2>
-        <div className="inline-actions">
-          {entry.missionId && (
-            <>
-              <button className="btn btn-sm" onClick={handleMissionDiff} title={t('View mission diff')}>{t('Diff')}</button>
-              <button className="btn btn-sm" onClick={handleMissionLog} title={t('View mission log')}>{t('Log')}</button>
-            </>
-          )}
-          <ActionMenu id={`merge-entry-action-${entry.id}`} items={actionItems} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/merge-queue">{t('Merge Queue')}</Link> <span className="breadcrumb-sep">&gt;</span> <span className="mono">{entry.id}</span>
+          </>
+        }
+        title={t('Merge Entry')}
+        actions={
+          <>
+            {entry.missionId && (
+              <>
+                <button className="btn btn-sm" onClick={handleMissionDiff} title={t('View mission diff')}>{t('Diff')}</button>
+                <button className="btn btn-sm" onClick={handleMissionLog} title={t('View mission log')}>{t('Log')}</button>
+              </>
+            )}
+            <ActionMenu id={`merge-entry-action-${entry.id}`} items={actionItems} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

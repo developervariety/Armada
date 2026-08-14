@@ -34,7 +34,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database)
         {
             register(
-                "armada_list_papercuts",
+                "papercut_summary",
                 "List friction that captains reported during missions, collapsed into groups of the same vessel, category, and problem. Use the count and distinct-captain count to tell a one-off from a real defect, then promote a group to a backlog item or objective.",
                 new
                 {

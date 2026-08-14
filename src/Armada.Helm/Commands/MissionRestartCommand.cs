@@ -17,7 +17,7 @@ namespace Armada.Helm.Commands
     public class MissionRestartCommand : BaseCommand<MissionRestartSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, MissionRestartSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, MissionRestartSettings settings, CancellationToken cancellationToken)
         {
             string missionId = await ResolveMissionIdAsync(settings.Id).ConfigureAwait(false);
 

@@ -44,7 +44,7 @@ Backlog detail now keeps the same item linked through:
 - releases
 - deployments
 - incidents
-- `Activity > History`
+- `Activity` (All Activity)
 
 ## Refinement Vs Planning
 
@@ -120,7 +120,7 @@ Helm ships first-class backlog CRUD and reorder coverage.
 armada backlog list
 armada backlog show obj_abc123
 armada backlog create --title "Stabilize release rollout" --priority P1 --backlog-state Inbox
-armada backlog update obj_abc123 --kind Feature --target-version 0.8.0
+armada backlog update obj_abc123 --kind Feature --target-version 0.9.0
 armada backlog reorder obj_abc123 --rank 10
 armada backlog delete obj_abc123
 ```
@@ -170,4 +170,4 @@ The same backlog item remains the system-of-record link through:
 - incident
 - history
 
-`Activity > History` and `GET /api/v1/history` can filter by `objectiveId` to reconstruct the delivery story of one backlog item. Timeline entries for backlog refinement sessions link back to `/backlog/{objectiveId}` so the transcript and downstream delivery context remain discoverable from one place.
+`Activity` (All Activity) and `GET /api/v1/history` can filter by `objectiveId` to reconstruct the delivery story of one backlog item. Timeline entries for backlog refinement sessions link back to `/backlog/{objectiveId}` so the transcript and downstream delivery context remain discoverable from one place.

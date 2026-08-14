@@ -170,15 +170,18 @@ dotnet build src/Armada.sln
 
 ## Test
 ```bash
-dotnet run --project test/Armada.Test.Automated --framework net10.0
-dotnet run --project test/Armada.Test.Unit --framework net10.0
-dotnet run --project test/Armada.Test.Runtimes --framework net10.0
+# Console runner (all suites; net8.0 or net10.0)
+dotnet run --project src/Test.Automated --framework net10.0
+
+# Same suites via the xUnit / NUnit adapters
+dotnet test src/Test.Xunit --framework net10.0
+dotnet test src/Test.Nunit --framework net10.0
 ```
 
 ## Architecture
 - `Armada.Core` - Domain models, database interfaces, service interfaces, settings
 - `Armada.Runtimes` - Agent runtime adapters (Claude Code, Codex, extensible via IAgentRuntime)
-- `Armada.Server` - Admiral process: REST API (SwiftStack), MCP server (Voltaic), WebSocket, web dashboard
+- `Armada.Server` - Admiral process: REST API (Watson), MCP server (Voltaic), WebSocket, web dashboard
 - `Armada.Helm` - CLI (Spectre.Console), thin HTTP client to Admiral
 
 ## Coding Standards
@@ -210,7 +213,7 @@ dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 - Settings: nested config objects with validation in setters
 
 ### Libraries (use these, they are mine)
-- SwiftStack (NuGet) - REST API framework
+- Watson (NuGet) - REST API + WebSocket framework
 - Voltaic (NuGet) - MCP/JSON-RPC library
 - SyslogLogging (NuGet) - Logging
 - PrettyId (NuGet) - ID generation with prefixes

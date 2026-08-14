@@ -53,18 +53,21 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, requested_captain_id, title, description, status, priority, redispatch_attempts, tier, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @requested_captain_id, @title, @description, @status, @priority, @redispatch_attempts, @tier, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
                     cmd.Parameters.AddWithValue("@priority", mission.Priority);
+                    cmd.Parameters.AddWithValue("@redispatch_attempts", mission.RedispatchAttempts);
+                    cmd.Parameters.AddWithValue("@tier", (object?)mission.Tier?.ToString() ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
@@ -82,6 +85,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@review_deadline_utc", mission.ReviewDeadlineUtc.HasValue ? (object)ToIso8601(mission.ReviewDeadlineUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", ToIso8601(mission.CreatedUtc));
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
@@ -146,10 +150,13 @@ namespace Armada.Core.Database.Mysql.Implementations
                         voyage_id = @voyage_id,
                         vessel_id = @vessel_id,
                         captain_id = @captain_id,
+                        requested_captain_id = @requested_captain_id,
                         title = @title,
                         description = @description,
                         status = @status,
                         priority = @priority,
+                        redispatch_attempts = @redispatch_attempts,
+                        tier = @tier,
                         parent_mission_id = @parent_mission_id,
                         branch_name = @branch_name,
                         dock_id = @dock_id,
@@ -167,6 +174,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         reviewed_by_user_id = @reviewed_by_user_id,
                         review_requested_utc = @review_requested_utc,
                         reviewed_utc = @reviewed_utc,
+                        review_deadline_utc = @review_deadline_utc,
                         total_runtime_ms = @total_runtime_ms,
                         started_utc = @started_utc,
                         completed_utc = @completed_utc,
@@ -178,10 +186,13 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
                     cmd.Parameters.AddWithValue("@priority", mission.Priority);
+                    cmd.Parameters.AddWithValue("@redispatch_attempts", mission.RedispatchAttempts);
+                    cmd.Parameters.AddWithValue("@tier", (object?)mission.Tier?.ToString() ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
@@ -199,6 +210,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@review_deadline_utc", mission.ReviewDeadlineUtc.HasValue ? (object)ToIso8601(mission.ReviewDeadlineUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
@@ -915,6 +927,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);
@@ -960,10 +973,19 @@ namespace Armada.Core.Database.Mysql.Implementations
             mission.VoyageId = NullableString(reader["voyage_id"]);
             mission.VesselId = NullableString(reader["vessel_id"]);
             mission.CaptainId = NullableString(reader["captain_id"]);
+            try { mission.RequestedCaptainId = NullableString(reader["requested_captain_id"]); } catch { }
             mission.Title = reader["title"].ToString()!;
             mission.Description = NullableString(reader["description"]);
             mission.Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!);
             mission.Priority = Convert.ToInt32(reader["priority"]);
+            try { mission.RedispatchAttempts = Convert.ToInt32(reader["redispatch_attempts"]); } catch { }
+            try
+            {
+                string? missionTier = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(missionTier) && Enum.TryParse<CaptainTierEnum>(missionTier, out CaptainTierEnum parsedMissionTier))
+                    mission.Tier = parsedMissionTier;
+            }
+            catch { }
             mission.ParentMissionId = NullableString(reader["parent_mission_id"]);
             mission.BranchName = NullableString(reader["branch_name"]);
             mission.DockId = NullableString(reader["dock_id"]);
@@ -972,11 +994,11 @@ namespace Armada.Core.Database.Mysql.Implementations
             mission.CommitHash = NullableString(reader["commit_hash"]);
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);
             try { mission.AgentOutput = NullableString(reader["agent_output"]); } catch { }
-            mission.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            mission.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
             mission.StartedUtc = FromIso8601Nullable(reader["started_utc"]);
             mission.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             try { mission.TotalRuntimeMs = NullableLong(reader["total_runtime_ms"]); } catch { }
-            mission.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            mission.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
@@ -994,6 +1016,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { mission.ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]); } catch { }
             try { mission.ReviewRequestedUtc = FromIso8601Nullable(reader["review_requested_utc"]); } catch { }
             try { mission.ReviewedUtc = FromIso8601Nullable(reader["reviewed_utc"]); } catch { }
+            try { mission.ReviewDeadlineUtc = FromIso8601Nullable(reader["review_deadline_utc"]); } catch { }
             return mission;
         }
 

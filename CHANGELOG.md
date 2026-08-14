@@ -4,6 +4,148 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased (v0.10.0, in progress)
+
+Focus: stickiness -- making Armada a daily driver through per-project customization.
+
+### Inbox MCP tool + broader "needs you" coverage
+- Added an `inbox` MCP tool so agent harnesses can answer "is there anything waiting on me / that needs my attention / any action items from Armada?". It returns the same consolidated attention list as the dashboard's Needs You and the `armada inbox` CLI (REST: `GET /api/v1/inbox`), with counts and per-item kind/severity/title/detail/entity/href.
+- Broadened the inbox definitions beyond missions + stalled captains to cover the full human-in-the-loop / human-out-of-the-loop set: missions in Review, landing-failed and failed missions, **failed merges**, **deployments pending approval**, **failed/verification-failed deployments**, and stalled captains. Purely informational events (completions, normal progress) are excluded.
+- Documented in MCP_API.md (with the kind/severity table) and added the tool to every `INSTRUCTIONS_FOR_*` orchestrator reference.
+
+### Dashboard navigation consolidation
+- Regrouped the dashboard from ~35 nav destinations across 6 sections to ~13 workflow-grouped destinations, without removing any capability: every folded page is reachable as a tab, a filter, the notification bell, or the command palette, and every old route redirects.
+- Ask Armada is now a standalone top-level nav item directly under Dashboard (the primary workflow interface), also reachable via a new Cmd/Ctrl+K command palette.
+- New shared primitives: a URL-synced `Tabs` component, a top-bar `NotificationBell` (replacing the standalone Notifications page, which now redirects to Needs You), and the command palette.
+- Consolidated surfaces: `Configuration` (Workflow Profiles, Project Profiles, Skills, Personas, Pipelines, Prompts, Playbooks), `Activity` (History, Requests, Events, Signals via a source filter, preserving the request inspector), `Delivery` (Deployments, Environments, Releases, Incidents, Checks, Runbooks), `Vessels` (Fleets and Workspace folded in), `Captains` (Docks tab), `Missions` (Voyages and Merge Queue tabs), and `Dispatch` (Backlog intake tab). Doctor moved to a Server > Diagnostics tab. Sidebar widened to 220px.
+
+### Project profiles (foundation)
+- Added the `ProjectProfile` entity (`ppf_`): a scoped aggregate (Global -> Fleet -> Vessel) that binds a project's pipeline, workflow profile, per-persona prompt overrides (`PersonaOverride`), and skills in one place, resolved with the same vessel/fleet/global precedence as workflow profiles
+- `ProjectProfileService` validation and layered resolution; full REST CRUD under `/api/v1/project-profiles` (plus `/enumerate`, `/validate`, `/resolve/vessels/{vesselId}`) and MCP `enumerate` support for `project_profiles`
+- Persisted across SQLite, PostgreSQL, MySQL, and SQL Server (schema migration 45)
+
+### Layered persona resolution + diff preview
+- Per-project persona overrides now take effect at dispatch: `MissionService` resolves the vessel's project profile and applies the matching `PersonaOverride` (swap the persona's prompt template and/or append per-project instructions) when building mission instructions -- best-effort, so a profile lookup never blocks dispatch
+- Added `GET /api/v1/project-profiles/{id}/persona-preview/{persona}` returning the base and effective (override-applied) persona prompt, so the dashboard can render a live before/after diff (`PersonaPromptPreview`)
+- Dashboard: Project Profiles list + detail pages, including the persona-override editor and the live base-vs-effective persona prompt diff
+
+### Skills directory
+- Added the `Skill` entity (`skl_`): a tenant-scoped directory of reusable, categorized, editable capability snippets, persisted across all four database providers (schema migration 46)
+- Project profiles attach skills by id or name; `MissionService` injects the resolved skill content into mission prompts as a Skills section (best-effort)
+- REST CRUD under `/api/v1/skills` (+ `/enumerate`) and MCP `enumerate` support for `skills`; dashboard Skills list + detail pages
+- Editable expectations: persona output contracts remain editable via prompt templates, and per-project expectations are expressible through `PersonaOverride` additional instructions
+
+### Visual pipeline builder + live run-mode
+- Pipeline detail now shows a visual left-to-right stage flow (persona cards with review-gate and optional badges) alongside the existing low-code stage editor
+- Live run-mode: dispatch a voyage that runs a pipeline against a chosen vessel directly from the pipeline page, then jump to the voyage to watch it
+
+### Ask Armada (captain-backed conversational control)
+- Ask Armada is now a real captain-backed chat, not a fixed intent layer: it dispatches each turn to a live captain over that captain's CLI runtime (Claude Code, Codex, Gemini, Cursor, Mux, or OpenCode), so the assistant can actually reason about and act on fleet state through the captain's Armada MCP tools rather than pattern-matching a fixed question set
+- Per-turn telemetry in an `(i)` popover: time-to-first-token, streaming duration, tokens/sec, and completion/total token counts, sourced from real captain output via a shared `ChatTurnMetricsBuilder` (replacing the earlier wildly-inflated whole-context token estimates)
+- Real streaming: Claude Code turns stream token-by-token via `stream-json` output; Mux protocol events are parsed and stripped from the transcript; Codex (which cannot token-stream from `exec`) shows an explicit non-streaming notice instead of appearing hung
+- Replies stream to the browser over the Watson WebSocket, render Markdown, surface live tool-call activity, and show rotating waiting messages instead of a static "Thinking..."; optional show-thinking, an editable Ask Armada system prompt, and a Stop button to abort a turn
+- Reliability: correctly detects a missing Armada MCP connection, and loads MCP servers for headless Mux so Ask Armada can call tools; a Clear-conversation control (trash icon beside Send) with a confirmation modal
+- REST `POST /api/v1/ask`; Ask Armada is a standalone top-level nav destination
+
+### Planning sessions unified with Ask Armada
+- The planning Current Session chat now mirrors the full Ask Armada experience: the same reusable chat component, per-turn `(i)` metrics, Markdown rendering, tool-call activity, Stop button, and streaming (Claude Code planning turns stream token-by-token; Mux protocol events are stripped from the transcript)
+- Recent Sessions is collapsible with a per-row action menu and a Delete All control (confirmation modal); Clear conversation moved to a trash icon beside Send with its own confirmation; the whole Current Session card is pinned so the transcript no longer scrolls the page
+- Mission execution is explicitly non-streaming again: token streaming is used only in Ask Armada and Planning when the user opts in, never during mission runs
+
+### Agent runtimes
+- Added the OpenCode runtime (`opencode`) as a first-class captain, wired through `AgentRuntimeFactory`, with its failure-handling, admission, and auto-land cores brought to parity with the other runtimes
+- Per-captain reasoning effort: an effort level stored on the captain is translated per runtime (Claude thinking tokens, Codex `model_reasoning_effort`, Mux `--effort`, OpenCode `--variant`)
+- Model-tier routing for dispatch: missions can be routed to captains by model tier
+- Prompt delivery hardened on Windows: the five CLI runtimes (Claude Code, Codex, Gemini, Cursor, OpenCode) now deliver the prompt on stdin instead of as a command-line argument, fixing multi-line prompts being truncated at the first newline by the npm `.cmd` wrappers
+- `armada mcp install` now detects and configures Mux alongside Claude Code, Codex, Gemini, and Cursor
+
+### Vessel context building
+- Vessels gained a Build Context / Refine Context action: launch a chosen captain to write (or refine) the vessel's Model Context from a seeded, editable `vessel.build_context` prompt template plus optional operator notes, provisioning and reclaiming a dock for the run; the result is saved to the vessel's Model Context field
+- Vessel row-click now opens the full Edit Vessel modal (the previous read-only detail modal was removed for that path)
+
+### Background jobs
+- Added the background-jobs feature end to end (fork-parity): a durable job entity with its own state machine, persisted across all four database providers, surfaced through a dashboard Jobs page
+
+### Fork-parity reliability and delivery edges
+- Vessel auto-land predicate + UI and captain quarantine types (backend + four-driver persistence), including MCP auto-land arguments and an un-quarantine path
+- Resource-admission wiring and cross-runtime node reuse for launch scheduling
+- Readable runtime logs and git anchors surfaced in the mission brief
+- Objective-link parity for MCP dispatch so dispatched work stays tied to its objective
+- Captured merge-conflict file lists on landing retry so the operator sees exactly what to fix
+
+### Readable mission logs
+- Mux writes per-token JSONL during a run; the mission log endpoint now renders that stream into a readable transcript instead of returning raw one-token-per-line JSON
+
+### Operator experience
+- Cross-platform `factory-reset` scripts for Windows, Linux, and macOS that stop the running server (escalating to a forced kill and verifying it exited) before wiping state, so a reset can no longer delete the database out from under a live server
+- Setup wizard: Vessel and Captain steps sized to the viewport with pinned step actions (no scrolling to reach the register button), the wizard now reappears on an empty deployment even after a prior setup completed, and finishing the wizard lands on the Missions page
+- A shared loading indicator is shown while lazy-loaded pages resolve, replacing the transient blank screen
+- Mission History chart renders finished captain-work bars (work produced, PR open, testing, review, complete) in green
+
+### Merge-queue cleanup tools
+- Added `delete_merge` (delete a single terminal merge-queue entry) and `purge_merge_queue` / `purge_merge_entry` / `purge_merge_entries` (bulk-purge terminal entries, optionally filtered by vessel and status), leveraging the existing branch-cleanup path -- closing the gap with the mission and voyage purge tools
+
+### In-browser dock terminal
+- `WorkspaceService.ExecAsync` runs a shell command in a vessel's working tree (cross-platform: cmd.exe on Windows, /bin/sh elsewhere), bounded by a timeout that kills the whole process tree, with captured stdout/stderr and output caps
+- REST `POST /api/v1/workspace/vessels/{vesselId}/exec` (tenant administrators only); dashboard Terminal panel on the Workspace page with command history; one-click open into a vessel workspace via the existing picker
+
+### In-app review + diff
+- `WorkspaceService.GetDiffAsync` returns a unified git diff of the working tree against HEAD (optionally scoped to one path); REST `GET /api/v1/workspace/vessels/{vesselId}/diff`
+- Dashboard: a Review Diff panel on the Workspace page (line-colored unified diff) that, together with the existing file browser and changes list, completes in-app review
+- Hardening: every workspace git invocation is now bounded by a 30s timeout that kills the process tree, and disables the pager and credential prompts, so a wedged git can no longer hang the diff/changes/status endpoints
+
+### Needs-you inbox
+- Added `InboxService`, a consolidated "needs you" inbox aggregating everything awaiting a human decision -- missions in review (overdue ones flagged critical), failed landings, failed missions, and stalled captains -- ordered most-urgent first with deep links
+- REST `GET /api/v1/inbox`; dashboard "Needs You" page under Operations with severity counts and one-click navigation
+- Monitoring and the flight recorder are served by the existing mission-history chart and event feed plus the Prometheus/Grafana telemetry stack added earlier in this release
+
+### SDK and CLI propagation
+- `ArmadaApiClient` (C# SDK) gained typed methods for project profiles, skills, the Ask assistant, the needs-you inbox, and the workspace terminal/diff endpoints
+- Helm CLI gained `armada inbox` (with `--critical`) and `armada ask "<question>"` commands
+
+### Landing retry conflict capture
+- Added `IGitService.GetConflictedFilesAsync` (git diff --name-only --diff-filter=U) to list unmerged paths
+- When `RetryLandingAsync` fails, the mission's failure reason now records the exact conflicting file list so the operator knows what to fix
+
+### Maintainability
+- Centralized four scattered inline mission-status checks in AdmiralService/CaptainService onto `MissionStateMachine.IsTerminalOrPostWork`, fixing a divergence where a recovery failure could fail a mission whose work already existed
+
+### Per-step captain selection
+- A persona now carries a default (preferred) captain (`Persona.DefaultCaptainId`). At dispatch, each pipeline step is pre-filled with that captain and an optional fallback tier; the choice applies to every mission of the persona in the voyage, fan-out included, via a per-voyage override (`Voyage.CaptainOverridesJson`) plus per-mission resolution (`Mission.RequestedCaptainId`)
+- Assignment honors the preferred captain when it is idle (bypassing the `AllowedPersonas` fence), falls back to an idle captain at or above the fallback tier when it is busy (lowest eligible tier wins), routes normally when the preferred captain was deleted, and leaves the mission Pending when nothing satisfies the tier -- reusing the existing capability-tier routing
+- Startup migration 55 adds `personas.default_captain_id`, `missions.requested_captain_id`, and `voyages.captain_overrides_json` across SQLite, PostgreSQL, MySQL, and SQL Server
+- REST persona create/update and dispatch, and the MCP `create_persona` / `update_persona` / `dispatch` tools, accept `defaultCaptainId` and per-persona `captainAssignments` (with invalid-captain validation); mission reads expose both `requestedCaptainId` and the actual `captainId`
+- Dashboard: a Default Captain picker on persona detail, per-step preferred-captain and fallback-tier pickers on Dispatch, a Preferred vs. Actual captain (with a "fell back to tier" indicator) on mission detail, capability-tier badges on the Captains table, and a capability-tier step in the setup wizard for out-of-the-box routing. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md)
+
+---
+
+## v0.9.0
+
+Focus: reliability. Eliminates the stuck-dock and dangling-handoff failure modes and hardens the orchestrator for multi-instance operation.
+
+### Reliability
+- Fixed stall detection: the process-liveness loop now refreshes a separate liveness timestamp instead of the output heartbeat, so a live-but-silent agent is still detected as stalled; added a configurable max-mission-runtime backstop for runaways
+- Cross-platform process supervision: agent subprocesses are killed on Admiral shutdown, and PID-identity verification (via process start time) prevents a recycled PID from leaving a captain stuck Working
+- Dangling pipeline handoffs (WorkProduced with an unprepared downstream stage) are re-driven automatically each health cycle
+- Review-timeout watchdog releases the captain a forgotten review was pinning (mission and dock preserved for the reviewer); enforced global MaxConcurrentMissions ceiling
+- Non-destructive dock repair and unstick operator tools (REST + MCP)
+- Merge queue: background driver so entries land without a manual trigger, hard timeouts on git/test subprocesses (no more queue freeze), and multi-instance-safe processing via a durable coordination lease
+- Centralized, tested mission state machine (single authoritative transition table + classifiers)
+
+### Data
+- Schema migration 44 across SQLite, PostgreSQL, MySQL, and SQL Server: dock state/lease, captain process-liveness, mission review deadline, merge-entry retry/lease, and a durable coordination-lease table; deterministic SQLite foreign-key enforcement
+
+### Testing
+- Migrated the entire test suite (~2,100 cases) to the runner-agnostic Touchstone framework: a shared descriptor library run by a console/CLI runner, an xUnit adapter, and an NUnit adapter, with reflection-based discovery and per-suite server isolation for end-to-end tests
+
+### Observability
+- OpenTelemetry telemetry export (opt-in via `telemetry` settings): the Admiral hosts an OTel pipeline that exports reliability metrics to an OTLP collector, an in-process Prometheus scrape endpoint, and/or Loki; the core libraries emit through the base class library and take no telemetry-framework dependency
+- Reliability counters under the `Armada` meter (stalls, recoveries, mission failures, runaway force-fails, overdue reviews, handoff re-drives, dock provision/reclaim, merge-queue processing)
+- Docker stack ships Prometheus, Loki, and Grafana services with pre-provisioned datasources and an "Armada Reliability" dashboard; see [docs/TELEMETRY.md](docs/TELEMETRY.md)
+
+### Dependencies
+- Updated all dependencies, including the breaking Voltaic 0.6.0 MCP API (RpcParameters-based tool registration) and Watson 7.1.0
+
 ## v0.8.0
 
 Focus: backlog-first delivery management.

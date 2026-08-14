@@ -63,8 +63,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, system_instructions, allowed_personas, preferred_persona, runtime_options_json, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, system_instructions, allowed_personas, preferred_persona, runtime_options_json, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, last_process_alive_utc, reasoning_effort, tier, quarantine_until_utc, quarantine_reason, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @last_process_alive_utc, @reasoning_effort, @tier, @quarantine_until_utc, @quarantine_reason, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
@@ -81,6 +81,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@process_id", captain.ProcessId.HasValue ? (object)captain.ProcessId.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@recovery_attempts", captain.RecoveryAttempts);
                     cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)captain.LastHeartbeatUtc.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_process_alive_utc", captain.LastProcessAliveUtc.HasValue ? (object)captain.LastProcessAliveUtc.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@reasoning_effort", (object?)captain.ReasoningEffort?.ToString() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@tier", (object?)captain.Tier?.ToString() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)captain.QuarantineUntilUtc.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@quarantine_reason", (object?)captain.QuarantineReason ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", captain.CreatedUtc);
                     cmd.Parameters.AddWithValue("@last_update_utc", captain.LastUpdateUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -181,6 +186,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         process_id = @process_id,
                         recovery_attempts = @recovery_attempts,
                         last_heartbeat_utc = @last_heartbeat_utc,
+                        last_process_alive_utc = @last_process_alive_utc,
+                        reasoning_effort = @reasoning_effort,
+                        tier = @tier,
+                        quarantine_until_utc = @quarantine_until_utc,
+                        quarantine_reason = @quarantine_reason,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
@@ -199,6 +209,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@process_id", captain.ProcessId.HasValue ? (object)captain.ProcessId.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@recovery_attempts", captain.RecoveryAttempts);
                     cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)captain.LastHeartbeatUtc.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_process_alive_utc", captain.LastProcessAliveUtc.HasValue ? (object)captain.LastProcessAliveUtc.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@reasoning_effort", (object?)captain.ReasoningEffort?.ToString() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@tier", (object?)captain.Tier?.ToString() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)captain.QuarantineUntilUtc.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@quarantine_reason", (object?)captain.QuarantineReason ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", captain.LastUpdateUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -396,6 +411,28 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.CommandText = @"UPDATE captains SET last_heartbeat_utc = @last_heartbeat_utc, last_update_utc = @last_update_utc WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     cmd.Parameters.AddWithValue("@last_heartbeat_utc", now);
+                    cmd.Parameters.AddWithValue("@last_update_utc", now);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateProcessAliveAsync(string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = @"UPDATE captains SET last_process_alive_utc = @last_process_alive_utc, last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    cmd.Parameters.AddWithValue("@last_process_alive_utc", now);
                     cmd.Parameters.AddWithValue("@last_update_utc", now);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -865,11 +902,28 @@ namespace Armada.Core.Database.Postgresql.Implementations
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = NullableDateTime(reader["last_heartbeat_utc"]);
-            captain.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            captain.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }
+            captain.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            captain.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
+            try
+            {
+                string? reasoningEffortStr = NullableString(reader["reasoning_effort"]);
+                if (!string.IsNullOrEmpty(reasoningEffortStr) && Enum.TryParse<ReasoningEffortEnum>(reasoningEffortStr, out ReasoningEffortEnum reasoningEffort))
+                    captain.ReasoningEffort = reasoningEffort;
+            }
+            catch { }
+            try
+            {
+                string? tierStr = NullableString(reader["tier"]);
+                if (!string.IsNullOrEmpty(tierStr) && Enum.TryParse<CaptainTierEnum>(tierStr, out CaptainTierEnum tier))
+                    captain.Tier = tier;
+            }
+            catch { }
+            try { captain.QuarantineUntilUtc = NullableDateTime(reader["quarantine_until_utc"]); } catch { }
+            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             return captain;
         }
 
@@ -889,7 +943,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return DateTime.SpecifyKind((DateTime)value, DateTimeKind.Utc);
         }
 
         #endregion

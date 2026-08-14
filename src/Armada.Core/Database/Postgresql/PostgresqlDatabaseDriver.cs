@@ -76,6 +76,37 @@ namespace Armada.Core.Database.Postgresql
         #region Public-Methods
 
         /// <summary>
+        /// Get the current schema version (the highest applied migration), or 0 when the database has not
+        /// been migrated yet.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The current schema version.</returns>
+        public override async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+        {
+            using (NpgsqlConnection conn = new NpgsqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT to_regclass('public.schema_migrations') IS NOT NULL;";
+                    object? exists = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (exists == null || exists == DBNull.Value || !(bool)exists) return 0;
+                }
+
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
+                    object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (result != null && result != DBNull.Value) return Convert.ToInt32(result);
+                    return 0;
+                }
+            }
+        }
+
+        /// <summary>
         /// Initialize the database, running any pending schema migrations.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
@@ -188,6 +219,7 @@ namespace Armada.Core.Database.Postgresql
 
                 Credential defaultCred = new Credential();
                 defaultCred.Id = Constants.DefaultCredentialId;
+                defaultCred.Name = Constants.DefaultCredentialName;
                 defaultCred.TenantId = Constants.DefaultTenantId;
                 defaultCred.UserId = Constants.DefaultUserId;
                 defaultCred.BearerToken = Constants.DefaultBearerToken;
@@ -231,6 +263,7 @@ namespace Armada.Core.Database.Postgresql
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            Jobs = new JobMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
@@ -246,10 +279,13 @@ namespace Armada.Core.Database.Postgresql
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this);
+            ProjectProfiles = new ProjectProfileMethods(this);
+            Skills = new SkillMethods(this);
             Environments = new DeploymentEnvironmentMethods(this);
             CheckRuns = new CheckRunMethods(this);
             Releases = new ReleaseMethods(this);
             Deployments = new DeploymentMethods(this);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
         }
 
         #endregion

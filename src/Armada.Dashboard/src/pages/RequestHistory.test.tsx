@@ -217,10 +217,10 @@ describe('RequestHistory', () => {
     expect(await screen.findByText('request-body-value')).toBeInTheDocument();
     expect(screen.getByText(/x-request-header/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Request Headers/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Request Headers/i }));
     expect(screen.queryByText(/x-request-header/i)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Request Body/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Request Body/i }));
     expect(screen.queryByText('request-body-value')).not.toBeInTheDocument();
   });
 

@@ -57,8 +57,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc)
-                            VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc);";
+                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc, retry_count, lease_expires_utc)
+                            VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc, @retry_count, @lease_expires_utc);";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
@@ -76,6 +76,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_count", entry.RetryCount);
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", entry.LeaseExpiresUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.LeaseExpiresUtc.Value) : DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -132,7 +134,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             test_exit_code = @test_exit_code,
                             last_update_utc = @last_update_utc,
                             test_started_utc = @test_started_utc,
-                            completed_utc = @completed_utc
+                            completed_utc = @completed_utc,
+                            retry_count = @retry_count,
+                            lease_expires_utc = @lease_expires_utc
                             WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
@@ -150,6 +154,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_count", entry.RetryCount);
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", entry.LeaseExpiresUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.LeaseExpiresUtc.Value) : DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }

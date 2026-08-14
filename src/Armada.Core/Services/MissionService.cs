@@ -44,6 +44,7 @@ namespace Armada.Core.Services
         private IPromptTemplateService? _PromptTemplates;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
+        private const string ReviewerGuidanceMarker = "<!-- ARMADA:REVIEWER-GUIDANCE -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
             new System.Text.RegularExpressions.Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase |
@@ -316,8 +317,13 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) — potential for conflicts (AllowConcurrentMissions=true)");
             }
 
-            // Find an idle captain, preferring those matching the mission's persona
-            Captain? captain = await FindAvailableCaptainAsync(mission.Persona, token).ConfigureAwait(false);
+            // Resolve the mission's preferred captain + fallback tier (per-persona default / voyage override)
+            // before assignment, so per-step captain selection applies to every mission of a step, including
+            // fan-out missions that were created without an explicit dictated captain.
+            await ResolvePreferredCaptainAsync(mission, token).ConfigureAwait(false);
+
+            // Find an idle captain: the preferred captain when idle, otherwise fall back by persona/tier.
+            Captain? captain = await FindAvailableCaptainAsync(mission.Persona, mission.Tier, mission.RequestedCaptainId, token).ConfigureAwait(false);
             if (captain == null)
             {
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
@@ -556,7 +562,7 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
@@ -574,6 +580,14 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
                 await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+
+                // Conditionally Approve: fold the reviewer's guidance into the freshly-prepared next stage(s)
+                // before they dispatch, so the next captain is required to take that feedback into account.
+                if (conditional && !String.IsNullOrWhiteSpace(mission.ReviewComment))
+                {
+                    await ApplyConditionalFeedbackToNextStagesAsync(mission, mission.ReviewComment!, token).ConfigureAwait(false);
+                }
+
                 await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
 
@@ -611,13 +625,17 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, ReviewDenyActionEnum? actionOverride = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
             Mission mission = await RequireReviewMissionAsync(missionId, token).ConfigureAwait(false);
             Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
             string reviewComment = NormalizeReviewComment(comment) ?? "Review denied. Rework is required before this stage can continue.";
+
+            // "More Work Required" and "Deny" surface as an explicit action from the reviewer; fall back to the
+            // mission's configured deny action when the caller does not specify one.
+            ReviewDenyActionEnum effectiveAction = actionOverride ?? mission.ReviewDenyAction;
 
             mission.ReviewComment = reviewComment;
             mission.ReviewedByUserId = reviewedByUserId;
@@ -628,7 +646,7 @@ namespace Armada.Core.Services
                 await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
             }
 
-            if (mission.ReviewDenyAction == ReviewDenyActionEnum.FailPipeline)
+            if (effectiveAction == ReviewDenyActionEnum.FailPipeline)
             {
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = BuildReviewDeniedFailureReason(reviewComment);
@@ -676,6 +694,189 @@ namespace Armada.Core.Services
         /// <summary>
         /// Core completion logic, called under in-flight deduplication guard.
         /// </summary>
+        /// <summary>
+        /// If a completion looks like a no-op false-complete, re-dispatch the mission to a fresh captain
+        /// (bounded by <see cref="ArmadaSettings.MaxNoOpRedispatchAttempts"/>) or, once exhausted, fail it
+        /// so it surfaces in the operator inbox. Returns true when the completion was handled as a no-op
+        /// (the caller must not proceed to landing).
+        /// </summary>
+        /// <summary>
+        /// Run the pre-land dock-boundary scanner for the mission's vessel. On a finding, fail the mission
+        /// with a redaction-safe reason (which surfaces it in the operator inbox) and return true so the
+        /// caller does not land. Returns false when the vessel has no boundary rules or the dock is clean.
+        /// </summary>
+        private async Task<bool> TryFailMissionForBoundaryViolationAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VesselId)) return false;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return false;
+
+            DockBoundaryPolicy policy = new DockBoundaryPolicy
+            {
+                SecretScanEnabled = vessel.SecretScanEnabled,
+                ProtectedPathGlobs = vessel.ProtectedPathPatterns ?? new List<string>(),
+                PrivateIdentifiers = vessel.PrivateIdentifierDenylist ?? new List<string>(),
+            };
+            if (!policy.HasAnyRule()) return false;
+
+            List<string> changedPaths = ExtractChangedPathsFromDiff(mission.DiffSnapshot);
+            List<BoundaryFinding> findings = DockBoundaryScanner.Scan(mission.DiffSnapshot, changedPaths, policy);
+            if (findings.Count == 0) return false;
+
+            if (dock != null)
+            {
+                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "boundary reclaim error for mission " + mission.Id + ": " + ex.Message); }
+            }
+
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = DockBoundaryScanner.Summarize(findings);
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + mission.Id + " blocked by dock-boundary scanner (" + findings.Count + " finding(s))");
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return true;
+        }
+
+        private static List<string> ExtractChangedPathsFromDiff(string? diff)
+        {
+            List<string> paths = new List<string>();
+            if (String.IsNullOrEmpty(diff)) return paths;
+            foreach (string raw in diff!.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (!raw.StartsWith("+++ ", StringComparison.Ordinal)) continue;
+                string body = raw.Length > 4 ? raw.Substring(4).Trim() : String.Empty;
+                if (body == "/dev/null") continue;
+                if (body.StartsWith("b/", StringComparison.Ordinal) || body.StartsWith("a/", StringComparison.Ordinal))
+                    body = body.Substring(2);
+                body = body.Replace('\\', '/').TrimStart('/').Trim();
+                if (!String.IsNullOrEmpty(body)) paths.Add(body);
+            }
+            return paths;
+        }
+
+        /// <summary>
+        /// Count changed lines (added + removed) in a unified diff, ignoring the +++/--- file headers.
+        /// </summary>
+        private static int CountChangedDiffLines(string? diff)
+        {
+            if (String.IsNullOrEmpty(diff)) return 0;
+            int count = 0;
+            foreach (string raw in diff!.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (raw.StartsWith("+++", StringComparison.Ordinal) || raw.StartsWith("---", StringComparison.Ordinal)) continue;
+                if (raw.StartsWith("+", StringComparison.Ordinal) || raw.StartsWith("-", StringComparison.Ordinal)) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Evaluate the vessel's auto-land predicate against a mission that would otherwise land. When the
+        /// change violates the vessel's file/line/path rules, route the mission to Review and return true so
+        /// the caller holds instead of landing. Returns false when auto-land is disabled or the change is
+        /// within the rules.
+        /// </summary>
+        private async Task<bool> TryHoldForAutoLandAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VesselId)) return false;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null || !vessel.AutoLandEnabled) return false;
+
+            List<string> changedPaths = ExtractChangedPathsFromDiff(mission.DiffSnapshot);
+            int filesChanged = changedPaths.Count;
+            int linesChanged = CountChangedDiffLines(mission.DiffSnapshot);
+
+            AutoLandPolicy policy = new AutoLandPolicy
+            {
+                Enabled = true,
+                MaxFiles = vessel.AutoLandMaxFiles,
+                MaxLines = vessel.AutoLandMaxLines,
+                PathAllowGlobs = vessel.AutoLandPathAllowGlobs ?? new List<string>(),
+                PathDenyGlobs = vessel.AutoLandPathDenyGlobs ?? new List<string>(),
+            };
+
+            AutoLandDecision decision = AutoLandPredicate.Evaluate(filesChanged, linesChanged, changedPaths, policy);
+            if (decision.Land) return false;
+
+            mission.Status = MissionStatusEnum.Review;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.ReviewRequestedUtc = DateTime.UtcNow;
+            mission.ReviewDeadlineUtc = _Settings.ReviewTimeoutMinutes > 0
+                ? DateTime.UtcNow.AddMinutes(_Settings.ReviewTimeoutMinutes)
+                : (DateTime?)null;
+            mission.ReviewComment = "Auto-land held: " + (decision.HoldReason ?? "change exceeds auto-land rules");
+            mission.ReviewedByUserId = null;
+            mission.ReviewedUtc = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            OnReviewRequested?.Invoke(mission);
+            _Logging.Info(_Header + "auto-land held mission " + mission.Id + " for review: " + (decision.HoldReason ?? "rules"));
+            return true;
+        }
+
+        private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (!NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
+                return false;
+
+            // Release the dock/captain before re-dispatching or failing.
+            if (dock != null)
+            {
+                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "no-op reclaim error for mission " + mission.Id + ": " + ex.Message); }
+            }
+
+            int maxAttempts = _Settings.MaxNoOpRedispatchAttempts;
+            if (mission.RedispatchAttempts < maxAttempts)
+            {
+                mission.RedispatchAttempts++;
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CaptainId = null;
+                mission.DockId = null;
+                mission.ProcessId = null;
+                mission.PrUrl = null;
+                mission.CommitHash = null;
+                mission.DiffSnapshot = null;
+                mission.AgentOutput = null;
+                mission.FailureReason = null;
+                mission.StartedUtc = null;
+                mission.CompletedUtc = null;
+                mission.TotalRuntimeMs = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "no-op completion detected for mission " + mission.Id +
+                    "; re-dispatching to a fresh captain (attempt " + mission.RedispatchAttempts + "/" + maxAttempts + ")");
+
+                if (!String.IsNullOrEmpty(mission.VesselId))
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                    if (vessel != null) await TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                }
+                return true;
+            }
+
+            // Retries exhausted: fail and surface to the operator inbox (LandingFailed/Failed feed it).
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = "no_op_completion_detected: captain repeatedly completed with no changes after " +
+                mission.RedispatchAttempts + " re-dispatch attempt(s). Likely an impossible or mis-specified mission.";
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "no-op completion for mission " + mission.Id +
+                " exhausted re-dispatch attempts; failing to operator inbox");
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return true;
+        }
+
         private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token)
         {
             Mission? mission = null;
@@ -764,6 +965,23 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Reject a no-op false-complete (fast exit, empty diff, trivial output): re-dispatch to a
+            // fresh captain up to a bounded number of times, then fail to the operator inbox. Skipped
+            // when the mission already failed scope validation.
+            if (!failedForScopeViolation &&
+                await TryRejectNoOpCompletionAsync(mission, dock, token).ConfigureAwait(false))
+            {
+                return;
+            }
+
+            // Pre-land dock-boundary scan: secrets, protected paths, private-identifier leaks. A finding
+            // blocks landing and surfaces the mission (with a redaction-safe reason) in the operator inbox.
+            if (!failedForScopeViolation &&
+                await TryFailMissionForBoundaryViolationAsync(mission, dock, token).ConfigureAwait(false))
+            {
+                return;
+            }
+
             if (!failedForScopeViolation && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
@@ -798,6 +1016,9 @@ namespace Armada.Core.Services
                 mission.Status = MissionStatusEnum.Review;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.ReviewRequestedUtc = DateTime.UtcNow;
+                mission.ReviewDeadlineUtc = _Settings.ReviewTimeoutMinutes > 0
+                    ? DateTime.UtcNow.AddMinutes(_Settings.ReviewTimeoutMinutes)
+                    : (DateTime?)null;
                 mission.ReviewComment = null;
                 mission.ReviewedByUserId = null;
                 mission.ReviewedUtc = null;
@@ -836,6 +1057,14 @@ namespace Armada.Core.Services
                 !hasDependentPipelineStages &&
                 (mission.Status == MissionStatusEnum.WorkProduced ||
                 mission.Status == MissionStatusEnum.PullRequestOpen);
+
+            // Per-vessel auto-land predicate: a change that is too large or touches denied/out-of-scope
+            // paths holds for review instead of landing unattended.
+            if (shouldAttemptLanding && await TryHoldForAutoLandAsync(mission, token).ConfigureAwait(false))
+            {
+                shouldAttemptLanding = false;
+                awaitingManualReview = true;
+            }
 
             if (!shouldAttemptLanding)
             {
@@ -991,11 +1220,35 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
-            // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
-            string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
+            // Inject the vessel's project-profile skills (best-effort) as a Skills section.
+            string skillsMarkdown = await ResolveSkillsMarkdownAsync(vessel, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(skillsMarkdown))
+            {
+                content += "## Skills\n\n" + skillsMarkdown + "\n";
+            }
+
+            // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template.
+            // Apply the vessel's project-profile persona override (if any) so per-project customization takes effect.
+            PersonaOverride? personaOverride = await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
+            string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
             content += await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false);
             content += "\n";
+
+            // Resolved git anchors (start commit, target branch, working branch) so the captain does not
+            // burn opening turns deriving them. Best-effort: a git failure degrades to no section.
+            string? headCommit = null;
+            if (_Git != null)
+            {
+                try { headCommit = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false); }
+                catch { headCommit = null; }
+            }
+            string gitAnchors = GitAnchorsFormatter.Render(headCommit, vessel.DefaultBranch, mission.BranchName);
+            if (!String.IsNullOrEmpty(gitAnchors))
+            {
+                content += gitAnchors;
+                content += "\n";
+            }
 
             // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback
             content += await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false);
@@ -1252,9 +1505,94 @@ namespace Armada.Core.Services
         /// <summary>
         /// Resolve a persona prompt template by persona name. Falls back to default worker preamble.
         /// </summary>
-        private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, CancellationToken token)
+        private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, PersonaOverride? personaOverride, CancellationToken token)
         {
-            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, token).ConfigureAwait(false);
+            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the effective per-project persona override for a mission's persona by selecting the
+        /// vessel's project profile (vessel -> fleet -> global). Best-effort: returns null on any error so
+        /// a profile lookup never blocks dispatch.
+        /// </summary>
+        private async Task<PersonaOverride?> ResolvePersonaOverrideAsync(Vessel vessel, string? persona, CancellationToken token)
+        {
+            if (vessel == null || String.IsNullOrWhiteSpace(persona)) return null;
+
+            try
+            {
+                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
+                    new ProjectProfileQuery
+                    {
+                        TenantId = vessel.TenantId,
+                        Active = true,
+                        PageNumber = 1,
+                        PageSize = 1000
+                    },
+                    token).ConfigureAwait(false);
+
+                if (profiles.Count == 0) return null;
+
+                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                return ProjectProfileService.ResolvePersonaOverride(profile, persona);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error resolving persona override for vessel " + vessel.Id + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Resolve the vessel's project-profile skills into a combined markdown block for prompt
+        /// injection. Best-effort: returns an empty string on any error or when no profile/skills apply.
+        /// Skill references in the profile may be skill ids (skl_...) or skill names.
+        /// </summary>
+        private async Task<string> ResolveSkillsMarkdownAsync(Vessel vessel, CancellationToken token)
+        {
+            if (vessel == null) return String.Empty;
+
+            try
+            {
+                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
+                    new ProjectProfileQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
+                    token).ConfigureAwait(false);
+                if (profiles.Count == 0) return String.Empty;
+
+                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                if (profile == null || profile.Skills == null || profile.Skills.Count == 0) return String.Empty;
+
+                List<Skill> skills = await _Database.Skills.EnumerateAllAsync(
+                    new SkillQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
+                    token).ConfigureAwait(false);
+                if (skills.Count == 0) return String.Empty;
+
+                Dictionary<string, Skill> byId = new Dictionary<string, Skill>(StringComparer.Ordinal);
+                Dictionary<string, Skill> byName = new Dictionary<string, Skill>(StringComparer.OrdinalIgnoreCase);
+                foreach (Skill skill in skills)
+                {
+                    byId[skill.Id] = skill;
+                    if (!String.IsNullOrWhiteSpace(skill.Name)) byName[skill.Name.Trim()] = skill;
+                }
+
+                List<string> blocks = new List<string>();
+                foreach (string reference in profile.Skills)
+                {
+                    if (String.IsNullOrWhiteSpace(reference)) continue;
+                    Skill? resolved = null;
+                    if (byId.TryGetValue(reference.Trim(), out Skill? byIdMatch)) resolved = byIdMatch;
+                    else if (byName.TryGetValue(reference.Trim(), out Skill? byNameMatch)) resolved = byNameMatch;
+                    if (resolved == null || String.IsNullOrWhiteSpace(resolved.Content)) continue;
+                    blocks.Add("### " + resolved.Name + "\n\n" + resolved.Content.Trim());
+                }
+
+                return String.Join("\n\n", blocks);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error resolving skills for vessel " + vessel.Id + ": " + ex.Message);
+                return String.Empty;
+            }
         }
 
         /// <summary>
@@ -1616,6 +1954,50 @@ namespace Armada.Core.Services
         /// After a mission produces work, check if any missions in the same voyage depend on it
         /// and prepare them for assignment (inject prior stage context into description).
         /// </summary>
+        /// <summary>
+        /// Recover pipeline handoffs that dangled: a mission reached WorkProduced but its Pending
+        /// downstream stage was never prepared (branch/context not copied), so it can never be
+        /// dispatched. Re-drives the handoff for any such mission so the next stage becomes
+        /// dispatchable. Architect stages are skipped here because re-driving their fan-out is not
+        /// idempotent; their handoff is handled on completion. Returns the number re-driven.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Count of missions whose handoff was re-driven.</returns>
+        public async Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default)
+        {
+            int redriven = 0;
+            List<Mission> workProduced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+
+            foreach (Mission produced in workProduced)
+            {
+                if (String.IsNullOrEmpty(produced.VoyageId)) continue;
+                if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
+
+                List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(produced.VoyageId, token).ConfigureAwait(false);
+                List<Mission> pendingDependents = voyageMissions
+                    .Where(m => m.DependsOnMissionId == produced.Id && m.Status == MissionStatusEnum.Pending)
+                    .ToList();
+                if (pendingDependents.Count == 0) continue;
+
+                bool anyUnprepared = pendingDependents.Any(dep => !IsPipelineHandoffPrepared(dep, produced));
+                if (!anyUnprepared) continue;
+
+                _Logging.Warn(_Header + "re-driving dangling pipeline handoff for WorkProduced mission " + produced.Id +
+                    " (" + pendingDependents.Count + " pending dependent(s) not prepared)");
+                try
+                {
+                    await TryHandoffToNextStageAsync(produced, token).ConfigureAwait(false);
+                    redriven++;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error re-driving handoff for mission " + produced.Id + ": " + ex.Message);
+                }
+            }
+
+            return redriven;
+        }
+
         private async Task<bool> TryHandoffToNextStageAsync(Mission completedMission, CancellationToken token)
         {
             if (String.IsNullOrEmpty(completedMission.VoyageId)) return false;
@@ -3022,29 +3404,90 @@ namespace Armada.Core.Services
             return existing.TrimEnd() + "\n\n---\n\n" + feedbackSection;
         }
 
-        private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CancellationToken token)
+        /// <summary>
+        /// Append reviewer guidance from a conditional approval to a downstream stage description, so the next
+        /// captain must take the prior-stage feedback into account. Idempotent: an existing guidance block is
+        /// replaced rather than stacked.
+        /// </summary>
+        private static string ApplyReviewerGuidance(string? description, string reviewComment)
+        {
+            string existing = description ?? String.Empty;
+            int markerIndex = existing.IndexOf(ReviewerGuidanceMarker, StringComparison.Ordinal);
+            if (markerIndex >= 0)
+            {
+                existing = existing.Substring(0, markerIndex).TrimEnd();
+            }
+
+            string guidanceSection =
+                ReviewerGuidanceMarker + "\n" +
+                "## Reviewer Guidance (from prior stage approval)\n" +
+                reviewComment.Trim() + "\n\n" +
+                "The previous stage was conditionally approved with the guidance above. Take it into account as you carry out this stage.\n";
+
+            if (String.IsNullOrWhiteSpace(existing))
+            {
+                return guidanceSection;
+            }
+
+            return existing.TrimEnd() + "\n\n---\n\n" + guidanceSection;
+        }
+
+        /// <summary>
+        /// After a conditional approval, fold the reviewer's guidance into the pending next-stage mission(s)
+        /// that depend on the just-approved mission, before they dispatch.
+        /// </summary>
+        private async Task ApplyConditionalFeedbackToNextStagesAsync(Mission mission, string reviewComment, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VoyageId)) return;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+            foreach (Mission next in voyageMissions)
+            {
+                if (next.DependsOnMissionId != mission.Id) continue;
+                if (next.Status != MissionStatusEnum.Pending) continue;
+
+                next.Description = ApplyReviewerGuidance(next.Description, reviewComment);
+                next.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(next, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CaptainTierEnum? requiredTier, string? requestedCaptainId, CancellationToken token)
         {
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             if (idleCaptains.Count == 0)
                 return null;
 
-            // If no persona requirement, return any idle captain
-            if (String.IsNullOrEmpty(persona))
-                return idleCaptains[0];
-
-            // Filter by AllowedPersonas (null = any persona is allowed)
-            List<Captain> eligible = new List<Captain>();
-            foreach (Captain captain in idleCaptains)
+            // Preferred (dictated) captain: honor it when it is idle, bypassing the AllowedPersonas fence and
+            // tier routing since the operator explicitly chose it. When it is busy (or has been deleted), fall
+            // through to persona/tier routing using requiredTier as the fallback tier.
+            if (!String.IsNullOrEmpty(requestedCaptainId))
             {
-                if (String.IsNullOrEmpty(captain.AllowedPersonas))
+                Captain? preferred = idleCaptains.FirstOrDefault(c => c.Id == requestedCaptainId);
+                if (preferred != null)
+                    return preferred;
+
+                Captain? requested = await _Database.Captains.ReadAsync(requestedCaptainId, token).ConfigureAwait(false);
+                if (requested == null)
+                    _Logging.Warn(_Header + "requested captain " + requestedCaptainId + " not found; falling back to normal persona/tier routing");
+                else
+                    _Logging.Info(_Header + "requested captain " + requestedCaptainId + " is busy; falling back by tier for this dispatch tick");
+            }
+
+            // Filter by AllowedPersonas (null persona = any; null AllowedPersonas = fills any persona).
+            List<Captain> eligible;
+            if (String.IsNullOrEmpty(persona))
+            {
+                eligible = new List<Captain>(idleCaptains);
+            }
+            else
+            {
+                eligible = new List<Captain>();
+                foreach (Captain captain in idleCaptains)
                 {
-                    // No restriction -- captain can fill any persona
-                    eligible.Add(captain);
-                }
-                else if (CaptainAllowsPersona(captain, persona))
-                {
-                    eligible.Add(captain);
+                    if (String.IsNullOrEmpty(captain.AllowedPersonas) || CaptainAllowsPersona(captain, persona))
+                        eligible.Add(captain);
                 }
             }
 
@@ -3053,18 +3496,162 @@ namespace Armada.Core.Services
                 return null;
             }
 
-            // Prefer captains whose PreferredPersona matches
-            foreach (Captain captain in eligible)
+            // Tier routing -- only when the mission explicitly requires a tier (so default dispatch is
+            // unchanged). Narrow to captains at/above the required tier, preferring the lowest eligible
+            // tier so strong captains are not consumed by cheaper work (upward-only fallback).
+            if (requiredTier.HasValue)
             {
-                if (!String.IsNullOrEmpty(captain.PreferredPersona) &&
-                    PersonaCatalog.Matches(captain.PreferredPersona, persona))
+                List<Captain> tierEligible = eligible
+                    .Where(c => CaptainTierSelector.EffectiveTier(c) >= requiredTier.Value)
+                    .ToList();
+                if (tierEligible.Count == 0)
                 {
-                    return captain;
+                    // No idle captain is strong enough for this mission's tier; leave it pending.
+                    return null;
+                }
+                CaptainTierEnum bestTier = tierEligible.Min(CaptainTierSelector.EffectiveTier);
+                eligible = tierEligible.Where(c => CaptainTierSelector.EffectiveTier(c) == bestTier).ToList();
+            }
+
+            // Prefer captains whose PreferredPersona matches
+            if (!String.IsNullOrEmpty(persona))
+            {
+                foreach (Captain captain in eligible)
+                {
+                    if (!String.IsNullOrEmpty(captain.PreferredPersona) &&
+                        PersonaCatalog.Matches(captain.PreferredPersona, persona))
+                    {
+                        return captain;
+                    }
                 }
             }
 
             // No preferred match -- return first eligible
             return eligible[0];
+        }
+
+        /// <summary>
+        /// Resolve and persist the preferred captain and fallback tier for a mission from (in order) an
+        /// explicit value already set, the voyage-level override for the mission's persona, or the persona's
+        /// default captain. A dangling captain reference is left as-is and degrades to normal routing at
+        /// assignment time. Best-effort: never throws for a missing persona/voyage.
+        /// </summary>
+        private async Task ResolvePreferredCaptainAsync(Mission mission, CancellationToken token)
+        {
+            if (mission == null) return;
+            if (!String.IsNullOrEmpty(mission.RequestedCaptainId)) return;
+            if (String.IsNullOrEmpty(mission.Persona)) return;
+
+            string? resolvedCaptainId = null;
+            CaptainTierEnum? resolvedTier = null;
+
+            List<CaptainAssignmentOverride> overrides = await ReadVoyageCaptainOverridesAsync(mission.VoyageId, token).ConfigureAwait(false);
+            foreach (CaptainAssignmentOverride ov in overrides)
+            {
+                if (!PersonaCatalog.Matches(ov.Persona, mission.Persona)) continue;
+                resolvedCaptainId = String.IsNullOrEmpty(ov.CaptainId) ? null : ov.CaptainId;
+                resolvedTier = ov.FallbackTier;
+                break;
+            }
+
+            if (String.IsNullOrEmpty(resolvedCaptainId))
+            {
+                Persona? persona = await ReadPersonaByNameAsync(mission.TenantId, mission.Persona, token).ConfigureAwait(false);
+                if (persona != null && !String.IsNullOrEmpty(persona.DefaultCaptainId))
+                    resolvedCaptainId = persona.DefaultCaptainId;
+            }
+
+            if (String.IsNullOrEmpty(resolvedCaptainId) && resolvedTier == null) return;
+
+            bool changed = false;
+            if (!String.IsNullOrEmpty(resolvedCaptainId))
+            {
+                mission.RequestedCaptainId = resolvedCaptainId;
+                changed = true;
+            }
+
+            if (mission.Tier == null)
+            {
+                if (resolvedTier != null)
+                {
+                    mission.Tier = resolvedTier;
+                    changed = true;
+                }
+                else if (!String.IsNullOrEmpty(mission.RequestedCaptainId))
+                {
+                    CaptainTierEnum? preferredTier = await CaptainEffectiveTierAsync(mission.RequestedCaptainId, token).ConfigureAwait(false);
+                    if (preferredTier != null)
+                    {
+                        mission.Tier = preferredTier;
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+            {
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<Persona?> ReadPersonaByNameAsync(string? tenantId, string personaName, CancellationToken token)
+        {
+            if (!String.IsNullOrEmpty(tenantId))
+            {
+                Persona? scoped = await _Database.Personas.ReadByNameAsync(tenantId, personaName, token).ConfigureAwait(false);
+                if (scoped != null) return scoped;
+            }
+
+            return await _Database.Personas.ReadByNameAsync(personaName, token).ConfigureAwait(false);
+        }
+
+        private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(captainId)) return null;
+            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (captain == null) return null;
+            return CaptainTierSelector.EffectiveTier(captain);
+        }
+
+        private async Task<List<CaptainAssignmentOverride>> ReadVoyageCaptainOverridesAsync(string? voyageId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(voyageId)) return new List<CaptainAssignmentOverride>();
+            Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+            if (voyage == null) return new List<CaptainAssignmentOverride>();
+            return DeserializeCaptainOverrides(voyage.CaptainOverridesJson);
+        }
+
+        /// <summary>
+        /// Deserialize a voyage's captain-override JSON into a list. Returns an empty list for null, empty, or
+        /// malformed input rather than throwing.
+        /// </summary>
+        /// <param name="json">Serialized override array, or null.</param>
+        /// <returns>The parsed overrides, or an empty list.</returns>
+        public static List<CaptainAssignmentOverride> DeserializeCaptainOverrides(string? json)
+        {
+            if (String.IsNullOrWhiteSpace(json)) return new List<CaptainAssignmentOverride>();
+            try
+            {
+                List<CaptainAssignmentOverride>? parsed = JsonSerializer.Deserialize<List<CaptainAssignmentOverride>>(json);
+                return parsed ?? new List<CaptainAssignmentOverride>();
+            }
+            catch (JsonException)
+            {
+                return new List<CaptainAssignmentOverride>();
+            }
+        }
+
+        /// <summary>
+        /// Serialize a list of captain overrides for voyage persistence. Returns null when the list is null or
+        /// empty so the column stays null rather than storing "[]".
+        /// </summary>
+        /// <param name="overrides">The overrides to serialize, or null.</param>
+        /// <returns>The serialized JSON array, or null.</returns>
+        public static string? SerializeCaptainOverrides(List<CaptainAssignmentOverride>? overrides)
+        {
+            if (overrides == null || overrides.Count == 0) return null;
+            return JsonSerializer.Serialize(overrides);
         }
 
         private static bool CaptainAllowsPersona(Captain captain, string persona)

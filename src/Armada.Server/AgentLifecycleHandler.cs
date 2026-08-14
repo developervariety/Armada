@@ -416,7 +416,9 @@ namespace Armada.Server
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
-                    captain: captain).ConfigureAwait(false);
+                    captain: captain,
+                    isolateLaunch: _Settings.IsolateCaptainLaunch,
+                    mcpPort: _Settings.McpPort).ConfigureAwait(false);
             }
             catch
             {
@@ -486,10 +488,12 @@ namespace Armada.Server
                             break;
                         }
 
-                        try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
-                        catch { }
-
-                        try { await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false); }
+                        // Refresh process-liveness telemetry ONLY. The output heartbeat
+                        // (LastHeartbeatUtc, advanced by HandleAgentHeartbeat on real agent output)
+                        // must NOT be touched here: stall detection measures time since last output,
+                        // so refreshing the heartbeat for a merely-alive process would mask a stalled
+                        // agent that is running but producing nothing.
+                        try { await _Database.Captains.UpdateProcessAliveAsync(captainId).ConfigureAwait(false); }
                         catch { }
                     }
                 }
@@ -869,66 +873,8 @@ namespace Armada.Server
 
         private static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {
-            if (current == MissionStatusEnum.Pending)
-            {
-                return target == MissionStatusEnum.Assigned
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.Assigned)
-            {
-                return target == MissionStatusEnum.InProgress
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.InProgress)
-            {
-                return target == MissionStatusEnum.WorkProduced
-                    || target == MissionStatusEnum.Testing
-                    || target == MissionStatusEnum.Review
-                    || target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.Failed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.WorkProduced)
-            {
-                return target == MissionStatusEnum.PullRequestOpen
-                    || target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.LandingFailed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.PullRequestOpen)
-            {
-                return target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.LandingFailed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            if (current == MissionStatusEnum.Testing)
-            {
-                return target == MissionStatusEnum.Review
-                    || target == MissionStatusEnum.InProgress
-                    || target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.Failed;
-            }
-
-            if (current == MissionStatusEnum.Review)
-            {
-                return target == MissionStatusEnum.Complete
-                    || target == MissionStatusEnum.InProgress
-                    || target == MissionStatusEnum.Failed;
-            }
-
-            if (current == MissionStatusEnum.LandingFailed)
-            {
-                return target == MissionStatusEnum.WorkProduced
-                    || target == MissionStatusEnum.Failed
-                    || target == MissionStatusEnum.Cancelled;
-            }
-
-            return false;
+            // Delegated to the single authoritative table so this handler and the services agree.
+            return MissionStateMachine.IsValidTransition(current, target);
         }
 
         private async Task<string?> ValidateMuxCaptainAsync(Captain captain, CancellationToken token)

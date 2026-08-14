@@ -70,6 +70,7 @@ namespace Armada.Core.Database.Mysql.Queries
             process_id INT,
             recovery_attempts INT NOT NULL DEFAULT 0,
             last_heartbeat_utc DATETIME(6),
+            last_process_alive_utc DATETIME(6) NULL,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL
         );";
@@ -111,6 +112,7 @@ namespace Armada.Core.Database.Mysql.Queries
             commit_hash VARCHAR(450),
             diff_snapshot LONGTEXT,
             agent_output LONGTEXT,
+            review_deadline_utc DATETIME(6) NULL,
             created_utc DATETIME(6) NOT NULL,
             started_utc DATETIME(6),
             completed_utc DATETIME(6),
@@ -130,6 +132,9 @@ namespace Armada.Core.Database.Mysql.Queries
             captain_id VARCHAR(450),
             worktree_path LONGTEXT,
             branch_name VARCHAR(450),
+            state VARCHAR(32) NOT NULL DEFAULT 'Available',
+            lease_expires_utc DATETIME(6) NULL,
+            owner_token TEXT NULL,
             active TINYINT(1) NOT NULL DEFAULT 1,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL,
@@ -184,6 +189,8 @@ namespace Armada.Core.Database.Mysql.Queries
             test_command LONGTEXT,
             test_output LONGTEXT,
             test_exit_code INT,
+            retry_count INT NOT NULL DEFAULT 0,
+            lease_expires_utc DATETIME(6) NULL,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL,
             test_started_utc DATETIME(6),
@@ -1095,6 +1102,152 @@ namespace Armada.Core.Database.Mysql.Queries
             );",
             @"CREATE INDEX idx_objective_refinement_messages_session_sequence ON objective_refinement_messages(objective_refinement_session_id, sequence);",
             @"CREATE INDEX idx_objective_refinement_messages_objective_created ON objective_refinement_messages(objective_id, created_utc DESC);"
+        };
+
+        /// <summary>
+        /// DDL for the coordination_leases table. Provides durable, restart-safe, multi-instance-safe
+        /// mutual exclusion via atomic compare-and-swap on the lease name, with TTL-based takeover.
+        /// </summary>
+        public static readonly string CoordinationLeases = @"CREATE TABLE IF NOT EXISTS coordination_leases (
+            name VARCHAR(255) NOT NULL PRIMARY KEY,
+            holder TEXT NOT NULL,
+            tenant_id VARCHAR(255) NULL,
+            acquired_utc DATETIME(6) NOT NULL,
+            expires_utc DATETIME(6) NOT NULL,
+            INDEX idx_coordination_leases_expires (expires_utc)
+        );";
+
+        /// <summary>
+        /// Migration v44 statements for the reliability release: dock leases, process liveness,
+        /// review deadline, merge retry, and coordination leases.
+        /// </summary>
+        public static readonly string[] MigrationV44Statements = new string[]
+        {
+            @"ALTER TABLE docks ADD COLUMN state VARCHAR(32) NOT NULL DEFAULT 'Available';",
+            @"ALTER TABLE docks ADD COLUMN lease_expires_utc DATETIME(6) NULL;",
+            @"ALTER TABLE docks ADD COLUMN owner_token TEXT NULL;",
+            @"ALTER TABLE captains ADD COLUMN last_process_alive_utc DATETIME(6) NULL;",
+            @"ALTER TABLE missions ADD COLUMN review_deadline_utc DATETIME(6) NULL;",
+            @"ALTER TABLE merge_entries ADD COLUMN retry_count INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE merge_entries ADD COLUMN lease_expires_utc DATETIME(6) NULL;",
+            CoordinationLeases
+        };
+
+        /// <summary>
+        /// Migration v45 statements: project_profiles for per-project persona/pipeline/skill customization.
+        /// </summary>
+        public static readonly string[] MigrationV45Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS project_profiles (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                scope VARCHAR(64) NOT NULL DEFAULT 'Global',
+                fleet_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                is_default TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                default_pipeline_id VARCHAR(450),
+                workflow_profile_id VARCHAR(450),
+                persona_overrides_json LONGTEXT,
+                skills_json LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                INDEX idx_project_profiles_tenant (tenant_id),
+                INDEX idx_project_profiles_scope (scope),
+                INDEX idx_project_profiles_fleet (fleet_id),
+                INDEX idx_project_profiles_vessel (vessel_id)
+            );"
+        };
+
+        /// <summary>
+        /// Migration v46 statements: skills directory.
+        /// </summary>
+        public static readonly string[] MigrationV46Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS skills (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                category VARCHAR(255),
+                content LONGTEXT,
+                is_built_in TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                INDEX idx_skills_tenant (tenant_id),
+                INDEX idx_skills_category (category),
+                INDEX idx_skills_active (active)
+            );"
+        };
+
+        /// <summary>
+        /// Migration v47 statements: reasoning_effort/tier on captains, redispatch_attempts/tier on missions, and vessel dock-boundary columns.
+        /// </summary>
+        public static readonly string[] MigrationV47Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN reasoning_effort VARCHAR(64) NULL;",
+            @"ALTER TABLE captains ADD COLUMN tier VARCHAR(32) NULL;",
+            @"ALTER TABLE missions ADD COLUMN redispatch_attempts INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE missions ADD COLUMN tier VARCHAR(32) NULL;",
+            @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json LONGTEXT NULL;",
+            @"ALTER TABLE vessels ADD COLUMN private_identifier_denylist_json LONGTEXT NULL;"
+        };
+
+        /// <summary>
+        /// Migration v48 statements: auto-land policy columns on vessels and quarantine columns on captains.
+        /// </summary>
+        public static readonly string[] MigrationV48Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN auto_land_enabled TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_max_files INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_max_lines INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_path_allow_globs_json LONGTEXT NULL;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_path_deny_globs_json LONGTEXT NULL;",
+            @"ALTER TABLE captains ADD COLUMN quarantine_until_utc DATETIME(6) NULL;",
+            @"ALTER TABLE captains ADD COLUMN quarantine_reason LONGTEXT NULL;"
+        };
+
+        /// <summary>
+        /// DDL for the jobs table.
+        /// </summary>
+        public static readonly string Jobs = @"CREATE TABLE IF NOT EXISTS jobs (
+            id VARCHAR(450) NOT NULL PRIMARY KEY,
+            tenant_id VARCHAR(450),
+            user_id VARCHAR(450),
+            name VARCHAR(450) NOT NULL,
+            kind VARCHAR(64) NOT NULL DEFAULT 'Generic',
+            status VARCHAR(64) NOT NULL DEFAULT 'Queued',
+            progress INT NOT NULL DEFAULT 0,
+            result_json LONGTEXT,
+            error_reason LONGTEXT,
+            created_utc DATETIME(6) NOT NULL,
+            started_utc DATETIME(6) NULL,
+            completed_utc DATETIME(6) NULL,
+            last_update_utc DATETIME(6) NOT NULL
+        );";
+
+        /// <summary>
+        /// Migration v49 statements: add the jobs table.
+        /// </summary>
+        public static readonly string[] MigrationV49Statements = new string[]
+        {
+            Jobs
+        };
+
+        /// <summary>
+        /// Migration v55 statements: per-step captain selection columns (persona default captain, mission requested captain, voyage captain overrides).
+        /// </summary>
+        public static readonly string[] MigrationV55Statements = new string[]
+        {
+            @"ALTER TABLE personas ADD COLUMN default_captain_id TEXT NULL;",
+            @"ALTER TABLE missions ADD COLUMN requested_captain_id TEXT NULL;",
+            @"ALTER TABLE voyages ADD COLUMN captain_overrides_json TEXT NULL;"
         };
 
         /// <summary>

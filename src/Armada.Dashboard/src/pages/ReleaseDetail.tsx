@@ -22,6 +22,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 interface ReleasePrefillState {
@@ -322,70 +323,73 @@ export default function ReleaseDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/releases">{t('Releases')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Release') : title}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Release') : title}</h2>
-        <div className="inline-actions">
-          {!createMode && <StatusBadge status={status} />}
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/deployments/new', {
-                state: {
-                  prefill: {
-                    vesselId: vesselId || null,
-                    workflowProfileId: workflowProfileId || null,
-                    releaseId: release?.id || null,
-                    voyageId: release?.voyageIds[0] || null,
-                    missionId: release?.missionIds[0] || null,
-                    title: `${title} Deploy`,
-                    sourceRef: tagName || version || null,
-                    summary: summary || null,
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/releases">{t('Releases')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Release') : title}</span>
+          </>
+        }
+        title={createMode ? t('Create Release') : title}
+        actions={
+          <>
+            {!createMode && <StatusBadge status={status} />}
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/deployments/new', {
+                  state: {
+                    prefill: {
+                      vesselId: vesselId || null,
+                      workflowProfileId: workflowProfileId || null,
+                      releaseId: release?.id || null,
+                      voyageId: release?.voyageIds[0] || null,
+                      missionId: release?.missionIds[0] || null,
+                      title: `${title} Deploy`,
+                      sourceRef: tagName || version || null,
+                      summary: summary || null,
+                    },
                   },
-                },
-              })}
-            >
-              {t('Deploy')}
-            </button>
-          )}
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/checks', {
-                state: {
-                  prefill: {
-                    vesselId: vesselId || null,
-                    workflowProfileId: workflowProfileId || null,
-                    voyageId: release?.voyageIds[0] || null,
-                    missionId: release?.missionIds[0] || null,
-                    label: title,
+                })}
+              >
+                {t('Deploy')}
+              </button>
+            )}
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/checks', {
+                  state: {
+                    prefill: {
+                      vesselId: vesselId || null,
+                      workflowProfileId: workflowProfileId || null,
+                      voyageId: release?.voyageIds[0] || null,
+                      missionId: release?.missionIds[0] || null,
+                      label: title,
+                    },
                   },
-                },
-              })}
-            >
-              {t('Run Check')}
-            </button>
-          )}
-          {!createMode && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: release })}>
-              {t('View JSON')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm" disabled={refreshing} onClick={handleRefresh}>
-              {refreshing ? t('Refreshing...') : t('Refresh Derived Fields')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
-              {t('Delete')}
-            </button>
-          )}
-        </div>
-      </div>
+                })}
+              >
+                {t('Run Check')}
+              </button>
+            )}
+            {!createMode && (
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: release })}>
+                {t('View JSON')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm" disabled={refreshing} onClick={handleRefresh}>
+                {refreshing ? t('Refreshing...') : t('Refresh Derived Fields')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+                {t('Delete')}
+              </button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

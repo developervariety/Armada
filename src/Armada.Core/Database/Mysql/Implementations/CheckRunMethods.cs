@@ -341,10 +341,10 @@ namespace Armada.Core.Database.Mysql.Implementations
                 Output = MysqlDatabaseDriver.NullableString(reader["output"]),
                 Summary = MysqlDatabaseDriver.NullableString(reader["summary"]),
                 DurationMs = reader["duration_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["duration_ms"]),
-                StartedUtc = reader["started_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["started_utc"]).ToUniversalTime(),
-                CompletedUtc = reader["completed_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["completed_utc"]).ToUniversalTime(),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                StartedUtc = reader["started_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["started_utc"]), DateTimeKind.Utc),
+                CompletedUtc = reader["completed_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["completed_utc"]), DateTimeKind.Utc),
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
             };
 
             if (Enum.TryParse(reader["check_type"].ToString(), true, out CheckRunTypeEnum type))

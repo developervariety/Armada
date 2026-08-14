@@ -4,6 +4,7 @@ import {
   getSettings,
   updateSettings,
   stopServer,
+  restartServer,
   resetServer,
   downloadBackup,
   restoreBackup,
@@ -11,6 +12,9 @@ import {
   type ProxySessionContext,
 } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
+import PageHeader from '../components/shared/PageHeader';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications, type Severity } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -243,6 +247,8 @@ export default function Server() {
     loadData();
   }, [loadData]);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('server', loadData);
+
   const handleSaveServerConfig = async () => {
     if (!settings) return;
     try {
@@ -391,6 +397,24 @@ export default function Server() {
         try {
           await stopServer();
           showToast('warning', t('Server shutting down...'));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : t('Unknown error');
+          showToast('error', t('Failed: {{message}}', { message: msg }));
+        }
+        closeConfirmDialog();
+      },
+    });
+  };
+
+  const handleRestartServer = () => {
+    setConfirmDialog({
+      open: true,
+      title: t('Restart Server'),
+      message: t('Restart the Admiral server? A replacement process starts and this instance shuts down; the dashboard will be briefly unavailable while it comes back up.'),
+      onConfirm: async () => {
+        try {
+          await restartServer();
+          showToast('warning', t('Server restarting... the dashboard will reconnect shortly.'));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : t('Unknown error');
           showToast('error', t('Failed: {{message}}', { message: msg }));
@@ -583,17 +607,16 @@ export default function Server() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Server Settings')}</h2>
-          <p className="text-muted">
-            {t('Admiral server health, configuration, and operational controls.')}
-          </p>
-        </div>
-        <div className="page-actions">
-          <RefreshButton onRefresh={loadData} title={t('Refresh server data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Server Settings')}
+        subtitle={t('Admiral server health, configuration, and operational controls.')}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={loadData} title={t('Refresh server data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -1273,6 +1296,14 @@ export default function Server() {
               title={t('Run a health check and display the result')}
             >
               {t('Health Check')}
+            </button>
+            <button
+              className="btn btn-sm"
+              disabled={remoteProxyMode}
+              onClick={handleRestartServer}
+              title={remoteProxyMode ? t('Restart Server is blocked in proxy mode') : t('Restart the admiral server process')}
+            >
+              {t('Restart Server')}
             </button>
             <button
               className="btn btn-danger btn-sm"

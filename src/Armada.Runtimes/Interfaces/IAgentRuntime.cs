@@ -24,10 +24,20 @@ namespace Armada.Runtimes.Interfaces
         bool SupportsPlanningSessions { get; }
 
         /// <summary>
-        /// Event raised when the agent writes a line to stdout.
-        /// The int parameter is the process ID, the string is the output line.
+        /// Event raised when the agent writes a line to EITHER stdout or stderr. The int parameter is the
+        /// process ID, the string is the output line. Missions subscribe here because some CLIs emit useful
+        /// progress/diagnostics on stderr. Interactive consumers that only want the model's answer (chat,
+        /// planning) should subscribe to <see cref="OnStdoutReceived"/> instead, since agent CLIs print
+        /// human-readable banners and prompt echoes to stderr that must not appear in the reply.
         /// </summary>
         event Action<int, string>? OnOutputReceived;
+
+        /// <summary>
+        /// Event raised only when the agent writes a line to stdout (never stderr). The int parameter is the
+        /// process ID, the string is the output line. Use this for interactive reply capture so CLI stderr
+        /// banners (e.g. Codex's "Reading prompt from stdin... OpenAI Codex ..." preamble) are excluded.
+        /// </summary>
+        event Action<int, string>? OnStdoutReceived;
 
         /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
@@ -51,6 +61,9 @@ namespace Armada.Runtimes.Interfaces
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
         /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
+        /// <param name="isolateLaunch">When true, launch in a scoped agent configuration containing only the Armada MCP server.</param>
+        /// <param name="mcpPort">The Admiral MCP port, used to build the scoped Armada MCP config when isolating.</param>
+        /// <param name="showThinking">When true, ask the runtime to surface the model's reasoning for this run (e.g. Mux --show-thinking).</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Process ID of the started agent.</returns>
         Task<int> StartAsync(
@@ -61,6 +74,9 @@ namespace Armada.Runtimes.Interfaces
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool isolateLaunch = false,
+            int mcpPort = 0,
+            bool showThinking = false,
             CancellationToken token = default);
 
         /// <summary>

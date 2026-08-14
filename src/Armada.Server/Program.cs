@@ -61,6 +61,10 @@ namespace Armada.Server
 
             _Logging.Info("[Program] starting Admiral on port " + _Settings.AdmiralPort);
 
+            // If this instance was launched as the replacement half of an in-place restart, wait for the
+            // outgoing Admiral to fully exit before binding so the two never race for the listening port.
+            await WaitForPredecessorExitAsync().ConfigureAwait(false);
+
             // Build and run server
             EventWaitHandle waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
 
@@ -103,6 +107,51 @@ namespace Armada.Server
 
             _Server.Stop();
             _Logging.Info("[Program] stopped at " + DateTime.UtcNow.ToString("o"));
+        }
+
+        private static async Task WaitForPredecessorExitAsync()
+        {
+            string? pidValue = Environment.GetEnvironmentVariable(Constants.RestartWaitPidEnvVar);
+            if (string.IsNullOrWhiteSpace(pidValue)) return;
+            if (!int.TryParse(pidValue, out int pid) || pid <= 0) return;
+
+            _Logging.Info("[Program] restart: waiting for predecessor process " + pid + " to exit before binding");
+
+            System.Diagnostics.Process? predecessor = null;
+            try
+            {
+                predecessor = System.Diagnostics.Process.GetProcessById(pid);
+            }
+            catch (ArgumentException)
+            {
+                // Predecessor already gone; nothing to wait for.
+                return;
+            }
+
+            using (predecessor)
+            {
+                // Bound the wait so a stuck predecessor cannot hang startup indefinitely.
+                for (int i = 0; i < 30; i++)
+                {
+                    try
+                    {
+                        predecessor.Refresh();
+                        if (predecessor.HasExited)
+                        {
+                            _Logging.Info("[Program] restart: predecessor process " + pid + " exited");
+                            return;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return;
+                    }
+
+                    await Task.Delay(1000).ConfigureAwait(false);
+                }
+
+                _Logging.Warn("[Program] restart: predecessor process " + pid + " did not exit within the timeout; binding anyway");
+            }
         }
 
         private static void InitializeLogging()

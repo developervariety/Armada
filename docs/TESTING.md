@@ -2,42 +2,40 @@
 
 ## Run All Tests
 
-All commands run from the repository root. Each test project is a standalone console application.
+All commands run from the repository root. Every test case is a runner-agnostic descriptor in
+`src/Test.Shared`, executed either by the console runner or the xUnit/NUnit adapters. Both `net8.0`
+and `net10.0` are supported; pass `--framework net8.0` or `--framework net10.0`.
 
 ```bash
-dotnet run --project test/Armada.Test.Automated --framework net10.0
-dotnet run --project test/Armada.Test.Unit --framework net10.0
-dotnet run --project test/Armada.Test.Runtimes --framework net10.0
+# Console runner -- all suites
+dotnet run --project src/Test.Automated --framework net10.0
+
+# Same suites via the xUnit / NUnit adapters (VSTest)
+dotnet test src/Test.Xunit --framework net10.0
+dotnet test src/Test.Nunit --framework net10.0
+
+# Run a targeted subset by suite-id prefix
+ARMADA_TEST_SUITES="Database,Services.MergeQueue" dotnet run --project src/Test.Automated --framework net10.0
 
 # React dashboard build and smoke tests
 cd src/Armada.Dashboard
 npm run build
 npm run test:run
 cd ../..
-
-# Database driver tests (SQLite default)
-dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type sqlite --filename test.db
-
-# PostgreSQL
-dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type postgresql --hostname localhost --port 5432 --username postgres --password secret --database armada_test
-
-# SQL Server
-dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type sqlserver --hostname localhost --port 1433 --username sa --password secret --database armada_test
-
-# MySQL
-dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mysql --hostname localhost --port 3306 --username root --password secret --database armada_test
 ```
+
+Database-driver coverage runs against SQLite in-process by default. The PostgreSQL, MySQL, and SQL
+Server drivers are exercised by the same descriptors when those backends are available.
 
 ## Test Projects
 
-| Project | Tests | What It Covers |
-|---------|-------|----------------|
-| `Armada.Test.Automated` | ~780+ | REST API, MCP tools, WebSocket, authentication, and end-to-end lifecycle workflows including objectives, GitHub-backed intake/CI/review routes, releases, environments, deployments, incidents, and history |
-| `Armada.Test.Unit` | ~970+ | Database operations, model serialization, service logic, readiness, objectives, incidents, releases, deployments, and timeline aggregation |
-| `Armada.Test.Runtimes` | ~35 | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux) |
-| `Armada.Test.Database` | 35+ per backend | Database driver CRUD operations across all 4 backends, including workflow profiles, check runs, objectives, environments, deployments, and releases |
-| `Armada.Dashboard` Vitest suite | 23 | React component and page smoke tests, including Workspace, Planning, History, Request History, API Explorer, Checks, Objectives, and Releases |
-| `Armada.Test.Common` | — | Shared test infrastructure (TestRunner, TestSuite, TestResult) |
+| Project | What It Covers |
+|---------|----------------|
+| `src/Test.Shared` | The shared descriptor library: all ~2,200 test cases (models, database drivers, services, runtimes, and end-to-end REST/MCP/WebSocket lifecycle), plus the test infrastructure (fixtures, stubs, `TestDatabaseHelper`). Depends only on `Touchstone.Core`. |
+| `src/Test.Automated` | Console/CLI runner (Touchstone.Cli) that executes every suite and prints per-test results; the primary way to run the full suite. |
+| `src/Test.Xunit` | Runs the shared descriptors through the xUnit adapter (VSTest / IDE integration). |
+| `src/Test.Nunit` | Runs the shared descriptors through the NUnit adapter (VSTest / IDE integration). |
+| `Armada.Dashboard` Vitest suite | React component and page smoke tests. |
 
 ## How It Works
 
@@ -45,7 +43,7 @@ No test framework (xUnit, NUnit, MSTest) is used. Each test project is a console
 
 The React dashboard is the exception: it uses `vitest` plus Testing Library for browser-surface smoke tests and interaction tests.
 
-- `TestSuite` — abstract base class in `Armada.Test.Common`. Each suite groups related tests, provides assertion helpers, and cleans up its own test data.
+- `TestSuite` — abstract base class in `Test.Shared`. Each suite groups related tests, provides assertion helpers, and cleans up its own test data.
 - `TestRunner` — orchestrates suites, prints colored results, generates summary with failed test details.
 - `RunTest(name, action)` — wraps each test with a Stopwatch. Prints PASS/FAIL with elapsed milliseconds. Catches exceptions and records failure details.
 
@@ -81,32 +79,32 @@ RESULT: PASS
 
 ```bash
 # Run with default settings (temporary SQLite database, cleaned up after execution)
-dotnet run --project test/Armada.Test.Automated --framework net10.0
+dotnet run --project src/Test.Automated --framework net10.0
 
 # Keep test database after run (for debugging)
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --no-cleanup
+dotnet run --project src/Test.Automated --framework net10.0 -- --no-cleanup
 
 # Run only one automated suite by name fragment
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Request History"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "Request History"
 
 # Focus on delivery and real-time surfaces
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "MCP"
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "WebSocket"
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Release"
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Objectives"
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "GitHub Integration"
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Environment"
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Deployment"
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Checks"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "MCP"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "WebSocket"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "Release"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "Objectives"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "GitHub Integration"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "Environment"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "Deployment"
+dotnet run --project src/Test.Automated --framework net10.0 -- --suite "Checks"
 
 # Test against PostgreSQL instead of default temp SQLite
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type postgresql -h localhost -u postgres -w secret -d armada_test
+dotnet run --project src/Test.Automated --framework net10.0 -- --type postgresql -h localhost -u postgres -w secret -d armada_test
 
 # Test against SQL Server
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type sqlserver -h localhost --port 1433 -u sa -w secret -d armada_test
+dotnet run --project src/Test.Automated --framework net10.0 -- --type sqlserver -h localhost --port 1433 -u sa -w secret -d armada_test
 
 # Test against MySQL
-dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type mysql -h localhost --port 3306 -u root -w secret -d armada_test
+dotnet run --project src/Test.Automated --framework net10.0 -- --type mysql -h localhost --port 3306 -u root -w secret -d armada_test
 ```
 
 ### Database Arguments
@@ -124,7 +122,7 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type my
 
 If no `--type` is provided, both Test.Automated and Test.Database default to a temporary SQLite database that is automatically cleaned up after execution.
 
-`Armada.Test.Automated` also supports `--suite <name>` to run only suites whose display name or type name contains the supplied text.
+`Test.Automated` also supports `--suite <name>` to run only suites whose display name or type name contains the supplied text.
 
 ## Multi-Database Testing
 

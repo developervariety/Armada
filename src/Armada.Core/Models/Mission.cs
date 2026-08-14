@@ -45,9 +45,20 @@ namespace Armada.Core.Models
         public string? VesselId { get; set; } = null;
 
         /// <summary>
-        /// Assigned captain identifier.
+        /// Assigned captain identifier. Set by dispatch when the mission is actually assigned to a captain;
+        /// this is the captain that ran (or is running) the mission, which may differ from
+        /// <see cref="RequestedCaptainId"/> when the preferred captain was busy and dispatch fell back by tier.
         /// </summary>
         public string? CaptainId { get; set; } = null;
+
+        /// <summary>
+        /// Optional preferred (dictated) captain identifier for this mission, referenced by captain id
+        /// (cpt_ prefix). Resolved at creation from the dispatch payload, the voyage override, or the persona
+        /// default. When set and that captain is idle, dispatch assigns it (bypassing the persona fence);
+        /// when it is busy, dispatch falls back to an idle captain at or above <see cref="Tier"/>. Null means
+        /// no preference (normal persona/tier routing).
+        /// </summary>
+        public string? RequestedCaptainId { get; set; } = null;
 
         /// <summary>
         /// Mission title.
@@ -76,6 +87,18 @@ namespace Armada.Core.Models
         /// Mission priority (lower is higher priority).
         /// </summary>
         public int Priority { get; set; } = 100;
+
+        /// <summary>
+        /// Number of times this mission has been automatically re-dispatched after a detected no-op
+        /// completion. Bounds the auto-retry before the mission is failed and surfaced to the operator.
+        /// </summary>
+        public int RedispatchAttempts { get; set; } = 0;
+
+        /// <summary>
+        /// Optional required capability tier. Dispatch routes the mission to an idle captain at or above
+        /// this tier (preferring the lowest eligible tier). Null means Standard.
+        /// </summary>
+        public CaptainTierEnum? Tier { get; set; } = null;
 
         /// <summary>
         /// Parent mission identifier for sub-tasks.
@@ -163,6 +186,13 @@ namespace Armada.Core.Models
         /// Timestamp when this mission most recently entered the review gate.
         /// </summary>
         public DateTime? ReviewRequestedUtc { get; set; } = null;
+
+        /// <summary>
+        /// UTC deadline by which a mission parked in Review must be actioned. When elapsed, the
+        /// review watchdog escalates and frees the retained dock and captain so a forgotten
+        /// review cannot pin capacity indefinitely. Null when the mission is not awaiting review.
+        /// </summary>
+        public DateTime? ReviewDeadlineUtc { get; set; } = null;
 
         /// <summary>
         /// Timestamp when this mission's most recent review decision was made.

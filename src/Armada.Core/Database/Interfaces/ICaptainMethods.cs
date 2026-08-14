@@ -59,6 +59,13 @@ namespace Armada.Core.Database.Interfaces
         Task UpdateHeartbeatAsync(string id, CancellationToken token = default);
 
         /// <summary>
+        /// Update the captain's process-liveness timestamp without advancing the output heartbeat.
+        /// Refreshed while the agent's OS process is alive but silent, so liveness telemetry stays
+        /// current without masking a stall (which is measured from the output heartbeat).
+        /// </summary>
+        Task UpdateProcessAliveAsync(string id, CancellationToken token = default);
+
+        /// <summary>
         /// Check if a captain exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);

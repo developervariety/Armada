@@ -30,9 +30,15 @@ namespace Armada.Runtimes
         public virtual bool SupportsPlanningSessions => true;
 
         /// <summary>
-        /// Event raised when the agent writes a line to stdout.
+        /// Event raised when the agent writes a line to either stdout or stderr.
         /// </summary>
         public event Action<int, string>? OnOutputReceived;
+
+        /// <summary>
+        /// Event raised only when the agent writes a line to stdout (never stderr). Interactive consumers
+        /// (chat, planning) subscribe here so CLI stderr banners are excluded from the captured reply.
+        /// </summary>
+        public event Action<int, string>? OnStdoutReceived;
 
         /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
@@ -45,12 +51,25 @@ namespace Armada.Runtimes
         /// </summary>
         public event Action<int, int?>? OnProcessExited;
 
+        /// <summary>
+        /// Milliseconds to wait for an agent process to exit gracefully (after closing stdin) before it
+        /// is force-killed during <see cref="StopAsync"/>. Defaults to 10000 (10s) for production. Test
+        /// harnesses lower this so recalling agents does not block on the full graceful window. Clamped to
+        /// a non-negative value on set.
+        /// </summary>
+        public static int GracefulStopTimeoutMs
+        {
+            get => _GracefulStopTimeoutMs;
+            set => _GracefulStopTimeoutMs = value < 0 ? 0 : value;
+        }
+
         #endregion
 
         #region Private-Members
 
         private string _Header = "[BaseAgentRuntime] ";
         private LoggingModule _Logging;
+        private static int _GracefulStopTimeoutMs = 10000;
 
         #endregion
 
@@ -79,6 +98,11 @@ namespace Armada.Runtimes
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
         /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
+        /// <param name="isolateLaunch">When true, launch the captain in a scoped agent configuration that
+        /// contains only the Armada MCP server, blocking inheritance of the host user's global settings.</param>
+        /// <param name="mcpPort">The Admiral MCP port, used to build the scoped Armada MCP config when isolating.</param>
+        /// <param name="showThinking">When true, ask the runtime to surface the model's reasoning for this run
+        /// (honored by runtimes with a thinking channel, e.g. Mux).</param>
         /// <param name="token">Cancellation token.</param>
         public virtual async Task<int> StartAsync(
             string workingDirectory,
@@ -88,13 +112,40 @@ namespace Armada.Runtimes
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool isolateLaunch = false,
+            int mcpPort = 0,
+            bool showThinking = false,
             CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
 
+            ShowThinking = showThinking;
             string command = GetCommand();
             List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
+
+            // Plan captain launch isolation (opt-in). An empty plan leaves the launch unchanged, so when
+            // isolation is disabled the behavior below is identical to a non-isolated launch.
+            Armada.Core.Services.CaptainLaunchIsolationPlan isolationPlan = new Armada.Core.Services.CaptainLaunchIsolationPlan();
+            if (isolateLaunch && mcpPort > 0)
+            {
+                string scopedConfigDirectory = Path.Combine(Path.GetTempPath(), "armada", "isolation", (captain?.Id ?? Guid.NewGuid().ToString("N")));
+                isolationPlan = Armada.Core.Services.CaptainLaunchIsolationPlanner.Plan(RuntimeType, mcpPort, scopedConfigDirectory);
+                if (!isolationPlan.IsEmpty)
+                {
+                    foreach (Armada.Core.Services.IsolationConfigFile file in isolationPlan.FilesToWrite)
+                    {
+                        string absolutePath = Path.Combine(scopedConfigDirectory, file.RelativePath);
+                        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+                        File.WriteAllText(absolutePath, file.Contents);
+                    }
+                    foreach (string extraArg in isolationPlan.ExtraArguments)
+                    {
+                        args.Add(extraArg);
+                    }
+                    _Logging.Info(_Header + "isolated launch for " + RuntimeType + " using scoped config " + scopedConfigDirectory);
+                }
+            }
 
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
@@ -110,6 +161,13 @@ namespace Armada.Runtimes
                 CreateNoWindow = true
             };
 
+            // Cross-runtime hardening: captains frequently shell out to `dotnet`, and MSBuild node reuse
+            // leaves orphaned build-server processes behind after a mission; disable it at launch. Opt out
+            // of dotnet CLI telemetry so it does not add noise to captured captain output. Set before the
+            // caller-supplied environment and ApplyEnvironment so a runtime can still override if needed.
+            startInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+            startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+
             foreach (string arg in args)
             {
                 startInfo.ArgumentList.Add(arg);
@@ -123,7 +181,14 @@ namespace Armada.Runtimes
                 }
             }
 
-            ApplyEnvironment(startInfo);
+            ApplyEnvironment(startInfo, captain);
+
+            // Apply isolation environment overrides last so a scoped HOME/CODEX_HOME/MUX_CONFIG_DIR wins
+            // over any inherited or runtime-default value.
+            foreach (KeyValuePair<string, string> kvp in isolationPlan.EnvironmentOverrides)
+            {
+                startInfo.Environment[kvp.Key] = kvp.Value;
+            }
 
             // Set up optional log file writer
             StreamWriter? logWriter = null;
@@ -144,6 +209,12 @@ namespace Armada.Runtimes
                 }
                 await logWriter.WriteLineAsync("[" + timestamp + "] Agent starting: " + command + " " + firstFlag).ConfigureAwait(false);
                 await logWriter.WriteLineAsync(promptContent).ConfigureAwait(false);
+                if (UsePromptStdin)
+                {
+                    // The prompt is delivered on stdin rather than as a CLI argument, so it is not part of
+                    // the argument list above; log it explicitly so mission logs still capture the prompt.
+                    await logWriter.WriteLineAsync(prompt).ConfigureAwait(false);
+                }
                 await logWriter.WriteLineAsync("").ConfigureAwait(false);
             }
 
@@ -158,6 +229,10 @@ namespace Armada.Runtimes
                     catch (ObjectDisposedException) { }
 
                     try { OnOutputReceived?.Invoke(process.Id, e.Data); }
+                    catch { }
+
+                    // stdout-only consumers (chat, planning) rely on this to exclude stderr banners.
+                    try { OnStdoutReceived?.Invoke(process.Id, e.Data); }
                     catch { }
                 }
             };
@@ -246,8 +321,8 @@ namespace Armada.Runtimes
                         // stdin may already be closed
                     }
 
-                    // Wait up to 10 seconds for graceful exit
-                    bool exited = process.WaitForExit(10000);
+                    // Wait for graceful exit up to the configured window before force-killing.
+                    bool exited = process.WaitForExit(_GracefulStopTimeoutMs);
                     if (!exited)
                     {
                         _Logging.Warn(_Header + "process " + processId + " did not exit gracefully, killing");
@@ -266,6 +341,17 @@ namespace Armada.Runtimes
                 _Logging.Warn(_Header + "error stopping process " + processId + ": " + ex.Message);
             }
         }
+
+        /// <summary>
+        /// The runtime this adapter drives. Used to plan launch isolation (scoped config / strict MCP).
+        /// </summary>
+        protected abstract Armada.Core.Enums.AgentRuntimeEnum RuntimeType { get; }
+
+        /// <summary>
+        /// Whether the current launch requested the model's reasoning ("thinking") be surfaced. Set at the
+        /// start of <see cref="StartAsync"/> and read by runtimes that support a thinking channel.
+        /// </summary>
+        protected bool ShowThinking { get; private set; }
 
         /// <summary>
         /// Build runtime-specific command-line arguments.
@@ -310,7 +396,9 @@ namespace Armada.Runtimes
         /// <summary>
         /// Apply runtime-specific environment variables to the process start info.
         /// </summary>
-        protected virtual void ApplyEnvironment(ProcessStartInfo startInfo)
+        /// <param name="startInfo">The process start info being configured.</param>
+        /// <param name="captain">The captain being launched, if any (for per-captain env such as reasoning effort).</param>
+        protected virtual void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
         }
 

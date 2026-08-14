@@ -1,14 +1,14 @@
 # Armada MCP API Reference
 
-**Version:** 0.8.0
-**Default URL:** `http://localhost:7891`
-**Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
+**Version:** 0.9.0
+**Default URL:** `http://localhost:7891/mcp`
+**Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), Streamable HTTP transport
 **Server Library:** Voltaic (McpHttpServer)
 **Server Name:** `Armada`
 
 ## Remote Control Note
 
-`v0.8.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
+`v0.9.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
 
 Remote control in this release is limited to:
 
@@ -32,6 +32,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 - [Tools](#tools)
   - **Status**
     - [status](#status)
+    - [inbox](#inbox)
     - [stop_server](#stop_server)
   - **Enumeration**
     - [enumerate](#enumerate)
@@ -184,17 +185,17 @@ The MCP server shares the same tool implementations as the stdio transport, regi
 
 ### HTTP Transport
 
-The primary MCP transport is HTTP, served by `McpHttpServer` from the Voltaic library. The server listens on a dedicated port.
+The primary MCP transport is HTTP, served by `McpHttpServer` from the Voltaic library. The server listens on a dedicated port and exposes the modern MCP **Streamable HTTP** endpoint at `/mcp` (POST for JSON-RPC requests, GET for the SSE notification stream, DELETE to terminate the session). Point HTTP MCP clients at:
 
 ```
-http://localhost:7891
+http://localhost:7891/mcp
 ```
 
-MCP clients communicate using the standard MCP JSON-RPC protocol over HTTP. The server supports the full MCP tool-calling lifecycle:
+The legacy `/rpc` + `/events` (separate SSE) endpoints remain served for older clients but `/mcp` is preferred. MCP clients communicate using the standard MCP JSON-RPC protocol over HTTP. The server supports the full MCP tool-calling lifecycle:
 
-1. **Initialize** Ã¢â‚¬â€ Client discovers server capabilities and available tools
-2. **Call Tool** Ã¢â‚¬â€ Client invokes a tool with arguments
-3. **Response** Ã¢â‚¬â€ Server returns the tool result
+1. **Initialize** — Client discovers server capabilities and available tools
+2. **Call Tool** — Client invokes a tool with arguments
+3. **Response** — Server returns the tool result
 
 ### Stdio Transport
 
@@ -302,7 +303,7 @@ No parameters required.
     "latencyMs": null,
     "capabilityManifest": {
       "protocolVersion": "2026-04-03",
-      "armadaVersion": "0.8.0",
+      "armadaVersion": "0.9.0",
       "features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -315,6 +316,74 @@ No parameters required.
   "timestampUtc": "2026-03-07T12:34:56.789Z"
 }
 ```
+
+---
+
+### inbox
+
+Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Call this to answer a user asking *"Is there anything waiting on me?"*, *"Is there anything that needs my attention?"*, or *"Do I have any action items from Armada work?"*.
+
+**What qualifies.** Two kinds of item appear:
+
+- **Awaiting your decision (human-in-the-loop):** a mission in `Review` (approve or reject), or a deployment in `PendingApproval`.
+- **Failed and needs intervention (human-out-of-the-loop):** a failed mission, a mission whose work could not be merged (landing failed), a failed merge, a failed or verification-failed deployment, or a stalled captain.
+
+Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty `items` list means nothing currently needs the operator.
+
+**Item kinds and severity:**
+
+| `kind` | Meaning | Severity |
+|---|---|---|
+| `review` | Mission awaiting your review/approval | `Warning`, or `Critical` if the review deadline has passed |
+| `landing_failed` | Mission produced work that could not be merged | `Critical` |
+| `failed` | Mission failed | `Warning` |
+| `merge_failed` | Queued merge failed testing or landing | `Critical` |
+| `deployment_approval` | Deployment waiting for your approval before it runs | `Warning` |
+| `deployment_failed` | Deployment failed or failed verification | `Critical` |
+| `stalled_captain` | Captain is stalled and may need recovery or a dock reclaim | `Warning` |
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+No parameters required.
+
+**Response:** counts plus the ordered item list. Each item has `kind`, `severity` (`Critical`, `Warning`, or `Info`), `title`, `detail`, `entityType`, `entityId`, and a dashboard `href`.
+
+```json
+{
+  "count": 2,
+  "criticalCount": 1,
+  "warningCount": 1,
+  "items": [
+    {
+      "kind": "landing_failed",
+      "severity": "Critical",
+      "title": "Landing failed: Add JWT validation",
+      "detail": "The work could not be landed.",
+      "entityType": "mission",
+      "entityId": "msn_1a2b3c",
+      "href": "/missions/msn_1a2b3c"
+    },
+    {
+      "kind": "review",
+      "severity": "Warning",
+      "title": "Review: Refactor auth service",
+      "detail": "Awaiting your review.",
+      "entityType": "mission",
+      "entityId": "msn_4d5e6f",
+      "href": "/missions/msn_4d5e6f"
+    }
+  ]
+}
+```
+
+> Also exposed over REST as `GET /api/v1/inbox` and in the CLI as `armada inbox`.
 
 ---
 
@@ -1674,7 +1743,7 @@ Register a new captain (AI agent).
   "type": "object",
   "properties": {
     "name": { "type": "string", "description": "Captain display name" },
-    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
+    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, or Custom" },
     "model": { "type": "string", "description": "Optional model override for this captain. When omitted, the runtime chooses automatically" },
     "systemInstructions": { "type": "string", "description": "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
     "allowedPersonas": { "type": "string", "description": "JSON array of persona names this captain is allowed to use" },
@@ -1687,7 +1756,7 @@ Register a new captain (AI agent).
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | Yes | Captain display name |
-| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, or `Custom` |
+| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, or `Custom` |
 | `model` | string | No | Optional model override. When omitted, the runtime chooses automatically |
 | `systemInstructions` | string | No | System instructions injected into every mission prompt for this captain |
 | `allowedPersonas` | string | No | JSON array of persona names this captain is allowed to use, for example `["Worker","Judge"]` |
@@ -1749,7 +1818,7 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
   "properties": {
     "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
     "name": { "type": "string", "description": "New display name" },
-    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
+    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, or Custom" },
     "model": { "type": "string", "description": "New optional model override for this captain" },
     "systemInstructions": { "type": "string", "description": "New system instructions for this captain" },
     "allowedPersonas": { "type": "string", "description": "New JSON array of persona names this captain is allowed to use" },
@@ -1763,7 +1832,7 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
 |---|---|---|---|
 | `captainId` | string | Yes | Captain ID (prefix `cpt_`) |
 | `name` | string | No | New display name |
-| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, or `Custom` |
+| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, or `Custom` |
 | `model` | string | No | New optional model override. When omitted, the existing value is preserved |
 | `systemInstructions` | string | No | New system instructions for this captain |
 | `allowedPersonas` | string | No | New JSON array of persona names this captain is allowed to use, for example `["Worker","Judge"]` |
@@ -2409,7 +2478,7 @@ Refinement tools:
 
 | Tool | Purpose | Notes |
 |---|---|---|
-| `list_backlog_refinement_sessions` | List refinement sessions for one backlog item | Requires `objectiveId` |
+| `list_backlog_refinement_sessions` | List refinement sessions for one backlog item (lightweight, paginated) | Requires `objectiveId`; optional `pageNumber`, `pageSize` (default 25, max 100) |
 | `create_backlog_refinement_session` | Start captain-backed refinement | Requires explicit `captainId`; `vesselId` is optional |
 | `get_backlog_refinement_session` | Read one refinement transcript | Returns session, messages, captain, vessel, and linked backlog item |
 | `send_backlog_refinement_message` | Append one user message | Launches the next refinement turn |
@@ -2777,7 +2846,7 @@ Start a guided runbook execution with optional parameter overrides and deploymen
 
 ### list_prompt_templates
 
-List prompt templates, optionally filtered by category.
+List prompt templates (lightweight, paginated), optionally filtered by category. Returns metadata only -- name, category, description, active flag, and a `contentLength` hint -- not the template body. Fetch a single template's full content with [get_prompt_template](#get_prompt_template).
 
 **Input Schema:**
 
@@ -2785,7 +2854,9 @@ List prompt templates, optionally filtered by category.
 {
   "type": "object",
   "properties": {
-    "category": { "type": "string", "description": "Optional category filter such as 'persona' or 'mission'" }
+    "category": { "type": "string", "description": "Optional category filter such as 'persona' or 'mission'" },
+    "pageNumber": { "type": "integer", "description": "1-based page number (default 1)" },
+    "pageSize": { "type": "integer", "description": "Results per page (default 25, max 100)" }
   }
 }
 ```
@@ -2793,8 +2864,10 @@ List prompt templates, optionally filtered by category.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `category` | string | No | Optional category filter |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Results per page (default 25, max 100) |
 
-**Response:** array of [PromptTemplate](#prompttemplate) objects.
+**Response:** a paginated envelope `{ success, pageNumber, pageSize, totalPages, totalRecords, objects }`, where each item in `objects` carries `name`, `category`, `description`, `active`, `isBuiltIn`, `contentLength`, and `lastUpdateUtc`. The template body is intentionally omitted -- retrieve it per-template via [get_prompt_template](#get_prompt_template).
 
 ---
 
@@ -3237,6 +3310,14 @@ Restore Armada from a previously created backup ZIP file.
 
 ---
 
+## Per-Step Captain Selection
+
+Personas can carry a default captain, and a dispatch can dictate which captain runs each pipeline step, with a capability-tier fallback when that captain is busy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for the full model.
+
+- `create_persona` / `update_persona` accept `defaultCaptainId` (a `cpt_` id, validated against an existing captain). `update_persona` clears it with an empty string. `get_persona` returns it.
+- `dispatch` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier }` that binds each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Entries in `missions` may also carry a per-mission `requestedCaptainId` and `tier`.
+- Mission responses (`mission_status`, `get_mission_diff`, `get_mission_log`, `enumerate` for missions) include both `requestedCaptainId` (the preferred captain) and `captainId` (the captain that actually ran).
+
 ## Data Types
 
 ### Models
@@ -3322,8 +3403,8 @@ Paginated result wrapper returned by `enumerate`.
 | `projectContext` | string \| null | Project context describing architecture, key files, and dependencies |
 | `styleGuide` | string \| null | Style guide describing naming conventions, patterns, and library preferences |
 | `hasGitHubTokenOverride` | bool | Indicates whether a per-vessel GitHub token override is stored. MCP never returns the raw token value. |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-vessel landing policy override |
-| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) Ã¢â‚¬â€ per-vessel branch cleanup override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-vessel landing policy override |
+| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) — per-vessel branch cleanup override |
 | `active` | bool | Whether the vessel is active |
 | `createdUtc` | string | ISO 8601 creation timestamp |
 | `lastUpdateUtc` | string | ISO 8601 last update timestamp |
@@ -3343,7 +3424,7 @@ Paginated result wrapper returned by `enumerate`.
 | `autoPush` | bool \| null | Override global auto-push setting |
 | `autoCreatePullRequests` | bool \| null | Override global auto-create PR setting |
 | `autoMergePullRequests` | bool \| null | Override global auto-merge PR setting |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-voyage landing policy override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-voyage landing policy override |
 
 #### Mission
 
@@ -3646,6 +3727,7 @@ Paginated result wrapper returned by `enumerate`.
 | `Gemini` | Google Gemini CLI |
 | `Cursor` | Cursor agent CLI |
 | `Mux` | Mux CLI |
+| `OpenCode` | OpenCode CLI (OpenAI-compatible providers) |
 | `Custom` | Custom agent runtime |
 
 ---
@@ -3660,7 +3742,7 @@ Add Armada as an MCP server in your Claude Desktop configuration (`claude_deskto
 {
   "mcpServers": {
     "armada": {
-      "url": "http://localhost:7891"
+      "url": "http://localhost:7891/mcp"
     }
   }
 }
@@ -3671,7 +3753,7 @@ Add Armada as an MCP server in your Claude Desktop configuration (`claude_deskto
 Add Armada as an MCP server via the CLI:
 
 ```bash
-claude mcp add armada http://localhost:7891
+claude mcp add --transport http armada http://localhost:7891/mcp
 ```
 
 Or add to your project's `.mcp.json`:
@@ -3680,8 +3762,8 @@ Or add to your project's `.mcp.json`:
 {
   "mcpServers": {
     "armada": {
-      "type": "url",
-      "url": "http://localhost:7891"
+      "type": "http",
+      "url": "http://localhost:7891/mcp"
     }
   }
 }

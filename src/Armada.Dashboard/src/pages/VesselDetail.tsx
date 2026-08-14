@@ -5,6 +5,7 @@ import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, La
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -28,6 +29,9 @@ interface VesselForm {
   clearGitHubTokenOverride: boolean;
   requirePassingChecksToLand: boolean;
   protectedBranchPatterns: string;
+  secretScanEnabled: boolean;
+  protectedPathPatterns: string;
+  privateIdentifierDenylist: string;
   releaseBranchPrefix: string;
   hotfixBranchPrefix: string;
   requirePullRequestForProtectedBranches: boolean;
@@ -54,7 +58,7 @@ export default function VesselDetail() {
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, requirePassingChecksToLand: false, protectedBranchPatterns: '', releaseBranchPrefix: 'release/', hotfixBranchPrefix: 'hotfix/', requirePullRequestForProtectedBranches: false, requireMergeQueueForReleaseBranches: false, defaultPipelineId: '' });
+  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, requirePassingChecksToLand: false, protectedBranchPatterns: '', secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '', releaseBranchPrefix: 'release/', hotfixBranchPrefix: 'hotfix/', requirePullRequestForProtectedBranches: false, requireMergeQueueForReleaseBranches: false, defaultPipelineId: '' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -122,6 +126,9 @@ export default function VesselDetail() {
       clearGitHubTokenOverride: false,
       requirePassingChecksToLand: vessel.requirePassingChecksToLand,
       protectedBranchPatterns: (vessel.protectedBranchPatterns || []).join('\n'),
+      secretScanEnabled: vessel.secretScanEnabled ?? false,
+      protectedPathPatterns: (vessel.protectedPathPatterns || []).join('\n'),
+      privateIdentifierDenylist: (vessel.privateIdentifierDenylist || []).join('\n'),
       releaseBranchPrefix: vessel.releaseBranchPrefix || 'release/',
       hotfixBranchPrefix: vessel.hotfixBranchPrefix || 'hotfix/',
       requirePullRequestForProtectedBranches: vessel.requirePullRequestForProtectedBranches,
@@ -161,6 +168,14 @@ export default function VesselDetail() {
       else
         payload.gitHubTokenOverride = form.gitHubTokenOverride.trim();
       payload.protectedBranchPatterns = form.protectedBranchPatterns
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      payload.protectedPathPatterns = form.protectedPathPatterns
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      payload.privateIdentifierDenylist = form.privateIdentifierDenylist
         .split(/\r?\n/)
         .map((item) => item.trim())
         .filter((item) => item.length > 0);
@@ -216,42 +231,45 @@ export default function VesselDetail() {
   return (
     <div>
       {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/vessels">{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{vessel.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{vessel.name}</h2>
-        <div className="inline-actions">
-          <button type="button" className="btn btn-sm" onClick={handleManageObjectives}>
-            {t('Manage Objectives')}
-          </button>
-          {vessel.fleetId && (
-            <button type="button" className="btn btn-sm" onClick={() => navigate(`/fleets/${vessel.fleetId}`)}>
-              {t('Manage Fleet')}
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/vessels">{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{vessel.name}</span>
+          </>
+        }
+        title={vessel.name}
+        actions={
+          <>
+            <button type="button" className="btn btn-sm" onClick={handleManageObjectives}>
+              {t('Manage Objectives')}
             </button>
-          )}
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}/onboarding`)}>
-            {t('Onboarding')}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })}>
-            {t('Run Check')}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
-            {t('Open Workspace')}
-          </button>
-          <ActionMenu id={`vessel-${vessel.id}`} items={[
-            { label: 'Manage Objectives', onClick: handleManageObjectives },
-            { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },
-            { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
-            { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
-            { label: 'Edit', onClick: openEdit },
-            { label: 'Duplicate', onClick: () => void handleDuplicate() },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
-            { label: 'Delete', danger: true, onClick: handleDelete },
-          ]} />
-        </div>
-      </div>
+            {vessel.fleetId && (
+              <button type="button" className="btn btn-sm" onClick={() => navigate(`/fleets/${vessel.fleetId}`)}>
+                {t('Manage Fleet')}
+              </button>
+            )}
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}/onboarding`)}>
+              {t('Onboarding')}
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })}>
+              {t('Run Check')}
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
+              {t('Open Workspace')}
+            </button>
+            <ActionMenu id={`vessel-${vessel.id}`} items={[
+              { label: 'Manage Objectives', onClick: handleManageObjectives },
+              { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },
+              { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
+              { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
+              { label: 'Delete', danger: true, onClick: handleDelete },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -302,6 +320,24 @@ export default function VesselDetail() {
             <label>
               {t('Protected Branch Patterns')}
               <textarea value={form.protectedBranchPatterns} onChange={e => setForm({ ...form, protectedBranchPatterns: e.target.value })} rows={4} placeholder={t('One pattern per line, e.g. main or release/*')} />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.secretScanEnabled} onChange={e => setForm({ ...form, secretScanEnabled: e.target.checked })} style={{ width: 'auto' }} />
+              {t('Scan Mission Diffs for Secrets')}
+            </label>
+            <label>
+              {t('Protected Path Patterns')}
+              <textarea value={form.protectedPathPatterns} onChange={e => setForm({ ...form, protectedPathPatterns: e.target.value })} rows={3} placeholder={t('One glob per line, e.g. .env* or infra/**')} />
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('A mission that adds or modifies a matching path is flagged as a boundary violation.')}
+              </span>
+            </label>
+            <label>
+              {t('Private Identifier Denylist')}
+              <textarea value={form.privateIdentifierDenylist} onChange={e => setForm({ ...form, privateIdentifierDenylist: e.target.value })} rows={3} placeholder={t('One value per line, e.g. an internal hostname or account ID')} />
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Added diff lines containing any of these literals are flagged. Do not list actual secrets here.')}
+              </span>
             </label>
             <label>
               {t('Project Context')}
@@ -494,6 +530,19 @@ export default function VesselDetail() {
         <div className="detail-context-section">
           <h4>{t('Protected Branch Patterns')}</h4>
           <pre className="detail-context-block">{vessel.protectedBranchPatterns.join('\n')}</pre>
+        </div>
+      )}
+
+      {(vessel.secretScanEnabled || (vessel.protectedPathPatterns && vessel.protectedPathPatterns.length > 0) || (vessel.privateIdentifierDenylist && vessel.privateIdentifierDenylist.length > 0)) && (
+        <div className="detail-context-section">
+          <h4>{t('Dock Boundary')}</h4>
+          <div className="detail-field"><span className="detail-label">{t('Secret Scan')}</span><span>{vessel.secretScanEnabled ? t('Enabled') : t('Disabled')}</span></div>
+          {vessel.protectedPathPatterns && vessel.protectedPathPatterns.length > 0 && (
+            <pre className="detail-context-block">{t('Protected paths')}:{'\n'}{vessel.protectedPathPatterns.join('\n')}</pre>
+          )}
+          {vessel.privateIdentifierDenylist && vessel.privateIdentifierDenylist.length > 0 && (
+            <pre className="detail-context-block">{t('Private identifiers')}:{'\n'}{vessel.privateIdentifierDenylist.join('\n')}</pre>
+          )}
         </div>
       )}
 

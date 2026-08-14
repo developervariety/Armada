@@ -157,15 +157,38 @@ namespace Armada.Server
                 AvailabilitySource = "mux-runtime-probe"
             };
 
+            MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
+
+            // The model-endpoint probe ('mux probe --require-tools') performs a live LLM inference round-trip
+            // and can be slow or fail for reasons entirely unrelated to MCP connectivity: a cold model, network
+            // latency, or a briefly unavailable endpoint. It must NOT gate the MCP server inventory -- whether a
+            // captain can reach Armada over MCP depends only on the configured MCP servers, which are read and
+            // probed below. So a probe failure (including a timeout) degrades only the built-in tool count; it
+            // never discards the MCP server probe that determines the "connected to Armada" state.
+            MuxProbeResult? probe = null;
+            string? probeError = null;
             try
             {
                 MuxCliService muxCli = new MuxCliService(_Logging);
-                MuxProbeResult probe = await muxCli.ProbeAsync(captain, token).ConfigureAwait(false);
-                MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
+                probe = await muxCli.ProbeAsync(captain, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                probeError = ex.Message;
+                _Logging.Debug("[CaptainRuntimeToolCatalogService] mux model-endpoint probe failed for captain " +
+                    captain.Id + "; continuing with MCP server inventory only: " + ex.Message);
+            }
+
+            try
+            {
                 string configDirectory = ResolveMuxConfigDirectory(probe, options);
 
-                int builtInToolCount = Math.Max(0, probe.BuiltInToolCount);
-                if (probe.ToolsEnabled || builtInToolCount > 0)
+                int builtInToolCount = probe != null ? Math.Max(0, probe.BuiltInToolCount) : 0;
+                if (probe != null && (probe.ToolsEnabled || builtInToolCount > 0))
                 {
                     snapshot.Servers.Add(CreateMuxBuiltInSummary(probe, builtInToolCount));
                 }
@@ -173,55 +196,43 @@ namespace Armada.Server
                 List<RuntimeMcpServerDefinition> servers = await ReadMuxConfiguredServersAsync(configDirectory, token).ConfigureAwait(false);
                 snapshot.ConfiguredServerCount = servers.Count + snapshot.Servers.Count;
 
-                foreach (RuntimeMcpServerDefinition server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    CaptainToolServerSummary serverSummary = CreateConfiguredServerSummary(server);
-
-                    snapshot.Servers.Add(serverSummary);
-
-                    if (!server.Enabled)
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        List<CaptainToolSummary> tools = await ProbeServerToolsAsync(server, token).ConfigureAwait(false);
-                        tools = ApplyToolFilters(server, tools);
-
-                        serverSummary.Reachable = true;
-                        serverSummary.ToolCount = tools.Count;
-                        serverSummary.Status = "Reachable";
-                        snapshot.Tools.AddRange(tools);
-                    }
-                    catch (Exception ex)
-                    {
-                        serverSummary.Reachable = false;
-                        serverSummary.Status = "Unreachable at query time";
-                        serverSummary.ErrorMessage = ex.Message;
-                    }
-                }
+                await ProbeServersConcurrentlyAsync(servers, snapshot, token).ConfigureAwait(false);
 
                 int reachableSources = snapshot.Servers.Count(s => s.Reachable);
                 snapshot.ReachableServerCount = reachableSources;
                 snapshot.ToolsAccessible = builtInToolCount > 0 || snapshot.Tools.Count > 0;
                 snapshot.ArmadaToolCount = snapshot.Tools.Count(t => String.Equals(t.RegistrationSource, "armada", StringComparison.OrdinalIgnoreCase));
                 snapshot.EffectiveToolCount = builtInToolCount + snapshot.Tools.Count;
-                snapshot.AvailabilityVerified = probe.Success || snapshot.Servers.Count > 0;
+                snapshot.AvailabilityVerified = (probe?.Success ?? false) || snapshot.Servers.Count > 0;
 
-                if (!probe.Success)
+                bool probeSucceeded = probe?.Success ?? false;
+                string endpointName = probe?.EndpointName ?? String.Empty;
+
+                if (!probeSucceeded)
                 {
-                    snapshot.Summary = "Mux probe failed before Armada could inspect this captain runtime: " +
-                        FirstNonEmptyLine(probe.ErrorMessage, probe.ErrorCode);
+                    // The model-endpoint probe was slow, failed, or timed out. This is independent of MCP, so
+                    // report the MCP server inventory that was actually gathered rather than declaring the
+                    // captain unable to inspect tools (which the UI reads as "not connected to Armada").
+                    string probeDetail = !String.IsNullOrWhiteSpace(probeError)
+                        ? probeError!
+                        : FirstNonEmptyLine(probe?.ErrorMessage, probe?.ErrorCode);
+                    string mcpSummary = servers.Count == 0
+                        ? "No external MCP servers are configured for the active Mux config directory."
+                        : snapshot.Servers.Count(s => s.SourceKind == "McpServer" && s.Reachable) +
+                          " of " + servers.Count + " configured MCP server(s) responded and exposed " +
+                          snapshot.Tools.Count + " named tool(s).";
+                    snapshot.Summary = "Mux model-endpoint probe did not complete (" +
+                        (String.IsNullOrWhiteSpace(probeDetail) ? "endpoint unavailable or slow" : probeDetail) +
+                        "); this does not affect MCP connectivity. " + mcpSummary;
                 }
                 else if (servers.Count == 0)
                 {
-                    snapshot.Summary = "Mux endpoint '" + probe.EndpointName + "' reports " + builtInToolCount +
+                    snapshot.Summary = "Mux endpoint '" + endpointName + "' reports " + builtInToolCount +
                         " built-in tool(s). No external MCP servers are configured for the active Mux config directory, and Mux does not currently expose individual built-in tool names.";
                 }
                 else
                 {
-                    snapshot.Summary = "Mux endpoint '" + probe.EndpointName + "' reports " + builtInToolCount +
+                    snapshot.Summary = "Mux endpoint '" + endpointName + "' reports " + builtInToolCount +
                         " built-in tool(s) and " + servers.Count + " configured MCP server(s); " +
                         snapshot.Servers.Count(s => s.SourceKind == "McpServer" && s.Reachable) +
                         " MCP server(s) responded and exposed " + snapshot.Tools.Count +
@@ -238,6 +249,59 @@ namespace Armada.Server
             }
         }
 
+        /// <summary>
+        /// Add each configured server to the snapshot and probe them for tools concurrently, so one
+        /// offline server does not serialize the others behind its connection timeout. Each server's
+        /// summary is updated in place; the collected tools are appended after all probes complete.
+        /// </summary>
+        private async Task ProbeServersConcurrentlyAsync(
+            List<RuntimeMcpServerDefinition> servers,
+            RuntimeToolCatalogSnapshot snapshot,
+            CancellationToken token)
+        {
+            List<Task<List<CaptainToolSummary>>> tasks = new List<Task<List<CaptainToolSummary>>>();
+
+            foreach (RuntimeMcpServerDefinition server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                CaptainToolServerSummary serverSummary = CreateConfiguredServerSummary(server);
+                snapshot.Servers.Add(serverSummary);
+
+                if (!server.Enabled)
+                {
+                    continue;
+                }
+
+                RuntimeMcpServerDefinition capturedServer = server;
+                CaptainToolServerSummary capturedSummary = serverSummary;
+                tasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        List<CaptainToolSummary> tools = await ProbeServerToolsAsync(capturedServer, token).ConfigureAwait(false);
+                        tools = ApplyToolFilters(capturedServer, tools);
+
+                        capturedSummary.Reachable = true;
+                        capturedSummary.ToolCount = tools.Count;
+                        capturedSummary.Status = "Reachable";
+                        return tools;
+                    }
+                    catch (Exception ex)
+                    {
+                        capturedSummary.Reachable = false;
+                        capturedSummary.Status = "Unreachable at query time";
+                        capturedSummary.ErrorMessage = ex.Message;
+                        return new List<CaptainToolSummary>();
+                    }
+                }, token));
+            }
+
+            List<CaptainToolSummary>[] results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            foreach (List<CaptainToolSummary> tools in results)
+            {
+                snapshot.Tools.AddRange(tools);
+            }
+        }
+
         private async Task<RuntimeToolCatalogSnapshot> ProbeConfiguredSourcesAsync(
             string runtimeName,
             List<RuntimeMcpServerDefinition> servers,
@@ -249,35 +313,7 @@ namespace Armada.Server
             snapshot.AvailabilityVerified = true;
             ApplyRuntimeBuiltInInventory(snapshot, builtInInventory);
 
-            foreach (RuntimeMcpServerDefinition server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                CaptainToolServerSummary serverSummary = CreateConfiguredServerSummary(server);
-
-                snapshot.Servers.Add(serverSummary);
-
-                if (!server.Enabled)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    List<CaptainToolSummary> tools = await ProbeServerToolsAsync(server, token).ConfigureAwait(false);
-                    tools = ApplyToolFilters(server, tools);
-
-                    serverSummary.Reachable = true;
-                    serverSummary.ToolCount = tools.Count;
-                    serverSummary.Status = tools.Count == 0 ? "Reachable" : "Reachable";
-
-                    snapshot.Tools.AddRange(tools);
-                }
-                catch (Exception ex)
-                {
-                    serverSummary.Reachable = false;
-                    serverSummary.Status = "Unreachable at query time";
-                    serverSummary.ErrorMessage = ex.Message;
-                }
-            }
+            await ProbeServersConcurrentlyAsync(servers, snapshot, token).ConfigureAwait(false);
 
             snapshot.ConfiguredServerCount = snapshot.Servers.Count;
             snapshot.ReachableServerCount = snapshot.Servers.Count(s => s.Reachable);
@@ -386,8 +422,8 @@ namespace Armada.Server
                     Headers = BuildHttpHeaders(detail.Transport),
                     EnabledTools = detail.EnabledTools ?? new List<string>(),
                     DisabledTools = detail.DisabledTools ?? new List<string>(),
-                    StartupTimeout = TimeSpan.FromSeconds(Math.Max(5, detail.StartupTimeoutSec ?? 15)),
-                    ToolTimeout = TimeSpan.FromSeconds(Math.Max(5, detail.ToolTimeoutSec ?? 15))
+                    StartupTimeout = TimeSpan.FromSeconds(Math.Max(4, detail.StartupTimeoutSec ?? 6)),
+                    ToolTimeout = TimeSpan.FromSeconds(Math.Max(4, detail.ToolTimeoutSec ?? 6))
                 };
                 server.Target = BuildTarget(server);
                 results.Add(server);
@@ -434,8 +470,8 @@ namespace Armada.Server
                         ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                     EnabledTools = new List<string>(),
                     DisabledTools = new List<string>(),
-                    StartupTimeout = TimeSpan.FromSeconds(15),
-                    ToolTimeout = TimeSpan.FromSeconds(15)
+                    StartupTimeout = TimeSpan.FromSeconds(6),
+                    ToolTimeout = TimeSpan.FromSeconds(6)
                 };
                 server.Target = BuildTarget(server);
                 servers.Add(server);
@@ -497,8 +533,8 @@ namespace Armada.Server
                     Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                     EnabledTools = new List<string>(),
                     DisabledTools = new List<string>(),
-                    StartupTimeout = TimeSpan.FromSeconds(15),
-                    ToolTimeout = TimeSpan.FromSeconds(15)
+                    StartupTimeout = TimeSpan.FromSeconds(6),
+                    ToolTimeout = TimeSpan.FromSeconds(6)
                 };
                 server.Target = BuildTarget(server);
                 servers.Add(server);
@@ -549,7 +585,7 @@ namespace Armada.Server
             using (HttpRequestMessage initializeRequest = BuildHttpRequest(server, initializePayload, sessionId))
             using (HttpResponseMessage initializeResponse = await _HttpClient.SendAsync(initializeRequest, token).ConfigureAwait(false))
             {
-                string initializeContent = await initializeResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                string initializeContent = NormalizeSseJson(await initializeResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                 if (!initializeResponse.IsSuccessStatusCode)
                 {
                     throw new InvalidOperationException(FirstNonEmptyLine(initializeContent, initializeResponse.ReasonPhrase));
@@ -597,7 +633,7 @@ namespace Armada.Server
 
                 using HttpRequestMessage request = BuildHttpRequest(server, payload, sessionId);
                 using HttpResponseMessage response = await _HttpClient.SendAsync(request, token).ConfigureAwait(false);
-                string content = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                string content = NormalizeSseJson(await response.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                 if (!response.IsSuccessStatusCode)
                 {
                     throw new InvalidOperationException(FirstNonEmptyLine(content, response.ReasonPhrase));
@@ -809,7 +845,11 @@ namespace Armada.Server
         {
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, server.Url);
             request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+            // MCP Streamable HTTP servers (including Armada's own Voltaic server) require the client to
+            // accept BOTH application/json and text/event-stream; sending only application/json is
+            // rejected with "requires Accept: application/json, text/event-stream".
             request.Headers.Accept.ParseAdd("application/json");
+            request.Headers.Accept.ParseAdd("text/event-stream");
 
             if (!String.IsNullOrWhiteSpace(sessionId))
             {
@@ -822,6 +862,37 @@ namespace Armada.Server
             }
 
             return request;
+        }
+
+        /// <summary>
+        /// Streamable HTTP MCP servers may return a single JSON body or an SSE stream (text/event-stream)
+        /// framed as "data: {json}" lines. Return the JSON payload in either case so the caller can parse it.
+        /// </summary>
+        private static string NormalizeSseJson(string content)
+        {
+            if (String.IsNullOrWhiteSpace(content))
+            {
+                return content;
+            }
+
+            string trimmed = content.TrimStart();
+            if (trimmed.StartsWith("{", StringComparison.Ordinal) || trimmed.StartsWith("[", StringComparison.Ordinal))
+            {
+                return content;
+            }
+
+            StringBuilder builder = new StringBuilder();
+            foreach (string rawLine in content.Split('\n'))
+            {
+                string line = rawLine.TrimEnd('\r');
+                if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    builder.Append(line.Substring(5).TrimStart());
+                }
+            }
+
+            string joined = builder.ToString().Trim();
+            return joined.Length > 0 ? joined : content;
         }
 
         private async Task<CommandExecutionResult> RunProcessAsync(
@@ -1642,9 +1713,9 @@ namespace Armada.Server
             };
         }
 
-        private static string ResolveMuxConfigDirectory(MuxProbeResult probe, MuxCaptainOptions? options)
+        private static string ResolveMuxConfigDirectory(MuxProbeResult? probe, MuxCaptainOptions? options)
         {
-            if (!String.IsNullOrWhiteSpace(probe.ConfigDirectory))
+            if (!String.IsNullOrWhiteSpace(probe?.ConfigDirectory))
             {
                 return probe.ConfigDirectory;
             }

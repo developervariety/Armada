@@ -6,9 +6,13 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
@@ -28,6 +32,9 @@ export default function PromptTemplates() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+
+  // Row-click view modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -60,6 +67,7 @@ export default function PromptTemplates() {
   }, [translate]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('prompttemplates', load);
 
   // Filtered rows
   const filtered = useMemo(() => {
@@ -137,23 +145,36 @@ export default function PromptTemplates() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{translate('Prompt Templates')}</h2>
-          <p className="text-dim view-subtitle">{translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}</p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
-            + {translate('Prompt Template')}
-          </button>
-          <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={translate('Prompt Templates')}
+        subtitle={translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}
+        actions={(
+          <>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
+              + {translate('Prompt Template')}
+            </button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* JSON Viewer */}
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+
+      {/* Row-click View Modal */}
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={typeof viewRecord?.name === 'string' ? viewRecord.name : translate('Prompt Template')}
+        subtitle={translate('Prompt Template')}
+        record={viewRecord}
+        sizeClassName="modal-large modal-prompt-template"
+        onClose={() => setViewRecord(null)}
+        onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/prompt-templates/${encodeURIComponent((r as { name: string }).name)}`); }}
+        editLabel={translate('Open Details')}
+      />
 
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
@@ -224,7 +245,7 @@ export default function PromptTemplates() {
               </thead>
               <tbody>
                 {paginated.map(template => (
-                  <tr key={template.id} className="clickable" onClick={() => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`)}>
+                  <tr key={template.id} className="clickable" onClick={() => setViewRecord(template as unknown as Record<string, unknown>)}>
                     <td><strong>{template.name}</strong></td>
                     <td className="text-dim">{template.description || '-'}</td>
                     <td><StatusBadge status={template.category} /></td>

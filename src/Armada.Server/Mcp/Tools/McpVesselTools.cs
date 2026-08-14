@@ -148,6 +148,16 @@ namespace Armada.Server.Mcp.Tools
                         vessel.ModelContext = request.ModelContext;
                     if (request.DefaultPipelineId != null)
                         vessel.DefaultPipelineId = request.DefaultPipelineId;
+                    if (request.AutoLandEnabled.HasValue)
+                        vessel.AutoLandEnabled = request.AutoLandEnabled.Value;
+                    if (request.AutoLandMaxFiles.HasValue)
+                        vessel.AutoLandMaxFiles = request.AutoLandMaxFiles.Value;
+                    if (request.AutoLandMaxLines.HasValue)
+                        vessel.AutoLandMaxLines = request.AutoLandMaxLines.Value;
+                    if (request.AutoLandPathAllowGlobs != null)
+                        vessel.AutoLandPathAllowGlobs = request.AutoLandPathAllowGlobs;
+                    if (request.AutoLandPathDenyGlobs != null)
+                        vessel.AutoLandPathDenyGlobs = request.AutoLandPathDenyGlobs;
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   createBacklogItem,
   deleteBacklogItem,
@@ -35,8 +36,11 @@ import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 
 export default function Objectives() {
@@ -62,8 +66,10 @@ export default function Objectives() {
   const [ownerFilter, setOwnerFilter] = useState('');
   const [targetVersionFilter, setTargetVersionFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState<BacklogGroupKey>('all');
+  const [colFilters, setColFilters] = useState({ title: '' });
   const [sortBy, setSortBy] = useState<BacklogSortKey>('rank');
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
     title: '',
@@ -102,6 +108,8 @@ export default function Objectives() {
   useEffect(() => {
     void load();
   }, []);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('objectives', load);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -143,6 +151,7 @@ export default function Objectives() {
       if (vesselFilter !== 'all' && !objective.vesselIds.includes(vesselFilter)) return false;
       if (ownerFilter.trim() && !(objective.owner || '').toLowerCase().includes(ownerFilter.trim().toLowerCase())) return false;
       if (targetVersionFilter.trim() && !(objective.targetVersion || '').toLowerCase().includes(targetVersionFilter.trim().toLowerCase())) return false;
+      if (colFilters.title && !(objective.title || '').toLowerCase().includes(colFilters.title.toLowerCase())) return false;
       if (!normalizedSearch) return true;
 
       return (
@@ -159,6 +168,7 @@ export default function Objectives() {
     });
   }, [
     backlogStateFilter,
+    colFilters,
     effortFilter,
     fleetFilter,
     groupFilter,
@@ -338,30 +348,42 @@ export default function Objectives() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Backlog')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Capture future work, refine it, and carry the same record through planning, dispatch, release, deployment, and incident follow-through.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh backlog')} />
-          {canManage && (
-            <button className="btn" onClick={() => setImportModalOpen(true)}>
-              {t('Import GitHub')}
-            </button>
-          )}
-          {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate(createBacklogRoute)}>
-              + {t('Backlog Item')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Backlog')}
+        subtitle={t('Capture future work, refine it, and carry the same record through planning, dispatch, release, deployment, and incident follow-through.')}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh backlog')} />
+            {canManage && (
+              <button className="btn" onClick={() => setImportModalOpen(true)}>
+                {t('Import GitHub')}
+              </button>
+            )}
+            {canManage && (
+              <button className="btn btn-primary" onClick={() => navigate(createBacklogRoute)}>
+                + {t('Backlog Item')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? String(viewRecord.title || viewRecord.id || '') : ''}
+        subtitle={viewRecord ? String(viewRecord.owner || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => {
+          const id = viewRecord?.id;
+          setViewRecord(null);
+          if (id) navigate(`/backlog/${String(id)}`);
+        }}
+        editLabel={t('Open Details')}
+      />
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
@@ -568,11 +590,20 @@ export default function Objectives() {
                 <th>{t('Due / Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
               </tr>
+              <tr className="column-filter-row">
+                <td></td>
+                <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
             </thead>
             <tbody>
               {orderedObjectives.map((objective) => {
                 return (
-                  <tr key={objective.id} className="clickable" onClick={() => navigate(`/backlog/${objective.id}`)}>
+                  <tr key={objective.id} className="clickable" onClick={() => setViewRecord(objective as unknown as Record<string, unknown>)}>
                     <td onClick={(event) => event.stopPropagation()}>
                       <div className="backlog-rank-cell">
                         <strong>{objective.rank}</strong>

@@ -196,8 +196,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 Sequence = Convert.ToInt32(reader["sequence"]),
                 Content = MysqlDatabaseDriver.NullableString(reader["content"]) ?? String.Empty,
                 IsSelected = Convert.ToInt64(reader["is_selected"]) == 1,
-                CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
             };
         }
     }

@@ -6,6 +6,7 @@ import {
   getCaptainTools,
   getCaptainLog,
   stopCaptain,
+  unquarantineCaptain,
   recallCaptain,
   getMission,
   listMissionSummaries,
@@ -19,6 +20,7 @@ import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
@@ -26,12 +28,14 @@ import { useNotifications } from '../context/NotificationContext';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'Custom'];
 type CaptainDetailFormState = {
   name: string;
   runtime: string;
   systemInstructions: string;
   model: string;
+  reasoningEffort: string;
+  tier: string;
   allowedPersonas: string;
   preferredPersona: string;
 } & MuxCaptainFormFields;
@@ -49,12 +53,13 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', reasoningEffort: '', tier: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [logReadable, setLogReadable] = useState(true);
   const [logInfo, setLogInfo] = useState('');
 
   // JSON viewer
@@ -107,6 +112,8 @@ export default function CaptainDetail() {
       runtime: captain.runtime || 'ClaudeCode',
       systemInstructions: captain.systemInstructions ?? '',
       model: captain.model ?? '',
+      reasoningEffort: captain.reasoningEffort ?? '',
+      tier: captain.tier ?? '',
       allowedPersonas: captain.allowedPersonas ?? '',
       preferredPersona: captain.preferredPersona ?? '',
       ...muxFormFromCaptain(captain),
@@ -126,6 +133,8 @@ export default function CaptainDetail() {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.reasoningEffort = form.reasoningEffort ? form.reasoningEffort : null;
+      payload.tier = form.tier ? form.tier : null;
       if (!payload.allowedPersonas) delete payload.allowedPersonas;
       if (!payload.preferredPersona) delete payload.preferredPersona;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
@@ -146,12 +155,12 @@ export default function CaptainDetail() {
     }
   }
 
-  async function handleViewLog() {
+  async function handleViewLog(formatted = logReadable) {
     if (!id) return;
     setLogLoading(true);
     setShowLog(true);
     try {
-      const result: LogResult = await getCaptainLog(id);
+      const result: LogResult = await getCaptainLog(id, 500, formatted);
       setLogText(result.log || t('(empty log)'));
       setLogInfo(t('({{lines}} of {{totalLines}} lines)', { lines: result.lines || 0, totalLines: result.totalLines || 0 }));
     } catch {
@@ -177,6 +186,15 @@ export default function CaptainDetail() {
         } catch { setError(t('Failed to stop captain.')); }
       },
     });
+  }
+
+  async function handleUnquarantine() {
+    if (!captain) return;
+    try {
+      await unquarantineCaptain(captain.id);
+      pushToast('success', t('Quarantine lifted for "{{name}}".', { name: captain.name }));
+      load();
+    } catch { setError(t('Failed to lift quarantine.')); }
   }
 
   function handleRecall() {
@@ -280,17 +298,19 @@ export default function CaptainDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/captains">{t('Captains')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{captain.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{captain.name}</h2>
-        <div className="inline-actions">
-          <ActionMenu id={`captain-${captain.id}`} items={getActionItems()} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/captains">{t('Captains')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{captain.name}</span>
+          </>
+        }
+        title={captain.name}
+        actions={
+          <>
+            <ActionMenu id={`captain-${captain.id}`} items={getActionItems()} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -312,6 +332,29 @@ export default function CaptainDetail() {
             <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+            </label>
+            <label>
+              {t('Reasoning effort')}
+              <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })}>
+                <option value="">{t('Runtime default')}</option>
+                <option value="Off">{t('Off')}</option>
+                <option value="Minimal">{t('Minimal')}</option>
+                <option value="Low">{t('Low')}</option>
+                <option value="Medium">{t('Medium')}</option>
+                <option value="High">{t('High')}</option>
+              </select>
+            </label>
+            <label>
+              {t('Capability tier')}
+              <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                <option value="">{t('Auto (classify from model)')}</option>
+                <option value="Economy">{t('Economy')}</option>
+                <option value="Standard">{t('Standard')}</option>
+                <option value="Premium">{t('Premium')}</option>
+              </select>
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Missions requiring a tier route to captains at or above it. Leave on Auto to classify from the model name.')}
+              </span>
             </label>
             <MuxRuntimeFields
               runtime={form.runtime}
@@ -403,6 +446,18 @@ export default function CaptainDetail() {
           <span className="detail-label">{t('State')}</span>
           <StatusBadge status={captain.state} />
         </div>
+        {captain.state === 'Quarantined' && (
+          <div className="detail-field">
+            <span className="detail-label">{t('Quarantine')}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <span className="text-dim">
+                {captain.quarantineReason || t('quarantined')}
+                {captain.quarantineUntilUtc ? ` (${t('until')} ${formatDateTime(captain.quarantineUntilUtc)})` : ''}
+              </span>
+              <button type="button" className="btn btn-sm" onClick={handleUnquarantine}>{t('Lift Quarantine')}</button>
+            </span>
+          </div>
+        )}
         <div className="detail-field">
           <span className="detail-label">{t('Current Mission')}</span>
           {captain.currentMissionId ? (
@@ -472,7 +527,13 @@ export default function CaptainDetail() {
         <div style={{ marginTop: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3>{t('Captain Log')} {logInfo && <span className="text-dim">{logInfo}</span>}</h3>
-            <button className="btn" onClick={() => setShowLog(false)}>{t('Hide Log')}</button>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <label className="ask-stream-toggle" title={t('Resolve tool names, redact secrets, and drop noise')}>
+                <input type="checkbox" checked={logReadable} onChange={(e) => { setLogReadable(e.target.checked); void handleViewLog(e.target.checked); }} disabled={logLoading} />
+                {t('Readable')}
+              </label>
+              <button className="btn" onClick={() => setShowLog(false)}>{t('Hide Log')}</button>
+            </span>
           </div>
           {logLoading ? (
             <p className="text-dim">{t('Loading log...')}</p>

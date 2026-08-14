@@ -59,6 +59,14 @@ namespace Armada.Runtimes
         /// <summary>
         /// Get the cursor CLI command.
         /// </summary>
+        /// <summary>
+        /// The runtime this adapter drives.
+        /// </summary>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Cursor;
+
+        /// <summary>
+        /// Get the command to execute for this runtime.
+        /// </summary>
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);
@@ -76,8 +84,11 @@ namespace Armada.Runtimes
         {
             List<string> args = new List<string>();
 
+            // -p selects non-interactive print mode. The prompt itself is delivered on stdin (see
+            // UsePromptStdin), not as a positional argument, because on Windows the cursor-agent executable
+            // is an npm ".cmd" wrapper and a multi-line argument passed through cmd.exe is truncated at the
+            // first newline. cursor-agent reads the prompt from stdin in print mode.
             args.Add("-p");
-            args.Add(prompt);
 
             if (!String.IsNullOrEmpty(model))
             {
@@ -91,6 +102,12 @@ namespace Armada.Runtimes
 
             return args;
         }
+
+        /// <summary>
+        /// Deliver the prompt on stdin rather than as a positional argument, avoiding the Windows cmd.exe
+        /// multi-line-argument truncation. cursor-agent reads the prompt from stdin in -p (print) mode.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         #endregion
     }

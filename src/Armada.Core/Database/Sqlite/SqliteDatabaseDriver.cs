@@ -56,7 +56,7 @@ namespace Armada.Core.Database.Sqlite
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
-            _ConnectionString = settings.GetConnectionString();
+            _ConnectionString = NormalizeConnectionString(settings.GetConnectionString());
 
             Fleets = new FleetMethods(this, _Settings, _Logging);
             Vessels = new VesselMethods(this, _Settings, _Logging);
@@ -66,6 +66,7 @@ namespace Armada.Core.Database.Sqlite
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            Jobs = new JobMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
@@ -81,10 +82,13 @@ namespace Armada.Core.Database.Sqlite
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
+            Skills = new SkillMethods(this, _Settings, _Logging);
             Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
             CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
         }
 
         /// <summary>
@@ -94,7 +98,8 @@ namespace Armada.Core.Database.Sqlite
         /// <param name="logging">Logging module.</param>
         public SqliteDatabaseDriver(string connectionString, LoggingModule logging)
         {
-            _ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            if (connectionString == null) throw new ArgumentNullException(nameof(connectionString));
+            _ConnectionString = NormalizeConnectionString(connectionString);
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = new DatabaseSettings();
 
@@ -106,6 +111,7 @@ namespace Armada.Core.Database.Sqlite
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            Jobs = new JobMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
@@ -121,10 +127,30 @@ namespace Armada.Core.Database.Sqlite
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
+            Skills = new SkillMethods(this, _Settings, _Logging);
             Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
             CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
+        }
+
+        /// <summary>
+        /// Normalize a SQLite connection string so every connection opened from it enforces
+        /// foreign keys and honors a sane default command timeout. SQLite's foreign_keys pragma
+        /// is per-connection (not persistent), so relying on a one-time PRAGMA at init leaves
+        /// enforcement dependent on connection-pool reuse. Setting it on the connection string
+        /// applies it deterministically on every open.
+        /// </summary>
+        /// <param name="connectionString">Raw connection string.</param>
+        /// <returns>Connection string with foreign keys enabled and a default timeout floor.</returns>
+        private static string NormalizeConnectionString(string connectionString)
+        {
+            SqliteConnectionStringBuilder builder = new SqliteConnectionStringBuilder(connectionString);
+            builder.ForeignKeys = true;
+            if (builder.DefaultTimeout < 30) builder.DefaultTimeout = 30;
+            return builder.ConnectionString;
         }
 
         #endregion
@@ -263,6 +289,7 @@ namespace Armada.Core.Database.Sqlite
 
                 Credential defaultCred = new Credential();
                 defaultCred.Id = Constants.DefaultCredentialId;
+                defaultCred.Name = Constants.DefaultCredentialName;
                 defaultCred.TenantId = Constants.DefaultTenantId;
                 defaultCred.UserId = Constants.DefaultUserId;
                 defaultCred.BearerToken = Constants.DefaultBearerToken;
@@ -278,7 +305,7 @@ namespace Armada.Core.Database.Sqlite
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Current schema version number, or 0 if no migrations have been applied.</returns>
-        public async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+        public override async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
         {
             using (SqliteConnection conn = new SqliteConnection(_ConnectionString))
             {
@@ -469,6 +496,38 @@ namespace Armada.Core.Database.Sqlite
                     vessel.ProtectedBranchPatterns = JsonSerializer.Deserialize<List<string>>(protectedPatternsJson) ?? new List<string>();
             }
             catch { }
+            try { vessel.SecretScanEnabled = Convert.ToInt64(reader["secret_scan_enabled"]) == 1; } catch { }
+            try
+            {
+                string? protectedPathJson = NullableString(reader["protected_path_patterns_json"]);
+                if (!String.IsNullOrWhiteSpace(protectedPathJson))
+                    vessel.ProtectedPathPatterns = JsonSerializer.Deserialize<List<string>>(protectedPathJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? denylistJson = NullableString(reader["private_identifier_denylist_json"]);
+                if (!String.IsNullOrWhiteSpace(denylistJson))
+                    vessel.PrivateIdentifierDenylist = JsonSerializer.Deserialize<List<string>>(denylistJson) ?? new List<string>();
+            }
+            catch { }
+            try { vessel.AutoLandEnabled = Convert.ToInt64(reader["auto_land_enabled"]) == 1; } catch { }
+            try { vessel.AutoLandMaxFiles = Convert.ToInt32(reader["auto_land_max_files"]); } catch { }
+            try { vessel.AutoLandMaxLines = Convert.ToInt32(reader["auto_land_max_lines"]); } catch { }
+            try
+            {
+                string? allowGlobsJson = NullableString(reader["auto_land_path_allow_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(allowGlobsJson))
+                    vessel.AutoLandPathAllowGlobs = JsonSerializer.Deserialize<List<string>>(allowGlobsJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? denyGlobsJson = NullableString(reader["auto_land_path_deny_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(denyGlobsJson))
+                    vessel.AutoLandPathDenyGlobs = JsonSerializer.Deserialize<List<string>>(denyGlobsJson) ?? new List<string>();
+            }
+            catch { }
             try { vessel.ReleaseBranchPrefix = NullableString(reader["release_branch_prefix"]) ?? "release/"; } catch { vessel.ReleaseBranchPrefix = "release/"; }
             try { vessel.HotfixBranchPrefix = NullableString(reader["hotfix_branch_prefix"]) ?? "hotfix/"; } catch { vessel.HotfixBranchPrefix = "hotfix/"; }
             try { vessel.RequirePullRequestForProtectedBranches = Convert.ToInt64(reader["require_pull_request_for_protected_branches"]) == 1; }
@@ -502,11 +561,28 @@ namespace Armada.Core.Database.Sqlite
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
+            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
+            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
+            try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
+            try
+            {
+                string? reasoningEffort = NullableString(reader["reasoning_effort"]);
+                if (!String.IsNullOrEmpty(reasoningEffort) && Enum.TryParse<ReasoningEffortEnum>(reasoningEffort, out ReasoningEffortEnum parsedEffort))
+                    captain.ReasoningEffort = parsedEffort;
+            }
+            catch { }
+            try
+            {
+                string? tier = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(tier) && Enum.TryParse<CaptainTierEnum>(tier, out CaptainTierEnum parsedTier))
+                    captain.Tier = parsedTier;
+            }
+            catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
             return captain;
         }
@@ -525,6 +601,7 @@ namespace Armada.Core.Database.Sqlite
             mission.VoyageId = NullableString(reader["voyage_id"]);
             mission.VesselId = NullableString(reader["vessel_id"]);
             mission.CaptainId = NullableString(reader["captain_id"]);
+            try { mission.RequestedCaptainId = NullableString(reader["requested_captain_id"]); } catch { }
             mission.Title = reader["title"].ToString()!;
             mission.Description = NullableString(reader["description"]);
             mission.Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!);
@@ -535,6 +612,14 @@ namespace Armada.Core.Database.Sqlite
             mission.ProcessId = NullableInt(reader["process_id"]);
             mission.PrUrl = NullableString(reader["pr_url"]);
             mission.CommitHash = NullableString(reader["commit_hash"]);
+            try { object v = reader["redispatch_attempts"]; if (v != DBNull.Value) mission.RedispatchAttempts = Convert.ToInt32(v); } catch { }
+            try
+            {
+                string? missionTier = NullableString(reader["tier"]);
+                if (!String.IsNullOrEmpty(missionTier) && Enum.TryParse<CaptainTierEnum>(missionTier, out CaptainTierEnum parsedMissionTier))
+                    mission.Tier = parsedMissionTier;
+            }
+            catch { }
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);
             try { mission.AgentOutput = NullableString(reader["agent_output"]); } catch { }
             mission.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
@@ -559,6 +644,7 @@ namespace Armada.Core.Database.Sqlite
             try { mission.ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]); } catch { }
             try { mission.ReviewRequestedUtc = FromIso8601Nullable(reader["review_requested_utc"]); } catch { }
             try { mission.ReviewedUtc = FromIso8601Nullable(reader["reviewed_utc"]); } catch { }
+            try { mission.ReviewDeadlineUtc = FromIso8601Nullable(reader["review_deadline_utc"]); } catch { }
             return mission;
         }
 
@@ -587,6 +673,7 @@ namespace Armada.Core.Database.Sqlite
                 voyage.LandingMode = vlm;
             try { voyage.SourcePlanningSessionId = NullableString(reader["source_planning_session_id"]); } catch { }
             try { voyage.SourcePlanningMessageId = NullableString(reader["source_planning_message_id"]); } catch { }
+            try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
             return voyage;
         }
 
@@ -662,6 +749,15 @@ namespace Armada.Core.Database.Sqlite
             dock.Active = Convert.ToInt64(reader["active"]) == 1;
             dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            try
+            {
+                string? dockStateStr = NullableString(reader["state"]);
+                if (!String.IsNullOrEmpty(dockStateStr) && Enum.TryParse<DockStateEnum>(dockStateStr, out DockStateEnum dockState))
+                    dock.State = dockState;
+            }
+            catch { }
+            try { dock.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
+            try { dock.OwnerToken = NullableString(reader["owner_token"]); } catch { }
             return dock;
         }
 
@@ -734,6 +830,8 @@ namespace Armada.Core.Database.Sqlite
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
+            try { entry.RetryCount = Convert.ToInt32(reader["retry_count"]); } catch { }
+            try { entry.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
             return entry;
         }
 

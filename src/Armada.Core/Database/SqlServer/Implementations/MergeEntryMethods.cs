@@ -54,8 +54,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc)
-                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc);";
+                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, retry_count, lease_expires_utc, created_utc, last_update_utc, test_started_utc, completed_utc)
+                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @retry_count, @lease_expires_utc, @created_utc, @last_update_utc, @test_started_utc, @completed_utc);";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
@@ -69,6 +69,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_count", entry.RetryCount);
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", entry.LeaseExpiresUtc.HasValue ? (object)entry.LeaseExpiresUtc.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(entry.CreatedUtc));
                     cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
@@ -127,6 +129,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         test_command = @test_command,
                         test_output = @test_output,
                         test_exit_code = @test_exit_code,
+                        retry_count = @retry_count,
+                        lease_expires_utc = @lease_expires_utc,
                         last_update_utc = @last_update_utc,
                         test_started_utc = @test_started_utc,
                         completed_utc = @completed_utc
@@ -144,6 +148,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_count", entry.RetryCount);
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", entry.LeaseExpiresUtc.HasValue ? (object)entry.LeaseExpiresUtc.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);

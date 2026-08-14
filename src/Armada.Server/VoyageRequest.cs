@@ -65,5 +65,12 @@ namespace Armada.Server
         /// Optional objective identifier to link when the voyage is created from scoped intake work.
         /// </summary>
         public string? ObjectiveId { get; set; } = null;
+
+        /// <summary>
+        /// Optional per-persona captain overrides for this voyage. Each entry binds a pipeline step
+        /// (persona) to a preferred captain and a fallback tier, applied to every mission of that persona in
+        /// the voyage (including fan-out missions). Persisted to the voyage and resolved at assignment time.
+        /// </summary>
+        public List<CaptainAssignmentOverride>? CaptainAssignments { get; set; } = null;
     }
 }

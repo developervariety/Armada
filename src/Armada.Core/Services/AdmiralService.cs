@@ -72,6 +72,7 @@ namespace Armada.Core.Services
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
+        private ISystemResourceProbe _ResourceProbe = new SystemResourceProbe();
         private ICaptainService _Captains;
         private IMissionService _Missions;
         private IVoyageService _Voyages;
@@ -186,6 +187,8 @@ namespace Armada.Core.Services
                 mission.UserId = vessel.UserId;
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
+                mission.Tier = md.Tier;
+                mission.RequestedCaptainId = md.RequestedCaptainId;
                 if (singleStagePolicy != null)
                 {
                     mission.Persona = singleStagePolicy.PersonaName;
@@ -476,8 +479,33 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task StopAllAgentProcessesAsync(CancellationToken token = default)
+        {
+            if (_Captains.OnStopAgent == null) return;
+
+            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+            if (workingCaptains.Count == 0) return;
+
+            _Logging.Warn(_Header + "shutdown: stopping " + workingCaptains.Count + " agent process(es) so none are orphaned");
+            foreach (Captain captain in workingCaptains)
+            {
+                if (!captain.ProcessId.HasValue) continue;
+                try
+                {
+                    await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error stopping agent for captain " + captain.Id + " on shutdown: " + ex.Message);
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task HealthCheckAsync(CancellationToken token = default)
         {
+            await LiftExpiredQuarantinesAsync(token).ConfigureAwait(false);
+
             List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
 
             if (workingCaptains.Count > 0)
@@ -507,6 +535,22 @@ namespace Armada.Core.Services
             // reassigned before the health check could detect the old process exit.
             await RecoverOrphanedMissionsAsync(token).ConfigureAwait(false);
 
+            // Re-drive pipeline handoffs that dangled: WorkProduced missions whose downstream
+            // Pending stage was never prepared and would otherwise never be dispatched.
+            try
+            {
+                int redriven = await _Missions.RecoverDanglingHandoffsAsync(token).ConfigureAwait(false);
+                if (redriven > 0)
+                {
+                    ArmadaMetrics.HandoffsRedriven.Add(redriven);
+                    _Logging.Info(_Header + "re-drove " + redriven + " dangling pipeline handoff(s)");
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error recovering dangling handoffs: " + ex.Message);
+            }
+
             // Check for completed voyages
             List<Voyage> completedVoyages = await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
             if (OnVoyageComplete != null)
@@ -520,6 +564,9 @@ namespace Armada.Core.Services
 
             // Reconcile PullRequestOpen missions — check if their PRs have been merged
             await ReconcilePullRequestMissionsAsync(token).ConfigureAwait(false);
+
+            // Release captains held by missions whose review has gone overdue (dock preserved).
+            await RecoverOverdueReviewsAsync(token).ConfigureAwait(false);
 
             // Reclaim docks stuck in Provisioned state with no active captain
             await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false);
@@ -549,20 +596,17 @@ namespace Armada.Core.Services
 
             foreach (Captain captain in workingCaptains)
             {
-                bool processAlive = false;
-
-                if (captain.ProcessId != null)
+                // Verify liveness with PID identity: a process whose start time is later than the
+                // mission launch is a recycled PID, not our agent, so the captain is treated as
+                // stale rather than left stuck in Working forever.
+                Mission? currentMission = null;
+                if (!String.IsNullOrEmpty(captain.CurrentMissionId))
                 {
-                    try
-                    {
-                        System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(captain.ProcessId.Value);
-                        processAlive = !process.HasExited;
-                    }
-                    catch (ArgumentException)
-                    {
-                        // Process no longer exists
-                    }
+                    currentMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
                 }
+
+                bool processAlive = captain.ProcessId.HasValue &&
+                    ProcessSupervisor.IsTrackedProcessAlive(captain.ProcessId.Value, currentMission?.StartedUtc);
 
                 if (processAlive) continue;
 
@@ -647,12 +691,7 @@ namespace Armada.Core.Services
 
             // If the mission is already in a terminal state, nothing to do — the health check
             // or another handler already processed this completion/failure.
-            if (mission.Status == MissionStatusEnum.Complete ||
-                mission.Status == MissionStatusEnum.Failed ||
-                mission.Status == MissionStatusEnum.Cancelled ||
-                mission.Status == MissionStatusEnum.WorkProduced ||
-                mission.Status == MissionStatusEnum.LandingFailed ||
-                mission.Status == MissionStatusEnum.PullRequestOpen)
+            if (MissionStateMachine.IsTerminalOrPostWork(mission.Status))
             {
                 _Logging.Debug(_Header + "mission " + missionId + " already in terminal/post-work state " + mission.Status + " — skipping process exit handling");
                 return;
@@ -686,10 +725,65 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId);
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+
+                // Provider usage-limit / auth failures will just fail again immediately; quarantine the
+                // captain out of the dispatch pool until it resets rather than handing it more work.
+                RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason);
+                if (failureKind == RuntimeFailureKindEnum.UsageLimit || failureKind == RuntimeFailureKindEnum.AuthFailure)
+                {
+                    await QuarantineCaptainAsync(captainId, failureKind, token).ConfigureAwait(false);
+                }
             }
 
             // Try to dispatch any pending missions now that capacity may have freed up
             await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Return quarantined captains whose window has passed to the Idle pool so they can pick up work.
+        /// </summary>
+        private async Task LiftExpiredQuarantinesAsync(CancellationToken token)
+        {
+            List<Captain> quarantined = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Quarantined, token).ConfigureAwait(false);
+            foreach (Captain captain in quarantined)
+            {
+                if (!captain.QuarantineUntilUtc.HasValue || captain.QuarantineUntilUtc.Value > DateTime.UtcNow) continue;
+
+                captain.State = CaptainStateEnum.Idle;
+                captain.QuarantineUntilUtc = null;
+                captain.QuarantineReason = null;
+                captain.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "lifted quarantine for captain " + captain.Id);
+                await EmitEventAsync("captain.quarantine_lifted", "Captain " + captain.Name + " quarantine lifted",
+                    entityType: "captain", entityId: captain.Id, captainId: captain.Id, token: token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Move a captain into the Quarantined state for the configured window so tier selection stops
+        /// handing it work until its provider condition clears. Re-reads the captain to override any
+        /// release-to-Idle that just happened during failure handling.
+        /// </summary>
+        private async Task QuarantineCaptainAsync(string captainId, RuntimeFailureKindEnum kind, CancellationToken token)
+        {
+            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (captain == null) return;
+
+            string reason = kind == RuntimeFailureKindEnum.AuthFailure ? "provider auth failure" : "provider usage limit";
+            captain.State = CaptainStateEnum.Quarantined;
+            captain.QuarantineReason = reason;
+            captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(_Settings.CaptainQuarantineMinutes);
+            captain.CurrentMissionId = null;
+            captain.CurrentDockId = null;
+            captain.ProcessId = null;
+            captain.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+
+            _Logging.Warn(_Header + "quarantined captain " + captain.Id + " (" + reason + ") until " + captain.QuarantineUntilUtc.Value.ToString("o"));
+            await EmitEventAsync("captain.quarantined",
+                "Captain " + captain.Name + " quarantined: " + reason,
+                entityType: "captain", entityId: captain.Id, captainId: captain.Id, token: token).ConfigureAwait(false);
         }
 
         #endregion
@@ -771,12 +865,7 @@ namespace Armada.Core.Services
 
             // Check for terminal mission state (e.g. server restart between completion and release)
             if (mission != null &&
-                (mission.Status == MissionStatusEnum.Complete ||
-                 mission.Status == MissionStatusEnum.Failed ||
-                 mission.Status == MissionStatusEnum.Cancelled ||
-                 mission.Status == MissionStatusEnum.WorkProduced ||
-                 mission.Status == MissionStatusEnum.LandingFailed ||
-                 mission.Status == MissionStatusEnum.PullRequestOpen))
+                MissionStateMachine.IsTerminalOrPostWork(mission.Status))
             {
                 _Logging.Warn(_Header + "captain " + captain.Id + " has terminal/post-work mission " + captain.CurrentMissionId + " (status: " + mission.Status + ") - releasing to Idle");
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
@@ -872,6 +961,44 @@ namespace Armada.Core.Services
                 // health check would mask stalled agents that are technically running but
                 // producing no output.
 
+                // Hard runaway backstop: force-fail a mission that has run past the configured
+                // max-runtime ceiling, independent of stall detection (a mission emitting steady
+                // output would never trip the stall path). 0 disables the cap.
+                if (_Settings.MaxMissionRuntimeMinutes > 0 &&
+                    mission != null &&
+                    mission.StartedUtc.HasValue &&
+                    (DateTime.UtcNow - mission.StartedUtc.Value).TotalMinutes > _Settings.MaxMissionRuntimeMinutes)
+                {
+                    _Logging.Warn(_Header + "captain " + captain.Id + " mission " + missionId +
+                        " exceeded max runtime of " + _Settings.MaxMissionRuntimeMinutes + " min - force-failing runaway");
+
+                    if (_Captains.OnStopAgent != null)
+                    {
+                        try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
+                        catch { }
+                    }
+
+                    if (!MissionStateMachine.IsTerminalOrPostWork(mission.Status))
+                    {
+                        mission.Status = MissionStatusEnum.Failed;
+                        mission.FailureReason = "Mission exceeded max runtime of " + _Settings.MaxMissionRuntimeMinutes + " minutes";
+                        mission.ProcessId = null;
+                        mission.CompletedUtc = DateTime.UtcNow;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        ArmadaMetrics.MissionRuntimeExceeded.Add(1);
+                        ArmadaMetrics.MissionsFailed.Add(1);
+
+                        await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (exceeded max runtime)",
+                            entityType: "mission", entityId: mission.Id,
+                            captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
+                    }
+
+                    await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    return;
+                }
+
                 // Check for stall (no output for too long)
                 if (captain.LastHeartbeatUtc.HasValue)
                 {
@@ -879,10 +1006,12 @@ namespace Armada.Core.Services
                     if (elapsed.TotalMinutes > _Settings.StallThresholdMinutes)
                     {
                         _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
+                        ArmadaMetrics.CaptainStalls.Add(1);
 
                         // Attempt auto-recovery if under the limit
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
                         {
+                            ArmadaMetrics.CaptainRecoveries.Add(1);
                             // Kill the stalled process first
                             if (_Captains.OnStopAgent != null)
                             {
@@ -896,10 +1025,7 @@ namespace Armada.Core.Services
                         {
                             // Mark the active mission as Failed
                             if (mission != null &&
-                                mission.Status != MissionStatusEnum.Complete &&
-                                mission.Status != MissionStatusEnum.WorkProduced &&
-                                mission.Status != MissionStatusEnum.LandingFailed &&
-                                mission.Status != MissionStatusEnum.PullRequestOpen)
+                                !MissionStateMachine.IsTerminalOrPostWork(mission.Status))
                             {
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.FailureReason = "Captain stalled, recovery exhausted";
@@ -907,6 +1033,7 @@ namespace Armada.Core.Services
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                ArmadaMetrics.MissionsFailed.Add(1);
                                 _Logging.Warn(_Header + "mission " + mission.Id + " marked failed (captain stalled, recovery exhausted)");
 
                                 // Emit mission.failed event
@@ -992,12 +1119,16 @@ namespace Armada.Core.Services
 
                     if (!inUse)
                     {
-                        // Check if a Pending mission is preserving this dock for re-dispatch
+                        // Preserve the dock if a Pending mission is holding it for re-dispatch, or an
+                        // in-review mission is retaining its worktree for the reviewer (the held
+                        // captain may have been released by the review-timeout watchdog).
                         List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                        bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id);
+                        List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                        bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id) ||
+                                                   reviewMissions.Any(m => m.DockId == dock.Id);
                         if (preservedForMission)
                         {
-                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending mission re-dispatch");
+                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending re-dispatch or an in-review mission");
                             continue;
                         }
 
@@ -1016,6 +1147,56 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error in orphaned dock reclamation: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Release the captain held by a mission whose review has awaited action past the configured
+        /// timeout. The mission stays in Review and its dock is preserved for the reviewer; only the
+        /// scarce captain is freed so a forgotten review cannot pin capacity forever. Fires once per
+        /// overdue mission (the deadline is cleared after handling).
+        /// </summary>
+        private async Task RecoverOverdueReviewsAsync(CancellationToken token)
+        {
+            if (_Settings.ReviewTimeoutMinutes <= 0) return;
+
+            try
+            {
+                List<Mission> reviews = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                DateTime now = DateTime.UtcNow;
+
+                foreach (Mission mission in reviews)
+                {
+                    if (!mission.ReviewDeadlineUtc.HasValue || mission.ReviewDeadlineUtc.Value > now) continue;
+
+                    _Logging.Warn(_Header + "review overdue for mission " + mission.Id +
+                        " -- releasing held captain (mission and dock preserved for the reviewer)");
+
+                    if (!String.IsNullOrEmpty(mission.CaptainId))
+                    {
+                        Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
+                        if (captain != null && captain.State == CaptainStateEnum.Working && captain.CurrentMissionId == mission.Id)
+                        {
+                            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                        }
+                    }
+
+                    // Clear the deadline so the watchdog fires once; the mission remains in Review.
+                    mission.ReviewDeadlineUtc = null;
+                    mission.LastUpdateUtc = now;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    ArmadaMetrics.ReviewsOverdue.Add(1);
+
+                    await EmitEventAsync("mission.review_overdue",
+                        "Review overdue: " + mission.Title + " -- held captain released, awaiting reviewer",
+                        entityType: "mission", entityId: mission.Id,
+                        captainId: mission.CaptainId, missionId: mission.Id,
+                        vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error recovering overdue reviews: " + ex.Message);
             }
         }
 
@@ -1209,6 +1390,29 @@ namespace Armada.Core.Services
 
         private async Task<bool> HasAvailableCapacityAsync(CancellationToken token)
         {
+            // Global concurrency ceiling: refuse new work once the configured number of missions
+            // is already running, as backpressure against unbounded captain execution.
+            if (_Settings.MaxConcurrentMissions > 0)
+            {
+                List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+                if (workingCaptains.Count >= _Settings.MaxConcurrentMissions) return false;
+            }
+
+            // Resource-pressure admission: defer rather than launch a captain onto a memory-starved host,
+            // where it would be OOM-killed mid-mission and burn a redispatch. Disabled when the floor is 0,
+            // and fails open when host memory cannot be measured.
+            if (_Settings.MinAvailableMemoryBytesForLaunch > 0)
+            {
+                long available = _ResourceProbe.GetAvailablePhysicalBytes();
+                long total = _ResourceProbe.GetTotalPhysicalBytes();
+                AdmissionDecision admission = ResourceAdmission.Evaluate(available, total, _Settings.MinAvailableMemoryBytesForLaunch);
+                if (!admission.Admit)
+                {
+                    _Logging.Info(_Header + "capacity gate " + (admission.DeferReason ?? "deferred for memory pressure"));
+                    return false;
+                }
+            }
+
             // Only idle captains have capacity for new assignments
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             return idleCaptains.Count > 0;

@@ -6,16 +6,18 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildFleetDuplicatePayload } from '../lib/duplicates';
-
-type SortDir = 'asc' | 'desc';
-type SortField = 'name' | 'createdUtc' | '_vesselCount' | 'description';
+import { useResourceTable } from '../lib/useResourceTable';
 
 interface FleetWithCount extends Fleet {
   _vesselCount: number;
@@ -40,22 +42,25 @@ export default function Fleets() {
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
 
+  // Row-click view modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
+
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ name: '', description: '' });
-
-  // Pagination
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const table = useResourceTable({
+    rows: fleets,
+    getId: (f) => f.id,
+    columnValues: {
+      name: (f) => f.name.toLowerCase(),
+      description: (f) => f.description ?? '',
+      _vesselCount: (f) => f._vesselCount,
+      createdUtc: (f) => f.createdUtc,
+    },
+    initialSortField: 'name',
+    initialSortDir: 'asc',
+    initialPageSize: 25,
+  });
 
   const load = useCallback(async () => {
     try {
@@ -86,56 +91,7 @@ export default function Fleets() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Filtered rows
-  const filtered = useMemo(() => {
-    return fleets.filter(f =>
-      (!colFilters.name || f.name.toLowerCase().includes(colFilters.name.toLowerCase())) &&
-      (!colFilters.description || (f.description ?? '').toLowerCase().includes(colFilters.description.toLowerCase()))
-    );
-  }, [fleets, colFilters]);
-
-  // Sorted rows
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number = '';
-      let vb: string | number = '';
-      if (sortField === '_vesselCount') { va = a._vesselCount; vb = b._vesselCount; }
-      else if (sortField === 'createdUtc') { va = a.createdUtc; vb = b.createdUtc; }
-      else if (sortField === 'description') { va = a.description ?? ''; vb = b.description ?? ''; }
-      else { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  // Paginated
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
-
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(filtered.map(f => f.id)); }
-  function clearSelection() { setSelected([]); }
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('fleets', load);
 
   // CRUD
   function openCreate() { setForm({ name: '', description: '', defaultPipelineId: '' }); setEditing(null); setShowForm(true); }
@@ -186,11 +142,11 @@ export default function Fleets() {
     setConfirm({
       open: true,
       title: t('Delete Selected Fleets'),
-      message: t('Delete {{count}} selected fleet(s)? This cannot be undone.', { count: selected.length }),
+      message: t('Delete {{count}} selected fleet(s)? This cannot be undone.', { count: table.selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        const ids = [...selected];
-        setSelected([]);
+        const ids = [...table.selected];
+        table.setSelected([]);
         let failed = 0;
         for (const id of ids) {
           try { await deleteFleet(id); } catch { failed++; }
@@ -209,21 +165,22 @@ export default function Fleets() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Fleets')}</h2>
-          <p className="text-dim view-subtitle">{t('Fleets are groups of vessels (repositories) useful for organizing and understanding relationships amongst code assets.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
-          <RefreshButton onRefresh={load} title={t('Refresh fleet data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Fleets')}
+        subtitle={t('Fleets are groups of vessels (repositories) useful for organizing and understanding relationships amongst code assets.')}
+        actions={(
+          <>
+            {table.selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({table.selected.length})
+              </button>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh fleet data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -253,6 +210,17 @@ export default function Fleets() {
       {/* JSON Viewer */}
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
 
+      {/* Row-click View Modal */}
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={typeof viewRecord?.name === 'string' ? viewRecord.name : t('Fleet')}
+        subtitle={t('Fleet')}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/fleets/${(r as { id: string }).id}`); }}
+        editLabel={t('Open Details')}
+      />
+
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
@@ -262,38 +230,38 @@ export default function Fleets() {
 
       {fleets.length > 0 && (
         <>
-          <Pagination pageNumber={currentPage} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={sorted.length}
-            onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
+          <Pagination pageNumber={table.currentPage} pageSize={table.pageSize} totalPages={table.totalPages}
+            totalRecords={table.sorted.length}
+            onPageChange={p => table.setPageNumber(p)} onPageSizeChange={s => { table.setPageSize(s); table.setPageNumber(1); }} />
 
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all fleets')} />
+                    <input type="checkbox" checked={table.allSelected} onChange={e => e.target.checked ? table.selectAll() : table.clearSelection()} title={t('Select all fleets')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('name')} title={t('Fleet name -- click to sort')}>
-                    {t('Name')}{sortIcon('name')}
+                  <th className="sortable" onClick={() => table.handleSort('name')} title={t('Fleet name -- click to sort')}>
+                    {t('Name')}{table.sortIcon('name')}
                   </th>
                   <th>{t('ID')}</th>
-                  <th className="sortable" onClick={() => handleSort('description')} title={t('Description -- click to sort')}>
-                    {t('Description')}{sortIcon('description')}
+                  <th className="sortable" onClick={() => table.handleSort('description')} title={t('Description -- click to sort')}>
+                    {t('Description')}{table.sortIcon('description')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('_vesselCount')} title={t('Vessel count -- click to sort')}>
-                    {t('Vessels')}{sortIcon('_vesselCount')}
+                  <th className="sortable" onClick={() => table.handleSort('_vesselCount')} title={t('Vessel count -- click to sort')}>
+                    {t('Vessels')}{table.sortIcon('_vesselCount')}
                   </th>
                   <th>{t('Active')}</th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created date -- click to sort')}>
-                    {t('Created')}{sortIcon('createdUtc')}
+                  <th className="sortable" onClick={() => table.handleSort('createdUtc')} title={t('Created date -- click to sort')}>
+                    {t('Created')}{table.sortIcon('createdUtc')}
                   </th>
                   <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.description ?? ''} onChange={e => table.setColFilter('description', e.target.value)} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -301,10 +269,10 @@ export default function Fleets() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map(f => (
-                  <tr key={f.id} className="clickable" onClick={() => openEdit(f)}>
+                {table.paginated.map(f => (
+                  <tr key={f.id} className="clickable" onClick={() => setViewRecord(f as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(f.id)} onChange={() => toggleSelect(f.id)} title={t('Select this fleet')} />
+                      <input type="checkbox" checked={table.selected.includes(f.id)} onChange={() => table.toggleSelect(f.id)} title={t('Select this fleet')} />
                     </td>
                     <td><strong>{f.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
@@ -328,7 +296,7 @@ export default function Fleets() {
                     </td>
                   </tr>
                 ))}
-                {paginated.length === 0 && (
+                {table.paginated.length === 0 && (
                   <tr><td colSpan={8} className="text-dim">{t('No fleets match the current filters.')}</td></tr>
                 )}
               </tbody>

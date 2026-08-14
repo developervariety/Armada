@@ -18,6 +18,20 @@ namespace Armada.Core.Models
         /// </summary>
         public string Description { get; set; } = "";
 
+        /// <summary>
+        /// Optional required capability tier for dispatch routing (Economy/Standard/Premium). Null routes
+        /// to any idle captain. When a preferred captain is set via <see cref="RequestedCaptainId"/>, this is
+        /// the fallback tier used when that captain is busy.
+        /// </summary>
+        public Armada.Core.Enums.CaptainTierEnum? Tier { get; set; } = null;
+
+        /// <summary>
+        /// Optional preferred (dictated) captain identifier for this mission, referenced by captain id
+        /// (cpt_ prefix). When set and idle, dispatch assigns it; when busy, dispatch falls back by
+        /// <see cref="Tier"/>. Null means normal persona/tier routing.
+        /// </summary>
+        public string? RequestedCaptainId { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

@@ -6,9 +6,13 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PUBLISH_DIR="${HOME}/.armada/bin"
 SERVER_EXE="${PUBLISH_DIR}/Armada.Server"
 
+# shellcheck source=scripts/common/resolve-framework.sh
+source "${SCRIPT_DIR}/resolve-framework.sh"
+armada_resolve_framework "$@"
+
 echo
-echo "[publish-server] Publishing Armada.Server to ${PUBLISH_DIR}..."
-dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release -f net10.0 -o "${PUBLISH_DIR}"
+echo "[publish-server] Publishing Armada.Server (${ARMADA_TARGET_FRAMEWORK}) to ${PUBLISH_DIR}..."
+dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release -f "$ARMADA_TARGET_FRAMEWORK" -o "${PUBLISH_DIR}"
 
 echo
 echo "[publish-server] Deploying dashboard assets..."

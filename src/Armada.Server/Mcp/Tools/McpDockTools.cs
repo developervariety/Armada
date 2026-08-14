@@ -96,6 +96,52 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
+                "repair_dock",
+                "Repair a dock's git worktree to fix a corrupted or relocated registration. Non-destructive: no work is removed.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        dockId = new { type = "string", description = "Dock ID (dck_ prefix)" }
+                    },
+                    required = new[] { "dockId" }
+                },
+                async (args) =>
+                {
+                    if (dockService == null) return (object)new { Error = "Dock service not available" };
+                    DockIdArgs request = JsonSerializer.Deserialize<DockIdArgs>(args!.Value, _JsonOptions)!;
+                    Dock? dock = await database.Docks.ReadAsync(request.DockId).ConfigureAwait(false);
+                    if (dock == null) return (object)new { Error = "Dock not found" };
+
+                    await dockService.RepairAsync(request.DockId).ConfigureAwait(false);
+                    return (object)new { Status = "repaired", DockId = request.DockId };
+                });
+
+            register(
+                "unstick_dock",
+                "Unstick a wedged dock: release any captain still holding it back to Idle and reclaim its worktree so it stops pinning capacity. Committed branch history is preserved.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        dockId = new { type = "string", description = "Dock ID (dck_ prefix)" }
+                    },
+                    required = new[] { "dockId" }
+                },
+                async (args) =>
+                {
+                    if (dockService == null) return (object)new { Error = "Dock service not available" };
+                    DockIdArgs request = JsonSerializer.Deserialize<DockIdArgs>(args!.Value, _JsonOptions)!;
+                    Dock? dock = await database.Docks.ReadAsync(request.DockId).ConfigureAwait(false);
+                    if (dock == null) return (object)new { Error = "Dock not found" };
+
+                    await dockService.UnstickAsync(request.DockId).ConfigureAwait(false);
+                    return (object)new { Status = "unstuck", DockId = request.DockId };
+                });
+
+            register(
                 "delete_docks",
                 "Permanently delete multiple docks and their git worktrees from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new

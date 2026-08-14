@@ -28,7 +28,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                 Docks,
                 Signals,
                 Events,
-                MergeEntries
+                MergeEntries,
+                CoordinationLeases,
+                Jobs
             };
 
             foreach (string index in Indexes)
@@ -792,6 +794,110 @@ namespace Armada.Core.Database.SqlServer.Queries
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_objective_refinement_messages_session_sequence') CREATE INDEX idx_objective_refinement_messages_session_sequence ON objective_refinement_messages(objective_refinement_session_id, sequence);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_objective_refinement_messages_objective_created') CREATE INDEX idx_objective_refinement_messages_objective_created ON objective_refinement_messages(objective_id, created_utc DESC);"
+                ),
+                new SchemaMigration(
+                    44,
+                    "Reliability release: dock leases, process liveness, review deadline, merge retry, coordination leases",
+                    @"IF COL_LENGTH('docks', 'state') IS NULL ALTER TABLE docks ADD state NVARCHAR(32) NOT NULL CONSTRAINT DF_docks_state DEFAULT 'Available';",
+                    @"IF COL_LENGTH('docks', 'lease_expires_utc') IS NULL ALTER TABLE docks ADD lease_expires_utc DATETIME2 NULL;",
+                    @"IF COL_LENGTH('docks', 'owner_token') IS NULL ALTER TABLE docks ADD owner_token NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('captains', 'last_process_alive_utc') IS NULL ALTER TABLE captains ADD last_process_alive_utc DATETIME2 NULL;",
+                    @"IF COL_LENGTH('missions', 'review_deadline_utc') IS NULL ALTER TABLE missions ADD review_deadline_utc DATETIME2 NULL;",
+                    @"IF COL_LENGTH('merge_entries', 'retry_count') IS NULL ALTER TABLE merge_entries ADD retry_count INT NOT NULL CONSTRAINT DF_merge_entries_retry_count DEFAULT 0;",
+                    @"IF COL_LENGTH('merge_entries', 'lease_expires_utc') IS NULL ALTER TABLE merge_entries ADD lease_expires_utc DATETIME2 NULL;",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'coordination_leases')
+                    CREATE TABLE coordination_leases (
+                        name NVARCHAR(255) NOT NULL PRIMARY KEY,
+                        holder NVARCHAR(MAX) NOT NULL,
+                        tenant_id NVARCHAR(255) NULL,
+                        acquired_utc DATETIME2 NOT NULL,
+                        expires_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_coordination_leases_expires') CREATE INDEX idx_coordination_leases_expires ON coordination_leases(expires_utc);"
+                ),
+                new SchemaMigration(
+                    45,
+                    "Add project_profiles for per-project persona/pipeline/skill customization",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'project_profiles')
+                    CREATE TABLE project_profiles (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450) NULL,
+                        user_id NVARCHAR(450) NULL,
+                        name NVARCHAR(450) NOT NULL,
+                        description NVARCHAR(MAX) NULL,
+                        scope NVARCHAR(64) NOT NULL CONSTRAINT DF_project_profiles_scope DEFAULT 'Global',
+                        fleet_id NVARCHAR(450) NULL,
+                        vessel_id NVARCHAR(450) NULL,
+                        is_default BIT NOT NULL CONSTRAINT DF_project_profiles_is_default DEFAULT 0,
+                        active BIT NOT NULL CONSTRAINT DF_project_profiles_active DEFAULT 1,
+                        default_pipeline_id NVARCHAR(450) NULL,
+                        workflow_profile_id NVARCHAR(450) NULL,
+                        persona_overrides_json NVARCHAR(MAX) NULL,
+                        skills_json NVARCHAR(MAX) NULL,
+                        created_utc DATETIME2 NOT NULL,
+                        last_update_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_tenant') CREATE INDEX idx_project_profiles_tenant ON project_profiles(tenant_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_scope') CREATE INDEX idx_project_profiles_scope ON project_profiles(scope);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_fleet') CREATE INDEX idx_project_profiles_fleet ON project_profiles(fleet_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_vessel') CREATE INDEX idx_project_profiles_vessel ON project_profiles(vessel_id);"
+                ),
+                new SchemaMigration(
+                    46,
+                    "Add skills directory",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'skills')
+                    CREATE TABLE skills (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450) NULL,
+                        user_id NVARCHAR(450) NULL,
+                        name NVARCHAR(450) NOT NULL,
+                        description NVARCHAR(MAX) NULL,
+                        category NVARCHAR(255) NULL,
+                        content NVARCHAR(MAX) NULL,
+                        is_built_in BIT NOT NULL CONSTRAINT DF_skills_is_built_in DEFAULT 0,
+                        active BIT NOT NULL CONSTRAINT DF_skills_active DEFAULT 1,
+                        created_utc DATETIME2 NOT NULL,
+                        last_update_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_tenant') CREATE INDEX idx_skills_tenant ON skills(tenant_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_category') CREATE INDEX idx_skills_category ON skills(category);"
+                ),
+                new SchemaMigration(
+                    47,
+                    "Add captain reasoning_effort/tier, mission redispatch_attempts/tier, vessel secret scan and privacy fields",
+                    @"IF COL_LENGTH('captains', 'reasoning_effort') IS NULL ALTER TABLE captains ADD reasoning_effort NVARCHAR(64) NULL;",
+                    @"IF COL_LENGTH('captains', 'tier') IS NULL ALTER TABLE captains ADD tier NVARCHAR(32) NULL;",
+                    @"IF COL_LENGTH('missions', 'redispatch_attempts') IS NULL ALTER TABLE missions ADD redispatch_attempts INT NOT NULL CONSTRAINT DF_missions_redispatch_attempts DEFAULT 0;",
+                    @"IF COL_LENGTH('missions', 'tier') IS NULL ALTER TABLE missions ADD tier NVARCHAR(32) NULL;",
+                    @"IF COL_LENGTH('vessels', 'secret_scan_enabled') IS NULL ALTER TABLE vessels ADD secret_scan_enabled BIT NOT NULL CONSTRAINT DF_vessels_secret_scan_enabled DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'protected_path_patterns_json') IS NULL ALTER TABLE vessels ADD protected_path_patterns_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('vessels', 'private_identifier_denylist_json') IS NULL ALTER TABLE vessels ADD private_identifier_denylist_json NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    48,
+                    "Add vessel auto-land policy fields and captain quarantine fields",
+                    @"IF COL_LENGTH('vessels', 'auto_land_enabled') IS NULL ALTER TABLE vessels ADD auto_land_enabled BIT NOT NULL CONSTRAINT DF_vessels_auto_land_enabled DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_max_files') IS NULL ALTER TABLE vessels ADD auto_land_max_files INT NOT NULL CONSTRAINT DF_vessels_auto_land_max_files DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_max_lines') IS NULL ALTER TABLE vessels ADD auto_land_max_lines INT NOT NULL CONSTRAINT DF_vessels_auto_land_max_lines DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_path_allow_globs_json') IS NULL ALTER TABLE vessels ADD auto_land_path_allow_globs_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('vessels', 'auto_land_path_deny_globs_json') IS NULL ALTER TABLE vessels ADD auto_land_path_deny_globs_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('captains', 'quarantine_until_utc') IS NULL ALTER TABLE captains ADD quarantine_until_utc NVARCHAR(450) NULL;",
+                    @"IF COL_LENGTH('captains', 'quarantine_reason') IS NULL ALTER TABLE captains ADD quarantine_reason NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    49,
+                    "Add jobs table for request-independent background jobs",
+                    Jobs
+                ),
+                new SchemaMigration(
+                    55,
+                    "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    @"IF COL_LENGTH('personas', 'default_captain_id') IS NULL ALTER TABLE personas ADD default_captain_id NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('missions', 'requested_captain_id') IS NULL ALTER TABLE missions ADD requested_captain_id NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('voyages', 'captain_overrides_json') IS NULL ALTER TABLE voyages ADD captain_overrides_json NVARCHAR(MAX) NULL;"
                 )
             };
         }
@@ -917,6 +1023,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 process_id INT,
                 recovery_attempts INT NOT NULL DEFAULT 0,
                 last_heartbeat_utc NVARCHAR(450),
+                last_process_alive_utc DATETIME2 NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 last_update_utc NVARCHAR(450) NOT NULL
             );";
@@ -962,6 +1069,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 commit_hash NVARCHAR(450),
                 diff_snapshot NVARCHAR(MAX),
                 agent_output NVARCHAR(MAX),
+                review_deadline_utc DATETIME2 NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 started_utc NVARCHAR(450),
                 completed_utc NVARCHAR(450),
@@ -984,6 +1092,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                 worktree_path NVARCHAR(450),
                 branch_name NVARCHAR(450),
                 active BIT NOT NULL DEFAULT 1,
+                state NVARCHAR(32) NOT NULL DEFAULT 'Available',
+                lease_expires_utc DATETIME2 NULL,
+                owner_token NVARCHAR(MAX) NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 last_update_utc NVARCHAR(450) NOT NULL,
                 CONSTRAINT FK_docks_vessel FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE,
@@ -1043,10 +1154,46 @@ namespace Armada.Core.Database.SqlServer.Queries
                 test_command NVARCHAR(MAX),
                 test_output NVARCHAR(MAX),
                 test_exit_code INT,
+                retry_count INT NOT NULL DEFAULT 0,
+                lease_expires_utc DATETIME2 NULL,
                 created_utc NVARCHAR(450) NOT NULL,
                 last_update_utc NVARCHAR(450) NOT NULL,
                 test_started_utc NVARCHAR(450),
                 completed_utc NVARCHAR(450)
+            );";
+
+        /// <summary>
+        /// Coordination leases table. Backs restart-safe, multi-instance-safe mutual exclusion via
+        /// atomic compare-and-swap on the lease name with TTL-based takeover.
+        /// </summary>
+        public static readonly string CoordinationLeases = @"
+            CREATE TABLE coordination_leases (
+                name NVARCHAR(255) NOT NULL PRIMARY KEY,
+                holder NVARCHAR(MAX) NOT NULL,
+                tenant_id NVARCHAR(255) NULL,
+                acquired_utc DATETIME2 NOT NULL,
+                expires_utc DATETIME2 NOT NULL
+            );";
+
+        /// <summary>
+        /// Jobs table. Backs request-independent background jobs with a time-ordered id and pollable status.
+        /// </summary>
+        public static readonly string Jobs = @"
+            IF OBJECT_ID(N'jobs') IS NULL
+            CREATE TABLE jobs (
+                id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id NVARCHAR(450),
+                user_id NVARCHAR(450),
+                name NVARCHAR(MAX) NOT NULL,
+                kind NVARCHAR(64) NOT NULL CONSTRAINT DF_jobs_kind DEFAULT 'Generic',
+                status NVARCHAR(64) NOT NULL CONSTRAINT DF_jobs_status DEFAULT 'Queued',
+                progress INT NOT NULL CONSTRAINT DF_jobs_progress DEFAULT 0,
+                result_json NVARCHAR(MAX),
+                error_reason NVARCHAR(MAX),
+                created_utc NVARCHAR(450) NOT NULL,
+                started_utc NVARCHAR(450),
+                completed_utc NVARCHAR(450),
+                last_update_utc NVARCHAR(450) NOT NULL
             );";
 
         #endregion
@@ -1156,7 +1303,10 @@ namespace Armada.Core.Database.SqlServer.Queries
             "CREATE INDEX idx_merge_entries_tenant_status ON merge_entries(tenant_id, status);",
             "CREATE INDEX idx_merge_entries_tenant_status_priority ON merge_entries(tenant_id, status, priority ASC, created_utc ASC);",
             "CREATE INDEX idx_merge_entries_tenant_vessel ON merge_entries(tenant_id, vessel_id);",
-            "CREATE INDEX idx_merge_entries_tenant_mission ON merge_entries(tenant_id, mission_id);"
+            "CREATE INDEX idx_merge_entries_tenant_mission ON merge_entries(tenant_id, mission_id);",
+
+            // Coordination leases
+            "CREATE INDEX idx_coordination_leases_expires ON coordination_leases(expires_utc);"
         };
 
         #endregion

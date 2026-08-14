@@ -1,7 +1,9 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
+    using System.Globalization;
     using SyslogLogging;
 
     /// <summary>
@@ -39,6 +41,14 @@ namespace Armada.Runtimes
         /// </summary>
         public bool SkipPermissions { get; set; } = true;
 
+        /// <summary>
+        /// When true, run in streaming-JSON mode (--output-format stream-json --include-partial-messages) so
+        /// the caller can render the model's reply token-by-token and read a clean final message plus metrics
+        /// from the terminal "result" event. Used by interactive chat; missions leave this false so their
+        /// output stays human-readable and progress-signal parsing is unaffected.
+        /// </summary>
+        public bool StreamJsonOutput { get; set; } = false;
+
         #endregion
 
         #region Private-Members
@@ -64,6 +74,14 @@ namespace Armada.Runtimes
         /// <summary>
         /// Get the claude CLI command.
         /// </summary>
+        /// <summary>
+        /// The runtime this adapter drives.
+        /// </summary>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode;
+
+        /// <summary>
+        /// Get the command to execute for this runtime.
+        /// </summary>
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);
@@ -84,6 +102,15 @@ namespace Armada.Runtimes
             args.Add("--print");
             args.Add("--verbose");
 
+            if (StreamJsonOutput)
+            {
+                // Emit newline-delimited JSON events with incremental text deltas so chat can stream the
+                // reply token-by-token and read a clean final message + metrics from the "result" event.
+                args.Add("--output-format");
+                args.Add("stream-json");
+                args.Add("--include-partial-messages");
+            }
+
             if (!String.IsNullOrEmpty(model))
             {
                 args.Add("--model");
@@ -95,15 +122,23 @@ namespace Armada.Runtimes
                 args.Add("--dangerously-skip-permissions");
             }
 
-            args.Add(prompt);
-
+            // The prompt is delivered on stdin (see UsePromptStdin), not as a CLI argument. On Windows the
+            // claude executable is an npm ".cmd" wrapper; a multi-line argument passed through cmd.exe is
+            // truncated at the first newline, so the agent would receive only the first line of the prompt.
+            // Reading the prompt from stdin preserves the full multi-line content on every platform.
             return args;
         }
 
         /// <summary>
+        /// Deliver the prompt on stdin rather than as a command-line argument. Claude Code reads the prompt
+        /// from stdin in --print mode, and this avoids the Windows cmd.exe multi-line-argument truncation.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
+
+        /// <summary>
         /// Apply Claude Code specific environment variables.
         /// </summary>
-        protected override void ApplyEnvironment(ProcessStartInfo startInfo)
+        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
 
@@ -111,6 +146,13 @@ namespace Armada.Runtimes
             // even when the Admiral or CLI was started from within a Claude Code session
             startInfo.Environment.Remove("CLAUDECODE");
             startInfo.Environment.Remove("CLAUDE_CODE_ENTRYPOINT");
+
+            // Per-captain reasoning effort -> Claude Code extended-thinking budget.
+            int? thinkingTokens = ReasoningEffortTranslator.ToClaudeThinkingTokens(captain?.ReasoningEffort);
+            if (thinkingTokens.HasValue)
+            {
+                startInfo.Environment["MAX_THINKING_TOKENS"] = thinkingTokens.Value.ToString(CultureInfo.InvariantCulture);
+            }
         }
 
         #endregion

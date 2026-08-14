@@ -64,5 +64,30 @@ namespace Armada.Server.Mcp
         /// Optional per-vessel GitHub token override. Supply an empty string to clear it.
         /// </summary>
         public string? GitHubTokenOverride { get; set; }
+
+        /// <summary>
+        /// Whether the auto-land predicate gates unattended landing on this vessel.
+        /// </summary>
+        public bool? AutoLandEnabled { get; set; }
+
+        /// <summary>
+        /// Maximum number of changed files that may auto-land unattended (0 = no limit).
+        /// </summary>
+        public int? AutoLandMaxFiles { get; set; }
+
+        /// <summary>
+        /// Maximum number of changed lines that may auto-land unattended (0 = no limit).
+        /// </summary>
+        public int? AutoLandMaxLines { get; set; }
+
+        /// <summary>
+        /// Glob patterns a changed path must match to be auto-landable.
+        /// </summary>
+        public System.Collections.Generic.List<string>? AutoLandPathAllowGlobs { get; set; }
+
+        /// <summary>
+        /// Glob patterns that force a hold: a change touching any matching path never auto-lands.
+        /// </summary>
+        public System.Collections.Generic.List<string>? AutoLandPathDenyGlobs { get; set; }
     }
 }

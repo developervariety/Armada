@@ -15,6 +15,7 @@ vi.mock('../api/client', () => ({
   enumerateHistoryTimeline: vi.fn(),
   listObjectives: vi.fn(),
   listVessels: vi.fn(),
+  deleteRequestHistoryEntry: vi.fn(),
 }));
 
 vi.mock('../context/LocaleContext', () => ({
@@ -23,6 +24,10 @@ vi.mock('../context/LocaleContext', () => ({
     formatDateTime: (value: string | null | undefined) => value ?? '',
     formatRelativeTime: (value: string | null | undefined) => value ?? '',
   }),
+}));
+
+vi.mock('../context/NotificationContext', () => ({
+  useNotifications: () => ({ pushToast: vi.fn() }),
 }));
 
 describe('History', () => {

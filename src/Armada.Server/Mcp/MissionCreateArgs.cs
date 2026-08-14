@@ -34,6 +34,12 @@ namespace Armada.Server.Mcp
         public string? Persona { get; set; }
 
         /// <summary>
+        /// Optional required capability tier for dispatch routing: Economy, Standard, or Premium.
+        /// Null routes to any idle captain (default behavior).
+        /// </summary>
+        public string? Tier { get; set; }
+
+        /// <summary>
         /// Ordered playbooks to apply during mission dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

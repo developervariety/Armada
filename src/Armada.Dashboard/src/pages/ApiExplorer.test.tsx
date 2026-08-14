@@ -174,7 +174,9 @@ describe('ApiExplorer', () => {
     expect(screen.getByRole('heading', { name: 'API Explorer' })).toBeInTheDocument();
     expect((await screen.findAllByText('/api/v1/fleets')).length).toBeGreaterThan(0);
     expect(screen.getByText('List fleets')).toBeInTheDocument();
-    expect(screen.getByText('Recent Captured')).toBeInTheDocument();
+    // Operations are chosen from a dropdown; the fleets operation is one of the options.
+    expect(screen.getByRole('heading', { name: 'Operations' })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: /GET \/api\/v1\/fleets/ })).toBeInTheDocument();
   });
 
   it('hydrates replay state for parameterized backlog refinement routes', async () => {

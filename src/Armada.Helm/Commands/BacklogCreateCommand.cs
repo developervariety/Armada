@@ -21,7 +21,7 @@ namespace Armada.Helm.Commands
         /// <summary>
         /// Executes the backlog create command.
         /// </summary>
-        public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
         {
             if (String.IsNullOrWhiteSpace(settings.Title))
             {

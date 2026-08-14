@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
+import PageHeader from '../components/shared/PageHeader';
 import {
   deleteRequestHistoryByFilter,
   deleteRequestHistoryEntries,
@@ -21,10 +22,14 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
+import { formatBytes, parseJsonString } from '../lib/format';
 
 type ActivityRangeId = 'lastHour' | 'lastDay' | 'lastWeek' | 'lastMonth';
 
@@ -68,27 +73,6 @@ function toLocalInputValue(date: Date) {
 
 function buildApiDate(value: string) {
   return value ? new Date(value).toISOString() : undefined;
-}
-
-function formatBytes(bytes: number) {
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-function parseJsonString<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
 }
 
 function formatChartLabel(value: string, rangeId: ActivityRangeId) {
@@ -174,6 +158,7 @@ function HistoryChart({
 }) {
   const [tooltip, setTooltip] = useState<HistoryChartTooltipState | null>(null);
   const buckets = normalizeSummaryBuckets(summary, rangeId);
+  const windowTotal = buckets.reduce((sum, bucket) => sum + bucket.totalCount, 0);
   const maxCount = Math.max(...buckets.map((bucket) => bucket.totalCount), 1);
   const labels = useMemo(() => {
     if (buckets.length === 0) return [];
@@ -196,6 +181,14 @@ function HistoryChart({
         align: position === 0 ? 'start' : position === values.length - 1 ? 'end' : 'center',
       }));
   }, [buckets, rangeId]);
+
+  if (windowTotal === 0) {
+    return (
+      <div className="request-history-empty">
+        {t('No requests in this time range. Widen the range above to see older traffic.')}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -281,26 +274,30 @@ function RequestDetailBlock({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2);
+  const hasContent = !!text && text !== '{}' && text !== '(empty)';
   return (
     <div className="request-detail-block">
-      <button
-        type="button"
-        className="request-detail-block-toggle"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <div className="request-detail-block-header">
-          <div className="request-detail-block-title">
-            <span className={`request-detail-block-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">
-              <svg viewBox="0 0 16 16" focusable="false">
-                <path d="M5 3.5 10 8l-5 4.5" />
-              </svg>
-            </span>
-            <h4>{title}</h4>
+      <div className="request-detail-block-row">
+        <button
+          type="button"
+          className="request-detail-block-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <div className="request-detail-block-header">
+            <div className="request-detail-block-title">
+              <span className={`request-detail-block-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">
+                <svg viewBox="0 0 16 16" focusable="false">
+                  <path d="M5 3.5 10 8l-5 4.5" />
+                </svg>
+              </span>
+              <h4>{title}</h4>
+            </div>
+            {note && <span className="request-detail-block-note">{note}</span>}
           </div>
-          {note && <span className="request-detail-block-note">{note}</span>}
-        </div>
-      </button>
+        </button>
+        {hasContent && <CopyButton text={text} title={`Copy ${title}`} />}
+      </div>
       {expanded && <pre className="request-detail-code">{text || '(empty)'}</pre>}
     </div>
   );
@@ -340,6 +337,8 @@ export default function RequestHistory() {
   }), []);
 
   const [filters, setFilters] = useState<FiltersState>(defaultFilters);
+  // Filters are a supporting control surface, not the primary content, so the section starts collapsed.
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [activityRange, setActivityRange] = useState<ActivityRangeId>('lastDay');
   const [entries, setEntries] = useState<RequestHistoryEntry[]>([]);
   const [summary, setSummary] = useState<RequestHistorySummaryResult | null>(null);
@@ -455,6 +454,8 @@ export default function RequestHistory() {
     loadSummary();
   }, [loadSummary]);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('requesthistory', async () => { await Promise.all([loadEntries(), loadSummary()]); });
+
   useEffect(() => {
     if (!id) {
       setDetailRecord(null);
@@ -529,30 +530,29 @@ export default function RequestHistory() {
 
   return (
     <div className="request-history-page">
-      <div className="page-header">
-        <div>
-          <h2>{t('Requests')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Inspect captured Armada API traffic, filter by route or principal, and replay stored requests into API Explorer.')}
-          </p>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-sm" onClick={() => navigate('/api-explorer')}>
-            {t('API Explorer')}
-          </button>
-          {selectedIds.length > 0 && (
-            <button className="btn btn-danger btn-sm" onClick={() => setDeleteSelectedOpen(true)}>
-              {t('Delete Selected')} ({selectedIds.length})
+      <PageHeader
+        title={t('Requests')}
+        subtitle={t('Inspect captured Armada API traffic, filter by route or principal, and replay stored requests into API Explorer.')}
+        actions={(
+          <>
+            <button className="btn btn-sm" onClick={() => navigate('/api-explorer')}>
+              {t('API Explorer')}
             </button>
-          )}
-          {totalRecords > 0 && (
-            <button className="btn btn-danger btn-sm" onClick={() => setDeleteFilteredOpen(true)}>
-              {hasActiveFilters ? t('Delete Filtered') : t('Delete Visible Range')}
-            </button>
-          )}
-          <RefreshButton onRefresh={async () => { await Promise.all([loadEntries(), loadSummary()]); }} title={t('Refresh request data')} />
-        </div>
-      </div>
+            {selectedIds.length > 0 && (
+              <button className="btn btn-danger btn-sm" onClick={() => setDeleteSelectedOpen(true)}>
+                {t('Delete Selected')} ({selectedIds.length})
+              </button>
+            )}
+            {totalRecords > 0 && (
+              <button className="btn btn-danger btn-sm" onClick={() => setDeleteFilteredOpen(true)}>
+                {hasActiveFilters ? t('Delete Filtered') : t('Delete Visible Range')}
+              </button>
+            )}
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={async () => { await Promise.all([loadEntries(), loadSummary()]); }} title={t('Refresh request data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -609,14 +609,30 @@ export default function RequestHistory() {
 
       <div className="card request-history-filters-card">
         <div className="request-card-header">
-          <div>
-            <h3>{t('Filters')}</h3>
-            <p className="text-dim">{t('Constrain the paginated request table without leaving the dashboard.')}</p>
-          </div>
-          <button className="btn btn-sm" onClick={() => { setFilters(defaultFilters); setPageNumber(1); }}>
-            {t('Reset')}
+          <button
+            type="button"
+            className="collapsible-header"
+            onClick={() => setFiltersExpanded((current) => !current)}
+            aria-expanded={filtersExpanded}
+          >
+            <span className="collapsible-caret" aria-hidden="true">{filtersExpanded ? '▾' : '▸'}</span>
+            <span className="collapsible-title">{t('Filters')}</span>
+            {hasActiveFilters && <span className="filter-active-pill">{t('Active')}</span>}
+            <span className="text-dim" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+              {t('Constrain the paginated request table without leaving the dashboard.')}
+            </span>
           </button>
+          {filtersExpanded && (
+            <button
+              className="btn btn-sm"
+              onClick={() => { setFilters(defaultFilters); setPageNumber(1); }}
+              style={{ marginLeft: '0.75rem' }}
+            >
+              {t('Reset')}
+            </button>
+          )}
         </div>
+        {filtersExpanded && (
         <div className="request-card-body">
           <div className="request-filter-grid">
             <label className="request-filter-field">
@@ -676,6 +692,7 @@ export default function RequestHistory() {
             </label>
           </div>
         </div>
+        )}
       </div>
 
       <Pagination

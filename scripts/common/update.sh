@@ -3,7 +3,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-HELM_DLL="$REPO_ROOT/src/Armada.Helm/bin/Debug/net10.0/Armada.Helm.dll"
+
+# shellcheck source=scripts/common/resolve-framework.sh
+source "${SCRIPT_DIR}/resolve-framework.sh"
+armada_resolve_framework "$@"
+
+HELM_DLL="$REPO_ROOT/src/Armada.Helm/bin/Debug/${ARMADA_TARGET_FRAMEWORK}/Armada.Helm.dll"
 
 run_helm() {
   if command -v armada >/dev/null 2>&1; then
@@ -16,7 +21,7 @@ run_helm() {
     return
   fi
 
-  dotnet run --project "$REPO_ROOT/src/Armada.Helm" -f net10.0 -- "$@"
+  dotnet run --project "$REPO_ROOT/src/Armada.Helm" -f "$ARMADA_TARGET_FRAMEWORK" -- "$@"
 }
 
 echo

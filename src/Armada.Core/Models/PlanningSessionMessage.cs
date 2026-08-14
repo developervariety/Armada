@@ -66,6 +66,13 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime LastUpdateUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// Per-turn timing and token statistics for an assistant message (time to first token,
+        /// streaming time, tokens per second). Populated live when a turn completes and delivered over
+        /// the WebSocket; it is not persisted, so it is null for messages reloaded from storage.
+        /// </summary>
+        public CaptainChatMetrics? Metrics { get; set; } = null;
+
         #endregion
 
         #region Private-Members

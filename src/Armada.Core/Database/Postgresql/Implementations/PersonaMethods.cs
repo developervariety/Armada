@@ -58,8 +58,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, name, description, prompt_template_name, is_built_in, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @name, @description, @prompt_template_name, @is_built_in, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, name, description, prompt_template_name, is_built_in, active, default_captain_id, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @name, @description, @prompt_template_name, @is_built_in, @active, @default_captain_id, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", persona.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", persona.Name);
@@ -67,6 +67,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
                     cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn);
                     cmd.Parameters.AddWithValue("@active", persona.Active);
+                    cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", persona.CreatedUtc);
                     cmd.Parameters.AddWithValue("@last_update_utc", persona.LastUpdateUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -169,6 +170,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         prompt_template_name = @prompt_template_name,
                         is_built_in = @is_built_in,
                         active = @active,
+                        default_captain_id = @default_captain_id,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", persona.Id);
@@ -178,6 +180,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
                     cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn);
                     cmd.Parameters.AddWithValue("@active", persona.Active);
+                    cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", persona.LastUpdateUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -340,8 +343,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             persona.PromptTemplateName = reader["prompt_template_name"].ToString()!;
             persona.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
             persona.Active = Convert.ToBoolean(reader["active"]);
-            persona.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            persona.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            persona.DefaultCaptainId = NullableString(reader["default_captain_id"]);
+            persona.CreatedUtc = DateTime.SpecifyKind((DateTime)reader["created_utc"], DateTimeKind.Utc);
+            persona.LastUpdateUtc = DateTime.SpecifyKind((DateTime)reader["last_update_utc"], DateTimeKind.Utc);
             return persona;
         }
 

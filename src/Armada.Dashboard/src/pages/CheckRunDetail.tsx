@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import {
   buildCheckRunComparison,
@@ -137,41 +138,44 @@ export default function CheckRunDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/checks">{t('Checks')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{run.label || run.id}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{run.label || run.type}</h2>
-        <div className="inline-actions">
-          <StatusBadge status={run.status} />
-          <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: run.label || run.id, data: run })}>
-            {t('View JSON')}
-          </button>
-          <button className="btn btn-sm" disabled={retrying} onClick={handleRetry}>
-            {retrying ? t('Retrying...') : t('Retry')}
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => navigate('/releases/new', {
-              state: {
-                prefill: {
-                  vesselId: run.vesselId || null,
-                  voyageIds: run.voyageId ? [run.voyageId] : [],
-                  missionIds: run.missionId ? [run.missionId] : [],
-                  checkRunIds: [run.id],
-                  title: run.label ? `${run.label} Release` : `${run.type} Release`,
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/checks">{t('Checks')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{run.label || run.id}</span>
+          </>
+        }
+        title={run.label || run.type}
+        actions={
+          <>
+            <StatusBadge status={run.status} />
+            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: run.label || run.id, data: run })}>
+              {t('View JSON')}
+            </button>
+            <button className="btn btn-sm" disabled={retrying} onClick={handleRetry}>
+              {retrying ? t('Retrying...') : t('Retry')}
+            </button>
+            <button
+              className="btn btn-sm"
+              onClick={() => navigate('/releases/new', {
+                state: {
+                  prefill: {
+                    vesselId: run.vesselId || null,
+                    voyageIds: run.voyageId ? [run.voyageId] : [],
+                    missionIds: run.missionId ? [run.missionId] : [],
+                    checkRunIds: [run.id],
+                    title: run.label ? `${run.label} Release` : `${run.type} Release`,
+                  },
                 },
-              },
-            })}
-          >
-            {t('Draft Release')}
-          </button>
-          <button className="btn btn-sm btn-danger" onClick={handleDelete}>
-            {t('Delete')}
-          </button>
-        </div>
-      </div>
+              })}
+            >
+              {t('Draft Release')}
+            </button>
+            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+              {t('Delete')}
+            </button>
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

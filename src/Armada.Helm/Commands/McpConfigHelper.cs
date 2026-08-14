@@ -17,7 +17,8 @@ namespace Armada.Helm.Commands
             string[]? RemoveArgs = null,
             string? RemoveBeforeInstallName = null,
             string? ManualInstallCommand = null,
-            string? ManualRemoveCommand = null);
+            string? ManualRemoveCommand = null,
+            bool IsMuxServers = false);
 
         internal sealed record ApplyResult(string ClientName, string FilePath, bool Changed, string Message, bool IsProjectScoped = false);
         internal sealed record InstructionTarget(string ClientName, string FilePath, string Content, bool IsProjectScoped = false);
@@ -27,9 +28,13 @@ namespace Armada.Helm.Commands
         private const string ManagedBlockEnd = "<!-- armada:mcp:end -->";
         private const string SourceMcpFramework = "net10.0";
 
-        internal static string GetMcpRpcUrl(int mcpPort)
+        internal static string GetMcpUrl(int mcpPort)
         {
-            return $"http://localhost:{mcpPort}/rpc";
+            // Voltaic serves the modern MCP Streamable HTTP transport at /mcp (POST for JSON-RPC,
+            // GET for the SSE notification stream, DELETE to terminate the session). This is the
+            // endpoint modern MCP clients (Claude Code, Gemini, Cursor, Mux) expect. The legacy
+            // /rpc + /events pair is still served for older clients but is no longer advertised.
+            return $"http://localhost:{mcpPort}/mcp";
         }
 
         internal static string GetClaudeJsonPath()
@@ -67,13 +72,87 @@ namespace Armada.Helm.Commands
             return Path.Combine(Environment.CurrentDirectory, ".cursor", "mcp.json");
         }
 
+        /// <summary>
+        /// Resolve Mux's config directory: the MUX_CONFIG_DIR environment variable if set, otherwise ~/.mux.
+        /// </summary>
+        internal static string GetMuxConfigDirectory()
+        {
+            string? envDir = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
+            if (!String.IsNullOrWhiteSpace(envDir))
+                return Path.GetFullPath(Environment.ExpandEnvironmentVariables(envDir.Trim()));
+
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mux");
+        }
+
+        /// <summary>
+        /// Path to Mux's MCP servers file (mcp-servers.json) inside the active Mux config directory.
+        /// </summary>
+        internal static string GetMuxMcpServersPath()
+        {
+            return Path.Combine(GetMuxConfigDirectory(), "mcp-servers.json");
+        }
+
+        /// <summary>
+        /// Resolve a Mux executable on PATH, or null if none is found.
+        /// </summary>
+        internal static string? ResolveMuxExecutable()
+        {
+            string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+            if (String.IsNullOrEmpty(pathEnv))
+                return null;
+
+            string[] names = OperatingSystem.IsWindows()
+                ? new[] { "mux.exe", "mux.cmd", "mux.bat", "mux" }
+                : new[] { "mux" };
+
+            foreach (string dir in pathEnv.Split(Path.PathSeparator))
+            {
+                if (String.IsNullOrWhiteSpace(dir))
+                    continue;
+
+                foreach (string name in names)
+                {
+                    try
+                    {
+                        string candidate = Path.Combine(dir.Trim(), name);
+                        if (File.Exists(candidate))
+                            return candidate;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Whether Mux appears to be installed on this machine, so `armada mcp install` can configure it.
+        /// True when Mux's config directory already exists (created on Mux's first run) or a Mux
+        /// executable is resolvable on PATH.
+        /// </summary>
+        internal static bool IsMuxAvailable()
+        {
+            try
+            {
+                if (Directory.Exists(GetMuxConfigDirectory()))
+                    return true;
+            }
+            catch
+            {
+            }
+
+            return ResolveMuxExecutable() != null;
+        }
+
         internal static List<ConfigTarget> BuildTargets(int mcpPort)
         {
-            string mcpRpcUrl = GetMcpRpcUrl(mcpPort);
+            string mcpUrl = GetMcpUrl(mcpPort);
             string codexCommand = ResolveCliCommand("codex");
             string geminiCommand = ResolveCliCommand("gemini");
 
-            return new List<ConfigTarget>
+            List<ConfigTarget> targets = new List<ConfigTarget>
             {
                 new(
                     "Claude Code",
@@ -81,7 +160,7 @@ namespace Armada.Helm.Commands
                     new JsonObject
                     {
                         ["type"] = "http",
-                        ["url"] = mcpRpcUrl,
+                        ["url"] = mcpUrl,
                     },
                     InstallAgent: true,
                     ManualInstallCommand: BuildClaudeCliCommand(mcpPort)),
@@ -98,20 +177,40 @@ namespace Armada.Helm.Commands
                     "Gemini CLI",
                     GetGeminiConfigPath(),
                     CliCommand: geminiCommand,
-                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpRpcUrl },
+                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpUrl },
                     RemoveArgs: new[] { "mcp", "remove", "armada" },
-                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpRpcUrl,
+                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpUrl,
                     ManualRemoveCommand: geminiCommand + " mcp remove armada"),
                 new(
                     "Cursor",
                     GetCursorConfigPath(),
                     new JsonObject
                     {
-                        ["url"] = mcpRpcUrl,
+                        ["url"] = mcpUrl,
                         ["transport"] = "http",
                     },
                     IsProjectScoped: true),
             };
+
+            // Mux stores MCP servers as an array in mcp-servers.json (a different shape from the other
+            // clients). Only offer it when Mux is actually present so `armada mcp install` does not
+            // create a stray ~/.mux directory on machines without Mux.
+            if (IsMuxAvailable())
+            {
+                targets.Add(new(
+                    "Mux",
+                    GetMuxMcpServersPath(),
+                    new JsonObject
+                    {
+                        ["name"] = "armada",
+                        ["transport"] = "http",
+                        ["url"] = $"http://localhost:{mcpPort}",
+                        ["mcpPath"] = "/mcp",
+                    },
+                    IsMuxServers: true));
+            }
+
+            return targets;
         }
 
         internal static List<InstructionTarget> BuildInstructionTargets()
@@ -133,6 +232,9 @@ namespace Armada.Helm.Commands
 
         internal static async Task<ApplyResult> InstallTargetAsync(ConfigTarget target)
         {
+            if (target.IsMuxServers)
+                return await InstallMuxServerAsync(target).ConfigureAwait(false);
+
             if (!String.IsNullOrEmpty(target.CliCommand) && target.InstallArgs != null)
             {
                 if (!String.IsNullOrEmpty(target.RemoveBeforeInstallName))
@@ -176,6 +278,9 @@ namespace Armada.Helm.Commands
 
         internal static async Task<ApplyResult> RemoveTargetAsync(ConfigTarget target)
         {
+            if (target.IsMuxServers)
+                return await RemoveMuxServerAsync(target).ConfigureAwait(false);
+
             if (!String.IsNullOrEmpty(target.CliCommand) && target.RemoveArgs != null)
             {
                 bool success = await RunCliCommandAsync(target.CliCommand, target.RemoveArgs).ConfigureAwait(false);
@@ -225,6 +330,129 @@ namespace Armada.Helm.Commands
                 true,
                 "Removed Armada MCP entry.",
                 target.IsProjectScoped);
+        }
+
+        /// <summary>
+        /// Install the Armada HTTP server into Mux's mcp-servers.json, which stores servers as a
+        /// "servers" array of objects (each carrying its own "name"), unlike the keyed "mcpServers"
+        /// object used by the other clients.
+        /// </summary>
+        private static async Task<ApplyResult> InstallMuxServerAsync(ConfigTarget target)
+        {
+            if (target.ArmadaConfig == null)
+                throw new InvalidOperationException("Mux config target does not define ArmadaConfig.");
+
+            JsonObject root = await ReadOrCreateRootAsync(target.FilePath).ConfigureAwait(false);
+            if (root["servers"] is not JsonArray)
+                root["servers"] = new JsonArray();
+
+            JsonArray servers = root["servers"]!.AsArray();
+            int existingIndex = FindMuxServerIndex(servers, "armada");
+
+            bool changed;
+            if (existingIndex >= 0)
+            {
+                changed = !JsonNode.DeepEquals(servers[existingIndex], target.ArmadaConfig);
+                servers[existingIndex] = target.ArmadaConfig.DeepClone();
+            }
+            else
+            {
+                servers.Add(target.ArmadaConfig.DeepClone());
+                changed = true;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target.FilePath)!);
+            await File.WriteAllTextAsync(target.FilePath, root.ToJsonString(JsonOptions)).ConfigureAwait(false);
+
+            return new ApplyResult(
+                target.ClientName,
+                target.FilePath,
+                changed,
+                changed ? "Configured Armada MCP server (HTTP)." : "Armada MCP server already matched the expected configuration.",
+                target.IsProjectScoped);
+        }
+
+        /// <summary>
+        /// Remove the Armada server entry from Mux's mcp-servers.json "servers" array.
+        /// </summary>
+        private static async Task<ApplyResult> RemoveMuxServerAsync(ConfigTarget target)
+        {
+            if (!File.Exists(target.FilePath))
+            {
+                return new ApplyResult(
+                    target.ClientName,
+                    target.FilePath,
+                    false,
+                    "Configuration file does not exist; nothing to remove.",
+                    target.IsProjectScoped);
+            }
+
+            JsonObject root = await ReadOrCreateRootAsync(target.FilePath).ConfigureAwait(false);
+            JsonArray? servers = root["servers"] as JsonArray;
+            if (servers == null || servers.Count == 0)
+            {
+                return new ApplyResult(
+                    target.ClientName,
+                    target.FilePath,
+                    false,
+                    "No Armada MCP server was present.",
+                    target.IsProjectScoped);
+            }
+
+            int removed = 0;
+            for (int i = servers.Count - 1; i >= 0; i--)
+            {
+                if (String.Equals(GetMuxServerName(servers[i]), "armada", StringComparison.Ordinal))
+                {
+                    servers.RemoveAt(i);
+                    removed++;
+                }
+            }
+
+            if (removed == 0)
+            {
+                return new ApplyResult(
+                    target.ClientName,
+                    target.FilePath,
+                    false,
+                    "No Armada MCP server was present.",
+                    target.IsProjectScoped);
+            }
+
+            await File.WriteAllTextAsync(target.FilePath, root.ToJsonString(JsonOptions)).ConfigureAwait(false);
+
+            return new ApplyResult(
+                target.ClientName,
+                target.FilePath,
+                true,
+                "Removed Armada MCP server.",
+                target.IsProjectScoped);
+        }
+
+        private static int FindMuxServerIndex(JsonArray servers, string name)
+        {
+            for (int i = 0; i < servers.Count; i++)
+            {
+                if (String.Equals(GetMuxServerName(servers[i]), name, StringComparison.Ordinal))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static string? GetMuxServerName(JsonNode? node)
+        {
+            if (node is not JsonObject obj)
+                return null;
+
+            try
+            {
+                return obj["name"]?.GetValue<string>();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         internal static async Task<ApplyResult> InstallClaudeAgentAsync()
@@ -303,6 +531,15 @@ namespace Armada.Helm.Commands
             if (target.ArmadaConfig == null)
                 return "";
 
+            if (target.IsMuxServers)
+            {
+                JsonObject muxRoot = new JsonObject
+                {
+                    ["servers"] = new JsonArray(target.ArmadaConfig.DeepClone()),
+                };
+                return muxRoot.ToJsonString(JsonOptions);
+            }
+
             JsonObject root = new JsonObject
             {
                 ["mcpServers"] = new JsonObject
@@ -318,12 +555,15 @@ namespace Armada.Helm.Commands
             if (!String.IsNullOrEmpty(target.ManualRemoveCommand))
                 return target.ManualRemoveCommand;
 
+            if (target.IsMuxServers)
+                return "Remove the object with \"name\": \"armada\" from the \"servers\" array in mcp-servers.json (or run /mcp in Mux and remove the armada server).";
+
             return "Remove the `armada` object from the `mcpServers` section.";
         }
 
         internal static string BuildClaudeCliCommand(int mcpPort)
         {
-            return $"claude mcp add --transport http --scope user armada {GetMcpRpcUrl(mcpPort)}";
+            return $"claude mcp add --transport http --scope user armada {GetMcpUrl(mcpPort)}";
         }
 
         internal static string BuildClaudeStdioCommand()

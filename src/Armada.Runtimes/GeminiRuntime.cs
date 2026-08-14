@@ -65,6 +65,14 @@ namespace Armada.Runtimes
         /// <summary>
         /// Get the gemini CLI command.
         /// </summary>
+        /// <summary>
+        /// The runtime this adapter drives.
+        /// </summary>
+        protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Gemini;
+
+        /// <summary>
+        /// Get the command to execute for this runtime.
+        /// </summary>
         protected override string GetCommand()
         {
             return ResolveExecutable(_ExecutablePath);
@@ -88,13 +96,21 @@ namespace Armada.Runtimes
                 args.Add(model);
             }
 
-            args.Add("-p");
-            args.Add(prompt);
+            // The prompt is delivered on stdin (see UsePromptStdin), not via -p, because on Windows the
+            // gemini executable is an npm ".cmd" wrapper and a multi-line -p argument passed through cmd.exe
+            // is truncated at the first newline. Gemini reads the prompt from stdin when it is run
+            // non-interactively (piped stdin) with no -p argument.
             args.Add("--approval-mode");
             args.Add(ApprovalMode);
 
             return args;
         }
+
+        /// <summary>
+        /// Deliver the prompt on stdin rather than as a -p argument, avoiding the Windows cmd.exe
+        /// multi-line-argument truncation. Gemini reads the prompt from stdin in non-interactive mode.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         #endregion
     }

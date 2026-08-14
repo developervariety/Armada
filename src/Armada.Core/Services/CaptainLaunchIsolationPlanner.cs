@@ -1,0 +1,100 @@
+namespace Armada.Core.Services
+{
+    using System;
+    using System.IO;
+    using Armada.Core.Enums;
+
+    /// <summary>
+    /// Pure planner that, for a given runtime, produces the steps to launch a captain in an isolated agent
+    /// configuration: what extra CLI arguments to append, what environment overrides to apply, and what
+    /// scoped configuration files to write so the agent still reaches the Armada MCP server while being
+    /// blocked from the host user's global settings.
+    ///
+    /// Strategy per runtime:
+    /// - Claude Code: --strict-mcp-config + an injected --mcp-config file (strict ignores host servers, so
+    ///   the Armada server must be supplied explicitly) plus --setting-sources project,local.
+    /// - Codex: a scoped CODEX_HOME containing a config.toml that registers the Armada server.
+    /// - Gemini / Cursor: a scoped HOME/USERPROFILE containing the client's settings file, so they
+    ///   physically cannot read the host user's configuration.
+    /// - Mux: a scoped MUX_CONFIG_DIR containing mcp-servers.json.
+    ///
+    /// Side-effect free (writes nothing) so it can be unit tested in isolation; the caller materializes the
+    /// returned files and applies the environment/arguments.
+    /// </summary>
+    public static class CaptainLaunchIsolationPlanner
+    {
+        #region Public-Methods
+
+        /// <summary>
+        /// Build the isolation plan for a runtime. Returns an empty plan (nothing to apply) when isolation
+        /// cannot be expressed for the runtime or when the MCP port is invalid.
+        /// </summary>
+        /// <param name="runtime">The captain's runtime.</param>
+        /// <param name="mcpPort">The Admiral MCP port (must be positive).</param>
+        /// <param name="scopedConfigDirectory">Absolute path to the per-launch scoped configuration directory.</param>
+        /// <returns>The isolation plan; never null.</returns>
+        public static CaptainLaunchIsolationPlan Plan(AgentRuntimeEnum runtime, int mcpPort, string scopedConfigDirectory)
+        {
+            CaptainLaunchIsolationPlan plan = new CaptainLaunchIsolationPlan();
+            if (mcpPort <= 0 || mcpPort > 65535) return plan;
+            if (String.IsNullOrWhiteSpace(scopedConfigDirectory)) return plan;
+
+            switch (runtime)
+            {
+                case AgentRuntimeEnum.ClaudeCode:
+                    {
+                        plan.FilesToWrite.Add(new IsolationConfigFile("armada-mcp.json", ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort)));
+                        string mcpConfigPath = Path.Combine(scopedConfigDirectory, "armada-mcp.json");
+                        plan.ExtraArguments.Add("--setting-sources");
+                        plan.ExtraArguments.Add("project,local");
+                        plan.ExtraArguments.Add("--strict-mcp-config");
+                        plan.ExtraArguments.Add("--mcp-config");
+                        plan.ExtraArguments.Add(mcpConfigPath);
+                        break;
+                    }
+                case AgentRuntimeEnum.Codex:
+                    {
+                        plan.FilesToWrite.Add(new IsolationConfigFile("config.toml", ArmadaMcpConfigBuilder.BuildCodexConfigToml(mcpPort)));
+                        plan.EnvironmentOverrides["CODEX_HOME"] = scopedConfigDirectory;
+                        break;
+                    }
+                case AgentRuntimeEnum.Gemini:
+                    {
+                        plan.FilesToWrite.Add(new IsolationConfigFile(Path.Combine(".gemini", "settings.json"), ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort)));
+                        ApplyHomeOverride(plan, scopedConfigDirectory);
+                        break;
+                    }
+                case AgentRuntimeEnum.Cursor:
+                    {
+                        plan.FilesToWrite.Add(new IsolationConfigFile(Path.Combine(".cursor", "mcp.json"), ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort)));
+                        ApplyHomeOverride(plan, scopedConfigDirectory);
+                        break;
+                    }
+                case AgentRuntimeEnum.Mux:
+                    {
+                        plan.FilesToWrite.Add(new IsolationConfigFile("mcp-servers.json", ArmadaMcpConfigBuilder.BuildMuxServersJson(mcpPort)));
+                        plan.EnvironmentOverrides["MUX_CONFIG_DIR"] = scopedConfigDirectory;
+                        break;
+                    }
+                default:
+                    break;
+            }
+
+            return plan;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static void ApplyHomeOverride(CaptainLaunchIsolationPlan plan, string scopedConfigDirectory)
+        {
+            // HOME is honored on POSIX; USERPROFILE and HOMEPATH cover Windows CLIs that resolve the user
+            // profile. Setting all three makes the scoped directory the effective home regardless of OS.
+            plan.EnvironmentOverrides["HOME"] = scopedConfigDirectory;
+            plan.EnvironmentOverrides["USERPROFILE"] = scopedConfigDirectory;
+        }
+
+        #endregion
+    }
+}

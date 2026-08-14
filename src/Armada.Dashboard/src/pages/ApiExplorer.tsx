@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { getRequestHistoryEntry, listRequestHistory } from '../api/client';
-import type { RequestHistoryEntry, RequestHistoryRecord } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
-
-const LOCAL_HISTORY_KEY = 'armada_api_explorer_history';
-const RESPONSE_TABS = ['preview', 'body', 'headers', 'status', 'code'] as const;
+import CopyButton from '../components/shared/CopyButton';
+import PageHeader from '../components/shared/PageHeader';
+import { formatBytes, parseJsonString, methodClass } from '../lib/format';
+const RESPONSE_TABS = ['preview', 'body', 'headers', 'code'] as const;
 const CODE_TABS = ['curl', 'fetch', 'csharp'] as const;
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
 
@@ -97,17 +96,6 @@ interface ExplorerResponse {
   code: Record<CodeTab, string>;
 }
 
-interface LocalHistoryEntry {
-  id: string;
-  timestamp: string;
-  operationId: string;
-  summary: string;
-  method: string;
-  path: string;
-  status: number | null;
-  request: ReplayRequest;
-}
-
 interface ReplayRequest {
   operationId?: string;
   method: string;
@@ -122,41 +110,6 @@ interface ReplayRequest {
 function isOperationSource(value: OpenApiPathItemValue): value is OpenApiOperationSource {
   if (!value || Array.isArray(value)) return false;
   return true;
-}
-
-function loadLocalHistory() {
-  try {
-    const saved = localStorage.getItem(LOCAL_HISTORY_KEY);
-    return saved ? (JSON.parse(saved) as LocalHistoryEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveLocalHistory(history: LocalHistoryEntry[]) {
-  localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(history.slice(0, 12)));
-}
-
-function parseJsonString<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function buildReplayState(record: RequestHistoryRecord): ReplayRequest {
-  const detail = record.detail;
-  return {
-    method: record.entry.method,
-    route: record.entry.route,
-    routeTemplate: record.entry.routeTemplate,
-    pathValues: parseJsonString<Record<string, string | null>>(detail?.pathParamsJson, {}),
-    queryValues: parseJsonString<Record<string, string | null>>(detail?.queryParamsJson, {}),
-    headerValues: parseJsonString<Record<string, string | null>>(detail?.requestHeadersJson, {}),
-    bodyValue: detail?.requestBodyText || '',
-  };
 }
 
 function resolveSchema(schema: OpenApiSchema | undefined | null, spec: OpenApiSpec | null, seen = new Set<string>()): OpenApiSchema | null {
@@ -220,18 +173,6 @@ function parameterInitialValue(parameter: OpenApiParameter, spec: OpenApiSpec | 
   return '';
 }
 
-function formatBytes(bytes: number) {
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
 function prettifyContent(body: string, contentType: string) {
   if (!body) return '(empty)';
   if (contentType.includes('application/json')) {
@@ -267,10 +208,6 @@ function generateCodeSnippets(request: ExplorerRequestPreview): Record<CodeTab, 
   };
 }
 
-function methodClass(method: string) {
-  return `request-method-pill request-method-${method.toLowerCase()}`;
-}
-
 function getOperationSubtext(operation: ExplorerOperation) {
   const summary = operation.summary?.trim();
   const description = operation.description?.trim();
@@ -283,15 +220,6 @@ function getOperationSubtext(operation: ExplorerOperation) {
 function getResponseText(response: ExplorerResponse | null, responseTab: ResponseTab, codeTab: CodeTab) {
   if (!response) return '';
   if (responseTab === 'headers') return JSON.stringify(response.headers, null, 2);
-  if (responseTab === 'status') {
-    return JSON.stringify({
-      status: response.status,
-      statusText: response.statusText,
-      contentType: response.contentType,
-      durationMs: response.durationMs,
-      sizeBytes: response.sizeBytes,
-    }, null, 2);
-  }
   if (responseTab === 'code') return response.code[codeTab];
   if (responseTab === 'preview') {
     return typeof response.preview === 'string' ? response.preview : JSON.stringify(response.preview, null, 2);
@@ -425,29 +353,6 @@ function ResponsePanel({
     );
   }
 
-  if (responseTab === 'status') {
-    return (
-      <div className="api-status-grid">
-        <div className="api-stat-card">
-          <span>Status</span>
-          <strong>{response.status}</strong>
-        </div>
-        <div className="api-stat-card">
-          <span>Content Type</span>
-          <strong>{response.contentType || 'n/a'}</strong>
-        </div>
-        <div className="api-stat-card">
-          <span>Duration</span>
-          <strong>{response.durationMs.toFixed(2)} ms</strong>
-        </div>
-        <div className="api-stat-card">
-          <span>Size</span>
-          <strong>{formatBytes(response.sizeBytes)}</strong>
-        </div>
-      </div>
-    );
-  }
-
   if (responseTab === 'code') {
     return (
       <>
@@ -488,11 +393,8 @@ export default function ApiExplorer() {
   const [response, setResponse] = useState<ExplorerResponse | null>(null);
   const [responseTab, setResponseTab] = useState<ResponseTab>('preview');
   const [codeTab, setCodeTab] = useState<CodeTab>('curl');
-  const [history, setHistory] = useState<LocalHistoryEntry[]>(() => loadLocalHistory());
-  const [capturedHistory, setCapturedHistory] = useState<RequestHistoryEntry[]>([]);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [pendingReplay, setPendingReplay] = useState<ReplayRequest | null>(null);
-  const [responseCopied, setResponseCopied] = useState(false);
   const skipDefaultInitializationForOperationId = useRef<string | null>(null);
 
   const operations = useMemo<ExplorerOperation[]>(() => {
@@ -628,22 +530,6 @@ export default function ApiExplorer() {
   }, [sessionToken, t]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadCapturedHistory() {
-      try {
-        const result = await listRequestHistory({ pageNumber: 1, pageSize: 8 });
-        if (!cancelled) setCapturedHistory(result.objects || []);
-      } catch {
-        if (!cancelled) setCapturedHistory([]);
-      }
-    }
-    void loadCapturedHistory();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!selectedOperation && filteredOperations.length > 0) {
       setSelectedOperationId(operationId || filteredOperations[0].id);
     }
@@ -770,35 +656,6 @@ export default function ApiExplorer() {
       };
 
       setResponse(nextResponse);
-      setResponseCopied(false);
-
-      const historyEntry: LocalHistoryEntry = {
-        id: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        operationId: selectedOperation?.id || `${requestPreview.method}:${selectedOperation?.path || requestPreview.url}`,
-        summary: selectedOperation?.summary || `${requestPreview.method.toUpperCase()} ${selectedOperation?.path || requestPreview.url}`,
-        method: selectedOperation?.method || requestPreview.method,
-        path: selectedOperation?.path || requestPreview.url,
-        status: result.status,
-        request: {
-          operationId: selectedOperation?.id,
-          method: requestPreview.method,
-          route: selectedOperation?.path || requestPreview.url,
-          pathValues,
-          queryValues,
-          headerValues,
-          bodyValue,
-        },
-      };
-
-      setHistory((current) => {
-        const next = [historyEntry, ...current].slice(0, 12);
-        saveLocalHistory(next);
-        return next;
-      });
-      void listRequestHistory({ pageNumber: 1, pageSize: 8 })
-        .then((result) => setCapturedHistory(result.objects || []))
-        .catch(() => undefined);
       pushToast('success', t('Request completed with status {{status}}.', { status: result.status }));
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
@@ -809,192 +666,83 @@ export default function ApiExplorer() {
     }
   }, [bodyValue, headerValues, pathValues, pushToast, queryValues, requestPreview, selectedOperation, t]);
 
-  const handleCopyResponse = useCallback(async () => {
-    if (!responseCopyText) return;
-    try {
-      await navigator.clipboard.writeText(responseCopyText);
-      setResponseCopied(true);
-      window.setTimeout(() => setResponseCopied(false), 2000);
-    } catch {
-      // ignore clipboard failures
-    }
-  }, [responseCopyText]);
-
-  const handleLocalReplay = useCallback((entry: LocalHistoryEntry) => {
-    setPendingReplay(entry.request);
-    setSelectedOperationId(entry.operationId);
-  }, []);
-
-  const handleCapturedReplay = useCallback(async (entry: RequestHistoryEntry) => {
-    try {
-      const record = await getRequestHistoryEntry(entry.id);
-      setPendingReplay(buildReplayState(record));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('Failed to load captured request for replay.'));
-    }
-  }, [t]);
-
-  const handleOpenCaptured = useCallback(async (entry: RequestHistoryEntry) => {
-    try {
-      const record = await getRequestHistoryEntry(entry.id);
-      navigate('/api-explorer', { state: { replayRequest: buildReplayState(record) } });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('Failed to open captured request.'));
-    }
-  }, [navigate, t]);
-
   return (
     <div className="api-explorer-page">
-      <div className="page-header">
-        <div>
-          <h2>{t('API Explorer')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Browse the live OpenAPI document, execute authenticated requests, inspect responses, and replay captured traffic.')}
-          </p>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-sm" onClick={() => navigate('/requests')}>
-            {t('Requests')}
-          </button>
-          <a className="btn btn-sm" href={buildRequestUrl('/openapi.json')} target="_blank" rel="noreferrer">
-            {t('OpenAPI JSON')}
-          </a>
-          <a className="btn btn-sm" href={buildRequestUrl('/swagger')} target="_blank" rel="noreferrer">
-            {t('Swagger')}
-          </a>
-          <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={!selectedOperation || !!abortController || loading}>
-            {abortController ? t('Running...') : t('Send Request')}
-          </button>
-          {abortController && (
-            <button className="btn btn-sm" onClick={() => abortController.abort()}>
-              {t('Abort')}
+      <PageHeader
+        title={t('API Explorer')}
+        subtitle={t('Browse the live OpenAPI document, execute authenticated requests, inspect responses, and replay captured traffic.')}
+        actions={(
+          <>
+            <button className="btn btn-sm" onClick={() => navigate('/requests')}>
+              {t('Requests')}
             </button>
-          )}
-        </div>
-      </div>
+            <a className="btn btn-sm" href={buildRequestUrl('/openapi.json')} target="_blank" rel="noreferrer">
+              {t('OpenAPI JSON')}
+            </a>
+            <a className="btn btn-sm" href={buildRequestUrl('/swagger')} target="_blank" rel="noreferrer">
+              {t('Swagger')}
+            </a>
+            <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={!selectedOperation || !!abortController || loading}>
+              {abortController ? t('Running...') : t('Send Request')}
+            </button>
+            {abortController && (
+              <button className="btn btn-sm" onClick={() => abortController.abort()}>
+                {t('Abort')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       {error && <div className="api-tool-error">{error}</div>}
 
-      <div className="api-explorer-layout">
-        <div className="api-explorer-sidebar">
+      <div className="api-explorer-stack">
           <div className="card api-card">
             <div className="request-card-header">
               <div>
                 <h3>{t('Operations')}</h3>
-                <p className="text-dim">{t('Search and filter the live Armada API surface by tag, path, or summary.')}</p>
+                <p className="text-dim">{t('Filter the live Armada API surface by category or text, then choose an operation to build a request.')}</p>
               </div>
             </div>
             <div className="request-card-body api-card-body">
-              <div className="api-explorer-filters">
-                <input value={operationFilter} onChange={(event) => setOperationFilter(event.target.value)} placeholder={t('Filter operations')} />
-                <select value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)}>
-                  {tags.map((tag) => (
-                    <option key={tag} value={tag}>{tag}</option>
-                  ))}
-                </select>
-              </div>
-                <div className="api-operation-list">
-                  {loading && <div className="request-history-empty">{t('Loading OpenAPI document...')}</div>}
-                {!loading && groupedOperations.map(([tag, tagOperations]) => (
-                  <div key={tag} className="api-operation-group">
-                    <div className="api-operation-group-label">
-                      <span>{tag}</span>
-                      <span>{tagOperations.length}</span>
-                    </div>
-                    <div className="api-operation-group-list">
-                      {tagOperations.map((operation) => (
-                        <button
-                          key={operation.id}
-                          type="button"
-                          className={`api-operation-item ${selectedOperation?.id === operation.id ? 'active' : ''}`}
-                          onClick={() => {
-                            setSelectedOperationId(operation.id);
-                            navigate(`/api-explorer/${encodeURIComponent(operation.id)}`);
-                          }}
-                        >
-                          <span className="api-operation-item-method">
-                            <span className={methodClass(operation.method)}>{operation.method.toUpperCase()}</span>
-                          </span>
-                          <span className="api-operation-label">{operation.path}</span>
-                          {getOperationSubtext(operation) && (
-                            <span className="api-operation-subtext">{getOperationSubtext(operation)}</span>
-                          )}
-                        </button>
+              {loading ? (
+                <div className="request-history-empty">{t('Loading OpenAPI document...')}</div>
+              ) : (
+                <div className="api-operation-picker">
+                  <label className="api-operation-picker-field">
+                    <span>{t('Category')}</span>
+                    <select value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)}>
+                      {tags.map((tag) => (
+                        <option key={tag} value={tag}>{tag}</option>
                       ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="card api-card">
-            <div className="request-card-header">
-              <div>
-                <h3>{t('Recent Local')}</h3>
-                <p className="text-dim">{t('Browser-side recent requests captured in this dashboard session.')}</p>
-              </div>
-              <button
-                className="btn btn-sm"
-                onClick={() => {
-                  setHistory([]);
-                  saveLocalHistory([]);
-                }}
-                disabled={history.length === 0}
-              >
-                {t('Clear')}
-              </button>
-            </div>
-            <div className="request-card-body api-card-body">
-              {history.length === 0 ? (
-                <div className="request-history-empty">{t('Local replay history is empty.')}</div>
-              ) : (
-                <div className="api-history-list">
-                  {history.map((entry) => (
-                    <button key={entry.id} type="button" className="api-history-item" onClick={() => handleLocalReplay(entry)}>
-                      <span className={methodClass(entry.method)}>{entry.method.toUpperCase()}</span>
-                      <span className="api-history-summary">{entry.summary}</span>
-                      <span className="api-history-meta">
-                        {new Date(entry.timestamp).toLocaleString()} - {entry.status ?? 'pending'}
-                      </span>
-                    </button>
-                  ))}
+                    </select>
+                  </label>
+                  <label className="api-operation-picker-field api-operation-picker-filter">
+                    <span>{t('Filter')}</span>
+                    <input value={operationFilter} onChange={(event) => setOperationFilter(event.target.value)} placeholder={t('Filter by path or summary')} />
+                  </label>
+                  <label className="api-operation-picker-field api-operation-picker-operation">
+                    <span>{t('Operation')}</span>
+                    <select
+                      value={selectedOperation?.id || ''}
+                      onChange={(event) => {
+                        setSelectedOperationId(event.target.value);
+                        navigate(`/api-explorer/${encodeURIComponent(event.target.value)}`);
+                      }}
+                    >
+                      {filteredOperations.length === 0 && <option value="">{t('No operations match the current filter')}</option>}
+                      {filteredOperations.map((operation) => (
+                        <option key={operation.id} value={operation.id}>
+                          {operation.method.toUpperCase()} {operation.path}{operation.summary ? ` -- ${operation.summary}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="card api-card">
-            <div className="request-card-header">
-              <div>
-                <h3>{t('Recent Captured')}</h3>
-                <p className="text-dim">{t('Replay persisted request-history entries captured by the Armada server.')}</p>
-              </div>
-            </div>
-            <div className="request-card-body api-card-body">
-              {capturedHistory.length === 0 ? (
-                <div className="request-history-empty">{t('No captured requests available yet.')}</div>
-              ) : (
-                <div className="api-history-list">
-                  {capturedHistory.map((entry) => (
-                    <div key={entry.id} className="api-captured-entry">
-                      <button type="button" className="api-history-item" onClick={() => void handleCapturedReplay(entry)}>
-                        <span className={methodClass(entry.method)}>{entry.method.toUpperCase()}</span>
-                        <span className="api-history-summary">{entry.route}</span>
-                        <span className="api-history-meta">{entry.statusCode} - {entry.principalDisplay || t('Anonymous')}</span>
-                      </button>
-                      <button className="api-mini-link" onClick={() => void handleOpenCaptured(entry)}>
-                        {t('Open')}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="api-explorer-main">
           <div className="card api-card">
             <div className="request-card-header">
               <div>
@@ -1048,19 +796,16 @@ export default function ApiExplorer() {
               <div>
                 <h3>{t('Response')}</h3>
                 {response && (
-                  <p className="text-dim">
+                  <p className="text-dim api-response-meta">
                     <span className={`request-status-pill ${response.ok ? 'success' : 'error'}`}>{response.status} {response.statusText}</span>
-                    {' '}
-                    {response.durationMs.toFixed(2)} ms
-                    {' '}
-                    {formatBytes(response.sizeBytes)}
+                    <span className="api-response-badge">{response.contentType || 'n/a'}</span>
+                    <span>{response.durationMs.toFixed(2)} ms</span>
+                    <span>{formatBytes(response.sizeBytes)}</span>
                   </p>
                 )}
               </div>
               {response && (
-                <button className={`btn btn-sm${responseCopied ? ' btn-primary' : ''}`} onClick={() => void handleCopyResponse()}>
-                  {responseCopied ? t('Copied!') : t('Copy View')}
-                </button>
+                <CopyButton text={responseCopyText} title="Copy the current response view" />
               )}
             </div>
             <div className="request-card-body api-card-body">
@@ -1084,7 +829,6 @@ export default function ApiExplorer() {
               )}
             </div>
           </div>
-        </div>
       </div>
     </div>
   );

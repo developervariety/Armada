@@ -8,6 +8,8 @@ namespace Armada.Server
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
     using Voltaic;
+    using Voltaic.Core;
+    using Voltaic.Mcp;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
@@ -44,6 +46,7 @@ namespace Armada.Server
         private LoggingModule _Logging;
         private ArmadaSettings _Settings;
         private bool _Quiet;
+        private ArmadaTelemetryHost? _TelemetryHost;
 
         private DatabaseDriver _Database = null!;
         private IGitService _Git = null!;
@@ -56,6 +59,7 @@ namespace Armada.Server
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
+        private Armada.Core.Services.JobService _JobService = null!;
         private LandingService _LandingService = null!;
         private IMessageTemplateService _TemplateService = null!;
         private IPromptTemplateService _PromptTemplateService = null!;
@@ -69,6 +73,7 @@ namespace Armada.Server
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
+        private ProjectProfileService _ProjectProfileService = null!;
         private VesselReadinessService _VesselReadinessService = null!;
         private DeploymentEnvironmentService _EnvironmentService = null!;
         private CheckRunService _CheckRunService = null!;
@@ -128,10 +133,18 @@ namespace Armada.Server
         /// </summary>
         public async Task StartAsync()
         {
+            // Start the telemetry host first so instruments are observed from the very start.
+            _TelemetryHost = new ArmadaTelemetryHost(_Logging);
+            _TelemetryHost.Start(_Settings.Telemetry);
+
             // Initialize database
             _Database = DatabaseDriverFactory.Create(_Settings.Database, _Logging);
             await _Database.InitializeAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "database initialized");
+
+            // Ensure a local API key exists so trusted local clients (the armada CLI) can authenticate
+            // to the REST API. Generated once and persisted to settings.json, which the CLI also reads.
+            await EnsureApiKeyAsync().ConfigureAwait(false);
 
             // Initialize services
             _Git = new GitService(_Logging);
@@ -148,12 +161,14 @@ namespace Armada.Server
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
             _Admiral = admiralService;
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git);
+            _JobService = new Armada.Core.Services.JobService(_Database, _Logging);
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
+            _ProjectProfileService = new ProjectProfileService(_Database, _Logging);
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging);
@@ -421,11 +436,23 @@ namespace Armada.Server
             {
                 _Logging.Warn(_Header + "REST API stop error: " + ex.Message);
             }
+            // Kill agent subprocesses so none survive as orphans after the Admiral exits.
+            // Runs before the token is cancelled and the database is disposed (it needs both).
+            try
+            {
+                _Admiral?.StopAllAgentProcessesAsync().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error stopping agent processes on shutdown: " + ex.Message);
+            }
+
             _TokenSource.Cancel();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
             _McpServer?.Stop();
             _Database?.Dispose();
+            _TelemetryHost?.Dispose();
             OnStopping?.Invoke();
         }
 
@@ -442,6 +469,23 @@ namespace Armada.Server
             _RequestAuthContexts.Remove(ctx);
             _RequestAuthContexts.Add(ctx, result);
             return result;
+        }
+
+        private async Task EnsureApiKeyAsync()
+        {
+            if (!String.IsNullOrEmpty(_Settings.ApiKey))
+                return;
+
+            _Settings.ApiKey = "ak_" + Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+            try
+            {
+                await _Settings.SaveAsync().ConfigureAwait(false);
+                _Logging.Info(_Header + "generated local API key for CLI authentication and saved to settings");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "generated API key but could not persist settings: " + ex.Message);
+            }
         }
 
         private async Task SeedSyntheticAdminAsync()
@@ -498,7 +542,8 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Vessels
-            new VesselRoutes(_Database, _VesselReadinessService, _LandingPreviewService, EmitEventAsync, _JsonOptions, _Docks)
+            VesselContextService vesselContextService = new VesselContextService(_Database, _RuntimeFactory, _Docks, _PromptTemplateService, _Logging);
+            new VesselRoutes(_Database, _VesselReadinessService, _LandingPreviewService, EmitEventAsync, _JsonOptions, _Docks, vesselContextService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Workspace
@@ -507,6 +552,22 @@ namespace Armada.Server
 
             // Workflow profiles
             new WorkflowProfileRoutes(_Database, _WorkflowProfileService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Project profiles
+            new ProjectProfileRoutes(_Database, _ProjectProfileService, _PromptTemplateService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Skills directory
+            new SkillRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Ask Armada assistant
+            new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), new CaptainChatService(_Database, _RuntimeFactory, _WebSocketHub, _PromptTemplateService, _Logging), _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Needs-you inbox
+            new InboxRoutes(new InboxService(_Database, _Logging), _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Objectives
@@ -582,6 +643,10 @@ namespace Armada.Server
 
             // Merge queue
             new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Background jobs
+            new Routes.JobRoutes(_Database, _JobService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Prompt templates
@@ -902,10 +967,28 @@ namespace Armada.Server
             await ctx.Response.Send("{\"error\":\"Not found\"}").ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Adapts Armada's JsonElement-based tool handler to Voltaic 0.6.0's RpcParameters-based
+        /// RegisterTool signature, so the tool handlers themselves do not need to change.
+        /// </summary>
+        private void RegisterAdaptedTool(string name, string description, object inputSchema, Func<System.Text.Json.JsonElement?, Task<object>> handler)
+        {
+            _McpServer.RegisterTool(name, description, inputSchema, (RpcParameters? parameters) =>
+            {
+                System.Text.Json.JsonElement? args = null;
+                if (parameters != null && parameters.HasValue && !string.IsNullOrEmpty(parameters.RawJson))
+                {
+                    using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(parameters.RawJson);
+                    args = doc.RootElement.Clone();
+                }
+                return handler(args);
+            });
+        }
+
         private void RegisterMcpTools()
         {
             McpToolRegistrar.RegisterAll(
-                _McpServer.RegisterTool,
+                RegisterAdaptedTool,
                 _Database,
                 _Admiral,
                 _Settings,
@@ -1012,6 +1095,14 @@ namespace Armada.Server
                     await Task.Delay(_Settings.HeartbeatIntervalSeconds * 1000, token).ConfigureAwait(false);
                     await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
                     await _DeploymentService.MonitorRolloutWindowsAsync(token).ConfigureAwait(false);
+
+                    // Drive the merge queue so auto-enqueued entries land without a manual trigger.
+                    try { await _MergeQueue.ProcessQueueAsync(token).ConfigureAwait(false); }
+                    catch (Exception mqEx) { _Logging.Warn(_Header + "merge queue processing error: " + mqEx.Message); }
+
+                    // Reap background jobs whose worker died so they do not hang in Running.
+                    try { await _JobService.MaintainAsync(token).ConfigureAwait(false); }
+                    catch (Exception jobEx) { _Logging.Warn(_Header + "job maintenance error: " + jobEx.Message); }
 
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;

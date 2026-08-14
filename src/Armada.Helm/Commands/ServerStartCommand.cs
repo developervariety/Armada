@@ -17,7 +17,7 @@ namespace Armada.Helm.Commands
     public class ServerStartCommand : BaseCommand<ServerStartSettings>
     {
         /// <inheritdoc />
-        public override async Task<int> ExecuteAsync(CommandContext context, ServerStartSettings settings, CancellationToken cancellationToken)
+        protected override async Task<int> ExecuteAsync(CommandContext context, ServerStartSettings settings, CancellationToken cancellationToken)
         {
             Program.WriteBanner();
             AnsiConsole.MarkupLine("[bold dodgerblue1]Admiral Server[/]");

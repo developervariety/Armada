@@ -29,5 +29,15 @@ namespace Armada.Server.Mcp
         /// Optional active flag.
         /// </summary>
         public bool? Active { get; set; }
+
+        /// <summary>
+        /// Optional 1-based page number for list operations.
+        /// </summary>
+        public int? PageNumber { get; set; }
+
+        /// <summary>
+        /// Optional page size for list operations.
+        /// </summary>
+        public int? PageSize { get; set; }
     }
 }

@@ -99,7 +99,7 @@ body {
     flex-direction: column;
     z-index: 90;
     border-right: 1px solid var(--border);
-    width: 180px;
+    width: 100%;
     transition: width 0.25s ease;
 }
 
@@ -243,6 +243,48 @@ body {
     color: #ffffff;
     background: rgba(59, 130, 246, 0.15);
     border-right: 3px solid var(--accent);
+}
+
+/* Live "Needs You" attention count, rendered next to the nav label. */
+.sidebar-nav-badge {
+    margin-left: auto;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--accent, #5078ff);
+    color: #ffffff;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.15rem;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+
+.sidebar-nav-badge-warning {
+    background: var(--warning, #d98a00);
+}
+
+.sidebar-nav-badge-critical {
+    background: var(--danger, #ff6b6b);
+}
+
+/* Collapsed rail: the label is hidden, so collapse the numeric badge into a small corner dot. */
+.sidebar-collapsed .sidebar-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    margin: 0;
+    min-width: 0.5rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    overflow: hidden;
 }
 
 .sidebar-nav-node {
@@ -529,6 +571,7 @@ body {
     justify-content: flex-end;
     gap: 0.75rem;
     height: var(--shell-chrome-height);
+    flex-shrink: 0;
     padding: 0 1rem;
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
@@ -624,6 +667,43 @@ body {
 }
 .top-bar-health:hover { color: var(--text); }
 
+/* Collapse toggle: first child of the top bar, pushed to the far left (just right of the
+   sidebar/workspace divider) via margin-right:auto so everything else stays right-aligned. */
+.top-bar-collapse-btn {
+    margin-right: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 6px);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    transition: color 0.15s, border-color 0.15s;
+}
+.top-bar-collapse-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+/* Logout: icon-only, far right of the top bar. */
+.top-bar-logout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 1.15rem;
+    line-height: 1;
+    transition: color 0.15s;
+}
+.top-bar-logout-btn:hover { color: var(--red, #e5484d); }
+
 .github-link {
     color: var(--text-dim);
     display: inline-flex;
@@ -644,7 +724,7 @@ body {
 }
 
 .main {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
     margin: 0;
     padding: 0.75rem 1rem 0.75rem 1.5rem;
@@ -2255,6 +2335,7 @@ tr.clickable { cursor: pointer; }
     display: inline-flex;
     align-items: center;
     gap: 0.2rem;
+    margin-bottom: 0.85rem;
     padding: 0.2rem;
     border: 1px solid var(--border);
     border-radius: 999px;
@@ -2349,6 +2430,7 @@ tr.clickable { cursor: pointer; }
 
 .request-chart-column {
     position: relative;
+    height: 100%;
     display: flex;
     align-items: flex-end;
     justify-content: center;
@@ -2705,6 +2787,63 @@ tr.clickable { cursor: pointer; }
     grid-template-columns: minmax(300px, 350px) minmax(0, 1fr);
     gap: 1rem;
     align-items: start;
+}
+
+/* Full-width single-column API Explorer: operations picker, request builder, response. */
+.api-explorer-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.api-operation-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+}
+
+.api-operation-picker-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 160px;
+}
+
+.api-operation-picker-field > span {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+}
+
+.api-operation-picker-filter {
+    flex: 1 1 220px;
+}
+
+.api-operation-picker-operation {
+    flex: 2 1 380px;
+}
+
+.api-operation-picker-field select,
+.api-operation-picker-field input {
+    width: 100%;
+}
+
+.api-response-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.3rem 0 0;
+}
+
+.api-response-badge {
+    font-size: 0.72rem;
+    font-family: var(--font-mono, monospace);
+    padding: 0.1rem 0.45rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+    color: var(--accent);
 }
 
 .api-explorer-sidebar,
@@ -3715,9 +3854,30 @@ tr.clickable { cursor: pointer; }
 }
 
 .playbook-filter-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 200px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
+}
+
+/* The free-text search box is the elastic element; selects, date inputs, labels,
+   and buttons keep their natural width so a search + N filters share one row. */
+.playbook-filter-row > input[type="text"],
+.playbook-filter-row > input[type="search"],
+.playbook-filter-row > input:not([type]) {
+    flex: 1 1 240px;
+    min-width: 200px;
+}
+
+.playbook-filter-row > select,
+.playbook-filter-row > button,
+.playbook-filter-row > label,
+.playbook-filter-row > input[type="date"],
+.playbook-filter-row > input[type="datetime-local"] {
+    flex: 0 0 auto;
+    /* Override the global `input, select, textarea { width: 100% }` so these controls size to
+       their content and sit next to the search box instead of each taking a full-width row. */
+    width: auto;
 }
 
 .playbook-empty-state {
@@ -3866,8 +4026,13 @@ tr.clickable { cursor: pointer; }
 }
 
 .planning-current-session {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 1rem;
+    /* Content-sized card: the transcript window below owns a bounded internal scroll region (see
+       .planning-chat-shell .ask-chat-window), so streaming replies scroll inside the transcript rather than
+       drifting the page, while the Dispatch card underneath stays reachable instead of being pushed a full
+       viewport below the fold. */
 }
 
 .planning-current-session-head {
@@ -3923,13 +4088,11 @@ tr.clickable { cursor: pointer; }
     padding: 1rem;
     overflow-y: auto;
     border: 1px solid var(--border);
-    border-radius: calc(var(--radius) + 4px);
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--bg-hover) 82%, transparent), transparent 22%),
-        var(--bg-card);
+    border-radius: var(--radius);
+    background: var(--bg-card);
     display: flex;
     flex-direction: column;
-    gap: 0.9rem;
+    gap: 0.75rem;
 }
 
 .planning-chat-empty {
@@ -3978,16 +4141,14 @@ tr.clickable { cursor: pointer; }
 }
 
 .planning-chat-bubble {
-    padding: 0.95rem 1rem;
+    padding: 0.6rem 0.85rem;
     border: 1px solid var(--border);
-    border-radius: 18px;
+    border-radius: var(--radius);
     background: var(--bg-card);
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
 }
 
 .planning-chat-message-user .planning-chat-bubble {
-    background: color-mix(in srgb, var(--accent) 9%, var(--bg-card));
-    border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+    background: var(--accent-soft, rgba(80, 120, 255, 0.12));
 }
 
 .planning-chat-message.is-selected .planning-chat-bubble {
@@ -4187,8 +4348,13 @@ tr.clickable { cursor: pointer; }
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .playbook-filter-row {
-        grid-template-columns: 1fr;
+    /* Keep filters wrapping naturally (multiple per row) instead of forcing each control
+       onto its own full-width line; the search box keeps a sensible min width and everything
+       else keeps its natural width and wraps only when it genuinely cannot fit. */
+    .playbook-filter-row > input[type="text"],
+    .playbook-filter-row > input[type="search"],
+    .playbook-filter-row > input:not([type]) {
+        min-width: 160px;
     }
 
     .playbook-voyage-item,
@@ -4323,11 +4489,137 @@ tr.clickable { cursor: pointer; }
     border-color: var(--accent);
 }
 
+/* Generic disabled + busy treatment for all button variants (shared Button component and plain .btn). */
+.btn:disabled,
+.btn-primary:disabled,
+.btn-danger:disabled,
+.btn-sm:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.btn.is-busy,
+.btn-primary.is-busy,
+.btn-danger.is-busy,
+.btn-sm.is-busy {
+    cursor: progress;
+}
+.btn-spinner {
+    width: 0.85em;
+    height: 0.85em;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    display: inline-block;
+    animation: spin 0.7s linear infinite;
+    flex: none;
+}
+
+/* Review-gate verdict modal: wider and taller than the default modal so the feedback field has room and the
+   four verdict buttons plus Cancel sit on a single row without wrapping. */
+/* Higher specificity than the base `.modal` (which is declared later in this file) so the wider width
+   actually wins and the no-wrap verdict button row is not clipped. */
+.modal.review-verdict-modal {
+    max-width: 730px;
+    min-height: 30rem;
+}
+.review-verdict-help {
+    margin: 0.75rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+.review-verdict-actions {
+    flex-wrap: nowrap;
+}
+.review-verdict-actions .btn {
+    white-space: nowrap;
+}
+
+/* Captain capability tier badge (Economy / Standard / Premium). Theme-aware via CSS variables; always shows
+   the tier text so it is not color-only. */
+.captain-tier-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+.captain-tier-economy {
+    background: color-mix(in srgb, var(--green, #22c55e) 16%, transparent);
+    color: var(--green, #22c55e);
+    border-color: color-mix(in srgb, var(--green, #22c55e) 35%, transparent);
+}
+.captain-tier-standard {
+    background: color-mix(in srgb, var(--accent, #5078ff) 16%, transparent);
+    color: var(--accent, #5078ff);
+    border-color: color-mix(in srgb, var(--accent, #5078ff) 35%, transparent);
+}
+.captain-tier-premium {
+    background: color-mix(in srgb, var(--warning, #d98a00) 18%, transparent);
+    color: var(--warning, #d98a00);
+    border-color: color-mix(in srgb, var(--warning, #d98a00) 40%, transparent);
+}
+
+/* Per-persona captain assignment rows on the Dispatch page */
+.captain-assignment-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.6fr) minmax(120px, 1fr);
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.4rem 0;
+}
+.captain-assignment-row + .captain-assignment-row {
+    border-top: 1px solid var(--border);
+}
+.captain-picker,
+.fallback-tier-select {
+    width: 100%;
+}
+
+/* Per-table auto-refresh interval dropdown */
+.auto-refresh-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+}
+.auto-refresh-select select {
+    font-size: 0.78rem;
+    padding: 0.25rem 0.4rem;
+}
+.auto-refresh-select-label { white-space: nowrap; }
+
 /* Refresh button */
 .refresh-btn { font-size: 1.1rem; line-height: 1; }
 .refresh-btn.refreshing { animation: spin 0.8s linear infinite; }
 .refresh-btn.refresh-success { color: var(--green, #22c55e); border-color: var(--green, #22c55e); }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Shared page/data loading indicator: centered spinner + label, so loading never reads as a blank screen. */
+.loading-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    padding: 2.5rem 1rem;
+    color: var(--text-dim);
+}
+.loading-indicator-full { min-height: 55vh; }
+.loading-indicator-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+.loading-indicator-label { font-size: 0.85rem; }
 
 /* Forms */
 .dispatch-form { max-width: 1000px; }
@@ -4400,6 +4692,18 @@ tr.clickable { cursor: pointer; }
 }
 .filter-bar > * {
     flex: 0 0 auto;
+}
+/* Override the global `input, select, textarea { width: 100% }` so filter-bar controls size to
+   their content and share one row instead of each stacking full-width. */
+.filter-bar > select,
+.filter-bar > input,
+.filter-bar > label {
+    width: auto;
+}
+.filter-bar > input[type="text"],
+.filter-bar > input[type="search"] {
+    flex: 1 1 220px;
+    min-width: 180px;
 }
 
 /* Alerts */
@@ -4487,9 +4791,110 @@ tr.clickable { cursor: pointer; }
 .modal-wide { max-width: 1280px; min-height: 66vh; }
 .modal-box-wide { max-width: 600px; }
 .modal-vessel-edit { max-width: 900px; }
+/* Mux captains expose many more fields; give their config modal 50% more width (440px -> 660px). */
+.modal-mux { max-width: 660px; }
+
+/* Captain create/edit modal: 100% wider than the base modal and ~50% taller so the
+   runtime/instruction/endpoint fields have room. Doubles the base 440px (and the 660px mux). */
+.modal-captain { max-width: 880px; min-height: 82.5vh; display: flex; flex-direction: column; }
+.modal-captain.modal-mux { max-width: 1320px; }
+/* Let the System Instructions field consume the modal's remaining vertical space. */
+.modal-captain > .captain-instructions-field {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 140px;
+}
+.modal-captain > .captain-instructions-field textarea {
+    flex: 1 1 auto;
+    min-height: 120px;
+    resize: vertical;
+}
+
+/* Rendered markdown (chat/assistant content): compact, readable spacing. */
+.markdown { line-height: 1.5; overflow-wrap: anywhere; }
+.markdown > *:first-child { margin-top: 0; }
+.markdown > *:last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 0.6rem; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 0.8rem 0 0.4rem; line-height: 1.25; }
+.markdown h1 { font-size: 1.3rem; }
+.markdown h2 { font-size: 1.15rem; }
+.markdown h3 { font-size: 1.05rem; }
+.markdown ul, .markdown ol { margin: 0 0 0.6rem; padding-left: 1.4rem; }
+.markdown li { margin: 0.15rem 0; }
+.markdown code { font-family: var(--font-mono, monospace); font-size: 0.85em; background: var(--bg-muted, rgba(127,127,127,0.15)); padding: 0.1em 0.35em; border-radius: 4px; }
+.markdown pre { background: var(--bg-muted, rgba(127,127,127,0.12)); border: 1px solid var(--border); border-radius: var(--radius, 6px); padding: 0.75rem; overflow-x: auto; margin: 0 0 0.6rem; }
+.markdown pre code { background: none; padding: 0; font-size: 0.85em; }
+.markdown blockquote { margin: 0 0 0.6rem; padding-left: 0.8rem; border-left: 3px solid var(--border); color: var(--text-dim, inherit); }
+.markdown a { color: var(--accent, #5078ff); text-decoration: underline; }
+.markdown table { border-collapse: collapse; margin: 0 0 0.6rem; display: block; overflow-x: auto; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 0.3rem 0.55rem; text-align: left; }
+.markdown img { max-width: 100%; }
+
+/* Per-turn chat metrics strip (time to first token, streaming time, tokens/sec, ...). */
+.chat-metrics { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px solid var(--border); font-size: 0.7rem; }
+.chat-metric { white-space: nowrap; }
+.chat-metric-value { font-weight: 600; color: var(--text, inherit); }
+
+/* Reusable collapsible section header (click to expand/collapse). */
+.collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--text, inherit);
+    font: inherit;
+    text-align: left;
+}
+.collapsible-caret { color: var(--text-dim); font-size: 0.8rem; width: 1rem; flex-shrink: 0; }
+.collapsible-title { font-size: 1.05rem; font-weight: 600; }
+.record-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.75rem 1.5rem;
+    margin-top: 0.5rem;
+    max-height: 60vh;
+    overflow: auto;
+}
+.record-detail-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+.record-detail-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+}
+.record-detail-value {
+    font-size: 0.9rem;
+    word-break: break-word;
+}
+
+.filter-active-pill {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.45rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+    color: var(--accent);
+    flex-shrink: 0;
+}
 .modal-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1.5rem; }
 .modal-large { max-width: 730px; min-height: 400px; padding: 2rem; }
 .modal-large textarea { min-height: 180px; }
+
+/* Prompt Template detail modal: 66% wider and 33% taller than the standard large modal. */
+.modal-prompt-template { max-width: 1212px; min-height: 532px; }
+.modal-prompt-template .record-detail-value { white-space: pre-wrap; word-break: break-word; }
 
 .modal-box h3,
 .modal h3 { margin-top: 0; margin-bottom: 1rem; }
@@ -5733,10 +6138,23 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 /* Login page (React-specific multi-step flow) */
 .login-container {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
     background: var(--bg);
+}
+.login-default-creds {
+    margin: 14px 0 0;
+    font-size: 12px;
+    color: var(--text-dim);
+    opacity: 0.6;
+    text-align: center;
+}
+.login-default-creds code {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    opacity: 0.9;
 }
 .login-card {
     background: var(--bg-card);
@@ -5912,7 +6330,7 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     display: block;
     width: min(1280px, calc(100vw - 1.5rem));
     max-width: 1280px;
-    height: min(94vh, 920px);
+    height: min(96vh, 1040px);
     min-height: 0;
     max-height: calc(100vh - 1.5rem);
     border-radius: 18px;
@@ -6378,6 +6796,21 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     margin-top: 0.25rem;
 }
 
+/* Pin each step's primary action (Register Vessel, Create Captain, Dispatch, ...) to the bottom of the
+   scrolling step content so it is always reachable without scrolling the (sometimes tall) form. The
+   negative margins bleed the bar to the content edges and cancel the content's bottom padding. */
+.wizard-container-objective .wizard-inline-actions {
+    position: sticky;
+    bottom: -1.15rem;
+    z-index: 2;
+    margin: 0.75rem -1.25rem -1.15rem;
+    padding: 0.8rem 1.25rem;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+}
+
 .wizard-result {
     margin-top: 1rem;
     padding: 0.8rem 0.95rem;
@@ -6626,4 +7059,558 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+}
+
+/* ── Nav: Ask Armada standalone primary item ── */
+.sidebar-nav-item.sidebar-nav-primary {
+    color: var(--accent);
+    font-weight: 600;
+}
+.sidebar-nav-item.sidebar-nav-primary svg {
+    color: var(--accent);
+}
+
+/* ── Shared Tabs primitive (page-level tab bar) ── */
+.page-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+.page-tabs-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.1rem;
+}
+.page-tabs-list {
+    display: flex;
+    align-items: stretch;
+    gap: 0.15rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.page-tabs-list::-webkit-scrollbar {
+    display: none;
+}
+.page-tab {
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 0.86rem;
+    font-weight: 600;
+    padding: 0.6rem 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.page-tab:hover {
+    color: var(--text);
+}
+.page-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+.page-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 4px 4px 0 0;
+}
+.page-tabs-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+.page-tab-panel {
+    min-height: 0;
+}
+
+/* ── Notification bell (top bar) ── */
+.notif-bell {
+    position: relative;
+    display: inline-flex;
+}
+.notif-bell-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.notif-bell-btn svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    flex: 0 0 auto;
+    stroke: currentColor;
+}
+.notif-bell-btn:hover {
+    color: var(--accent);
+    background: var(--bg-hover);
+}
+.notif-bell-btn .notif-badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+}
+.notif-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 360px;
+    max-width: calc(100vw - 2rem);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+    z-index: 200;
+    overflow: hidden;
+}
+.notif-dropdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+.notif-dropdown-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text);
+}
+.notif-dropdown-actions {
+    display: flex;
+    gap: 1.1rem;
+}
+.notif-dropdown-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 420px;
+    overflow-y: auto;
+}
+.notif-dropdown-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 0.85rem;
+    cursor: pointer;
+    font-family: var(--font);
+}
+.notif-dropdown-item:hover {
+    background: var(--bg-hover);
+}
+.notif-dropdown-item.unread {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.notif-dropdown-item-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 0;
+}
+.notif-dropdown-item-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.notif-dropdown-item-message {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.notif-dropdown-item-time {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.notif-dropdown-empty {
+    padding: 1.4rem 0.85rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+}
+
+/* ── Command palette (Cmd-K) ── */
+.command-palette-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 12vh;
+    z-index: 400;
+}
+.command-palette {
+    width: 560px;
+    max-width: calc(100vw - 2rem);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.command-palette-input {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.95rem;
+    padding: 0.9rem 1rem;
+    outline: none;
+}
+.command-palette-list {
+    list-style: none;
+    margin: 0;
+    padding: 0.35rem;
+    max-height: 52vh;
+    overflow-y: auto;
+}
+.command-palette-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: calc(var(--radius) - 2px);
+    padding: 0.55rem 0.75rem;
+    cursor: pointer;
+    font-family: var(--font);
+    color: var(--text);
+}
+.command-palette-item.active {
+    background: var(--bg-hover);
+}
+.command-palette-item-label {
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+.command-palette-item-section {
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+.command-palette-empty {
+    padding: 1.4rem 1rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
+
+/* ── Dashboard: Ask Armada lead band ── */
+.ask-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.35rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+}
+.ask-hero-title {
+    margin: 0;
+    font-size: 1.15rem;
+    color: var(--accent);
+}
+.ask-hero-sub {
+    margin: 0.2rem 0 0;
+    color: var(--text-dim);
+    font-size: 0.86rem;
+    max-width: 60ch;
+}
+.ask-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* Request detail block: toggle + copy button on one row */
+.request-detail-block-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.request-detail-block-row .request-detail-block-toggle {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ── Ask Armada: per-turn metrics (i) popover ── */
+.chat-turn-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* Ask Armada: rotating "waiting" message with a gentle fade on each change */
+.ask-thinking {
+    font-size: 0.82rem;
+    font-style: italic;
+    animation: ask-thinking-fade 0.45s ease;
+}
+@keyframes ask-thinking-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ask-thinking { animation: none; }
+}
+
+/* Ask Armada: compact, collapsible tool-call activity chips */
+.chat-tools {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    margin: 0.15rem 0 0.1rem;
+    max-width: 100%;
+}
+/* Tool-call cards are a uniform fixed width so they never stretch with the streamed answer text
+   (they are rendered as a sibling of the answer bubble, not inside it). On narrow viewports they cap
+   at the available width; oversized argument/result JSON scrolls inside the card via .chat-tool-pre. */
+.chat-tool {
+    width: 30rem;
+    max-width: 100%;
+    border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+    border-radius: 6px;
+    background: rgba(148, 163, 184, 0.06);
+    overflow: hidden;
+}
+.chat-tool-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.22rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.72rem;
+    list-style: none;
+    user-select: none;
+}
+.chat-tool-summary::-webkit-details-marker { display: none; }
+.chat-tool-summary::marker { content: ''; }
+.chat-tool-status {
+    display: inline-flex;
+    width: 1rem;
+    justify-content: center;
+    font-weight: 700;
+}
+.chat-tool-running .chat-tool-status { color: var(--text-dim, #94a3b8); }
+.chat-tool-success .chat-tool-status { color: #3fb950; }
+.chat-tool-failed .chat-tool-status { color: #f85149; }
+.chat-tool-name {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chat-tool-meta {
+    margin-left: auto;
+    color: var(--text-dim, #94a3b8);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+}
+.chat-tool-detail {
+    padding: 0.1rem 0.5rem 0.45rem;
+    border-top: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+}
+.chat-tool-label {
+    color: var(--text-dim, #94a3b8);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 0.35rem 0 0.15rem;
+}
+.chat-tool-pre {
+    margin: 0;
+    max-height: 240px;
+    overflow: auto;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    background: rgba(0, 0, 0, 0.22);
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.chat-metrics-info {
+    position: relative;
+    display: inline-flex;
+}
+.chat-metrics-info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 50%;
+}
+.chat-metrics-info-btn svg { display: block; width: 13px; height: 13px; }
+.chat-metrics-info-btn:hover { color: var(--accent); }
+.chat-metrics-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 60;
+    min-width: 190px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+    padding: 0.5rem 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.chat-metrics-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.75rem;
+}
+.chat-metrics-row-label { color: var(--text-dim); }
+.chat-metrics-row-value { color: var(--text); font-weight: 600; font-family: var(--mono); }
+
+/* ── Ask Armada: MCP-not-connected banner ── */
+.mcp-warning-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid color-mix(in srgb, var(--orange, #d98a00) 45%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--orange, #d98a00) 10%, var(--bg-card));
+}
+.mcp-warning-icon { color: var(--orange, #d98a00); flex-shrink: 0; margin-top: 1px; }
+.mcp-warning-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
+.mcp-warning-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: center; }
+
+/* Small, always-visible caveat at the top of a chat/transcript window (e.g. Codex cannot stream). */
+.chat-stream-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.7rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.76rem;
+    line-height: 1.3;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+    color: var(--text);
+}
+.chat-stream-notice svg { color: var(--accent); flex-shrink: 0; }
+
+/* ── Ask Armada: full-height chat layout ── */
+.ask-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--shell-chrome-height) - 1.5rem);
+    min-height: 0;
+    /* Breathing room between the composer and the bottom of the viewport. */
+    padding-bottom: 1.25rem;
+}
+.ask-header-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+}
+.ask-stream-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.ask-body {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.ask-chat-window {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    /* Keep wheel/touch scrolling inside the transcript instead of chaining to the page once it reaches an
+       edge. */
+    overscroll-behavior: contain;
+}
+.ask-disclaimer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    margin: 0.5rem 0 0.45rem;
+}
+.ask-input-form {
+    flex-shrink: 0;
+    margin-top: 0;
+}
+
+/* Shared captain-chat panel (Ask Armada + Planning current session). Fills its host so the window
+   scrolls internally while the disclaimer and composer stay pinned below. */
+.chat-panel {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Planning embeds the shared chat panel in a normally-scrolling page (not a full-height view), so the
+   transcript cannot flex-fill an ancestor the way Ask Armada does. Instead the window gets its own bounded
+   height and scrolls internally; the card and the Dispatch panel below it size to content. */
+.planning-chat-shell {
+    display: block;
+    min-height: 0;
+}
+
+.planning-chat-shell .ask-chat-window {
+    flex: none;
+    min-height: 16rem;
+    max-height: 58vh;
 }

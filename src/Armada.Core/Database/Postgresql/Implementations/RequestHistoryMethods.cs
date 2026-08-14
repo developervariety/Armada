@@ -291,7 +291,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 IsSuccess = Convert.ToBoolean(reader["is_success"]),
                 ClientIp = NullableString(reader["client_ip"]),
                 CorrelationId = NullableString(reader["correlation_id"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime()
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc)
             };
         }
 

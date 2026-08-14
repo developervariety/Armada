@@ -218,7 +218,7 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Planning session not found" };
                     }
 
-                    await _planningSessions.SendMessageAsync(session, request.Content).ConfigureAwait(false);
+                    await _planningSessions.SendMessageAsync(session, request.Content, request.ShowThinking, request.Stream).ConfigureAwait(false);
                     return await BuildDetailResponseAsync(session, ctx).ConfigureAwait(false);
                 }
                 catch (NotSupportedException ex)
@@ -374,6 +374,44 @@ namespace Armada.Server.Routes
                 .WithTag("Planning")
                 .WithSummary("Stop a planning session")
                 .WithDescription("Stops an active planning session, releases the captain, and reclaims the planning dock.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/planning-sessions/{id}/stop-turn", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse
+                    {
+                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
+                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
+                    };
+                }
+
+                try
+                {
+                    PlanningSession? session = await ReadSessionForContextAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                    if (session == null)
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Planning session not found" };
+                    }
+
+                    PlanningSession aborted = await _planningSessions.AbortTurnAsync(session).ConfigureAwait(false);
+                    return await BuildDetailResponseAsync(aborted, ctx).ConfigureAwait(false);
+                }
+                catch (NotSupportedException ex)
+                {
+                    req.Http.Response.StatusCode = 501;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Planning")
+                .WithSummary("Stop the current planning turn")
+                .WithDescription("Aborts the in-flight planning turn (cancelling the captain runtime) while keeping the session active so the user can keep chatting.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
                 .WithSecurity("ApiKey"));
 

@@ -53,8 +53,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc)
-                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc);";
+                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, retry_count, lease_expires_utc, created_utc, last_update_utc, test_started_utc, completed_utc)
+                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @retry_count, @lease_expires_utc, @created_utc, @last_update_utc, @test_started_utc, @completed_utc);";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
@@ -68,6 +68,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_count", entry.RetryCount);
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", entry.LeaseExpiresUtc.HasValue ? (object)entry.LeaseExpiresUtc.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", ToIso8601(entry.CreatedUtc));
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
@@ -136,6 +138,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         test_command = @test_command,
                         test_output = @test_output,
                         test_exit_code = @test_exit_code,
+                        retry_count = @retry_count,
+                        lease_expires_utc = @lease_expires_utc,
                         last_update_utc = @last_update_utc,
                         test_started_utc = @test_started_utc,
                         completed_utc = @completed_utc
@@ -153,6 +157,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_count", entry.RetryCount);
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", entry.LeaseExpiresUtc.HasValue ? (object)entry.LeaseExpiresUtc.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
@@ -707,6 +713,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return Convert.ToInt32(value);
         }
 
+        private static DateTime? NullableDateTime(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            return DateTime.SpecifyKind((DateTime)value, DateTimeKind.Utc);
+        }
+
         private static MergeEntry MergeEntryFromReader(NpgsqlDataReader reader)
         {
             MergeEntry entry = new MergeEntry();
@@ -723,6 +735,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             entry.TestCommand = NullableString(reader["test_command"]);
             entry.TestOutput = NullableString(reader["test_output"]);
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
+            try { entry.RetryCount = Convert.ToInt32(reader["retry_count"]); } catch { }
+            try { entry.LeaseExpiresUtc = NullableDateTime(reader["lease_expires_utc"]); } catch { }
             entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);

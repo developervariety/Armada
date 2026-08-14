@@ -57,18 +57,21 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, requested_captain_id, title, description, status, priority, redispatch_attempts, tier, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @requested_captain_id, @title, @description, @status, @priority, @redispatch_attempts, @tier, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
                     cmd.Parameters.AddWithValue("@priority", mission.Priority);
+                    cmd.Parameters.AddWithValue("@redispatch_attempts", mission.RedispatchAttempts);
+                    cmd.Parameters.AddWithValue("@tier", (object?)mission.Tier?.ToString() ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
@@ -86,6 +89,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@review_deadline_utc", mission.ReviewDeadlineUtc.HasValue ? (object)mission.ReviewDeadlineUtc.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(mission.CreatedUtc));
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
@@ -140,10 +144,13 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         voyage_id = @voyage_id,
                         vessel_id = @vessel_id,
                         captain_id = @captain_id,
+                        requested_captain_id = @requested_captain_id,
                         title = @title,
                         description = @description,
                         status = @status,
                         priority = @priority,
+                        redispatch_attempts = @redispatch_attempts,
+                        tier = @tier,
                         parent_mission_id = @parent_mission_id,
                         branch_name = @branch_name,
                         dock_id = @dock_id,
@@ -161,6 +168,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         reviewed_by_user_id = @reviewed_by_user_id,
                         review_requested_utc = @review_requested_utc,
                         reviewed_utc = @reviewed_utc,
+                        review_deadline_utc = @review_deadline_utc,
                         total_runtime_ms = @total_runtime_ms,
                         started_utc = @started_utc,
                         completed_utc = @completed_utc,
@@ -172,10 +180,13 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
                     cmd.Parameters.AddWithValue("@priority", mission.Priority);
+                    cmd.Parameters.AddWithValue("@redispatch_attempts", mission.RedispatchAttempts);
+                    cmd.Parameters.AddWithValue("@tier", (object?)mission.Tier?.ToString() ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
@@ -193,6 +204,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@review_deadline_utc", mission.ReviewDeadlineUtc.HasValue ? (object)mission.ReviewDeadlineUtc.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);

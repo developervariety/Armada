@@ -112,6 +112,37 @@ namespace Armada.Core.Settings
         public bool WebSocketEnabled { get; set; } = true;
 
         /// <summary>
+        /// Whether captains are launched in an isolated agent configuration so they cannot inherit the
+        /// host user's global agent settings or MCP servers. When enabled, each launch is given a scoped
+        /// configuration that contains only the Armada MCP server (built from <see cref="McpPort"/>), via
+        /// runtime-appropriate strict-config flags and/or a scoped HOME/config directory. Defaults to
+        /// false so existing deployments are unaffected until explicitly opted in.
+        /// </summary>
+        public bool IsolateCaptainLaunch { get; set; } = false;
+
+        /// <summary>
+        /// Minimum available physical memory in bytes required before launching a captain. When available
+        /// memory falls below this floor, dispatch defers the mission (leaves it pending for a later tick)
+        /// rather than launching a captain likely to be OOM-killed mid-run. Zero (the default) disables the
+        /// gate; the check also fails open if host memory cannot be measured. Clamped to non-negative.
+        /// </summary>
+        public long MinAvailableMemoryBytesForLaunch
+        {
+            get => _MinAvailableMemoryBytesForLaunch;
+            set => _MinAvailableMemoryBytesForLaunch = value < 0 ? 0 : value;
+        }
+
+        /// <summary>
+        /// How long, in minutes, a captain is quarantined after a provider usage-limit / auth failure or a
+        /// crash loop before it is eligible for dispatch again. Clamped to a minimum of 1. Defaults to 15.
+        /// </summary>
+        public int CaptainQuarantineMinutes
+        {
+            get => _CaptainQuarantineMinutes;
+            set => _CaptainQuarantineMinutes = value < 1 ? 1 : value;
+        }
+
+        /// <summary>
         /// Heartbeat check interval in seconds. Must be >= 5.
         /// </summary>
         public int HeartbeatIntervalSeconds
@@ -153,6 +184,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum number of times a mission is automatically re-dispatched (to a fresh captain) after a
+        /// detected no-op completion before it is failed and surfaced to the operator inbox. Set to 0 to
+        /// fail immediately on the first no-op. Must be in range [0, 5].
+        /// </summary>
+        public int MaxNoOpRedispatchAttempts
+        {
+            get => _MaxNoOpRedispatchAttempts;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 5) value = 5;
+                _MaxNoOpRedispatchAttempts = value;
+            }
+        }
+
+        /// <summary>
         /// Global landing mode for completed missions. Determines how work is integrated.
         /// When set, takes precedence over the legacy boolean flags (AutoPush, AutoCreatePullRequests, AutoMergePullRequests).
         /// Can be overridden per-vessel or per-voyage.
@@ -187,7 +234,36 @@ namespace Armada.Core.Settings
         public bool AutoMergePullRequests { get; set; } = false;
 
         /// <summary>
-        /// Maximum number of auto-recovery attempts for stalled captains. Must be >= 0.
+        /// Minutes a mission may await human review before the watchdog escalates and releases the
+        /// held captain (mission and dock are preserved for the reviewer). 0 disables. Must be >= 0.
+        /// </summary>
+        public int ReviewTimeoutMinutes
+        {
+            get => _ReviewTimeoutMinutes;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(ReviewTimeoutMinutes), "Must be >= 0");
+                _ReviewTimeoutMinutes = value;
+            }
+        }
+
+        /// <summary>
+        /// Hard ceiling, in minutes, on how long a single mission may run before it is force-failed
+        /// as a runaway (a backstop independent of stall detection). 0 disables the cap. Must be >= 0.
+        /// </summary>
+        public int MaxMissionRuntimeMinutes
+        {
+            get => _MaxMissionRuntimeMinutes;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxMissionRuntimeMinutes), "Must be >= 0");
+                _MaxMissionRuntimeMinutes = value;
+            }
+        }
+
+        /// <summary>
+        /// Maximum number of automatic recovery attempts for a stalled captain before its mission
+        /// is failed.
         /// </summary>
         public int MaxRecoveryAttempts
         {
@@ -360,6 +436,20 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Global ceiling on missions (working captains) that may run simultaneously, enforced at
+        /// dispatch admission as backpressure against unbounded concurrency. 0 = unlimited. Must be >= 0.
+        /// </summary>
+        public int MaxConcurrentMissions
+        {
+            get => _MaxConcurrentMissions;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxConcurrentMissions), "Must be >= 0");
+                _MaxConcurrentMissions = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum total captains allowed. Set to 0 for unlimited. Must be >= 0.
         /// </summary>
         public int MaxCaptains
@@ -485,6 +575,15 @@ namespace Armada.Core.Settings
             set => _RemoteControl = value ?? new RemoteControlSettings();
         }
 
+        /// <summary>
+        /// Telemetry export settings (OpenTelemetry via Prometheus/Grafana/Loki). Disabled by default.
+        /// </summary>
+        public TelemetrySettings Telemetry
+        {
+            get => _Telemetry;
+            set => _Telemetry = value ?? new TelemetrySettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -509,9 +608,13 @@ namespace Armada.Core.Settings
 
         private int _AdmiralPort = Constants.DefaultAdmiralPort;
         private int _McpPort = Constants.DefaultMcpPort;
+        private long _MinAvailableMemoryBytesForLaunch = 0;
+        private int _CaptainQuarantineMinutes = 15;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
+        private int _MaxMissionRuntimeMinutes = Constants.DefaultMaxMissionRuntimeMinutes;
+        private int _ReviewTimeoutMinutes = Constants.DefaultReviewTimeoutMinutes;
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
@@ -521,10 +624,13 @@ namespace Armada.Core.Settings
         private int _PlanningSessionInactivityTimeoutMinutes = Constants.DefaultPlanningSessionInactivityTimeoutMinutes;
         private int _PlanningSessionAbandonmentTimeoutMinutes = Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes;
         private int _MaxLandingRetries = 3;
+        private int _MaxNoOpRedispatchAttempts = 1;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
+        private int _MaxConcurrentMissions = Constants.DefaultMaxConcurrentMissions;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
+        private TelemetrySettings _Telemetry = new TelemetrySettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private bool _DatabasePathConfigured = false;
 

@@ -636,8 +636,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             fleet.Description = NullableString(reader["description"]);
             try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
-            fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            fleet.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            fleet.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return fleet;
         }
 

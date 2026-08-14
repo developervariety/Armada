@@ -183,7 +183,7 @@ export default function MissionHistoryChart({ vessels, fleets, onRefresh }: Miss
               return (
                 <g key={tick}>
                   <line x1={padLeft} y1={y} x2={800 - padRight} y2={y} stroke="var(--border)" strokeDasharray={tick === 0 ? 'none' : '4,4'} strokeWidth={0.5} />
-                  <text x={padLeft - 8} y={y + 3} textAnchor="end" fontSize="9" fill="var(--text-dim)">{tick}</text>
+                  <text x={padLeft - 8} y={y + 3} textAnchor="end" fontSize="6.5" fill="var(--text-dim)">{tick}</text>
                 </g>
               );
             })}
@@ -213,7 +213,7 @@ export default function MissionHistoryChart({ vessels, fleets, onRefresh }: Miss
                     {bucket.failed > 0 && <rect x={x} y={failedY} width={barWidth} height={failedH} rx={2} fill="var(--red)" opacity={isHovered ? 1 : 0.85} />}
                     {bucket.other > 0 && <rect x={x} y={otherY} width={barWidth} height={otherH} rx={2} fill="var(--text-dim)" opacity={isHovered ? 0.7 : 0.5} />}
                     {showLabel && (
-                      <text x={padLeft + i * barGroupWidth + barGroupWidth / 2} y={chartHeight - 8} textAnchor="middle" fontSize="8" fill="var(--text-dim)">
+                      <text x={padLeft + i * barGroupWidth + barGroupWidth / 2} y={chartHeight - 8} textAnchor="middle" fontSize="6.5" fill="var(--text-dim)">
                         {formatBucketLabel(bucket.timestampMs, range.stepMinutes, range.hours)}
                       </text>
                     )}

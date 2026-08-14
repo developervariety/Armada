@@ -368,8 +368,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 SourceId = MysqlDatabaseDriver.NullableString(reader["source_id"]),
                 SourceUrl = MysqlDatabaseDriver.NullableString(reader["source_url"]),
                 SourceUpdatedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["source_updated_utc"]),
-                CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!),
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc),
                 CompletedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["completed_utc"])
             };
 

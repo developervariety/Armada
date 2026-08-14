@@ -1,6 +1,8 @@
 import type { RefObject } from 'react';
 import type { PlanningSessionMessage } from '../../types/models';
 import StatusBadge from '../shared/StatusBadge';
+import CaptainChatPanel, { type ChatTurn } from '../shared/CaptainChatPanel';
+import { type ToolEvent } from '../shared/ChatToolChips';
 
 interface PlanningTranscriptCardProps {
   t: (value: string, vars?: Record<string, string | number>) => string;
@@ -16,7 +18,13 @@ interface PlanningTranscriptCardProps {
   failureReason?: string | null;
   updatedUtc: string;
   messages: PlanningSessionMessage[];
-  selectedMessageId: string;
+  messageTools?: Record<string, ToolEvent[]>;
+  messageThinking?: Record<string, string>;
+  thinkingMessage?: string;
+  streamingEnabled?: boolean;
+  onStreamingChange?: (value: boolean) => void;
+  showThinking?: boolean;
+  onShowThinkingChange?: (value: boolean) => void;
   composer: string;
   sending: boolean;
   canSend: boolean;
@@ -25,9 +33,11 @@ interface PlanningTranscriptCardProps {
   deleting: boolean;
   formatDateTime: (value: string) => string;
   formatRelativeTime: (value: string) => string;
-  onSelectMessage: (messageId: string) => void;
+  /** Sends a specific assistant reply to the main Dispatch page (its full text becomes the dispatch prompt). */
+  onOpenMessageInDispatch: (messageId: string) => void;
   onComposerChange: (value: string) => void;
   onSend: () => void;
+  onStopTurn: () => void;
   onEndSession: () => void;
   onDelete: () => void;
 }
@@ -47,7 +57,13 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
     failureReason,
     updatedUtc,
     messages,
-    selectedMessageId,
+    messageTools,
+    messageThinking,
+    thinkingMessage,
+    streamingEnabled = true,
+    onStreamingChange,
+    showThinking = false,
+    onShowThinkingChange,
     composer,
     sending,
     canSend,
@@ -56,13 +72,32 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
     deleting,
     formatDateTime,
     formatRelativeTime,
-    onSelectMessage,
+    onOpenMessageInDispatch,
     onComposerChange,
     onSend,
+    onStopTurn,
     onEndSession,
     onDelete,
   } = props;
-  const composerId = 'planning-session-composer';
+
+  // Map the persisted planning transcript onto the shared chat-turn shape so the Planning chat renders
+  // through the exact same panel as Ask Armada.
+  const busy = currentStatus === 'Responding' || sending;
+  const lastAssistantId = [...messages].reverse().find((m) => m.role.toLowerCase() === 'assistant')?.id;
+
+  const turns: ChatTurn[] = messages.map((message) => {
+    const role = message.role.toLowerCase();
+    const kind: ChatTurn['role'] = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'system';
+    return {
+      id: message.id,
+      role: kind,
+      text: message.content,
+      metrics: message.metrics ?? undefined,
+      tools: kind === 'assistant' ? messageTools?.[message.id] : undefined,
+      thinking: kind === 'assistant' ? messageThinking?.[message.id] : undefined,
+      streaming: kind === 'assistant' && busy && message.id === lastAssistantId,
+    };
+  });
 
   return (
     <div className="card planning-current-session">
@@ -79,11 +114,16 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
         </div>
         <div className="planning-current-session-actions">
           {currentStatus && <StatusBadge status={currentStatus} />}
+          <label className="ask-stream-toggle" title={t('Stream the reply as it is produced')}>
+            <input type="checkbox" checked={streamingEnabled} onChange={(e) => onStreamingChange?.(e.target.checked)} disabled={busy} />
+            {t('Stream responses')}
+          </label>
+          <label className="ask-stream-toggle" title={t('Surface the model reasoning above the answer. Mux streams it natively; other runtimes are asked to include it.')}>
+            <input type="checkbox" checked={showThinking} onChange={(e) => onShowThinkingChange?.(e.target.checked)} disabled={busy} />
+            {t('Show thinking')}
+          </label>
           <button type="button" className="btn btn-sm" disabled={!canEndSession} onClick={onEndSession}>
             {endingSession || currentStatus === 'Stopping' ? t('Ending...') : t('End Session')}
-          </button>
-          <button type="button" className="btn btn-sm" disabled={deleting} onClick={onDelete}>
-            {deleting ? t('Deleting...') : t('Delete Transcript')}
           </button>
         </div>
       </div>
@@ -129,79 +169,41 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
         </div>
       )}
 
-      <div
-        ref={transcriptRef}
-        className="planning-chat-window"
-      >
-        {messages.length === 0 ? (
-          <div className="planning-chat-empty text-muted">
-            {t('No transcript yet. Send the first planning message below.')}
-          </div>
-        ) : messages.map((message) => {
-          const role = message.role.toLowerCase();
-          const isAssistant = role === 'assistant';
-          const isUser = role === 'user';
-          const isSelected = selectedMessageId === message.id;
-          const roleLabel = isAssistant ? t('Captain') : isUser ? t('You') : t(message.role);
-
-          return (
-            <div
-              key={message.id}
-              className={`planning-chat-message planning-chat-message-${isUser ? 'user' : isAssistant ? 'assistant' : 'system'}${isSelected ? ' is-selected' : ''}`}
-            >
-              <div className="planning-chat-message-meta">
-                <span className="planning-chat-role">{roleLabel}</span>
-                <span className="text-dim" title={formatDateTime(message.lastUpdateUtc)}>
-                  {formatRelativeTime(message.lastUpdateUtc)}
-                </span>
+      <div className="planning-chat-shell">
+        <CaptainChatPanel
+          t={t}
+          turns={turns}
+          windowRef={transcriptRef}
+          notice={captainRuntime === 'Codex' ? t('Codex responses cannot be streamed and will arrive upon completion.') : undefined}
+          assistantName={captainName}
+          emptyState={<p>{t('No transcript yet. Send the first planning message below.')}</p>}
+          input={composer}
+          onInputChange={onComposerChange}
+          onSend={onSend}
+          onStop={onStopTurn}
+          busy={busy}
+          canSend={canSend}
+          canStop={currentStatus === 'Responding'}
+          thinking={thinkingMessage}
+          inputPlaceholder={t('Describe the problem, ask for a plan, or negotiate the next steps with the captain.')}
+          inputDisabled={currentStatus !== 'Active'}
+          onClear={onDelete}
+          clearDisabled={busy || deleting}
+          renderTurnFooter={(turn) =>
+            turn.role === 'assistant' && turn.id && turn.text.trim().length > 0 ? (
+              <div className="planning-chat-message-actions">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={() => onOpenMessageInDispatch(turn.id!)}
+                  title={t('Open the main Dispatch page with this reply as the prompt')}
+                >
+                  {t('Open in Dispatch')}
+                </button>
               </div>
-
-              <div className="planning-chat-bubble">
-                <pre className="planning-chat-content">
-                  {message.content || (isAssistant ? t('Waiting for response...') : '')}
-                </pre>
-              </div>
-
-              {isAssistant && message.content.trim().length > 0 && (
-                <div className="planning-chat-message-actions">
-                  <button
-                    type="button"
-                    className={`btn btn-sm${isSelected ? ' btn-primary' : ''}`}
-                    onClick={() => onSelectMessage(message.id)}
-                  >
-                    {isSelected ? t('Selected For Dispatch') : t('Use For Dispatch')}
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="planning-chat-composer">
-        <label htmlFor={composerId}>{t('Send Message')}</label>
-        <textarea
-          id={composerId}
-          value={composer}
-          onChange={(event) => onComposerChange(event.target.value)}
-          rows={3}
-          disabled={currentStatus !== 'Active' || sending}
-          placeholder={t('Describe the problem, ask for a plan, or negotiate the next steps with the captain.')}
+            ) : null
+          }
         />
-        <div className="planning-chat-composer-actions">
-          <span className="text-muted">
-            {currentStatus === 'Active'
-              ? t('Messages are appended to the preserved session transcript.')
-              : t('This session is not currently accepting new messages.')}
-          </span>
-          <button type="button" className="btn-primary" disabled={!canSend} onClick={onSend}>
-            {sending
-              ? t('Sending...')
-              : currentStatus === 'Responding'
-                ? t('Captain Responding...')
-                : t('Send')}
-          </button>
-        </div>
       </div>
     </div>
   );

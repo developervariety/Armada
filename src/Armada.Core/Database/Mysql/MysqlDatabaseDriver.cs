@@ -61,6 +61,7 @@ namespace Armada.Core.Database.Mysql
             PlanningSessions = new PlanningSessionMethods(_ConnectionString);
             PlanningSessionMessages = new PlanningSessionMessageMethods(_ConnectionString);
             Objectives = new ObjectiveMethods(_ConnectionString);
+            Jobs = new JobMethods(_ConnectionString);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(_ConnectionString);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(_ConnectionString);
             Docks = new DockMethods(_ConnectionString);
@@ -76,10 +77,13 @@ namespace Armada.Core.Database.Mysql
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
+            ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
+            Skills = new SkillMethods(_ConnectionString);
             Environments = new DeploymentEnvironmentMethods(_ConnectionString);
             CheckRuns = new CheckRunMethods(_ConnectionString);
             Releases = new ReleaseMethods(_ConnectionString);
             Deployments = new DeploymentMethods(_ConnectionString);
+            CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
         }
 
         #endregion
@@ -186,6 +190,7 @@ namespace Armada.Core.Database.Mysql
 
                 Credential defaultCred = new Credential();
                 defaultCred.Id = Constants.DefaultCredentialId;
+                defaultCred.Name = Constants.DefaultCredentialName;
                 defaultCred.TenantId = Constants.DefaultTenantId;
                 defaultCred.UserId = Constants.DefaultUserId;
                 defaultCred.BearerToken = Constants.DefaultBearerToken;
@@ -279,7 +284,7 @@ namespace Armada.Core.Database.Mysql
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Current schema version number, or 0 if no migrations have been applied.</returns>
-        public async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+        public override async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
         {
             using (MySqlConnection conn = await GetConnectionAsync(token).ConfigureAwait(false))
             {
@@ -339,7 +344,9 @@ namespace Armada.Core.Database.Mysql
                 TableQueries.Docks,
                 TableQueries.Signals,
                 TableQueries.Events,
-                TableQueries.MergeEntries
+                TableQueries.MergeEntries,
+                TableQueries.CoordinationLeases,
+                TableQueries.Jobs
             };
 
             foreach (string index in TableQueries.Indexes)
@@ -508,6 +515,41 @@ namespace Armada.Core.Database.Mysql
                     42,
                     "Add normalized objectives backlog tables",
                     TableQueries.MigrationV42Statements
+                ),
+                new SchemaMigration(
+                    44,
+                    "Reliability release: dock leases, process liveness, review deadline, merge retry, coordination leases",
+                    TableQueries.MigrationV44Statements
+                ),
+                new SchemaMigration(
+                    45,
+                    "Add project_profiles for per-project persona/pipeline/skill customization",
+                    TableQueries.MigrationV45Statements
+                ),
+                new SchemaMigration(
+                    46,
+                    "Add skills directory",
+                    TableQueries.MigrationV46Statements
+                ),
+                new SchemaMigration(
+                    47,
+                    "Add reasoning_effort/tier, redispatch_attempts, and vessel dock-boundary columns",
+                    TableQueries.MigrationV47Statements
+                ),
+                new SchemaMigration(
+                    48,
+                    "Add auto-land + quarantine columns",
+                    TableQueries.MigrationV48Statements
+                ),
+                new SchemaMigration(
+                    49,
+                    "Add jobs table",
+                    TableQueries.MigrationV49Statements
+                ),
+                new SchemaMigration(
+                    55,
+                    "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    TableQueries.MigrationV55Statements
                 )
             };
         }
@@ -525,6 +567,7 @@ namespace Armada.Core.Database.Mysql
         internal static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);
@@ -550,8 +593,8 @@ namespace Armada.Core.Database.Mysql
             tenant.Name = reader["name"].ToString()!;
             tenant.Active = Convert.ToInt64(reader["active"]) == 1;
             tenant.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            tenant.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            tenant.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            tenant.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            tenant.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return tenant;
         }
 
@@ -568,8 +611,8 @@ namespace Armada.Core.Database.Mysql
             user.IsTenantAdmin = Convert.ToInt64(reader["is_tenant_admin"]) == 1;
             user.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
             user.Active = Convert.ToInt64(reader["active"]) == 1;
-            user.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            user.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            user.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            user.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return user;
         }
 
@@ -583,8 +626,8 @@ namespace Armada.Core.Database.Mysql
             cred.BearerToken = reader["bearer_token"].ToString()!;
             cred.Active = Convert.ToInt64(reader["active"]) == 1;
             cred.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            cred.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            cred.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            cred.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            cred.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return cred;
         }
 
@@ -597,8 +640,8 @@ namespace Armada.Core.Database.Mysql
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
-            fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            fleet.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            fleet.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return fleet;
         }
 
@@ -643,10 +686,27 @@ namespace Armada.Core.Database.Mysql
             catch { vessel.RequirePullRequestForProtectedBranches = false; }
             try { vessel.RequireMergeQueueForReleaseBranches = Convert.ToInt64(reader["require_merge_queue_for_release_branches"]) == 1; }
             catch { vessel.RequireMergeQueueForReleaseBranches = false; }
+            try { vessel.AutoLandEnabled = Convert.ToInt64(reader["auto_land_enabled"]) == 1; } catch { }
+            try { vessel.AutoLandMaxFiles = Convert.ToInt32(reader["auto_land_max_files"]); } catch { }
+            try { vessel.AutoLandMaxLines = Convert.ToInt32(reader["auto_land_max_lines"]); } catch { }
+            try
+            {
+                string? allowGlobsJson = NullableString(reader["auto_land_path_allow_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(allowGlobsJson))
+                    vessel.AutoLandPathAllowGlobs = JsonSerializer.Deserialize<List<string>>(allowGlobsJson) ?? new List<string>();
+            }
+            catch { }
+            try
+            {
+                string? denyGlobsJson = NullableString(reader["auto_land_path_deny_globs_json"]);
+                if (!String.IsNullOrWhiteSpace(denyGlobsJson))
+                    vessel.AutoLandPathDenyGlobs = JsonSerializer.Deserialize<List<string>>(denyGlobsJson) ?? new List<string>();
+            }
+            catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
-            vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            vessel.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            vessel.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            vessel.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return vessel;
         }
 
@@ -667,8 +727,11 @@ namespace Armada.Core.Database.Mysql
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
-            captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
+            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
+            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
+            captain.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            captain.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             return captain;
         }
 
@@ -683,7 +746,7 @@ namespace Armada.Core.Database.Mysql
             signal.Type = Enum.Parse<SignalTypeEnum>(reader["type"].ToString()!);
             signal.Payload = NullableString(reader["payload"]);
             signal.Read = Convert.ToBoolean(reader["read"]);
-            signal.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            signal.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
             return signal;
         }
 
@@ -702,7 +765,7 @@ namespace Armada.Core.Database.Mysql
             evt.VoyageId = NullableString(reader["voyage_id"]);
             evt.Message = reader["message"].ToString()!;
             evt.Payload = NullableString(reader["payload"]);
-            evt.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            evt.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
             return evt;
         }
 
@@ -722,8 +785,10 @@ namespace Armada.Core.Database.Mysql
             entry.TestCommand = NullableString(reader["test_command"]);
             entry.TestOutput = NullableString(reader["test_output"]);
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
-            entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            try { entry.RetryCount = Convert.ToInt32(reader["retry_count"]); } catch { }
+            try { entry.LeaseExpiresUtc = FromIso8601Nullable(reader["lease_expires_utc"]); } catch { }
+            entry.CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc);
+            entry.LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             return entry;

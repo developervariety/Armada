@@ -58,11 +58,6 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
 
   return (
     <div className="mux-runtime-fields" style={{ marginTop: compact ? '0.5rem' : '0.75rem' }}>
-      <div className="wizard-context-strip" style={{ marginBottom: '0.75rem' }}>
-        <span>{t('Mux Runtime')}</span>
-        <strong>{t('This captain must target a named Mux endpoint.')}</strong>
-      </div>
-
       <div className="wizard-form-grid">
         <div className="form-group">
           <label title={t('Optional mux config directory override. Leave blank to use mux defaults.')}>{t('Mux Config Directory')}</label>

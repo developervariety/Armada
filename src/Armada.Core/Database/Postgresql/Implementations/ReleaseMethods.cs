@@ -314,9 +314,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 TagName = NullableString(reader["tag_name"]),
                 Summary = NullableString(reader["summary"]),
                 Notes = NullableString(reader["notes"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime(),
-                PublishedUtc = reader["published_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["published_utc"]).ToUniversalTime()
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
+                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc),
+                PublishedUtc = reader["published_utc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["published_utc"]), DateTimeKind.Utc)
             };
 
             if (Enum.TryParse(reader["status"].ToString(), true, out ReleaseStatusEnum status))

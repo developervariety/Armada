@@ -26,6 +26,7 @@ namespace Armada.Core.Services
         private const int EditableTextMaxBytes = 512 * 1024;
         private const int PreviewMaxBytes = 64 * 1024;
         private const int SearchFileMaxBytes = 256 * 1024;
+        private const int _GitCommandTimeoutSeconds = 30;
 
         #endregion
 
@@ -405,6 +406,146 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        /// <inheritdoc />
+        public async Task<WorkspaceExecResult> ExecAsync(Vessel vessel, WorkspaceExecRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.Command)) throw new ArgumentException("Command is required.", nameof(request));
+
+            string rootPath = GetWorkspaceRoot(vessel);
+            int timeoutSeconds = request.TimeoutSeconds < 1 ? 1 : (request.TimeoutSeconds > 600 ? 600 : request.TimeoutSeconds);
+
+            WorkspaceExecResult result = new WorkspaceExecResult
+            {
+                Command = request.Command,
+                WorkingDirectory = rootPath
+            };
+
+            ProcessStartInfo psi = new ProcessStartInfo
+            {
+                WorkingDirectory = rootPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            if (OperatingSystem.IsWindows())
+            {
+                psi.FileName = "cmd.exe";
+                psi.ArgumentList.Add("/c");
+                psi.ArgumentList.Add(request.Command);
+            }
+            else
+            {
+                psi.FileName = "/bin/sh";
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add(request.Command);
+            }
+
+            const int maxOutputChars = 256 * 1024;
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            using Process process = new Process { StartInfo = psi };
+
+            StringBuilder stdout = new StringBuilder();
+            StringBuilder stderr = new StringBuilder();
+            process.OutputDataReceived += (_, e) => { if (e.Data != null && stdout.Length < maxOutputChars) stdout.AppendLine(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data != null && stderr.Length < maxOutputChars) stderr.AppendLine(e.Data); };
+
+            try
+            {
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+                try
+                {
+                    await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                    result.ExitCode = process.ExitCode;
+                }
+                catch (OperationCanceledException)
+                {
+                    result.TimedOut = !token.IsCancellationRequested;
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    try { await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
+                    result.ExitCode = -1;
+                }
+            }
+            catch (Exception ex)
+            {
+                stderr.AppendLine("Failed to start command: " + ex.Message);
+                result.ExitCode = -1;
+            }
+            finally
+            {
+                stopwatch.Stop();
+            }
+
+            result.Stdout = stdout.ToString();
+            result.Stderr = stderr.ToString();
+            result.DurationMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2);
+            return result;
+        }
+
+        /// <inheritdoc />
+        public async Task<WorkspaceDiffResult> GetDiffAsync(Vessel vessel, string? path = null, CancellationToken token = default)
+        {
+            string rootPath = GetWorkspaceRoot(vessel);
+            WorkspaceDiffResult result = new WorkspaceDiffResult
+            {
+                Path = String.IsNullOrWhiteSpace(path) ? null : path
+            };
+
+            try
+            {
+                // Fast guard: only diff when this exact path is the root of a git repository. Without it,
+                // a non-repo path makes `git diff HEAD` walk up to any ancestor repository and scan it
+                // (potentially huge and slow) before failing -- e.g. under a temp directory whose parent
+                // happens to be a repo. rev-parse is fast and lets us fail closed immediately.
+                string topLevel;
+                try
+                {
+                    topLevel = (await RunGitCommandAsync(rootPath, token, "rev-parse", "--show-toplevel").ConfigureAwait(false)).Trim();
+                }
+                catch
+                {
+                    result.Error = "Not a git repository.";
+                    return result;
+                }
+
+                if (String.IsNullOrWhiteSpace(topLevel)
+                    || !String.Equals(Path.GetFullPath(rootPath).TrimEnd('/', '\\'), Path.GetFullPath(topLevel).TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Error = "Not a git repository rooted at this path.";
+                    return result;
+                }
+
+                string diff;
+                if (!String.IsNullOrWhiteSpace(path))
+                {
+                    string normalized = NormalizeRequestedPath(path);
+                    if (normalized.Length == 0 || normalized.StartsWith(".git", StringComparison.OrdinalIgnoreCase))
+                        throw new UnauthorizedAccessException("That path is not accessible.");
+                    diff = await RunGitCommandAsync(rootPath, token, "diff", "HEAD", "--", normalized).ConfigureAwait(false);
+                }
+                else
+                {
+                    diff = await RunGitCommandAsync(rootPath, token, "diff", "HEAD").ConfigureAwait(false);
+                }
+
+                result.Diff = diff ?? String.Empty;
+            }
+            catch (Exception ex)
+            {
+                result.Error = ex.Message;
+            }
+
+            return result;
+        }
+
         private static string GetWorkspaceRoot(Vessel vessel)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
@@ -689,17 +830,33 @@ namespace Armada.Core.Services
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            // Never prompt for credentials or invoke a pager -- either would hang the request.
+            psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+            psi.Environment["GIT_PAGER"] = "cat";
             foreach (string arg in args) psi.ArgumentList.Add(arg);
 
             using Process process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Unable to start git.");
-            string output = await process.StandardOutput.ReadToEndAsync(token).ConfigureAwait(false);
-            string error = await process.StandardError.ReadToEndAsync(token).ConfigureAwait(false);
-            await process.WaitForExitAsync(token).ConfigureAwait(false);
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException("git exited with code " + process.ExitCode + ": " + error.Trim());
 
-            return output;
+            // Bound every git invocation so a wedged git can never hang the workspace endpoints.
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(_GitCommandTimeoutSeconds));
+
+            try
+            {
+                string output = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false);
+                string error = await process.StandardError.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false);
+                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("git exited with code " + process.ExitCode + ": " + error.Trim());
+
+                return output;
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                throw new InvalidOperationException("git command timed out after " + _GitCommandTimeoutSeconds + " seconds.");
+            }
         }
 
         private static WorkspaceChangesResult ParseGitStatus(string output)
