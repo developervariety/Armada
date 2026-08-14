@@ -32,6 +32,7 @@ import LogViewer from '../components/shared/LogViewer';
 import PageHeader from '../components/shared/PageHeader';
 import CopyButton from '../components/shared/CopyButton';
 import Button from '../components/shared/Button';
+import CaptainRef from '../components/shared/CaptainRef';
 import { useLocale } from '../context/LocaleContext';
 
 const MISSION_STATUSES = [
@@ -102,12 +103,6 @@ export default function MissionDetail() {
     vessels.forEach(v => m.set(v.id, v.name));
     return (vid: string | null | undefined) => vid ? m.get(vid) || vid : '-';
   }, [vessels]);
-
-  const captainName = useMemo(() => {
-    const m = new Map<string, string>();
-    captains.forEach(c => m.set(c.id, c.name));
-    return (cid: string | null | undefined) => cid ? m.get(cid) || cid : '-';
-  }, [captains]);
 
   const loadMission = useCallback(async () => {
     if (!id) return;
@@ -727,22 +722,16 @@ export default function MissionDetail() {
         </div>
         <div className="detail-field">
           <span className="detail-label">{t('Preferred Captain')}</span>
-          {mission.requestedCaptainId
-            ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                <Link to={`/captains/${mission.requestedCaptainId}`}>{captainName(mission.requestedCaptainId)}</Link>
-                {mission.captainId && mission.captainId !== mission.requestedCaptainId
-                  ? <span className="text-dim" title={t('The preferred captain was busy, so this step fell back by capability tier.')}>{t('(fell back to tier)')}</span>
-                  : null}
-              </span>
-            )
-            : <span className="text-dim">{t('Auto (default routing)')}</span>}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <CaptainRef captainId={mission.requestedCaptainId} captains={captains} showTier={false} />
+            {mission.requestedCaptainId && mission.captainId && mission.captainId !== mission.requestedCaptainId
+              ? <span className="text-dim" title={t('The preferred captain was busy, so this step fell back by capability tier.')}>{t('(fell back to tier)')}</span>
+              : null}
+          </span>
         </div>
         <div className="detail-field">
           <span className="detail-label">{t('Actual Captain')}</span>
-          {mission.captainId
-            ? <Link to={`/captains/${mission.captainId}`}>{captainName(mission.captainId)}</Link>
-            : <span>-</span>}
+          <CaptainRef captainId={mission.captainId} captains={captains} autoLabel="-" showTier={false} />
         </div>
         <div className="detail-field">
           <span className="detail-label">{t('Parent Mission')}</span>

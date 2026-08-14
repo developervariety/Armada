@@ -4,7 +4,7 @@ import { createPersona, deletePersona, getPersona, getPromptTemplate, listCaptai
 import type { Captain, Persona, PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import CaptainPicker from '../components/shared/CaptainPicker';
-import CaptainTierBadge from '../components/shared/CaptainTierBadge';
+import CaptainRef from '../components/shared/CaptainRef';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -274,19 +274,7 @@ export default function PersonaDetail() {
         </div>
         <div className="detail-field">
           <span className="detail-label">{t('Default Captain')}</span>
-          <span>
-            {(() => {
-              const defaultCaptain = captains.find(c => c.id === persona.defaultCaptainId);
-              if (!persona.defaultCaptainId) return <span className="text-dim">{t('None (default routing)')}</span>;
-              if (!defaultCaptain) return <span className="mono">{persona.defaultCaptainId}</span>;
-              return (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Link to={`/captains/${defaultCaptain.id}`}>{defaultCaptain.name}</Link>
-                  <CaptainTierBadge tier={defaultCaptain.tier} />
-                </span>
-              );
-            })()}
-          </span>
+          <span><CaptainRef captainId={persona.defaultCaptainId} captains={captains} autoLabel={t('None (default routing)')} /></span>
         </div>
         <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>

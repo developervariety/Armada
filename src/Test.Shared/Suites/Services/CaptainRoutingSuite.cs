@@ -299,7 +299,7 @@ namespace Test.Shared.Suites.Services
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_routing_docks_" + Guid.NewGuid().ToString("N"));
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_routing_repos_" + Guid.NewGuid().ToString("N"));
 
-            DirCreatingGitStub git = new DirCreatingGitStub();
+            DirCreatingGitService git = new DirCreatingGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, git: git);
@@ -349,50 +349,6 @@ namespace Test.Shared.Suites.Services
         {
             public MissionService Missions { get; set; } = null!;
             public Vessel Vessel { get; set; } = null!;
-        }
-
-        /// <summary>
-        /// Git stub that creates worktree directories so mission instructions can be written during dock
-        /// provisioning, and treats every operation as a no-op success otherwise.
-        /// </summary>
-        private sealed class DirCreatingGitStub : IGitService
-        {
-            private readonly HashSet<string> _Branches = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "main" };
-
-            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => Task.CompletedTask;
-
-            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
-            {
-                Directory.CreateDirectory(worktreePath);
-                _Branches.Add(branchName);
-                return Task.CompletedTask;
-            }
-
-            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
-            public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
-            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => Task.CompletedTask;
-            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default)
-                => Task.FromResult("https://github.com/test/repo/pull/1");
-            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
-            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(true);
-            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
-            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
-            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
-            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
-            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => Task.CompletedTask;
-            public Task PullAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
-            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
-            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
-                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
-            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
-                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
-            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(true);
-            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
-            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
-                => Task.FromResult(_Branches.Contains(branchName));
-            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
-                => BranchExistsAsync(repoPath, branchName, token);
-            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
         }
 
         #endregion
