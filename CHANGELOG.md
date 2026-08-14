@@ -110,6 +110,13 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 ### Maintainability
 - Centralized four scattered inline mission-status checks in AdmiralService/CaptainService onto `MissionStateMachine.IsTerminalOrPostWork`, fixing a divergence where a recovery failure could fail a mission whose work already existed
 
+### Per-step captain selection
+- A persona now carries a default (preferred) captain (`Persona.DefaultCaptainId`). At dispatch, each pipeline step is pre-filled with that captain and an optional fallback tier; the choice applies to every mission of the persona in the voyage, fan-out included, via a per-voyage override (`Voyage.CaptainOverridesJson`) plus per-mission resolution (`Mission.RequestedCaptainId`)
+- Assignment honors the preferred captain when it is idle (bypassing the `AllowedPersonas` fence), falls back to an idle captain at or above the fallback tier when it is busy (lowest eligible tier wins), routes normally when the preferred captain was deleted, and leaves the mission Pending when nothing satisfies the tier -- reusing the existing capability-tier routing
+- Startup migration 55 adds `personas.default_captain_id`, `missions.requested_captain_id`, and `voyages.captain_overrides_json` across SQLite, PostgreSQL, MySQL, and SQL Server
+- REST persona create/update and dispatch, and the MCP `create_persona` / `update_persona` / `dispatch` tools, accept `defaultCaptainId` and per-persona `captainAssignments` (with invalid-captain validation); mission reads expose both `requestedCaptainId` and the actual `captainId`
+- Dashboard: a Default Captain picker on persona detail, per-step preferred-captain and fallback-tier pickers on Dispatch, a Preferred vs. Actual captain (with a "fell back to tier" indicator) on mission detail, capability-tier badges on the Captains table, and a capability-tier step in the setup wizard for out-of-the-box routing. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md)
+
 ---
 
 ## v0.9.0
