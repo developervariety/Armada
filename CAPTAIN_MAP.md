@@ -28,7 +28,9 @@ Remaining (intentionally deferred, low-value or not applicable):
 - **CM-094..097 / CM-099** REST/MCP end-to-end Touchstone tests and page-level vitest for Dispatch/Persona/Mission surfaces. The behavior is covered by the unit + component tests and a live REST smoke test (persona default round-trip incl. the 400-on-invalid-captain path); dedicated e2e/page tests not yet added.
 - **CM-066 / CM-072** Formal a11y + text-expansion/RTL QA pass. Mitigations in place: all strings via `t()`, `aria-label`s on pickers, tier badges show text (not color-only), button rows already audited elsewhere.
 - **CM-115** DOCKERHUB_README.md -- not present in the repo (N/A).
-- **CM-116 / CM-117** Postman example and screenshots -- deferred as lowest-value polish.
+- **CM-117** Screenshots -- deferred (needs a running-UI capture pass).
+
+Also done: **CM-116** Postman -- Create/Update Persona carry `DefaultCaptainId`, and Create Voyage / Dispatch Voyage carry `CaptainAssignments` (plus a per-mission `RequestedCaptainId`/`Tier` example).
 
 ## How to use this document
 

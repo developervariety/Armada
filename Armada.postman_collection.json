@@ -2245,7 +2245,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Title\": \"API Hardening\",\n  \"Description\": \"Security improvements across the API\",\n  \"VesselId\": \"{{vesselId}}\",\n  \"SelectedPlaybooks\": [\n    {\n      \"PlaybookId\": \"{{playbookId}}\",\n      \"DeliveryMode\": \"InlineFullContent\"\n    }\n  ],\n  \"Missions\": [\n    {\n      \"Title\": \"Add rate limiting\",\n      \"Description\": \"Add rate limiting middleware to all endpoints\"\n    },\n    {\n      \"Title\": \"Add input validation\",\n      \"Description\": \"Validate all POST endpoint request bodies\"\n    },\n    {\n      \"Title\": \"Add request logging\",\n      \"Description\": \"Log all requests with correlation IDs\"\n    }\n  ]\n}"
+              "raw": "{\n  \"Title\": \"API Hardening\",\n  \"Description\": \"Security improvements across the API\",\n  \"VesselId\": \"{{vesselId}}\",\n  \"SelectedPlaybooks\": [\n    {\n      \"PlaybookId\": \"{{playbookId}}\",\n      \"DeliveryMode\": \"InlineFullContent\"\n    }\n  ],\n  \"Missions\": [\n    {\n      \"Title\": \"Add rate limiting\",\n      \"Description\": \"Add rate limiting middleware to all endpoints\",\n      \"RequestedCaptainId\": \"{{captainId}}\",\n      \"Tier\": \"Premium\"\n    },\n    {\n      \"Title\": \"Add input validation\",\n      \"Description\": \"Validate all POST endpoint request bodies\"\n    },\n    {\n      \"Title\": \"Add request logging\",\n      \"Description\": \"Log all requests with correlation IDs\"\n    }\n  ],\n  \"CaptainAssignments\": [\n    {\n      \"Persona\": \"Worker\",\n      \"CaptainId\": \"{{captainId}}\",\n      \"FallbackTier\": \"Standard\"\n    },\n    {\n      \"Persona\": \"Judge\",\n      \"CaptainId\": null,\n      \"FallbackTier\": \"Premium\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/voyages",
@@ -2897,7 +2897,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Name\": \"Platform Product Manager\",\n  \"Description\": \"Product manager variant for platform-oriented work.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\"\n}"
+                  "raw": "{\n  \"Name\": \"Platform Product Manager\",\n  \"Description\": \"Product manager variant for platform-oriented work.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\",\n  \"DefaultCaptainId\": \"{{captainId}}\"\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/v1/personas",
@@ -2945,7 +2945,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"Description\": \"Updated platform-oriented product manager persona.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\"\n}"
+                  "raw": "{\n  \"Description\": \"Updated platform-oriented product manager persona.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\",\n  \"DefaultCaptainId\": \"{{captainId}}\"\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/v1/personas/{{personaName}}",
@@ -5898,7 +5898,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Title\": \"Demo Voyage\",\n  \"Description\": \"A demonstration voyage with multiple missions\",\n  \"VesselId\": \"{{vesselId}}\",\n  \"Missions\": [\n    {\n      \"Title\": \"Add unit tests\",\n      \"Description\": \"Write comprehensive unit tests for the auth module\"\n    },\n    {\n      \"Title\": \"Fix CI pipeline\",\n      \"Description\": \"Update the GitHub Actions workflow to include linting\"\n    }\n  ]\n}"
+              "raw": "{\n  \"Title\": \"Demo Voyage\",\n  \"Description\": \"A demonstration voyage with multiple missions\",\n  \"VesselId\": \"{{vesselId}}\",\n  \"Missions\": [\n    {\n      \"Title\": \"Add unit tests\",\n      \"Description\": \"Write comprehensive unit tests for the auth module\"\n    },\n    {\n      \"Title\": \"Fix CI pipeline\",\n      \"Description\": \"Update the GitHub Actions workflow to include linting\"\n    }\n  ],\n  \"CaptainAssignments\": [\n    {\n      \"Persona\": \"Worker\",\n      \"CaptainId\": \"{{captainId}}\",\n      \"FallbackTier\": \"Standard\"\n    },\n    {\n      \"Persona\": \"Judge\",\n      \"CaptainId\": null,\n      \"FallbackTier\": \"Premium\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/voyages",
