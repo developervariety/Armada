@@ -4,9 +4,9 @@ All notable changes to Armada are documented in this file.
 
 ---
 
-## Unreleased (v0.10.0, in progress)
+## v0.9.0
 
-Focus: stickiness -- making Armada a daily driver through per-project customization.
+Focus: stickiness and reliability -- making Armada a daily driver through per-project customization, while eliminating the stuck-dock and dangling-handoff failure modes and hardening the orchestrator for multi-instance operation.
 
 ### Inbox MCP tool + broader "needs you" coverage
 - Added an `inbox` MCP tool so agent harnesses can answer "is there anything waiting on me / that needs my attention / any action items from Armada?". It returns the same consolidated attention list as the dashboard's Needs You and the `armada inbox` CLI (REST: `GET /api/v1/inbox`), with counts and per-item kind/severity/title/detail/entity/href.
@@ -117,12 +117,6 @@ Focus: stickiness -- making Armada a daily driver through per-project customizat
 - REST persona create/update and dispatch, and the MCP `create_persona` / `update_persona` / `dispatch` tools, accept `defaultCaptainId` and per-persona `captainAssignments` (with invalid-captain validation); mission reads expose both `requestedCaptainId` and the actual `captainId`
 - Dashboard: a Default Captain picker on persona detail, per-step preferred-captain and fallback-tier pickers on Dispatch, a Preferred vs. Actual captain (with a "fell back to tier" indicator) on mission detail, capability-tier badges on the Captains table, and a capability-tier step in the setup wizard for out-of-the-box routing. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md)
 
----
-
-## v0.9.0
-
-Focus: reliability. Eliminates the stuck-dock and dangling-handoff failure modes and hardens the orchestrator for multi-instance operation.
-
 ### Reliability
 - Fixed stall detection: the process-liveness loop now refreshes a separate liveness timestamp instead of the output heartbeat, so a live-but-silent agent is still detected as stalled; added a configurable max-mission-runtime backstop for runaways
 - Cross-platform process supervision: agent subprocesses are killed on Admiral shutdown, and PID-identity verification (via process start time) prevents a recycled PID from leaving a captain stuck Working
@@ -137,6 +131,10 @@ Focus: reliability. Eliminates the stuck-dock and dangling-handoff failure modes
 
 ### Testing
 - Migrated the entire test suite (~2,100 cases) to the runner-agnostic Touchstone framework: a shared descriptor library run by a console/CLI runner, an xUnit adapter, and an NUnit adapter, with reflection-based discovery and per-suite server isolation for end-to-end tests
+
+### Cross-provider database parity
+- The database test suite now runs against every supported provider from one configurable harness (`--db-type/--db-host/--db-port/--db-user/--db-pass/--db-name`, or the matching `ARMADA_TEST_DB_*` variables): SQLite in-process, and PostgreSQL/MySQL/SQL Server against a throwaway database. To keep the identical suite fast on the servers, the migrate-and-seed is paid once per run and each case resets a shared database (truncate + re-seed) instead of re-migrating. Added `scripts/{common,linux,macos,windows}/run-db-parity-tests` to run the whole matrix with one command
+- Running the full suite against the server providers for the first time surfaced and fixed three real driver bugs the SQLite-only tests never exercised: UTC timestamps were read back shifted by the host's timezone offset on PostgreSQL and MySQL (interpreted as local instead of UTC); MySQL additionally lost sub-second precision on every timestamp read (round-tripped through a fractional-second-less string); and deleting a captain referenced by a signal threw a foreign-key error on SQL Server (the null-on-delete that PostgreSQL does at the DB level was missing). The full Database suite now passes on SQLite, PostgreSQL, MySQL, and SQL Server
 
 ### Observability
 - OpenTelemetry telemetry export (opt-in via `telemetry` settings): the Admiral hosts an OTel pipeline that exports reliability metrics to an OTLP collector, an in-process Prometheus scrape endpoint, and/or Loki; the core libraries emit through the base class library and take no telemetry-framework dependency
