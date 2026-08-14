@@ -7,6 +7,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
+import CaptainTierBadge from '../components/shared/CaptainTierBadge';
 import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
@@ -505,7 +506,7 @@ export default function Captains() {
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} title={t('Select this captain')} />
                     </td>
-                    <td><strong>{c.name}</strong></td>
+                    <td><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
                         <span className="id-value" title={c.id}>{c.id}</span>

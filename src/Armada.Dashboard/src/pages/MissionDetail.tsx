@@ -726,7 +726,20 @@ export default function MissionDetail() {
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Captain')}</span>
+          <span className="detail-label">{t('Preferred Captain')}</span>
+          {mission.requestedCaptainId
+            ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <Link to={`/captains/${mission.requestedCaptainId}`}>{captainName(mission.requestedCaptainId)}</Link>
+                {mission.captainId && mission.captainId !== mission.requestedCaptainId
+                  ? <span className="text-dim" title={t('The preferred captain was busy, so this step fell back by capability tier.')}>{t('(fell back to tier)')}</span>
+                  : null}
+              </span>
+            )
+            : <span className="text-dim">{t('Auto (default routing)')}</span>}
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Actual Captain')}</span>
           {mission.captainId
             ? <Link to={`/captains/${mission.captainId}`}>{captainName(mission.captainId)}</Link>
             : <span>-</span>}

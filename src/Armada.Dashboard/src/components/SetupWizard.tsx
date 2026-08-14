@@ -88,6 +88,7 @@ interface CaptainForm extends MuxCaptainFormFields {
   name: string;
   runtime: string;
   model: string;
+  tier: string;
   systemInstructions: string;
 }
 
@@ -218,6 +219,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     name: t('Setup Captain'),
     runtime: 'Codex',
     model: '',
+    tier: 'Standard',
     systemInstructions: t('For setup missions, prefer read-only repository inspection unless the mission explicitly asks for code changes.'),
     ...EMPTY_MUX_CAPTAIN_FORM,
   }));
@@ -531,6 +533,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         name: captainForm.name.trim(),
         runtime: captainForm.runtime,
         model: captainForm.model.trim() || null,
+        tier: captainForm.tier || null,
         systemInstructions: captainForm.systemInstructions.trim() || null,
         runtimeOptionsJson: buildMuxRuntimeOptionsJson(captainForm.runtime, captainForm),
       });
@@ -933,6 +936,18 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
               onChange={(event) => setCaptainForm({ ...captainForm, model: event.target.value })}
               placeholder={t('Optional runtime-specific model override')}
             />
+          </div>
+          <div className="form-group">
+            <label title={t('Capability tier for routing. Cheaper tiers handle routine work; stronger tiers handle complex work and serve as fallback when a preferred captain is busy.')}>{t('Capability Tier')}</label>
+            <select
+              value={captainForm.tier}
+              onChange={(event) => setCaptainForm({ ...captainForm, tier: event.target.value })}
+            >
+              <option value="">{t('Not set')}</option>
+              <option value="Economy">{t('Economy')}</option>
+              <option value="Standard">{t('Standard')}</option>
+              <option value="Premium">{t('Premium')}</option>
+            </select>
           </div>
           <div className="form-group">
             <label title={t(tooltips.systemInstructions)}>{t('System Instructions')}</label>

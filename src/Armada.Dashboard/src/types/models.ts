@@ -218,6 +218,7 @@ export interface Mission {
   voyageId: string | null;
   vesselId: string | null;
   captainId: string | null;
+  requestedCaptainId?: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -317,6 +318,17 @@ export interface Voyage {
   sourcePlanningSessionId?: string | null;
   sourcePlanningMessageId?: string | null;
   selectedPlaybooks?: SelectedPlaybook[];
+  captainOverridesJson?: string | null;
+}
+
+/** Capability tier used for fallback routing when a preferred captain is busy. */
+export type CaptainTier = 'Economy' | 'Standard' | 'Premium';
+
+/** Per-persona captain override selected at dispatch (preferred captain + fallback tier). */
+export interface CaptainAssignmentOverride {
+  persona: string;
+  captainId?: string | null;
+  fallbackTier?: CaptainTier | null;
 }
 
 export type ObjectiveStatus =
@@ -1990,6 +2002,7 @@ export interface VoyageCreateRequest {
   missions: DispatchRequest[];
   selectedPlaybooks?: SelectedPlaybook[];
   objectiveId?: string;
+  captainAssignments?: CaptainAssignmentOverride[];
 }
 
 export interface TransitionRequest {
@@ -2050,6 +2063,7 @@ export interface Persona {
   promptTemplateName: string;
   isBuiltIn: boolean;
   active: boolean;
+  defaultCaptainId?: string | null;
   createdUtc: string;
   lastUpdateUtc: string;
 }
