@@ -124,6 +124,11 @@ namespace Armada.Server.Routes
                 }
                 Persona persona = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
+                if (!String.IsNullOrEmpty(persona.DefaultCaptainId) && await _database.Captains.ReadAsync(persona.DefaultCaptainId).ConfigureAwait(false) == null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Default captain '" + persona.DefaultCaptainId + "' not found" };
+                }
                 persona = await _database.Personas.CreateAsync(persona).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return persona;
@@ -150,8 +155,16 @@ namespace Armada.Server.Routes
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 Persona body = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
+                if (!String.IsNullOrEmpty(body.DefaultCaptainId) && await _database.Captains.ReadAsync(body.DefaultCaptainId).ConfigureAwait(false) == null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Default captain '" + body.DefaultCaptainId + "' not found" };
+                }
                 if (body.Description != null) existing.Description = body.Description;
                 if (body.PromptTemplateName != null) existing.PromptTemplateName = body.PromptTemplateName;
+                // Default captain is set to whatever the body carries (including null to clear the default),
+                // so the persona-detail editor can both assign and remove a default captain.
+                existing.DefaultCaptainId = body.DefaultCaptainId;
                 existing.LastUpdateUtc = DateTime.UtcNow;
                 Persona updated = await _database.Personas.UpdateAsync(existing).ConfigureAwait(false);
                 return (object)updated;

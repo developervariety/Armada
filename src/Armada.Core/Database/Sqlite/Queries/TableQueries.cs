@@ -1358,7 +1358,11 @@ namespace Armada.Core.Database.Sqlite.Queries
                         completed_utc TEXT,
                         last_update_utc TEXT NOT NULL
                     );",
-                    @"CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc DESC);")
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc DESC);"),
+                new SchemaMigration(55, "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    @"ALTER TABLE personas ADD COLUMN default_captain_id TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN requested_captain_id TEXT;",
+                    @"ALTER TABLE voyages ADD COLUMN captain_overrides_json TEXT;")
             };
         }
 

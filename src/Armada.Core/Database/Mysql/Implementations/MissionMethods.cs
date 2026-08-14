@@ -53,14 +53,15 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, redispatch_attempts, tier, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @redispatch_attempts, @tier, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, requested_captain_id, title, description, status, priority, redispatch_attempts, tier, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @requested_captain_id, @title, @description, @status, @priority, @redispatch_attempts, @tier, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
@@ -149,6 +150,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         voyage_id = @voyage_id,
                         vessel_id = @vessel_id,
                         captain_id = @captain_id,
+                        requested_captain_id = @requested_captain_id,
                         title = @title,
                         description = @description,
                         status = @status,
@@ -184,6 +186,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
@@ -969,6 +972,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             mission.VoyageId = NullableString(reader["voyage_id"]);
             mission.VesselId = NullableString(reader["vessel_id"]);
             mission.CaptainId = NullableString(reader["captain_id"]);
+            try { mission.RequestedCaptainId = NullableString(reader["requested_captain_id"]); } catch { }
             mission.Title = reader["title"].ToString()!;
             mission.Description = NullableString(reader["description"]);
             mission.Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!);

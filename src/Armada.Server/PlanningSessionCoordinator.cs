@@ -1414,16 +1414,6 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// For a Mux captain, interpret a structured protocol line: return the assistant_text delta to stream
-        /// into the reply, or emit a tool-call activity event and return null. For non-Mux runtimes (or plain
-        /// lines), the line is returned verbatim as streamed text.
-        /// </summary>
-        /// <param name="isMux">Whether the captain runtime is Mux, whose lines may be structured protocol events.</param>
-        /// <param name="sessionId">The planning session ID the line belongs to.</param>
-        /// <param name="messageId">The reply message ID being streamed.</param>
-        /// <param name="line">The raw output line from the runtime.</param>
-        /// <returns>The text to stream, or null when the line was consumed as an activity event.</returns>
-        /// <summary>
         /// Parse one line of Claude Code streaming-JSON output and return the incremental assistant text for a
         /// content_block_delta/text_delta event, or null for any other event (init, message framing, result,
         /// tool use). The concatenation of the returned deltas is the full reply.

@@ -188,6 +188,7 @@ namespace Armada.Core.Services
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
                 mission.Tier = md.Tier;
+                mission.RequestedCaptainId = md.RequestedCaptainId;
                 if (singleStagePolicy != null)
                 {
                     mission.Persona = singleStagePolicy.PersonaName;

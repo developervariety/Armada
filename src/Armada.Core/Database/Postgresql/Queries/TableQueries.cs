@@ -1073,7 +1073,11 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_jobs_tenant_created ON jobs(tenant_id, created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_jobs_tenant_user_created ON jobs(tenant_id, user_id, created_utc DESC);",
-                    @"CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);")
+                    @"CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);"),
+                new SchemaMigration(55, "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    @"ALTER TABLE personas ADD COLUMN IF NOT EXISTS default_captain_id TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS requested_captain_id TEXT;",
+                    @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS captain_overrides_json TEXT;")
             };
         }
 

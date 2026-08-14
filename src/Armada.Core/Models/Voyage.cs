@@ -108,6 +108,14 @@ namespace Armada.Core.Models
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
 
+        /// <summary>
+        /// Serialized per-persona captain overrides selected at dispatch, as a JSON array of
+        /// <see cref="CaptainAssignmentOverride"/>. Resolves the preferred captain and fallback tier for every
+        /// mission of a given persona in this voyage, including fan-out missions created later. Null or empty
+        /// means no per-voyage overrides (fall back to persona defaults / normal routing).
+        /// </summary>
+        public string? CaptainOverridesJson { get; set; } = null;
+
         #endregion
 
         #region Private-Members

@@ -75,6 +75,22 @@ namespace Armada.Server.Mcp.Tools
                                 },
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
+                        },
+                        captainAssignments = new
+                        {
+                            type = "array",
+                            description = "Optional per-persona captain overrides. Each entry binds a pipeline step (persona) to a preferred captain and a fallback tier.",
+                            items = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    persona = new { type = "string", description = "Persona name the override applies to (e.g. Worker, Architect, Judge)" },
+                                    captainId = new { type = "string", description = "Preferred captain id (cpt_ prefix), or omit for tier-only routing" },
+                                    fallbackTier = new { type = "string", description = "Fallback tier when the preferred captain is busy: Economy, Standard, or Premium" }
+                                },
+                                required = new[] { "persona" }
+                            }
                         }
                     },
                     required = new[] { "title", "vesselId", "missions" }
@@ -106,6 +122,14 @@ namespace Armada.Server.Mcp.Tools
                         else return (object)new { Error = "Pipeline not found: " + request.Pipeline };
                     }
                     Voyage voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks).ConfigureAwait(false);
+
+                    // Persist per-persona captain overrides (parity with REST) so assignment resolves the
+                    // preferred captain and fallback tier for every mission of a step, fan-out included.
+                    if (request.CaptainAssignments != null && request.CaptainAssignments.Count > 0)
+                    {
+                        voyage.CaptainOverridesJson = Armada.Core.Services.MissionService.SerializeCaptainOverrides(request.CaptainAssignments);
+                        voyage = await database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                    }
 
                     // Link the voyage to the objective (parity with REST).
                     if (linkObjective != null && !linkObjective.VoyageIds.Contains(voyage.Id))

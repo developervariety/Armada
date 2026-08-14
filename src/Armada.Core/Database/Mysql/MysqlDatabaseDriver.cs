@@ -545,6 +545,11 @@ namespace Armada.Core.Database.Mysql
                     49,
                     "Add jobs table",
                     TableQueries.MigrationV49Statements
+                ),
+                new SchemaMigration(
+                    55,
+                    "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    TableQueries.MigrationV55Statements
                 )
             };
         }

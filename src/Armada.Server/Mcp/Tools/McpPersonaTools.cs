@@ -36,7 +36,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         name = new { type = "string", description = "Persona name (e.g. 'Worker', 'Architect', 'Judge')" },
                         description = new { type = "string", description = "Human-readable description of what this persona does" },
-                        promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" }
+                        promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" },
+                        defaultCaptainId = new { type = "string", description = "Optional default (preferred) captain id (cpt_ prefix) for this persona" }
                     },
                     required = new[] { "name", "promptTemplateName" }
                 },
@@ -46,10 +47,14 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrEmpty(request.Name)) return (object)new { Error = "name is required" };
                     if (String.IsNullOrEmpty(request.PromptTemplateName)) return (object)new { Error = "promptTemplateName is required" };
 
+                    if (!String.IsNullOrEmpty(request.DefaultCaptainId) && await database.Captains.ReadAsync(request.DefaultCaptainId).ConfigureAwait(false) == null)
+                        return (object)new { Error = "Default captain not found: " + request.DefaultCaptainId };
+
                     Persona persona = new Persona(request.Name, request.PromptTemplateName);
                     persona.TenantId = ArmadaConstants.DefaultTenantId;
                     if (request.Description != null)
                         persona.Description = request.Description;
+                    persona.DefaultCaptainId = request.DefaultCaptainId;
                     persona = await database.Personas.CreateAsync(persona).ConfigureAwait(false);
                     return (object)persona;
                 });
@@ -86,7 +91,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         name = new { type = "string", description = "Persona name (used to look up the persona)" },
                         description = new { type = "string", description = "New description" },
-                        promptTemplateName = new { type = "string", description = "New prompt template name" }
+                        promptTemplateName = new { type = "string", description = "New prompt template name" },
+                        defaultCaptainId = new { type = "string", description = "Default (preferred) captain id (cpt_ prefix) for this persona; empty string clears it" }
                     },
                     required = new[] { "name" }
                 },
@@ -99,10 +105,15 @@ namespace Armada.Server.Mcp.Tools
                     Persona? persona = await database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
                     if (persona == null) return (object)new { Error = "Persona not found: " + name };
 
+                    if (!String.IsNullOrEmpty(request.DefaultCaptainId) && await database.Captains.ReadAsync(request.DefaultCaptainId).ConfigureAwait(false) == null)
+                        return (object)new { Error = "Default captain not found: " + request.DefaultCaptainId };
+
                     if (request.Description != null)
                         persona.Description = request.Description;
                     if (request.PromptTemplateName != null)
                         persona.PromptTemplateName = request.PromptTemplateName;
+                    if (request.DefaultCaptainId != null)
+                        persona.DefaultCaptainId = String.IsNullOrEmpty(request.DefaultCaptainId) ? null : request.DefaultCaptainId;
                     persona.LastUpdateUtc = DateTime.UtcNow;
                     persona = await database.Personas.UpdateAsync(persona).ConfigureAwait(false);
                     return (object)persona;

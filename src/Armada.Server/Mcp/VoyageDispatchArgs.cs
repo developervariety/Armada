@@ -48,5 +48,11 @@ namespace Armada.Server.Mcp
         /// path. When set, the objective must exist or the dispatch is rejected.
         /// </summary>
         public string? ObjectiveId { get; set; }
+
+        /// <summary>
+        /// Optional per-persona captain overrides for this voyage. Each entry binds a pipeline step (persona)
+        /// to a preferred captain and a fallback tier, applied to every mission of that persona.
+        /// </summary>
+        public List<CaptainAssignmentOverride>? CaptainAssignments { get; set; } = null;
     }
 }

@@ -891,6 +891,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     49,
                     "Add jobs table for request-independent background jobs",
                     Jobs
+                ),
+                new SchemaMigration(
+                    55,
+                    "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    @"IF COL_LENGTH('personas', 'default_captain_id') IS NULL ALTER TABLE personas ADD default_captain_id NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('missions', 'requested_captain_id') IS NULL ALTER TABLE missions ADD requested_captain_id NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('voyages', 'captain_overrides_json') IS NULL ALTER TABLE voyages ADD captain_overrides_json NVARCHAR(MAX) NULL;"
                 )
             };
         }

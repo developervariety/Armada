@@ -1241,6 +1241,16 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v55 statements: per-step captain selection columns (persona default captain, mission requested captain, voyage captain overrides).
+        /// </summary>
+        public static readonly string[] MigrationV55Statements = new string[]
+        {
+            @"ALTER TABLE personas ADD COLUMN default_captain_id TEXT NULL;",
+            @"ALTER TABLE missions ADD COLUMN requested_captain_id TEXT NULL;",
+            @"ALTER TABLE voyages ADD COLUMN captain_overrides_json TEXT NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

@@ -71,6 +71,16 @@ namespace Armada.Core.Models
         public bool Active { get; set; } = true;
 
         /// <summary>
+        /// Optional default (preferred) captain for this persona, referenced by captain id (cpt_ prefix).
+        /// At dispatch, each pipeline step for this persona is pre-filled with this captain, and any mission
+        /// created for this persona inherits it as its preferred captain when none is explicitly dictated
+        /// (including fan-out missions produced by an Architect stage). Null means no default; a dangling id
+        /// (captain later deleted) resolves to "no default" at assignment time and falls back to normal
+        /// persona/tier routing.
+        /// </summary>
+        public string? DefaultCaptainId { get; set; } = null;
+
+        /// <summary>
         /// Creation timestamp in UTC.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

@@ -63,8 +63,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode)
-                        VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode);";
+                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, captain_overrides_json)
+                        VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @captain_overrides_json);";
                     cmd.Parameters.AddWithValue("@id", voyage.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)voyage.UserId ?? DBNull.Value);
@@ -78,6 +78,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)voyage.AutoCreatePullRequests.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)voyage.AutoMergePullRequests.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -142,7 +143,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         auto_push = @auto_push,
                         auto_create_pull_requests = @auto_create_pull_requests,
                         auto_merge_pull_requests = @auto_merge_pull_requests,
-                        landing_mode = @landing_mode
+                        landing_mode = @landing_mode,
+                        captain_overrides_json = @captain_overrides_json
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", voyage.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
@@ -156,6 +158,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)voyage.AutoCreatePullRequests.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)voyage.AutoMergePullRequests.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -628,6 +631,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             string? voyageLandingModeStr = NullableString(reader["landing_mode"]);
             if (!String.IsNullOrEmpty(voyageLandingModeStr) && Enum.TryParse<LandingModeEnum>(voyageLandingModeStr, out LandingModeEnum vlm))
                 voyage.LandingMode = vlm;
+            voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]);
             return voyage;
         }
 

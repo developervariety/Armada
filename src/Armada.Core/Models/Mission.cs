@@ -45,9 +45,20 @@ namespace Armada.Core.Models
         public string? VesselId { get; set; } = null;
 
         /// <summary>
-        /// Assigned captain identifier.
+        /// Assigned captain identifier. Set by dispatch when the mission is actually assigned to a captain;
+        /// this is the captain that ran (or is running) the mission, which may differ from
+        /// <see cref="RequestedCaptainId"/> when the preferred captain was busy and dispatch fell back by tier.
         /// </summary>
         public string? CaptainId { get; set; } = null;
+
+        /// <summary>
+        /// Optional preferred (dictated) captain identifier for this mission, referenced by captain id
+        /// (cpt_ prefix). Resolved at creation from the dispatch payload, the voyage override, or the persona
+        /// default. When set and that captain is idle, dispatch assigns it (bypassing the persona fence);
+        /// when it is busy, dispatch falls back to an idle captain at or above <see cref="Tier"/>. Null means
+        /// no preference (normal persona/tier routing).
+        /// </summary>
+        public string? RequestedCaptainId { get; set; } = null;
 
         /// <summary>
         /// Mission title.

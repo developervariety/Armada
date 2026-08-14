@@ -147,7 +147,7 @@ namespace Armada.Server.Routes
                 {
                     foreach (MissionRequest m in voyageReq.Missions)
                     {
-                        missions.Add(new MissionDescription(m.Title, m.Description));
+                        missions.Add(new MissionDescription(m.Title, m.Description) { Tier = m.Tier, RequestedCaptainId = m.RequestedCaptainId });
                     }
                 }
 
@@ -191,6 +191,14 @@ namespace Armada.Server.Routes
                 if (!String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))
                 {
                     await _objectives.LinkVoyageAsync(ctx, voyageReq.ObjectiveId, voyage.Id).ConfigureAwait(false);
+                }
+
+                // Persist per-persona captain overrides so assignment resolves the preferred captain and
+                // fallback tier for every mission of a step, including fan-out missions created later.
+                if (voyageReq.CaptainAssignments != null && voyageReq.CaptainAssignments.Count > 0)
+                {
+                    voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(voyageReq.CaptainAssignments);
+                    voyage = await _database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
                 }
 
                 req.Http.Response.StatusCode = 201;

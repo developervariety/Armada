@@ -601,6 +601,7 @@ namespace Armada.Core.Database.Sqlite
             mission.VoyageId = NullableString(reader["voyage_id"]);
             mission.VesselId = NullableString(reader["vessel_id"]);
             mission.CaptainId = NullableString(reader["captain_id"]);
+            try { mission.RequestedCaptainId = NullableString(reader["requested_captain_id"]); } catch { }
             mission.Title = reader["title"].ToString()!;
             mission.Description = NullableString(reader["description"]);
             mission.Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!);
@@ -672,6 +673,7 @@ namespace Armada.Core.Database.Sqlite
                 voyage.LandingMode = vlm;
             try { voyage.SourcePlanningSessionId = NullableString(reader["source_planning_session_id"]); } catch { }
             try { voyage.SourcePlanningMessageId = NullableString(reader["source_planning_message_id"]); } catch { }
+            try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
             return voyage;
         }
 

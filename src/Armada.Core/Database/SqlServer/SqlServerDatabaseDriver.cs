@@ -515,6 +515,7 @@ namespace Armada.Core.Database.SqlServer
             mission.VoyageId = NullableString(reader["voyage_id"]);
             mission.VesselId = NullableString(reader["vessel_id"]);
             mission.CaptainId = NullableString(reader["captain_id"]);
+            try { mission.RequestedCaptainId = NullableString(reader["requested_captain_id"]); } catch { }
             mission.Title = reader["title"].ToString()!;
             mission.Description = NullableString(reader["description"]);
             mission.Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!);
@@ -584,6 +585,7 @@ namespace Armada.Core.Database.SqlServer
             string? voyageLandingModeStr = NullableString(reader["landing_mode"]);
             if (!String.IsNullOrEmpty(voyageLandingModeStr) && Enum.TryParse<LandingModeEnum>(voyageLandingModeStr, out LandingModeEnum vlm))
                 voyage.LandingMode = vlm;
+            try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
             return voyage;
         }
 
