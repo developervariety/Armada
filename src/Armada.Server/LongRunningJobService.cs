@@ -86,6 +86,46 @@ namespace Armada.Server
             return true;
         }
 
+        /// <summary>
+        /// Fail any job stuck in Running or Accepted past the stale threshold (its worker likely died
+        /// or hung), so it reaches a terminal status instead of reading as in-flight forever.
+        /// Invoked periodically from the Admiral health loop.
+        /// </summary>
+        /// <param name="staleMinutes">Minutes a job may stay Running or Accepted before it is failed; clamped to a minimum of 1.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of jobs reaped.</returns>
+        public Task<int> ReapStaleJobsAsync(int staleMinutes = 30, CancellationToken token = default)
+        {
+            if (staleMinutes < 1) staleMinutes = 1;
+
+            int reaped = 0;
+            DateTime cutoff = DateTime.UtcNow.AddMinutes(-staleMinutes);
+
+            foreach (KeyValuePair<string, LongRunningJob> pair in _Jobs)
+            {
+                token.ThrowIfCancellationRequested();
+
+                LongRunningJob job = pair.Value;
+                if (job.Status != LongRunningJobStatusEnum.Accepted && job.Status != LongRunningJobStatusEnum.Running)
+                    continue;
+
+                DateTime? startAnchor = job.Status == LongRunningJobStatusEnum.Accepted
+                    ? job.SubmittedAtUtc
+                    : job.StartedAtUtc;
+                if (startAnchor.HasValue && startAnchor.Value > cutoff)
+                    continue;
+
+                LongRunningJob failedJob = job.CreateSnapshot();
+                failedJob.Status = LongRunningJobStatusEnum.Failed;
+                failedJob.CompletedAtUtc = DateTime.UtcNow;
+                failedJob.FailureMessage = "job did not reach a terminal state within " + staleMinutes + " minutes and was reaped as stale";
+                _Jobs[job.JobId] = failedJob;
+                reaped++;
+            }
+
+            return Task.FromResult(reaped);
+        }
+
         #endregion
 
         #region Private-Methods

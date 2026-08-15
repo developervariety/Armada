@@ -97,12 +97,13 @@ namespace Armada.Server.Mcp
             AutonomousObjectiveScheduler? objectiveScheduler = null,
             ICaptainQuarantineService? captainQuarantine = null,
             UnlandedBranchService? unlandedBranches = null,
-            Armada.Core.Services.DiskLifecycleService? diskLifecycle = null)
+            Armada.Core.Services.DiskLifecycleService? diskLifecycle = null,
+            LongRunningJobService? longRunningJobs = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
                 ?? new ReflectionDispatcher(database, admiral, effectiveSettings, new ReflectionMemoryService(database));
-            LongRunningJobService longRunningJobs = new LongRunningJobService();
+            longRunningJobs = longRunningJobs ?? new LongRunningJobService();
 
             McpStatusTools.Register(register, admiral, onStop);
             McpLongRunningJobTools.Register(register, longRunningJobs);

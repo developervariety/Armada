@@ -178,6 +178,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReviewDiffScopeTests());
             runner.AddSuite(new Suites.Services.WorkspaceServiceTests());
             runner.AddSuite(new Suites.Services.InboxServiceTests());
+            runner.AddSuite(new Suites.Services.LongRunningJobServiceTests());
             runner.AddSuite(new Suites.Services.CodeIndexStalenessTests());
             runner.AddSuite(new Suites.Services.BranchCleanupSweepTests());
             runner.AddSuite(new JudgePromptLensTests());

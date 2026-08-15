@@ -97,6 +97,7 @@ namespace Armada.Server
         private RunbookService _RunbookService = null!;
         private AutomaticCheckRunOrchestrator _AutomaticCheckRuns = null!;
         private AutonomousRecoveryOrchestrator _AutonomousRecovery = null!;
+        private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private AutonomousObjectiveScheduler _ObjectiveScheduler = null!;
         private IncidentLifecycleOrchestrator _IncidentLifecycle = null!;
@@ -1242,7 +1243,8 @@ namespace Armada.Server
                 objectiveScheduler: _ObjectiveScheduler,
                 captainQuarantine: _CaptainQuarantine,
                 unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging),
-                diskLifecycle: _DiskLifecycle);
+                diskLifecycle: _DiskLifecycle,
+                longRunningJobs: _LongRunningJobs);
         }
 
         private async Task EmitEventAsync(string eventType, string message,
@@ -1375,6 +1377,22 @@ namespace Armada.Server
             if (_HealthCheckCycles % 100 == 0)
             {
                 await _DataExpiry.PurgeExpiredDataAsync(token).ConfigureAwait(false);
+            }
+
+            // Reap background jobs stuck in Accepted or Running past the stale threshold, so a hung
+            // or dead background worker reaches a terminal status instead of reading as in-flight
+            // forever.
+            try
+            {
+                int reaped = await _LongRunningJobs.ReapStaleJobsAsync(token: token).ConfigureAwait(false);
+                if (reaped > 0)
+                {
+                    _Logging.Warn(_Header + "reaped " + reaped + " stale background job" + (reaped == 1 ? "" : "s"));
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "background job stale reap error: " + ex.Message);
             }
 
             // Run disk lifecycle reconciliation on its configured cadence. Observability and
