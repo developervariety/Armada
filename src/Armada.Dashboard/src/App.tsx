@@ -29,6 +29,7 @@ const Objectives = lazy(() => import('./pages/Objectives'));
 const ObjectiveDetail = lazy(() => import('./pages/ObjectiveDetail'));
 const Signals = lazy(() => import('./pages/Signals'));
 const Notifications = lazy(() => import('./pages/Notifications'));
+const Inbox = lazy(() => import('./pages/Inbox'));
 const Server = lazy(() => import('./pages/Server'));
 const FleetDetail = lazy(() => import('./pages/FleetDetail'));
 const VesselDetail = lazy(() => import('./pages/VesselDetail'));
@@ -161,6 +162,7 @@ export default function App() {
                       <Route path="api-explorer/:operationId" element={<ApiExplorer />} />
 
                       <Route path="notifications" element={<Notifications />} />
+                      <Route path="inbox" element={<Inbox />} />
 
                       <Route path="admin/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
                       <Route path="admin/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />

@@ -101,6 +101,11 @@ namespace Armada.Helm
                 config.AddCommand<ResetCommand>("reset")
                     .WithDescription("Destructively reset all Armada data back to zero");
 
+                config.AddCommand<InboxCommand>("inbox")
+                    .WithDescription("Show items awaiting your attention (reviews, failures, stalls)")
+                    .WithExample("inbox")
+                    .WithExample("inbox", "--critical");
+
                 // --- Entity management ---
                 config.AddBranch("mission", mission =>
                 {

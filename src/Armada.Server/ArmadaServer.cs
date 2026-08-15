@@ -793,6 +793,10 @@ namespace Armada.Server
             new RequestHistoryRoutes(_Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Inbox (needs you)
+            new InboxRoutes(new InboxService(_Database, _Logging), _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Cross-entity history
             new HistoryRoutes(_HistoricalTimelineService)
                 .Register(_App, authenticate, _AuthorizationService);
