@@ -537,6 +537,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => _Inner.SetHeadSymbolicRefAsync(repoPath, targetRef, token);
 
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, fromRef, toRef, token);
         }
 
@@ -588,6 +590,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => _Inner.SetHeadSymbolicRefAsync(repoPath, targetRef, token);
 
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, fromRef, toRef, token);
         }
 
@@ -643,6 +647,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task SetHeadSymbolicRefAsync(string repoPath, string targetRef, CancellationToken token = default) => _Inner.SetHeadSymbolicRefAsync(repoPath, targetRef, token);
 
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, fromRef, toRef, token);
         }
     }

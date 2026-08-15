@@ -1351,6 +1351,94 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("GetConflictedFilesAsync Reports Unmerged Paths", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-conflict-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(rootDir);
+
+                try
+                {
+                    await RunGitAsync(rootDir, "init", "--quiet").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.email", "test@armada.local").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.name", "Armada Test").ConfigureAwait(false);
+
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "file.txt"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "file.txt").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "base").ConfigureAwait(false);
+
+                    string defaultBranch = (await RunGitAsync(rootDir, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+
+                    await RunGitAsync(rootDir, "checkout", "-b", "conflict-branch").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "file.txt"), "branch-change\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "file.txt").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "branch change").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "checkout", defaultBranch).ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "file.txt"), "master-change\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "file.txt").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "master change").ConfigureAwait(false);
+
+                    bool mergeFailed = false;
+                    try
+                    {
+                        await RunGitAsync(rootDir, "merge", "conflict-branch").ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        mergeFailed = true;
+                    }
+                    AssertTrue(mergeFailed, "the conflicting merge must fail");
+
+                    GitService service = CreateService();
+                    IReadOnlyList<string> conflicts = await service.GetConflictedFilesAsync(rootDir).ConfigureAwait(false);
+                    AssertEqual(1, conflicts.Count);
+                    AssertEqual("file.txt", conflicts[0]);
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("GetConflictedFilesAsync ReturnsEmptyOnCleanWorktree", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-conflict-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(rootDir);
+
+                try
+                {
+                    await RunGitAsync(rootDir, "init", "--quiet").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.email", "test@armada.local").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.name", "Armada Test").ConfigureAwait(false);
+
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "file.txt"), "content\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "file.txt").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "base").ConfigureAwait(false);
+
+                    GitService service = CreateService();
+                    IReadOnlyList<string> conflicts = await service.GetConflictedFilesAsync(rootDir).ConfigureAwait(false);
+                    AssertEqual(0, conflicts.Count);
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("GetConflictedFilesAsync NullPath Throws", async () =>
+            {
+                GitService service = CreateService();
+                await AssertThrowsAsync<ArgumentNullException>(() => service.GetConflictedFilesAsync(null!)).ConfigureAwait(false);
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)

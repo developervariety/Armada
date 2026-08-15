@@ -316,7 +316,17 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "landing retry failed for mission " + missionId + ": " + ex.Message);
 
-                // Ensure mission goes back to LandingFailed
+                // Capture any merge-conflict file list so the operator sees exactly what to fix.
+                string failureReason = "Landing retry failed: " + ex.Message;
+                try
+                {
+                    IReadOnlyList<string> conflicts = await _Git.GetConflictedFilesAsync(repoPath, token).ConfigureAwait(false);
+                    if (conflicts.Count > 0)
+                        failureReason = "Landing retry failed with merge conflicts in: " + String.Join(", ", conflicts);
+                }
+                catch { }
+
+                // Ensure mission goes back to LandingFailed with the captured reason
                 try
                 {
                     mission = !String.IsNullOrEmpty(tenantId)
@@ -325,6 +335,7 @@ namespace Armada.Core.Services
                     if (mission != null && mission.Status != MissionStatusEnum.LandingFailed)
                     {
                         mission.Status = MissionStatusEnum.LandingFailed;
+                        mission.FailureReason = failureReason;
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     }

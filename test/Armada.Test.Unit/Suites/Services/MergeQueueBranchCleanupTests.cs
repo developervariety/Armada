@@ -2587,6 +2587,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
 
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, baseCommit, tipCommit, token);
 
             public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => _Inner.GetRepositoryHeadRefAsync(repoPath, token);
@@ -2680,6 +2682,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
 
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default) => _Inner.GetCommitCountBetweenAsync(repoPath, baseCommit, tipCommit, token);
 
             public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => _Inner.GetRepositoryHeadRefAsync(repoPath, token);

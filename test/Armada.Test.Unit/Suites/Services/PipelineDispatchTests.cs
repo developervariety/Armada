@@ -2823,6 +2823,8 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
 
             /// <inheritdoc />
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default) => Task.FromResult(0);
 
             /// <inheritdoc />

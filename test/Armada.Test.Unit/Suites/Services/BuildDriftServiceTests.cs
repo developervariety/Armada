@@ -449,6 +449,8 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.FromResult(HeadCommitHashResult);
             }
 
+            public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<int> GetCommitCountBetweenAsync(string repoPath, string baseCommit, string tipCommit, CancellationToken token = default)
             {
                 CommitCountCalled = true;

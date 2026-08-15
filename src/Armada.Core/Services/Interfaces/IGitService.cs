@@ -206,6 +206,15 @@ namespace Armada.Core.Services.Interfaces
         /// <returns>The full SHA-1 commit hash, or null if it cannot be determined.</returns>
         Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default);
 
+        /// <summary>
+        /// Get the list of files with unresolved merge conflicts (unmerged paths) in a worktree.
+        /// Returns an empty list when the working tree is clean.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Repository-relative paths of conflicted files.</returns>
+        Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default);
+
         // Mission-brief anchor queries. These enrich a brief; they are never required for a dispatch
         // to proceed, so each carries a default that reports "nothing resolved". An implementation
         // that cannot answer them degrades to a brief without anchors, which the renderer states

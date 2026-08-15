@@ -186,6 +186,10 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
             => Task.FromResult(ChangedFilesSinceResult);
 
+        public IReadOnlyList<string> ConflictedFilesResult { get; set; } = Array.Empty<string>();
+        public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
+            => Task.FromResult(ConflictedFilesResult);
+
         public Task<bool> IsPathTrackedAsync(string worktreePath, string relativePath, CancellationToken token = default)
             => Task.FromResult(TrackedPaths.Contains(relativePath));
 
