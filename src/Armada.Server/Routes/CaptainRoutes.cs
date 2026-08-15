@@ -387,6 +387,41 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/captains/{id}/unquarantine", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                string uqId = req.Parameters["id"];
+                Captain? uqCaptain = ctx.IsAdmin
+                    ? await _database.Captains.ReadAsync(uqId).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, uqId).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, uqId).ConfigureAwait(false);
+                if (uqCaptain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
+
+                if (uqCaptain.State != CaptainStateEnum.Quarantined)
+                    return (object)new { Status = "not_quarantined", CaptainId = uqCaptain.Id };
+
+                uqCaptain.State = CaptainStateEnum.Idle;
+                uqCaptain.QuarantineUntilUtc = null;
+                uqCaptain.QuarantineReason = null;
+                uqCaptain.LastUpdateUtc = DateTime.UtcNow;
+                uqCaptain = await _database.Captains.UpdateAsync(uqCaptain).ConfigureAwait(false);
+                return (object)uqCaptain;
+            },
+            api => api
+                .WithTag("Captains")
+                .WithSummary("Lift a captain's quarantine")
+                .WithDescription("Restores a quarantined captain to the idle pool and clears its quarantine reason and reset window.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<Captain>("Unquarantined captain"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/captains/stop-all", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

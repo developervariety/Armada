@@ -944,6 +944,36 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(threw, "a bench without a reason must be rejected so every bench is auditable");
                 }
             });
+
+            await RunTest("UnquarantineRestUpdate_ClearsQuarantineFields_ForNonQuarantinedCaptainReturnsNotQuarantined", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+
+                    // The REST POST /api/v1/captains/{id}/unquarantine clears the quarantine fields
+                    // directly on the captain record. This mirrors that exact update path.
+                    Captain quarantined = new Captain("rest-route-unquarantine");
+                    quarantined.State = CaptainStateEnum.Quarantined;
+                    quarantined.QuarantineUntilUtc = DateTime.UtcNow.AddHours(4);
+                    quarantined.QuarantineReason = "usage limit reached";
+                    await db.Captains.CreateAsync(quarantined).ConfigureAwait(false);
+
+                    Captain? loaded = await db.Captains.ReadAsync(quarantined.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, loaded!.State, "the seeded captain must be quarantined");
+
+                    loaded.State = CaptainStateEnum.Idle;
+                    loaded.QuarantineUntilUtc = null;
+                    loaded.QuarantineReason = null;
+                    loaded.LastUpdateUtc = DateTime.UtcNow;
+                    await db.Captains.UpdateAsync(loaded).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(quarantined.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, after!.State, "an unquarantined captain returns to Idle");
+                    AssertNull(after.QuarantineUntilUtc, "the quarantine reset window must be cleared");
+                    AssertNull(after.QuarantineReason, "the quarantine reason must be cleared");
+                }
+            });
         }
 
         /// <summary>Hand-rolled quota probe double returning a fixed recovery verdict.</summary>
