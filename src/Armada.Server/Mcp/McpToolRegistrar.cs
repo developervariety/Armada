@@ -117,6 +117,7 @@ namespace Armada.Server.Mcp
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
             McpPapercutTools.Register(register, database);
+            if (logging != null) McpInboxTools.Register(register, database, logging);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs);
