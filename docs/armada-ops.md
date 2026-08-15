@@ -158,7 +158,11 @@ launch continue asynchronously. Save the voyage ID. Do not redispatch only
 because the first status call shows `Pending`.
 
 Long operations can return an accepted job. Poll `armada_job_status` with the
-returned job ID.
+returned job ID. Background jobs are reaped on a health-loop cadence: a job
+left Accepted or Running past the stale threshold (a worker that hung or died)
+is failed automatically so it reaches a terminal status instead of reading as
+in-flight forever. Poll a job past its expected runtime; if it was reaped, the
+status is `Failed` with a reason naming the stale window.
 
 #### Model pinning
 
@@ -253,6 +257,11 @@ mislead:
 4. After a direct push from the working checkout, sync the vessel bare repo
    (`git fetch origin` then `git update-ref refs/heads/<target>
    refs/remotes/origin/<target>`) so later Checks build the new code.
+
+When a landing retry fails, the mission's `FailureReason` records the
+conflicted-file list (`git diff --name-only --diff-filter=U`) so the operator
+sees exactly which paths to fix without re-deriving the merge state. Read the
+mission's failure reason before deciding the recovery path.
 
 ### 4.8 Close The Record Chain
 
@@ -371,6 +380,18 @@ Vessel instruction files and generated briefing files are protected paths.
 Captains must propose instruction changes. The orchestrator reviews and applies
 them outside the mission dock.
 
+### Vessel Workspace
+
+The Workspace surface (dashboard `Workspace` page, `POST
+/api/v1/workspace/vessels/{vesselId}/exec`, and the diff/file/tree/status REST
+routes) operates on a vessel's configured working directory. Use it to browse,
+edit, search, review a working-tree diff, or run a one-shot shell command.
+Workspace shell commands run through the platform shell, are killed with their
+process tree when they exceed the timeout, and are restricted to tenant
+administrators. Every git invocation the workspace performs is bounded by a
+30-second timeout that kills the process tree and suppresses the pager and
+credential prompts, so a wedged git cannot hang the endpoints.
+
 Backups can contain operational state. Store them in an approved location and
 apply retention limits. Restore, delete, purge, stop, and bulk operations need
 an explicit operator decision.
@@ -392,7 +413,27 @@ Risk labels:
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_status`, `armada_enumerate`, `armada_job_status`, `armada_captain_diagnostics`, `armada_unlanded_branches` |
+| Read | `armada_status`, `armada_enumerate`, `armada_job_status`, `armada_captain_diagnostics`, `armada_unlanded_branches`, `inbox` |
+
+#### Needs-you inbox
+
+`inbox` returns everything across the fleet that is waiting on a decision or
+intervention from the operator, ordered most-urgent first. It answers "is there
+anything waiting on me?" in one call instead of polling each entity. Two kinds
+of item qualify:
+
+- **Human-in-the-loop**: a mission in Review to approve or reject, or a
+  deployment pending approval.
+- **Human-out-of-the-loop**: a failed mission, a mission whose work could not
+  land, a failed merge, a failed or verification-failed deployment, or a
+  stalled captain.
+
+Purely informational state changes are excluded. Each item carries a `kind`,
+a `severity` (Critical, Warning, or Info), a title, detail, the referenced
+entity, and a dashboard href for one-click navigation. An empty list means
+nothing currently needs attention. The same surface is available as the
+dashboard `Needs You` page and the `armada inbox` CLI command (`--critical`
+shows only critical items).
 
 ### 8.2 Fleets And Vessels
 

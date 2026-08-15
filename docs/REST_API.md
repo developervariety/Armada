@@ -36,6 +36,8 @@
   - [Prompt Templates](#prompt-templates)
   - [Personas](#personas)
   - [Pipelines](#pipelines)
+  - [Workspace](#workspace)
+  - [Inbox](#inbox)
   - [Backup and Restore](#backup-and-restore)
 - [Data Types](#data-types)
   - [Models](#models)
@@ -1695,6 +1697,32 @@ Emergency stop all running captains, recalling them to idle state.
 
 ---
 
+#### POST /api/v1/captains/{id}/unquarantine
+
+Lift a captain's quarantine: restore it to the idle pool and clear its
+quarantine reason and reset window. A captain that is not quarantined is
+returned unchanged with `Status: not_quarantined`.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Captain ID (`cpt_` prefix) |
+
+**Response:** `200 OK`
+
+```json
+{
+  "Id": "cpt_abc123",
+  "State": "Idle",
+  "QuarantineUntilUtc": null,
+  "QuarantineReason": null
+}
+```
+
+**Error:** `404` - Captain not found
+
+---
+
 #### GET /api/v1/captains/{id}/log
 
 Returns the current session log for a captain. The captain's `.current` pointer file is resolved to find the active mission's log file. Supports pagination via query parameters.
@@ -2787,6 +2815,177 @@ curl -X POST -H "X-Api-Key: your-key" \
 
 ---
 
+### Workspace
+
+The Workspace endpoints expose a vessel's working directory for browsing,
+editing, search, git status, review, and one-shot shell commands.
+
+#### GET /api/v1/workspace/vessels/{vesselId}/tree
+
+List one directory of the vessel working tree.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `vesselId` | string | Vessel ID (`vsl_` prefix) |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `path` | string | Optional repository-relative directory path |
+
+**Response:** `200 OK` — `WorkspaceTreeResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/diff
+
+Return a unified git diff of the working tree against HEAD, optionally scoped
+to one path. Used by the in-app review/diff viewer.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `vesselId` | string | Vessel ID (`vsl_` prefix) |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `path` | string | Optional repository-relative path to scope the diff |
+
+**Response:** `200 OK` — `WorkspaceDiffResult`
+
+```bash
+curl http://localhost:7890/api/v1/workspace/vessels/vsl_abc123/diff
+```
+
+#### GET /api/v1/workspace/vessels/{vesselId}/file
+
+Read one workspace file with content and metadata.
+
+**Path Parameters:** `vesselId` (vessel ID).
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `path` | string | Repository-relative file path (required) |
+
+**Response:** `200 OK` — `WorkspaceFileResponse`
+
+#### PUT /api/v1/workspace/vessels/{vesselId}/file
+
+Write text content into the vessel working tree with optimistic concurrency
+validation.
+
+**Request Body:** `WorkspaceSaveRequest`
+
+**Response:** `200 OK` — `WorkspaceSaveResult`
+
+#### POST /api/v1/workspace/vessels/{vesselId}/directory
+
+Create a directory inside the vessel working tree.
+
+**Request Body:** `WorkspaceCreateDirectoryRequest`
+
+**Response:** `201 Created` — `WorkspaceOperationResult`
+
+#### POST /api/v1/workspace/vessels/{vesselId}/rename
+
+Rename or move one file or directory inside the vessel working tree.
+
+**Request Body:** `WorkspaceRenameRequest`
+
+**Response:** `200 OK` — `WorkspaceOperationResult`
+
+#### DELETE /api/v1/workspace/vessels/{vesselId}/entry
+
+Delete one file or directory inside the vessel working tree.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `path` | string | Repository-relative file or directory path (required) |
+
+**Response:** `200 OK` — `WorkspaceOperationResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/search
+
+Search text files in the vessel working tree and return line-level matches.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `q` | string | Search text query (required) |
+| `maxResults` | int | Maximum matches (default 200, max 1000) |
+
+**Response:** `200 OK` — `WorkspaceSearchResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/changes
+
+Return branch status and changed files from the vessel working tree.
+
+**Path Parameters:** `vesselId` (vessel ID).
+
+**Response:** `200 OK` — `WorkspaceChangesResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/status
+
+Return high-level workspace status, git branch state, and active mission
+overlap context.
+
+**Path Parameters:** `vesselId` (vessel ID).
+
+**Response:** `200 OK` — `WorkspaceStatusResult`
+
+#### POST /api/v1/workspace/vessels/{vesselId}/exec
+
+Run a shell command in the vessel working tree (the in-browser dock terminal).
+The command runs through the platform shell (`cmd.exe` on Windows, `/bin/sh`
+elsewhere) and is killed with its process tree when it exceeds the timeout.
+**Tenant administrators only.**
+
+**Path Parameters:** `vesselId` (vessel ID).
+
+**Request Body:** `WorkspaceExecRequest`
+
+| Field | Type | Description |
+|---|---|---|
+| `command` | string | The command line to execute (required) |
+| `timeoutSeconds` | int | Timeout in seconds before the process tree is killed (clamped to [1, 600], default 60) |
+
+**Response:** `200 OK` — `WorkspaceExecResult`
+
+```bash
+curl -X POST http://localhost:7890/api/v1/workspace/vessels/vsl_abc123/exec \
+  -H "Content-Type: application/json" \
+  -d '{"command": "git status", "timeoutSeconds": 30}'
+```
+
+---
+
+### Inbox
+
+#### GET /api/v1/inbox
+
+Return the operator's "needs you" inbox: everything across the fleet awaiting
+a decision or intervention, ordered most-urgent first. It surfaces missions in
+Review, failed landings, failed missions, failed merges, deployments pending
+approval, failed or verification-failed deployments, and stalled captains.
+Purely informational state changes are excluded.
+
+**Response:** `200 OK` — `List<InboxItem>`
+
+```bash
+curl http://localhost:7890/api/v1/inbox
+```
+
+---
+
 ## Data Types
 
 ### Models
@@ -3509,6 +3708,61 @@ Immutable mission-time snapshot of a selected playbook.
 
 ---
 
+#### WorkspaceExecRequest
+
+A request to run a shell command in a vessel's workspace.
+
+| Field | Type | Description |
+|---|---|---|
+| `Command` | string | The command line to execute via the platform shell |
+| `TimeoutSeconds` | int | Timeout in seconds before the process tree is killed (clamped to [1, 600]) |
+
+---
+
+#### WorkspaceExecResult
+
+The result of running a shell command in a vessel's workspace.
+
+| Field | Type | Description |
+|---|---|---|
+| `Command` | string | The command that was executed |
+| `WorkingDirectory` | string | The working directory the command ran in |
+| `ExitCode` | int | Process exit code (-1 when timed out or failed to start) |
+| `Stdout` | string | Captured standard output (truncated to a safe maximum) |
+| `Stderr` | string | Captured standard error (truncated to a safe maximum) |
+| `TimedOut` | bool | Whether the command was killed for exceeding its timeout |
+| `DurationMs` | double | Wall-clock duration in milliseconds |
+
+---
+
+#### WorkspaceDiffResult
+
+A unified git diff of a vessel's working tree against HEAD.
+
+| Field | Type | Description |
+|---|---|---|
+| `Path` | string \| null | The path the diff was scoped to, or null for the whole tree |
+| `Diff` | string | The unified diff text |
+| `Error` | string \| null | An error message when the diff could not be produced |
+
+---
+
+#### InboxItem
+
+A single actionable item in the operator's "needs you" inbox.
+
+| Field | Type | Description |
+|---|---|---|
+| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `failed`, `stalled_captain`) |
+| `Severity` | [InboxSeverityEnum](#inboxseverityenum) | Severity of the item |
+| `Title` | string | Human-readable title |
+| `Detail` | string | Additional detail |
+| `EntityType` | string \| null | The referenced entity type (e.g. `mission`, `captain`) |
+| `EntityId` | string \| null | The referenced entity id |
+| `Href` | string | A relative dashboard path that takes the operator to the item |
+
+---
+
 ### Enumerations
 
 All enumerations serialize as strings in JSON (e.g., `"InProgress"`, not `2`).
@@ -3620,6 +3874,16 @@ All enumerations serialize as strings in JSON (e.g., `"InProgress"`, not `2`).
 | `Failed` | Tests failed |
 | `Landed` | Successfully merged into target branch |
 | `Cancelled` | Removed from queue |
+
+---
+
+#### InboxSeverityEnum
+
+| Value | Description |
+|---|---|
+| `Info` | Informational; no urgent action required |
+| `Warning` | Something needs attention |
+| `Critical` | Something is blocking progress and needs prompt action |
 
 ---
 
