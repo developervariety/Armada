@@ -92,6 +92,9 @@ import type {
   WorkspaceSearchResult,
   WorkspaceStatusResult,
   WorkspaceTreeResult,
+  WorkspaceExecResult,
+  WorkspaceDiffResult,
+  InboxItem,
   CodeGraphExploreResponse,
   CodeGraphFileStructureResponse,
   CodeGraphNodeResponse,
@@ -581,6 +584,18 @@ export const searchWorkspace = (vesselId: string, query: string, maxResults = 20
   get<WorkspaceSearchResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
 export const getWorkspaceChanges = (vesselId: string) =>
   get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
+
+// Workspace exec (in-browser dock terminal)
+export const execWorkspaceCommand = (vesselId: string, command: string, timeoutSeconds?: number) =>
+  post<WorkspaceExecResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/exec`, { command, timeoutSeconds });
+
+// Workspace diff (review)
+export const getWorkspaceDiff = (vesselId: string, path?: string) =>
+  get<WorkspaceDiffResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/diff${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
+
+// ==================== Inbox ====================
+export const getInbox = () =>
+  get<InboxItem[]>(`/api/v1/inbox`);
 
 // ==================== Request History ====================
 export const listRequestHistory = (params?: RequestHistoryQuery) =>

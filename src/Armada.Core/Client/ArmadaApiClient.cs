@@ -663,6 +663,42 @@ namespace Armada.Core.Client
 
         #endregion
 
+        #region Public-Methods-Workspace
+
+        /// <summary>
+        /// Run a command in a vessel's workspace (the in-browser dock terminal; tenant admins only).
+        /// </summary>
+        public async Task<WorkspaceExecResult?> ExecWorkspaceCommandAsync(string vesselId, string command, int timeoutSeconds = 60, CancellationToken token = default)
+        {
+            WorkspaceExecRequest request = new WorkspaceExecRequest { Command = command, TimeoutSeconds = timeoutSeconds };
+            return await PostAsync<WorkspaceExecResult, WorkspaceExecRequest>("/api/v1/workspace/vessels/" + vesselId + "/exec", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a unified working-tree diff for a vessel, optionally scoped to one path.
+        /// </summary>
+        public async Task<WorkspaceDiffResult?> GetWorkspaceDiffAsync(string vesselId, string? path = null, CancellationToken token = default)
+        {
+            string url = "/api/v1/workspace/vessels/" + vesselId + "/diff";
+            if (!String.IsNullOrWhiteSpace(path))
+                url += "?path=" + Uri.EscapeDataString(path);
+            return await GetAsync<WorkspaceDiffResult>(url, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Inbox
+
+        /// <summary>
+        /// Get the needs-you inbox: items across the fleet awaiting operator attention.
+        /// </summary>
+        public async Task<List<InboxItem>?> GetInboxAsync(CancellationToken token = default)
+        {
+            return await GetAsync<List<InboxItem>>("/api/v1/inbox", token).ConfigureAwait(false);
+        }
+
+        #endregion
+
         #region Public-Methods-Dispose
 
         /// <summary>

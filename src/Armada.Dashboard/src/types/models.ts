@@ -1663,6 +1663,39 @@ export interface WorkspaceStatusResult {
   error?: string | null;
 }
 
+export interface WorkspaceExecRequest {
+  command: string;
+  timeoutSeconds?: number;
+}
+
+export interface WorkspaceExecResult {
+  command: string;
+  workingDirectory: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  durationMs: number;
+}
+
+export interface WorkspaceDiffResult {
+  path: string | null;
+  diff: string;
+  error: string | null;
+}
+
+export type InboxSeverity = 'Info' | 'Warning' | 'Critical';
+
+export interface InboxItem {
+  kind: string;
+  severity: InboxSeverity;
+  title: string;
+  detail: string;
+  entityType: string | null;
+  entityId: string | null;
+  href: string;
+}
+
 export interface CodeIndexStatus {
   vesselId: string;
   vesselName: string;
