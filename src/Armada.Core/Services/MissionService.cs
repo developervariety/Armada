@@ -5290,7 +5290,9 @@ namespace Armada.Core.Services
 
             string normalizedTitle = title.Trim();
             string normalizedDescription = NormalizeArchitectDescription(description);
-            (normalizedDescription, string? dependencyReference) = ExtractArchitectDependencyReference(normalizedDescription);
+            (normalizedDescription, string? yamlDependency) = ExtractArchitectFrontMatter(normalizedDescription);
+            (normalizedDescription, string? proseDependency) = ExtractArchitectDependencyReference(normalizedDescription);
+            string? dependencyReference = yamlDependency ?? proseDependency;
             if (String.IsNullOrWhiteSpace(normalizedDescription))
             {
                 // Title-only architect blocks are still actionable; preserve the title as
@@ -5381,6 +5383,109 @@ namespace Armada.Core.Services
             return (String.Join("\n", keptLines).Trim(), String.IsNullOrWhiteSpace(dependencyReference) ? null : dependencyReference);
         }
 
+        /// <summary>
+        /// Consumes the YAML-style front-matter that Architect blocks open with (`title:`, `preferredModel:`,
+        /// `dependsOnMissionId:`, `description: |`) and returns the description body with the front-matter
+        /// stripped and the block indent removed. Only known keys at the very top are treated as front-matter,
+        /// so a body that happens to start with a `word: value` prose line is left untouched. The declared
+        /// `dependsOnMissionId:` dependency is returned so the block's ordering intent reaches the dispatcher.
+        /// </summary>
+        /// <param name="description">Architect block description, including any front-matter.</param>
+        /// <returns>The description body and the declared dependency reference, if any.</returns>
+        internal static (string Description, string? DependsOnReference) ExtractArchitectFrontMatter(string? description)
+        {
+            if (String.IsNullOrWhiteSpace(description)) return ("", null);
+
+            string[] lines = description.Replace("\r\n", "\n").Split('\n');
+            string? dependencyReference = null;
+            int index = 0;
+
+            while (index < lines.Length)
+            {
+                string line = lines[index].TrimEnd('\r');
+                if (!TryParseArchitectFrontMatterKey(line, out string key, out string value, out bool bodyFollows))
+                {
+                    break;
+                }
+
+                if (String.Equals(key, "dependsOnMissionId", StringComparison.OrdinalIgnoreCase) &&
+                    String.IsNullOrWhiteSpace(dependencyReference))
+                {
+                    dependencyReference = NormalizeArchitectDependencyReference(value);
+                }
+
+                index++;
+                if (!bodyFollows) continue;
+
+                // `description: |` -- the remainder is the body with the YAML block indent removed.
+                List<string> bodyLines = new List<string>();
+                while (index < lines.Length)
+                {
+                    bodyLines.Add(StripArchitectBlockIndent(lines[index]));
+                    index++;
+                }
+
+                return (String.Join("\n", bodyLines).Trim(), String.IsNullOrWhiteSpace(dependencyReference) ? null : dependencyReference);
+            }
+
+            if (index == 0) return (description.Trim(), null);
+
+            // Known front-matter keys were consumed but no `description:` body marker was found; keep
+            // whatever follows the front-matter as the body.
+            List<string> remainder = new List<string>();
+            for (; index < lines.Length; index++) remainder.Add(lines[index].TrimEnd('\r'));
+            return (String.Join("\n", remainder).Trim(), String.IsNullOrWhiteSpace(dependencyReference) ? null : dependencyReference);
+        }
+
+        private static bool TryParseArchitectFrontMatterKey(string line, out string key, out string value, out bool bodyFollows)
+        {
+            key = "";
+            value = "";
+            bodyFollows = false;
+
+            if (String.IsNullOrWhiteSpace(line)) return false;
+
+            int colonIndex = line.IndexOf(':');
+            if (colonIndex <= 0) return false;
+
+            string candidate = line.Substring(0, colonIndex).Trim();
+            if (!IsArchitectFrontMatterKey(candidate)) return false;
+
+            key = candidate;
+            value = line.Substring(colonIndex + 1).Trim();
+
+            // `description: |` opens the indented YAML body.
+            if (String.Equals(key, "description", StringComparison.OrdinalIgnoreCase) &&
+                (String.IsNullOrWhiteSpace(value) || String.Equals(value.TrimEnd(' ', '-', '|'), "", StringComparison.Ordinal)))
+            {
+                bodyFollows = true;
+            }
+
+            return true;
+        }
+
+        private static bool IsArchitectFrontMatterKey(string key)
+        {
+            if (String.IsNullOrWhiteSpace(key)) return false;
+
+            return String.Equals(key, "title", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(key, "preferredModel", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(key, "dependsOnMissionId", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(key, "description", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string StripArchitectBlockIndent(string line)
+        {
+            // The YAML body is indented two spaces relative to its keys; strip that common indent.
+            if (line.StartsWith("  ", StringComparison.Ordinal))
+            {
+                return line.Substring(2).TrimEnd('\r');
+            }
+
+            return line.TrimEnd('\r');
+        }
+
+
         private static bool TryExtractArchitectDependency(string line, out string? dependencyReference, out string? remainingDescription)
         {
             dependencyReference = null;
@@ -5431,7 +5536,7 @@ namespace Armada.Core.Services
             return normalized.Trim().TrimEnd('.', ';', ',');
         }
 
-        private static Mission? ResolveArchitectDependencyTerminalStage(
+        internal static Mission? ResolveArchitectDependencyTerminalStage(
             IReadOnlyDictionary<int, Mission> terminalStagesByIndex,
             IReadOnlyDictionary<string, Mission> terminalStagesByTitle,
             int currentMissionIndex,
@@ -5439,6 +5544,18 @@ namespace Armada.Core.Services
         {
             string normalizedReference = NormalizeArchitectDependencyReference(dependencyReference);
             if (String.IsNullOrWhiteSpace(normalizedReference)) return null;
+
+            // Architect blocks declare their ordering as `dependsOnMissionId: M2` (the M-alias of an earlier
+            // block). Map that alias to its block index so the numeric and by-title paths below can resolve it.
+            System.Text.RegularExpressions.Match aliasMatch =
+                System.Text.RegularExpressions.Regex.Match(
+                    normalizedReference,
+                    @"^[Mm]\d+$",
+                    System.Text.RegularExpressions.RegexOptions.None);
+            if (aliasMatch.Success)
+            {
+                normalizedReference = normalizedReference.Substring(1);
+            }
 
             System.Text.RegularExpressions.Match numericMatch =
                 System.Text.RegularExpressions.Regex.Match(

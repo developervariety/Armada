@@ -2123,6 +2123,53 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, MissionSubjectExtractor.ExtractTerms("   ").Count, "blank text yields no terms");
             });
 
+            await RunTest("Architect front-matter dependency is captured and stripped from the brief", () =>
+            {
+                string block =
+                    "title: fix(sequences): keep the routine projection\n" +
+                    "preferredModel: mid\n" +
+                    "dependsOnMissionId: M2\n" +
+                    "description: |\n" +
+                    "  **Goal:** Land the stranded commit.\n" +
+                    "  **Files:** one file.\n";
+
+                (string body, string? dependency) = MissionService.ExtractArchitectFrontMatter(block);
+
+                AssertEqual("M2", dependency, "the declared M-alias must be captured");
+                AssertContains("**Goal:** Land the stranded commit.", body, "the body must survive with the block indent stripped");
+                AssertFalse(body.Contains("dependsOnMissionId"), "the front-matter must be stripped from the brief");
+                AssertFalse(body.Contains("preferredModel"), "the front-matter must be stripped from the brief");
+            });
+
+            await RunTest("Architect description without front-matter is passed through unchanged", () =>
+            {
+                string prose = "**Goal:** Land the stranded commit.\nNote: the recovery projection must be enriched.";
+
+                (string body, string? dependency) = MissionService.ExtractArchitectFrontMatter(prose);
+
+                AssertEqual(prose, body, "a body with no front-matter must be untouched");
+                AssertNull(dependency, "no dependency when none is declared");
+            });
+
+            await RunTest("Architect dependency resolver maps the M-alias to the earlier block terminal stage", () =>
+            {
+                Mission m1 = new Mission("M1 [Worker]");
+                Mission m2 = new Mission("M2 [Worker]");
+                Mission m3 = new Mission("M3 [Worker]");
+                Dictionary<int, Mission> byIndex = new Dictionary<int, Mission> { { 1, m1 }, { 2, m2 }, { 3, m3 } };
+                Dictionary<string, Mission> byTitle = new Dictionary<string, Mission>(StringComparer.OrdinalIgnoreCase);
+
+                Mission? resolved = MissionService.ResolveArchitectDependencyTerminalStage(byIndex, byTitle, 3, "M2");
+                AssertNotNull(resolved, "M3 depending on M2 must resolve");
+                AssertEqual(m2.Id, resolved!.Id, "resolved to block 2's terminal stage");
+
+                Mission? forward = MissionService.ResolveArchitectDependencyTerminalStage(byIndex, byTitle, 2, "M3");
+                AssertNull(forward, "a forward reference must not resolve; ordering is enforced");
+
+                Mission? unknown = MissionService.ResolveArchitectDependencyTerminalStage(byIndex, byTitle, 3, "M9");
+                AssertNull(unknown, "an out-of-range alias must not resolve");
+            });
+
         }
 
         private static int CountOccurrences(string haystack, string needle)
