@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -246,6 +247,11 @@ namespace Armada.Server.Mcp.Tools
                             items = new { type = "string" },
                             description = "Additional glob patterns the captain must not modify. Armada always protects CLAUDE.md and _briefing. Pass an empty array to clear custom protection; omit the field to leave the existing list unchanged."
                         },
+                        branchCleanupPolicy = new
+                        {
+                            type = "string",
+                            description = "Branch cleanup policy applied after a mission lands: LocalOnly (bare repo only), LocalAndRemote (bare repo and origin), or None (retain). Omit to leave unchanged. LocalOnly relies on the git host deleting the remote branch on merge, which never happens under LandingMode=LocalMerge, so locally-landing vessels need LocalAndRemote."
+                        },
                         autoLandPredicate = new
                         {
                             type = "object",
@@ -330,6 +336,13 @@ namespace Armada.Server.Mcp.Tools
                         vessel.DefaultPipelineId = request.DefaultPipelineId;
                     if (request.ProtectedPaths != null)
                         vessel.ProtectedPaths = request.ProtectedPaths.Count > 0 ? request.ProtectedPaths : null;
+                    if (request.BranchCleanupPolicy != null)
+                    {
+                        BranchCleanupPolicyEnum? updBcp = ParseBranchCleanupPolicy(request.BranchCleanupPolicy);
+                        if (updBcp == null)
+                            return (object)new { Error = "branchCleanupPolicy must be one of: " + String.Join(", ", Enum.GetNames(typeof(BranchCleanupPolicyEnum))) };
+                        vessel.BranchCleanupPolicy = updBcp.Value;
+                    }
                     if (args.HasValue && args.Value.TryGetProperty("autoLandPredicate", out JsonElement updAlpElem))
                     {
                         if (updAlpElem.ValueKind == JsonValueKind.Null)
@@ -531,6 +544,23 @@ namespace Armada.Server.Mcp.Tools
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
+        }
+
+        /// <summary>
+        /// Parses a branch cleanup policy name into its enum member, returning null when the value names
+        /// no declared member. Matching is case-insensitive against the declared names only: a numeric
+        /// string is rejected, so an ordinal outside the enum cannot be accepted as a policy.
+        /// </summary>
+        /// <param name="value">Candidate policy name.</param>
+        /// <returns>The matching enum member, or null when the value is not a declared member.</returns>
+        private static BranchCleanupPolicyEnum? ParseBranchCleanupPolicy(string value)
+        {
+            foreach (string name in Enum.GetNames(typeof(BranchCleanupPolicyEnum)))
+            {
+                if (String.Equals(name, value, StringComparison.OrdinalIgnoreCase))
+                    return (BranchCleanupPolicyEnum)Enum.Parse(typeof(BranchCleanupPolicyEnum), name);
+            }
+            return null;
         }
 
         /// <summary>

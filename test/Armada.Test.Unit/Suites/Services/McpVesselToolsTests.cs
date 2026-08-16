@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
@@ -12,7 +13,8 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Tests the modelContext write guard on armada_update_vessel_context: captains (no operatorOverride)
     /// are blocked from mutating modelContext, while the orchestrator (operatorOverride=true) may write or
-    /// clear it. projectContext remains writable without the override.
+    /// clear it. projectContext remains writable without the override. Also covers the branchCleanupPolicy
+    /// argument on armada_update_vessel, which must persist a declared policy and reject anything else.
     /// </summary>
     public sealed class McpVesselToolsTests : TestSuite
     {
@@ -26,6 +28,16 @@ namespace Armada.Test.Unit.Suites.Services
                 (name, _, _, h) => { if (name == "armada_update_vessel_context") handler = h; },
                 testDb.Driver);
             AssertNotNull(handler, "armada_update_vessel_context handler must be registered");
+            return handler!;
+        }
+
+        private Func<JsonElement?, Task<object>> CaptureUpdateHandler(TestDatabase testDb)
+        {
+            Func<JsonElement?, Task<object>>? handler = null;
+            McpVesselTools.Register(
+                (name, _, _, h) => { if (name == "armada_update_vessel") handler = h; },
+                testDb.Driver);
+            AssertNotNull(handler, "armada_update_vessel handler must be registered");
             return handler!;
         }
 
@@ -102,6 +114,83 @@ namespace Armada.Test.Unit.Suites.Services
                     Vessel? after = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
                     AssertEqual("lean architecture summary", after!.ProjectContext, "projectContext must be written");
                     AssertEqual("ORIGINAL blob", after.ModelContext, "modelContext must be untouched by a projectContext-only update");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("BranchCleanupPolicy_DeclaredValue_IsPersisted", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> handler = CaptureUpdateHandler(testDb);
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+                    AssertTrue(vessel.BranchCleanupPolicy == null, "the seeded vessel must start with no explicit policy");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = vessel.Id,
+                        branchCleanupPolicy = "LocalAndRemote"
+                    });
+                    object result = await handler(args).ConfigureAwait(false);
+
+                    AssertFalse(JsonSerializer.Serialize(result).Contains("\"Error\""),
+                        "a declared branchCleanupPolicy must be accepted: " + JsonSerializer.Serialize(result));
+                    Vessel? after = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertTrue(after!.BranchCleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote,
+                        "reading the vessel back must show LocalAndRemote");
+
+                    JsonElement other = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = vessel.Id,
+                        projectContext = "an unrelated edit"
+                    });
+                    await handler(other).ConfigureAwait(false);
+                    Vessel? afterOther = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertTrue(afterOther!.BranchCleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote,
+                        "an update that omits branchCleanupPolicy must leave the stored policy unchanged");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("BranchCleanupPolicy_UnknownValue_IsRejected", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> handler = CaptureUpdateHandler(testDb);
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = vessel.Id,
+                        branchCleanupPolicy = "RemoteOnly"
+                    });
+                    object result = await handler(args).ConfigureAwait(false);
+
+                    AssertTrue(JsonSerializer.Serialize(result).Contains("branchCleanupPolicy must be one of"),
+                        "an unrecognized policy must be rejected with a clear error, not silently defaulted");
+                    Vessel? after = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertTrue(after!.BranchCleanupPolicy == null,
+                        "a rejected policy must leave the stored value untouched");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("BranchCleanupPolicy_NumericOrdinal_IsRejected", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> handler = CaptureUpdateHandler(testDb);
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = vessel.Id,
+                        branchCleanupPolicy = "1"
+                    });
+                    object result = await handler(args).ConfigureAwait(false);
+
+                    AssertTrue(JsonSerializer.Serialize(result).Contains("branchCleanupPolicy must be one of"),
+                        "an ordinal must not be accepted as a policy name");
+                    Vessel? after = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertTrue(after!.BranchCleanupPolicy == null,
+                        "a rejected ordinal must leave the stored value untouched");
                 }
             }).ConfigureAwait(false);
         }

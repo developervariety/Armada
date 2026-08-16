@@ -82,5 +82,13 @@ namespace Armada.Server.Mcp
         /// clear the custom list. Default null leaves the existing list unchanged.
         /// </summary>
         public List<string>? ProtectedPaths { get; set; }
+
+        /// <summary>
+        /// Branch cleanup policy applied to a mission branch after it lands: LocalOnly, LocalAndRemote,
+        /// or None. Null leaves the vessel's existing value unchanged. LocalOnly assumes the git host
+        /// deletes the remote branch on merge, which never happens under LandingMode=LocalMerge because
+        /// no pull request is ever opened, so a fleet that lands locally needs LocalAndRemote.
+        /// </summary>
+        public string? BranchCleanupPolicy { get; set; }
     }
 }
