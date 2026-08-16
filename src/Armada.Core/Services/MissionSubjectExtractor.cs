@@ -75,10 +75,32 @@ namespace Armada.Core.Services
 
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // A mission description that embeds a prior-stage diff (the handoff path pastes one) carries
+            // `diff --git a/... b/...`, `--- a/...`, and `+++ b/...` headers. In that text an `a/` or `b/`
+            // prefix is a git old/new marker, not part of the repository path, so anchoring it as-is makes
+            // the anchors block report a live file as missing. Only strip the prefix when a diff is embedded:
+            // a repo that genuinely owns a top-level `a/` or `b/` folder must keep those paths intact.
+            bool embedsDiff = missionText.IndexOf("diff --git ", StringComparison.Ordinal) >= 0;
+
             foreach (Match match in _PathPattern.Matches(missionText))
             {
                 string candidate = match.Value.Trim().TrimEnd('.', ',', ')', ';', ':');
                 if (String.IsNullOrEmpty(candidate)) continue;
+
+                // A `../sibling/...` path cannot be anchored against the mission worktree, and feeding it to
+                // git makes resolution abort ("path outside repository"). Such paths name a sibling checkout,
+                // not this repository, so they are not anchor subjects.
+                if (candidate.IndexOf("..", StringComparison.Ordinal) >= 0) continue;
+
+                if (embedsDiff &&
+                    (candidate.StartsWith("a/", StringComparison.Ordinal) ||
+                     candidate.StartsWith("b/", StringComparison.Ordinal)))
+                {
+                    // `a/src/X.cs` and `b/src/X.cs` are the same repository path; dropping the prefix also
+                    // de-duplicates the pair so the anchors block lists the file once.
+                    candidate = candidate.Substring(2);
+                }
+
                 if (!seen.Add(candidate)) continue;
 
                 results.Add(candidate);

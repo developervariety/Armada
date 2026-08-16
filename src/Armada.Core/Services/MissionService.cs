@@ -3765,6 +3765,71 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Build the persona preamble injected at the top of a downstream handoff brief. The preamble is
+        /// mode-aware: an Audit or Research downstream stage produces a report, so its Worker and
+        /// TestEngineer preambles must say "validate and report" rather than "implement and write tests",
+        /// or the same brief would order a captain to do the opposite of its own output contract.
+        /// </summary>
+        /// <param name="persona">Persona of the downstream mission.</param>
+        /// <param name="mode">Mode of the downstream mission.</param>
+        /// <returns>The persona preamble, or an empty string for a persona without one.</returns>
+        internal static string BuildPersonaPreamble(string? persona, MissionModeEnum mode)
+        {
+            bool reportOnly = (mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research);
+
+            switch (persona)
+            {
+                case "Worker":
+                    if (reportOnly)
+                    {
+                        return "## Your Role: Worker (Investigate and Report)\n\n" +
+                            "This is a report-only " + mode + " mission: your deliverable is a report, not a code change. " +
+                            "Do not edit, commit, or push. Investigate the scope below, gather exact evidence for every claim, " +
+                            "and state plainly when the evidence does not settle a question.\n\n";
+                    }
+
+                    return "## Your Role: Worker (Implement)\n\n" +
+                        "You are implementing code changes based on the Architect's plan. " +
+                        "Review the prior stage output below and implement the described changes.\n\n";
+
+                case "TestEngineer":
+                    if (reportOnly)
+                    {
+                        return "## Your Role: TestEngineer (Validate the Report)\n\n" +
+                            "This is a report-only " + mode + " mission: your deliverable is a verified report, not tests. " +
+                            "Do not write tests, and do not edit, commit, or push. Review the prior stage output below and validate " +
+                            "that the evidence supports every claim, that cited paths and source references resolve, and that the " +
+                            "report is complete and internally consistent. Call out anything the prior stage asserts without evidence. " +
+                            "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
+                    }
+
+                    return "## Your Role: TestEngineer (Write Tests)\n\n" +
+                        "You are writing tests for code changes made by the Worker. " +
+                        "Review the diff below and write unit tests, integration tests, or test harness updates " +
+                        "that cover the changes. Follow existing test patterns in the repository. " +
+                        "Scope yourself only to this mission, not sibling missions in the same voyage. Cover the " +
+                        "happy path, but also add negative or edge-path coverage for validation, timeout, cancellation, " +
+                        "retry, cleanup, and error-handling branches when they are in scope. Include short " +
+                        "`## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. " +
+                        "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
+
+                case "Judge":
+                    return "## Your Role: Judge (Review)\n\n" +
+                        "You are reviewing the completed work for correctness, completeness, scope compliance, " +
+                        "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
+                        "description only, not sibling missions in the same voyage. Assume there may be at least " +
+                        "one hidden bug. Your response must include `## Completeness`, `## Correctness`, `## Tests`, " +
+                        "`## Failure Modes`, and `## Verdict` sections. A PASS is only allowed when tests are adequate, " +
+                        "negative-path coverage for validation, timeout, cancellation, retry, cleanup, and error-handling " +
+                        "changes is present or justified, and failure modes were explicitly reviewed. End with a standalone line " +
+                        "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
+
+                default:
+                    return "";
+            }
+        }
+
+        /// <summary>
         /// Prepare a single downstream pipeline dependent for assignment by stamping it with the
         /// upstream stage's branch and injecting the persona preamble plus the prior-stage context
         /// (agent output, diff) into its description. Applicable unread mailbox signals are prepended
@@ -3787,37 +3852,7 @@ namespace Armada.Core.Services
             CancellationToken token = default)
         {
             // Build persona-specific preamble for the next stage
-            string personaPreamble = "";
-            switch (nextMission.Persona)
-            {
-                case "Worker":
-                    personaPreamble = "## Your Role: Worker (Implement)\n\n" +
-                        "You are implementing code changes based on the Architect's plan. " +
-                        "Review the prior stage output below and implement the described changes.\n\n";
-                    break;
-                case "TestEngineer":
-                    personaPreamble = "## Your Role: TestEngineer (Write Tests)\n\n" +
-                        "You are writing tests for code changes made by the Worker. " +
-                        "Review the diff below and write unit tests, integration tests, or test harness updates " +
-                        "that cover the changes. Follow existing test patterns in the repository. " +
-                        "Scope yourself only to this mission, not sibling missions in the same voyage. Cover the " +
-                        "happy path, but also add negative or edge-path coverage for validation, timeout, cancellation, " +
-                        "retry, cleanup, and error-handling branches when they are in scope. Include short " +
-                        "`## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. " +
-                        "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
-                    break;
-                case "Judge":
-                    personaPreamble = "## Your Role: Judge (Review)\n\n" +
-                        "You are reviewing the completed work for correctness, completeness, scope compliance, " +
-                        "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
-                        "description only, not sibling missions in the same voyage. Assume there may be at least " +
-                        "one hidden bug. Your response must include `## Completeness`, `## Correctness`, `## Tests`, " +
-                        "`## Failure Modes`, and `## Verdict` sections. A PASS is only allowed when tests are adequate, " +
-                        "negative-path coverage for validation, timeout, cancellation, retry, cleanup, and error-handling " +
-                        "changes is present or justified, and failure modes were explicitly reviewed. End with a standalone line " +
-                        "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
-                    break;
-            }
+            string personaPreamble = BuildPersonaPreamble(nextMission.Persona, nextMission.Mode);
 
             // Inject context from the completed stage into the next stage's description.
             // The block opens with a per-upstream marker so a repeated handoff for the same
@@ -3887,7 +3922,8 @@ namespace Armada.Core.Services
                     handoffDescription.Length + " chars exceeds the " + _MaxMissionDescriptionChars +
                     " char budget; truncating the tail. The full change remains on branch " +
                     (completedMission.BranchName ?? "unknown"));
-                handoffDescription = TruncateMissionDescription(handoffDescription, _MaxMissionDescriptionChars);
+                handoffDescription = TruncateMissionDescription(
+                    handoffDescription, _MaxMissionDescriptionChars, completedMission.BranchName);
             }
 
             nextMission.Description = handoffDescription;
@@ -4286,11 +4322,14 @@ namespace Armada.Core.Services
         /// <param name="description">Description to bound.</param>
         /// <param name="maxChars">Maximum characters allowed.</param>
         /// <returns>The bounded description.</returns>
-        internal static string TruncateMissionDescription(string description, int maxChars)
+        internal static string TruncateMissionDescription(string description, int maxChars, string? branchName = null)
         {
             if (String.IsNullOrEmpty(description) || description.Length <= maxChars) return description;
 
-            const string marker = "\n\n...(brief truncated to fit the mission description budget; the full change is on the branch above)\n";
+            string branchNote = String.IsNullOrEmpty(branchName)
+                ? " the full change is on the branch"
+                : " the full change is on branch " + branchName;
+            string marker = "\n\n...(mission brief truncated to fit the budget; the middle of the prior-stage diff is elided;" + branchNote + ")\n";
             int headChars = Math.Max(0, (maxChars - marker.Length) / 3);
             return BuildBoundedDescription(description, maxChars, headChars, marker);
         }
@@ -4343,6 +4382,20 @@ namespace Armada.Core.Services
                 // Snap the tail start forward to the next line boundary.
                 int newline = description.IndexOf('\n', tailStart);
                 if (newline > 0 && newline < description.Length) tailStart = newline + 1;
+            }
+
+            // Never begin the visible tail in the middle of a diff hunk: a `diff --git ` line opens a
+            // file section, so snap forward to the next one when it exists. Without this an elided brief
+            // opens mid-file inside a hunk, which reads as a truncated review even though the marker names
+            // where the full change lives. The handoff diff is the last thing in the description, so this
+            // mainly applies when the cut lands between two file sections of the same diff.
+            if (tailStart < description.Length)
+            {
+                int diffHeader = description.IndexOf("\ndiff --git ", tailStart, StringComparison.Ordinal);
+                if (diffHeader >= 0 && diffHeader + 1 < description.Length)
+                {
+                    tailStart = diffHeader + 1;
+                }
             }
 
             if (tailStart <= head)

@@ -111,6 +111,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AgentLifecycleHandlerTests());
             runner.AddSuite(new PlanningSessionCoordinatorTests());
             runner.AddSuite(new MissionPromptTests());
+            runner.AddSuite(new MissionSubjectExtractorTests());
             runner.AddSuite(new MissionHandoffIdempotencyTests());
             runner.AddSuite(new MissionHandoffBranchAdvanceTests());
             runner.AddSuite(new MissionModeTests());

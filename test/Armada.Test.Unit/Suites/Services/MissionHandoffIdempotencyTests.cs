@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Test.Common;
 
@@ -178,7 +179,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string bounded = MissionService.TruncateMissionDescription(oversized, 200);
 
                 AssertTrue(bounded.Length <= 200, "bounded description must fit the budget");
-                AssertContains("brief truncated to fit the mission description budget", bounded, "the cut must be visible to the captain");
+                AssertContains("truncated to fit the budget", bounded, "the cut must be visible to the captain");
 
                 string small = "short brief";
                 AssertEqual(small, MissionService.TruncateMissionDescription(small, 200), "a brief under budget must be unchanged");
@@ -203,6 +204,45 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Base scope that the whole voyage depends on", bounded, "the head brief must survive");
                 AssertContains("the newest diff the judge must see", bounded, "the newest handoff block must survive the cut");
                 AssertContains(MissionService.BuildHandoffMarker(_OtherUpstreamId), bounded, "the newest handoff marker must survive");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("TruncateMissionDescription marker names the branch holding the full change", async () =>
+            {
+                string oversized = new string('x', 500);
+                string bounded = MissionService.TruncateMissionDescription(oversized, 200, "armada/brief-test");
+
+                AssertTrue(bounded.Length <= 200, "bounded description must fit the budget");
+                AssertContains("armada/brief-test", bounded, "the cut marker must name the branch so the captain knows where the full change lives");
+
+                string anonymous = MissionService.TruncateMissionDescription(oversized, 200);
+                AssertContains("on the branch", anonymous, "an unnamed branch still states that the change is on a branch");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("TruncateMissionDescription begins the tail at a diff file-section boundary", async () =>
+            {
+                // A prior-stage diff with two file sections; the budget is sized so the raw tail cut lands
+                // inside the first section's content lines. The tail must snap forward to the next
+                // `diff --git` header instead of opening mid-file on a hunk line.
+                string padding = new string('p', 200) + "\n";
+                string diff =
+                    "diff --git a/src/One.cs b/src/One.cs\n" +
+                    "+one-a\n" +
+                    "+one-b\n" +
+                    "+one-c\n" +
+                    "diff --git a/src/Two.cs b/src/Two.cs\n" +
+                    "+two\n";
+                string full = padding + diff;
+
+                string bounded = MissionService.TruncateMissionDescription(full, 229, "armada/brief-test");
+
+                AssertContains("diff --git a/src/Two.cs", bounded, "the tail must open at the next file-section header");
+                AssertFalse(bounded.Contains("+one-a"), "the first section's content must be elided, not shown half-open");
+                AssertFalse(bounded.Contains("+one-b"), "the first section's content must be elided, not shown half-open");
+                AssertFalse(bounded.Contains("+one-c"), "the first section's content must be elided, not shown half-open");
 
                 await Task.CompletedTask;
             });
@@ -316,6 +356,45 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(MissionService.IsElidableBriefModule(null), "a null module name is never elidable");
 
                 await Task.CompletedTask;
+            });
+
+            await RunTest("TestEngineer preamble orders writing tests in Implementation mode", async () =>
+            {
+                string preamble = MissionService.BuildPersonaPreamble("TestEngineer", MissionModeEnum.Implementation);
+
+                AssertContains("Write Tests", preamble, "implementation-mode TestEngineer must be told to write tests");
+                AssertContains("write unit tests", preamble, "the writing instruction must be explicit");
+            });
+
+            await RunTest("TestEngineer preamble validates the report in Audit and Research modes", async () =>
+            {
+                string audit = MissionService.BuildPersonaPreamble("TestEngineer", MissionModeEnum.Audit);
+                string research = MissionService.BuildPersonaPreamble("TestEngineer", MissionModeEnum.Research);
+
+                AssertContains("Validate the Report", audit, "audit-mode TestEngineer must validate, not write");
+                AssertContains("Do not write tests", audit, "an audit TestEngineer must be forbidden from writing tests");
+                AssertFalse(audit.Contains("write unit tests"), "an audit TestEngineer must not be ordered to write tests");
+                AssertContains("Validate the Report", research, "research-mode TestEngineer must validate, not write");
+                AssertFalse(research.Contains("write unit tests"), "a research TestEngineer must not be ordered to write tests");
+            });
+
+            await RunTest("Worker preamble reports in Audit mode and implements in Implementation mode", async () =>
+            {
+                string audit = MissionService.BuildPersonaPreamble("Worker", MissionModeEnum.Audit);
+                string impl = MissionService.BuildPersonaPreamble("Worker", MissionModeEnum.Implementation);
+
+                AssertContains("Investigate and Report", audit, "audit-mode Worker must investigate and report");
+                AssertFalse(audit.Contains("implementing code changes"), "an audit Worker must not be ordered to implement");
+                AssertContains("Worker (Implement)", impl, "implementation-mode Worker keeps the implement role");
+            });
+
+            await RunTest("Judge preamble is unchanged by mission mode", async () =>
+            {
+                string audit = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Audit);
+                string impl = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Implementation);
+
+                AssertContains("Judge (Review)", audit, "Judge role is review-shaped in every mode");
+                AssertEqual(audit, impl, "the Judge preamble must not vary by mode");
             });
         }
     }
