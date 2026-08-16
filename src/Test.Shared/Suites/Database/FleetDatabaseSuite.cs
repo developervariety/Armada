@@ -199,6 +199,45 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("fleet_timestamps_roundtrip_as_utc_kind", "Fleet_TimestampsRoundtripAsUtcKind", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    Fleet created = await db.Fleets.CreateAsync(new Fleet("UtcKind"));
+
+                    Fleet? result = await db.Fleets.ReadAsync(created.Id);
+                    AssertNotNull(result, "Read fleet");
+                    // The driver contract is that persisted timestamps are read back as UTC
+                    // (DateTime.Parse with RoundtripKind then ToUniversalTime on SQLite, and the
+                    // equivalent explicit-UTC read on the server providers). A driver upgrade that
+                    // silently returned Local/Unspecified kinds would break stall detection and
+                    // date-range filtering, so assert the kind explicitly.
+                    AssertEqual(DateTimeKind.Utc, result!.CreatedUtc.Kind, "CreatedUtc kind is UTC");
+                    AssertEqual(DateTimeKind.Utc, result.LastUpdateUtc.Kind, "LastUpdateUtc kind is UTC");
+                }
+            }));
+
+            cases.Add(CaseAsync("fleet_historical_utc_timestamp_not_shifted", "Fleet_HistoricalUtcTimestampNotShifted", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    // A caller-supplied historical UTC instant must round-trip unchanged: neither
+                    // shifted by a timezone offset nor stripped of its UTC kind. This guards against
+                    // the read-as-local regression class fixed for the server providers.
+                    DateTime historicalUtc = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                    Fleet fleet = new Fleet("HistoricalUtc");
+                    fleet.CreatedUtc = historicalUtc;
+                    Fleet created = await db.Fleets.CreateAsync(fleet);
+
+                    Fleet? result = await db.Fleets.ReadAsync(created.Id);
+                    AssertNotNull(result, "Read fleet");
+                    AssertEqual(historicalUtc, result!.CreatedUtc, "CreatedUtc value not shifted");
+                    AssertEqual(DateTimeKind.Utc, result.CreatedUtc.Kind, "CreatedUtc kind is UTC");
+                }
+            }));
+
             cases.Add(CaseAsync("fleet_read_not_found", "Fleet_ReadNotFound", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

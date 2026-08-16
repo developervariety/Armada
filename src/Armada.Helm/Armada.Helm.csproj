@@ -7,12 +7,14 @@
     <ToolCommandName>armada</ToolCommandName>
     <PackageId>Armada.Helm</PackageId>
     <Version>0.9.0</Version>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
-    <PackageReference Include="SyslogLogging" Version="2.1.0" />
+    <PackageReference Include="SyslogLogging" Version="2.2.1" />
     <PackageReference Include="Voltaic" Version="0.6.0" />
   </ItemGroup>
 
