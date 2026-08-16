@@ -139,7 +139,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Papercut original = new Papercut();
                 original.Category = PapercutCategoryEnum.EnvSetup;
                 original.Severity = PapercutSeverityEnum.High;
-                original.Title = "sibling repo EcuLink was not provisioned";
+                original.Title = "sibling repo ExampleSibling was not provisioned";
                 original.Detail = "the build needs it one level up";
                 original.Path = "src/Thing.csproj";
                 original.CaptainId = "cpt_one";

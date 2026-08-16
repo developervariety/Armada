@@ -44,7 +44,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string codeA = CodeFile("src/RedactorWiring.cs", "REDACTOR_CODE_MARKER");
                 string codeB = CodeFile("test/GuardTest.cs", "GUARD_TEST_MARKER");
-                string huge = HugeDataFile("output/otr-export/seed-key-signers/Cummins.seed-key.json", "SNAPSHOT_ROW_", 6000);
+                string huge = HugeDataFile("output/export/example/ExampleOem.seed-key.json", "SNAPSHOT_ROW_", 6000);
                 string diff = codeA + codeB + huge;
 
                 string scoped = MissionService.BuildReviewDiff(diff, 4000);
@@ -53,7 +53,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(scoped.Contains("REDACTOR_CODE_MARKER"), "small code diff must be kept whole");
                 AssertTrue(scoped.Contains("GUARD_TEST_MARKER"), "the guard-test diff must be kept whole");
                 // The bulk data file is elided: its header/path is listed, but its rows are gone.
-                AssertTrue(scoped.Contains("Cummins.seed-key.json"), "the bulk data file must still be listed by name");
+                AssertTrue(scoped.Contains("ExampleOem.seed-key.json"), "the bulk data file must still be listed by name");
                 AssertTrue(!scoped.Contains("SNAPSHOT_ROW_500"), "the bulk data file's content must be elided");
                 AssertTrue(scoped.Contains("lines elided"), "the elision note must be present");
                 // Bounded (allow headroom for the elision notes/header lines).

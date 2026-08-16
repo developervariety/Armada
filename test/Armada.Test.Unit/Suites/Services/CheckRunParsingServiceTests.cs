@@ -20,14 +20,14 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         public override string Name => "Check Run Parsing Service";
 
-        // Shape taken from a real OtrBuddy UnitTest check: the first project listed passes and a
+        // Shape taken from a real fleet UnitTest check: the first project listed passes and a
         // later, much larger project fails. This ordering is the whole point -- first-match parsing
         // reports the clean 83 and never sees the failure.
         private const string _MultiProjectOutputFirstPassesLaterFails =
-            "Passed!  - Failed:     0, Passed:    83, Skipped:     0, Total:    83, Duration: 99 ms - FleetBase.VinDecoding.Tests.dll (net10.0)\n" +
-            "Passed!  - Failed:     0, Passed:    26, Skipped:     0, Total:    26, Duration: 239 ms - OtrBuddy.BundlePublisher.Tests.dll (net10.0)\n" +
-            "Passed!  - Failed:     0, Passed:    50, Skipped:     3, Total:    53, Duration: 7 s - FleetPortal.Worker.Tests.dll (net10.0)\n" +
-            "Failed!  - Failed:     1, Passed:  2653, Skipped:     0, Total:  2654, Duration: 21 s - FleetDevice.Agent.Tests.dll (net10.0)\n";
+            "Passed!  - Failed:     0, Passed:    83, Skipped:     0, Total:    83, Duration: 99 ms - ExampleService.VinDecoding.Tests.dll (net10.0)\n" +
+            "Passed!  - Failed:     0, Passed:    26, Skipped:     0, Total:    26, Duration: 239 ms - ExampleVessel.BundlePublisher.Tests.dll (net10.0)\n" +
+            "Passed!  - Failed:     0, Passed:    50, Skipped:     3, Total:    53, Duration: 7 s - ExamplePortal.Worker.Tests.dll (net10.0)\n" +
+            "Failed!  - Failed:     1, Passed:  2653, Skipped:     0, Total:  2654, Duration: 21 s - ExampleDevice.Agent.Tests.dll (net10.0)\n";
 
         private const string _SingleProjectPassOutput =
             "Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration: 340 ms - Armada.Test.Unit.dll (net10.0)\n";

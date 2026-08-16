@@ -32,7 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     SiblingLeaseRegistry registry = new SiblingLeaseRegistry(logging, testDb.Driver, settings);
-                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "EcuLink");
+                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "ExampleSibling");
 
                     Dock dockA = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
                     Dock dockB = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
@@ -86,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     SiblingLeaseRegistry registry = new SiblingLeaseRegistry(logging, testDb.Driver, settings);
-                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "EcuLink");
+                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "ExampleSibling");
 
                     bool removed = false;
                     bool result = await registry.RemoveIfUnleasedAsync(
@@ -116,7 +116,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "EcuLink");
+                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "ExampleSibling");
 
                     Dock dock = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
 
@@ -151,7 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "EcuLink");
+                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "ExampleSibling");
 
                     Dock dock = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
                     SiblingLeaseRegistry registry = new SiblingLeaseRegistry(logging, testDb.Driver, settings);

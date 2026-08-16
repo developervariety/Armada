@@ -15,7 +15,7 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// Persisted, reference-counted leases for shared sibling worktrees. Multiple docks on one
-    /// vessel resolve the same sibling path (for example <c>docks/&lt;Vessel&gt;/EcuLink</c>), so a
+    /// vessel resolve the same sibling path (for example <c>docks/&lt;Vessel&gt;/&lt;Sibling&gt;</c>), so a
     /// dock reclaiming its worktree must never remove a sibling another live dock, reviewer,
     /// rescue, landing check, or post-agent DoD still reads.
     /// <para>

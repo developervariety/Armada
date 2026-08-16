@@ -138,11 +138,11 @@ namespace Armada.Core.Services
                             .Select(d => d.WorktreePath!),
                         StringComparer.OrdinalIgnoreCase);
 
-                    // Sibling worktrees (e.g. docks/<Vessel>/JproDeobfuscator) live alongside the
+                    // Sibling worktrees (e.g. docks/<Vessel>/<Sibling>) live alongside the
                     // per-mission dock directories and are SHARED by every concurrent dock on the
                     // vessel. They are owned by ProvisionSiblingReposAsync, which reuses a healthy
                     // checkout and rebuilds only a stale one, so the generic stale-worktree sweep
-                    // below must never remove them: doing so mid-run erases the decompiled-source
+                    // below must never remove them: doing so mid-run erases the cross-repo source
                     // view a sibling-reading captain in another dock is actively using.
                     HashSet<string> siblingDirPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (SiblingRepo siblingRepo in vessel.GetSiblingRepos())
@@ -901,7 +901,7 @@ namespace Armada.Core.Services
             if (siblings.Count == 0) return;
 
             // Sibling worktrees are SHARED by every concurrent dock on the vessel (they resolve to
-            // one path such as docks/<Vessel>/JproDeobfuscator, one level above each dock worktree).
+            // one path such as docks/<Vessel>/<Sibling>, one level above each dock worktree).
             // Tearing them down on one dock's teardown while another dock's captain is still reading
             // them erases that captain's cross-repo source view. Belt-and-braces: skip removal when
             // any other dock row is still active, and the per-target lease then decides atomically.

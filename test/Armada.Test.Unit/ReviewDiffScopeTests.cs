@@ -30,7 +30,7 @@ namespace Armada.Test.Unit
             await RunTest("OverBudget_SmallCodeSectionsKept_LargeDataElided", () =>
             {
                 StringBuilder data = new StringBuilder();
-                data.Append("diff --git a/src/OtrPerformanceDeobfuscator/Output/otr-export/cummins.json b/src/OtrPerformanceDeobfuscator/Output/otr-export/cummins.json\n");
+                data.Append("diff --git a/src/ExampleExtractor/Output/export/example.json b/src/ExampleExtractor/Output/export/example.json\n");
                 for (int i = 0; i < 2000; i++) data.Append("{\"row\": " + i + ", \"redacted\": \"<redacted:key-material:length=11>\"}\n");
 
                 StringBuilder code = new StringBuilder();
@@ -40,7 +40,7 @@ namespace Armada.Test.Unit
                 string scoped = MissionService.BuildReviewDiff(diff, 4000);
 
                 AssertTrue(scoped.Contains("generated data file"), "bulk generated data must be elided with the generated-data marker");
-                AssertTrue(scoped.Contains("cummins.json"), "the elided data file's header must remain so the reviewer sees WHICH file changed");
+                AssertTrue(scoped.Contains("example.json"), "the elided data file's header must remain so the reviewer sees WHICH file changed");
                 AssertTrue(scoped.Contains("lines elided; review the code and manifest"), "the elided data file must report its line count");
                 AssertTrue(scoped.Contains("+bar"), "the small code diff must survive whole even though the total is over budget");
                 AssertTrue(!scoped.Contains("redacted\": \"<redacted"), "the data rows must not reach the review context at all");

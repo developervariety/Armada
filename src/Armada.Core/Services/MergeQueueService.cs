@@ -914,7 +914,7 @@ namespace Armada.Core.Services
         /// target branch", and fails as a no-op. The work can then NEVER reach the remote: the
         /// first failed push poisons every subsequent attempt for that vessel.
         ///
-        /// Observed on EcuLink 2026-07-31: local main sat 9 commits ahead of origin/main and three
+        /// Observed on a fleet vessel: local main sat 9 commits ahead of origin/main and three
         /// separate voyages reported Complete while origin/main never moved. Resetting the local
         /// ref let the very next queue run land the work unchanged.
         ///

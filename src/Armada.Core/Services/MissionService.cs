@@ -180,7 +180,7 @@ namespace Armada.Core.Services
         /// </summary>
         private static readonly string[] _GeneratedDataPathMarkers = new string[]
         {
-            "/output/", "otr-export", "jpro-export", "/export/", "/bundle", "/generated", "/Output/"
+            "/output/", "-export", "/export/", "/bundle", "/generated", "/Output/"
         };
 
         /// <summary>

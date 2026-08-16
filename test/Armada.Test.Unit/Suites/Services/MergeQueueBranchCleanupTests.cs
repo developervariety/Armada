@@ -435,7 +435,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // attempt then cuts its integration worktree from that stale-ahead ref, finds the
                 // branch already contained, and fails as "does not advance target branch". The work
                 // can never reach the remote: the first failed push poisons the vessel forever.
-                // Observed on EcuLink, where local main sat 9 commits ahead of origin/main and
+                // Observed on a fleet vessel, where local main sat 9 commits ahead of origin/main and
                 // three voyages reported Complete while origin/main never moved.
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_aheadlocal_" + Guid.NewGuid().ToString("N"));
                 try

@@ -197,7 +197,7 @@ namespace Armada.Core.Services
                         continue;
                     }
                     // Mirror DockService: the sibling path resolves relative to a dock worktree
-                    // directory (docks/<Vessel>/<dockId>/../EcuLink -> docks/<Vessel>/EcuLink), so
+                    // directory (docks/<Vessel>/<dockId>/../<Sibling> -> docks/<Vessel>/<Sibling>), so
                     // the shared checkout lives one level above the per-mission dock directories.
                     string resolved = Path.GetFullPath(Path.Combine(Path.Combine(docksRoot, vessel.Name), "dock", sibling.RelativePath));
                     siblingPaths.Add(resolved);

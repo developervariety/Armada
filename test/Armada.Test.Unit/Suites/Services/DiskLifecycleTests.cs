@@ -367,7 +367,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Settings = settings,
                 OrphanDockPath = Path.Combine(vesselDir, "msn_orphan"),
                 ActiveDockPath = Path.Combine(vesselDir, "msn_active"),
-                SiblingPath = Path.Combine(vesselDir, "EcuLink"),
+                SiblingPath = Path.Combine(vesselDir, "ExampleSibling"),
                 BackupsPath = Path.Combine(settings.DataDirectory, "backups")
             };
         }
@@ -399,7 +399,7 @@ namespace Armada.Test.Unit.Suites.Services
             vessel.Name = "ExampleVessel";
             vessel.SiblingRepos = System.Text.Json.JsonSerializer.Serialize(new[]
             {
-                new SiblingRepo { RelativePath = "../EcuLink", RepoUrl = "https://github.com/test/EcuLink.git" }
+                new SiblingRepo { RelativePath = "../ExampleSibling", RepoUrl = "https://github.com/test/ExampleSibling.git" }
             });
             return await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
         }
