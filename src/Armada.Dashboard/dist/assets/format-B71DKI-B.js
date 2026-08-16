@@ -1,0 +1,1 @@
+function e(e){if(!e)return`0 B`;let t=[`B`,`KB`,`MB`,`GB`],n=e,r=0;for(;n>=1024&&r<t.length-1;)n/=1024,r+=1;return`${n.toFixed(n>=10||r===0?0:1)} ${t[r]}`}function t(e,t){if(!e)return t;try{return JSON.parse(e)}catch{return t}}function n(e){return`request-method-pill request-method-${e.toLowerCase()}`}export{n,t as r,e as t};

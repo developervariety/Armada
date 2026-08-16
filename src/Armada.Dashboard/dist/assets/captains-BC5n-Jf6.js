@@ -1,0 +1,1 @@
+var e=new Set([`idle`,`available`]);function t(t){return e.has((t??``).trim().toLowerCase())}function n(e){return e?.supportsPlanningSessions?t(e.state):!1}export{n as t};
