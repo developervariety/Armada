@@ -258,25 +258,25 @@ scripts\windows\build-dashboard.bat
 
 ```bash
 Linux:
-./scripts/linux/build-server.sh v0.8.0
+./scripts/linux/build-server.sh v0.9.0
 
 macOS:
-./scripts/macos/build-server.sh v0.8.0
+./scripts/macos/build-server.sh v0.9.0
 
 Windows:
-scripts\windows\build-server.bat v0.8.0
+scripts\windows\build-server.bat v0.9.0
 
 Linux:
-./scripts/linux/build-dashboard.sh v0.8.0
+./scripts/linux/build-dashboard.sh v0.9.0
 
 macOS:
-./scripts/macos/build-dashboard.sh v0.8.0
+./scripts/macos/build-dashboard.sh v0.9.0
 
 Windows:
-scripts\windows\build-dashboard.bat v0.8.0
+scripts\windows\build-dashboard.bat v0.9.0
 ```
 
-This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v0.8.0` (and the same for the dashboard).
+This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v0.9.0` (and the same for the dashboard).
 
 ### Building locally (no push)
 

@@ -1,8 +1,8 @@
 # Tunnel Operations
 
-**Version:** 0.8.0
+**Version:** 0.9.0
 
-This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.8.0`.
+This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.9.0`.
 
 For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
@@ -10,7 +10,7 @@ For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
 ## Scope
 
-`v0.8.0` now includes:
+`v0.9.0` now includes:
 
 - the Armada-side outbound websocket tunnel client
 - remote tunnel configuration in Armada settings and dashboards

@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Multi-agent orchestration for scaling human developers with AI coding captains.</strong>
   <br />
-  <em>Private fork of <a href="https://github.com/jchristn/Armada">jchristn/Armada</a> — v0.8.0 alpha, APIs and schemas may change</em>
+  <em>Private fork of <a href="https://github.com/jchristn/Armada">jchristn/Armada</a> — v0.9.0 alpha, APIs and schemas may change</em>
 </p>
 
 <p align="center">
@@ -56,7 +56,7 @@ Armada is intentionally vocabulary-heavy because the model mirrors the operating
 
 ## What This Fork Adds Over Upstream
 
-This is a private fork of [`jchristn/Armada`](https://github.com/jchristn/Armada). It tracks upstream (last sync: 2026-08-14, merge-base `e9e3021f`, 21 upstream commits absorbed before this pass) and preserves upstream's v0.8.0 delivery-management model, while adding several subsystems that turn Armada from a captain launcher into an autonomous, retrieval-aware delivery platform. Selected upstream v0.9.0 features (workspace terminal + diff, landing-retry conflict capture, and the needs-you inbox) have been ported back into the fork as first-class features and are listed below. The rest of upstream's v0.9.0 — its Voltaic-based MCP migration, Touchstone test harness, OpenTelemetry stack, and dashboard nav consolidation — is deliberately not absorbed because the fork's own implementations of those surfaces are more developed.
+This is a private fork of [`jchristn/Armada`](https://github.com/jchristn/Armada). It tracks upstream (last sync: 2026-08-14, merge-base `e9e3021f`, 21 upstream commits absorbed before this pass) and ships at v0.9.0, preserving upstream's v0.8.0 delivery-management model while adding several subsystems that turn Armada from a captain launcher into an autonomous, retrieval-aware delivery platform. Selected upstream v0.9.0 features (workspace terminal + diff, landing-retry conflict capture, and the needs-you inbox) have been ported back into the fork as first-class features and are listed below. The rest of upstream's v0.9.0 — its Voltaic-based MCP migration, Touchstone test harness, OpenTelemetry stack, and dashboard nav consolidation — is deliberately not absorbed because the fork's own implementations of those surfaces are more developed.
 
 The additions below are grouped by subsystem. Except where noted, each subsystem is fork-original — the corresponding services, models, and MCP tools do not exist upstream.
 
