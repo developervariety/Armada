@@ -213,9 +213,22 @@ Examples:
 - `scripts\windows\install-windows-task.bat net8.0`
 - `scripts\windows\update-windows-task.bat --framework net8.0`
 
-Behind an SSL-inspecting corporate proxy (npm failing with `SELF_SIGNED_CERT_IN_CHAIN`), add `--insecure` (or `-k`) to any of these scripts to disable strict TLS certificate validation for npm/Node for that run, for example `scripts\windows\install.bat net8.0 --insecure`. Put the framework first, then the flag. This is honored across the install/update/reinstall/publish/mcp/task scripts on both Windows and Linux/macOS, and only affects npm/Node — dotnet/NuGet use the OS certificate store, which IT-managed machines normally already trust.
-
 These `install.*` scripts build the solution, deploy dashboard assets, and install `Armada.Helm` as a global tool from the current checkout.
+
+#### Behind an enterprise proxy or firewall
+
+Corporate networks that perform TLS inspection present a self-signed root certificate. Because npm ships its own CA bundle (separate from the operating system's certificate store), the dashboard build fails with `npm error code SELF_SIGNED_CERT_IN_CHAIN`. Add `--insecure` (alias `-k`, or `--no-strict-ssl`) to any install/update/reinstall/publish/mcp/task script to disable strict TLS validation for npm/Node for that run:
+
+- Linux: `./scripts/linux/install.sh --insecure`
+- macOS: `./scripts/macos/install.sh --insecure`
+- Windows: `scripts\windows\install.bat --insecure` (with a framework override, put the framework first: `scripts\windows\install.bat net8.0 --insecure`)
+
+The flag is recognized anywhere on the command line and propagates to every sub-script and tool it invokes (it sets `NODE_TLS_REJECT_UNAUTHORIZED=0` and `npm_config_strict_ssl=false` for the run). It affects **only** npm/Node. `dotnet`/NuGet use the OS certificate store, which IT-managed machines normally already trust, so those steps usually succeed without any flag — if `dotnet restore` also fails on certificates, an administrator must install the proxy's root CA into the OS trust store (no CLI flag can bypass that).
+
+Two related notes for locked-down machines:
+
+- **No Node.js:** the install scripts fall back to the pre-built dashboard bundle committed in the repository, so a machine without Node can still install (nothing to build, nothing to fetch from the npm registry).
+- **Prefer not to pass the flag each time:** set `NODE_TLS_REJECT_UNAUTHORIZED=0` (`set` on Windows, `export` on Linux/macOS) in your shell, or run `npm config set strict-ssl false` once, for the same effect without `--insecure`.
 
 Platform entrypoints are split under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`.
 

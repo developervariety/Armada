@@ -24,6 +24,8 @@ Canonical helpers:
 
 `publish-server` publishes `src/Armada.Server` in `Release` mode for `net10.0` by default to `~/.armada/bin` and then attempts to deploy the React dashboard. On Windows, you can override that by passing a framework argument such as `scripts\windows\publish-server.bat net8.0` or `scripts\windows\publish-server.bat --framework net8.0`.
 
+Behind an enterprise proxy that performs TLS inspection, the dashboard deploy step can fail with `npm error code SELF_SIGNED_CERT_IN_CHAIN`. Append `--insecure` (or `-k`) to disable strict TLS validation for npm/Node for that run, for example `scripts\windows\publish-server.bat net8.0 --insecure` (framework first, then the flag). If Node.js is not installed at all, `publish-server` deploys the pre-built dashboard bundle that ships in the repository instead of building it. See the README's "Behind an enterprise proxy or firewall" section for details.
+
 `healthcheck-server` probes `http://localhost:7890/api/v1/status/health` by default. If your Admiral port is not `7890`, set `ARMADA_BASE_URL` before invoking the platform wrapper:
 
 ```bash
