@@ -1362,7 +1362,28 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(55, "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
                     @"ALTER TABLE personas ADD COLUMN default_captain_id TEXT;",
                     @"ALTER TABLE missions ADD COLUMN requested_captain_id TEXT;",
-                    @"ALTER TABLE voyages ADD COLUMN captain_overrides_json TEXT;")
+                    @"ALTER TABLE voyages ADD COLUMN captain_overrides_json TEXT;"),
+                new SchemaMigration(56, "Add token_usage table for per-model token accounting",
+                    @"CREATE TABLE IF NOT EXISTS token_usage (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        model TEXT NOT NULL DEFAULT '',
+                        runtime TEXT,
+                        source TEXT NOT NULL,
+                        source_id TEXT,
+                        vessel_id TEXT,
+                        captain_id TEXT,
+                        input_tokens INTEGER NOT NULL DEFAULT 0,
+                        output_tokens INTEGER NOT NULL DEFAULT 0,
+                        cached_tokens INTEGER NOT NULL DEFAULT 0,
+                        total_tokens INTEGER NOT NULL DEFAULT 0,
+                        estimated INTEGER NOT NULL DEFAULT 0,
+                        created_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_token_usage_tenant_created ON token_usage(tenant_id, created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(model);")
             };
         }
 

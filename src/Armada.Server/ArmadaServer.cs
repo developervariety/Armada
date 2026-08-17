@@ -605,6 +605,10 @@ namespace Armada.Server
             new RequestHistoryRoutes(_Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Token usage
+            new TokenUsageRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Cross-entity history
             new HistoryRoutes(_HistoricalTimelineService)
                 .Register(_App, authenticate, _AuthorizationService);

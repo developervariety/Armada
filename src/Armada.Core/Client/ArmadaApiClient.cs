@@ -769,6 +769,69 @@ namespace Armada.Core.Client
 
         #endregion
 
+        #region Public-Methods-TokenUsage
+
+        /// <summary>
+        /// Get a token-usage summary (time buckets with per-model breakdown, whole-window per-model
+        /// aggregate, and grand totals) for the supplied window and filters.
+        /// </summary>
+        public async Task<TokenUsageSummaryResult?> GetTokenUsageSummaryAsync(
+            DateTime? fromUtc = null,
+            DateTime? toUtc = null,
+            int? bucketMinutes = null,
+            string? model = null,
+            string? runtime = null,
+            string? source = null,
+            string? vesselId = null,
+            string? captainId = null,
+            CancellationToken token = default)
+        {
+            List<string> queryParts = new List<string>();
+            if (fromUtc.HasValue) queryParts.Add("fromUtc=" + Uri.EscapeDataString(fromUtc.Value.ToUniversalTime().ToString("o")));
+            if (toUtc.HasValue) queryParts.Add("toUtc=" + Uri.EscapeDataString(toUtc.Value.ToUniversalTime().ToString("o")));
+            if (bucketMinutes.HasValue) queryParts.Add("bucketMinutes=" + bucketMinutes.Value);
+            if (!String.IsNullOrEmpty(model)) queryParts.Add("model=" + Uri.EscapeDataString(model));
+            if (!String.IsNullOrEmpty(runtime)) queryParts.Add("runtime=" + Uri.EscapeDataString(runtime));
+            if (!String.IsNullOrEmpty(source)) queryParts.Add("source=" + Uri.EscapeDataString(source));
+            if (!String.IsNullOrEmpty(vesselId)) queryParts.Add("vesselId=" + Uri.EscapeDataString(vesselId));
+            if (!String.IsNullOrEmpty(captainId)) queryParts.Add("captainId=" + Uri.EscapeDataString(captainId));
+            string path = "/api/v1/token-usage/summary";
+            if (queryParts.Count > 0) path += "?" + String.Join("&", queryParts);
+            return await GetAsync<TokenUsageSummaryResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// List token-usage records with pagination and optional filters.
+        /// </summary>
+        public async Task<EnumerationResult<TokenUsageRecord>?> ListTokenUsageAsync(
+            int pageNumber = 1,
+            int pageSize = 25,
+            string? model = null,
+            string? runtime = null,
+            string? source = null,
+            string? vesselId = null,
+            string? captainId = null,
+            DateTime? fromUtc = null,
+            DateTime? toUtc = null,
+            CancellationToken token = default)
+        {
+            List<string> queryParts = new List<string>();
+            if (pageNumber != 1) queryParts.Add("pageNumber=" + pageNumber);
+            if (pageSize != 25) queryParts.Add("pageSize=" + pageSize);
+            if (!String.IsNullOrEmpty(model)) queryParts.Add("model=" + Uri.EscapeDataString(model));
+            if (!String.IsNullOrEmpty(runtime)) queryParts.Add("runtime=" + Uri.EscapeDataString(runtime));
+            if (!String.IsNullOrEmpty(source)) queryParts.Add("source=" + Uri.EscapeDataString(source));
+            if (!String.IsNullOrEmpty(vesselId)) queryParts.Add("vesselId=" + Uri.EscapeDataString(vesselId));
+            if (!String.IsNullOrEmpty(captainId)) queryParts.Add("captainId=" + Uri.EscapeDataString(captainId));
+            if (fromUtc.HasValue) queryParts.Add("fromUtc=" + Uri.EscapeDataString(fromUtc.Value.ToUniversalTime().ToString("o")));
+            if (toUtc.HasValue) queryParts.Add("toUtc=" + Uri.EscapeDataString(toUtc.Value.ToUniversalTime().ToString("o")));
+            string path = "/api/v1/token-usage";
+            if (queryParts.Count > 0) path += "?" + String.Join("&", queryParts);
+            return await GetAsync<EnumerationResult<TokenUsageRecord>>(path, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
         #region Public-Methods-MergeQueue
 
         /// <summary>

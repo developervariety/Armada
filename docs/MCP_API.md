@@ -33,6 +33,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
   - **Status**
     - [status](#status)
     - [inbox](#inbox)
+    - [token_usage_summary](#token_usage_summary)
     - [stop_server](#stop_server)
   - **Enumeration**
     - [enumerate](#enumerate)
@@ -384,6 +385,65 @@ No parameters required.
 ```
 
 > Also exposed over REST as `GET /api/v1/inbox` and in the CLI as `armada inbox`.
+
+---
+
+### token_usage_summary
+
+Summarize model token usage over a time window. Returns time buckets (each with a per-model breakdown), a whole-window per-model aggregate ordered most-used first, and grand totals. Use it to answer *"how many tokens has each model used?"* or *"what's our token usage over the last week?"*.
+
+Counts are normalized across providers: `input` covers prompt tokens, `output` covers completion tokens, `cached` is the cache-read subset of input (informational), and `total` is input + output. Counts are measured where the runtime reports usage (for example Claude Code) and estimated from text length otherwise; `estimatedCount` reports how many aggregated records were estimated.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sinceHours": { "type": "integer", "description": "Only include usage newer than this many hours (default 24; ignored when fromUtc is set)" },
+    "fromUtc": { "type": "string", "description": "Explicit UTC window start (ISO-8601); overrides sinceHours" },
+    "toUtc": { "type": "string", "description": "Explicit UTC window end (ISO-8601; default now)" },
+    "bucketMinutes": { "type": "integer", "description": "Time-bucket width in minutes (default 60)" },
+    "model": { "type": "string", "description": "Filter to one model" },
+    "runtime": { "type": "string", "description": "Filter to one runtime (for example claudecode, codex, mux)" },
+    "source": { "type": "string", "description": "Filter to one source: mission, chat, or planning" },
+    "vesselId": { "type": "string", "description": "Filter to one vessel (vsl_ prefix)" },
+    "captainId": { "type": "string", "description": "Filter to one captain (cpt_ prefix)" }
+  }
+}
+```
+
+**Response:** grand totals plus `buckets` (time series) and `byModel` (most-used first).
+
+```json
+{
+  "fromUtc": "2026-05-01T00:00:00Z",
+  "toUtc": "2026-05-08T00:00:00Z",
+  "bucketMinutes": 60,
+  "recordCount": 42,
+  "estimatedCount": 18,
+  "inputTokens": 1200000,
+  "outputTokens": 340000,
+  "cachedTokens": 90000,
+  "totalTokens": 1540000,
+  "byModel": [
+    { "model": "claude-sonnet-4", "inputTokens": 900000, "outputTokens": 250000, "cachedTokens": 80000, "totalTokens": 1150000 },
+    { "model": "gpt-5", "inputTokens": 300000, "outputTokens": 90000, "cachedTokens": 10000, "totalTokens": 390000 }
+  ],
+  "buckets": [
+    {
+      "bucketStartUtc": "2026-05-01T00:00:00Z",
+      "bucketEndUtc": "2026-05-01T01:00:00Z",
+      "inputTokens": 20000, "outputTokens": 5000, "cachedTokens": 1000, "totalTokens": 25000,
+      "models": [
+        { "model": "claude-sonnet-4", "inputTokens": 20000, "outputTokens": 5000, "cachedTokens": 1000, "totalTokens": 25000 }
+      ]
+    }
+  ]
+}
+```
+
+> Also exposed over REST as `GET /api/v1/token-usage/summary`.
 
 ---
 

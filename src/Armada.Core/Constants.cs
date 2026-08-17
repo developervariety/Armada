@@ -119,6 +119,11 @@ namespace Armada.Core
         public static readonly string JobIdPrefix = "job_";
 
         /// <summary>
+        /// Token-usage record ID prefix.
+        /// </summary>
+        public static readonly string TokenUsageIdPrefix = "tku_";
+
+        /// <summary>
         /// Fleet ID prefix.
         /// </summary>
         public static readonly string FleetIdPrefix = "flt_";

@@ -72,6 +72,7 @@ namespace Armada.Core.Database.SqlServer
             Signals = new SignalMethods(this, _Settings, _Logging);
             Events = new EventMethods(this, _Settings, _Logging);
             RequestHistory = new RequestHistoryMethods(this);
+            TokenUsage = new TokenUsageMethods(this);
             MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             Tenants = new TenantMethods(this, _Settings, _Logging);

@@ -1221,6 +1221,122 @@
           ]
         },
         {
+          "name": "Token Usage",
+          "item": [
+            {
+              "name": "Token Usage Summary",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/token-usage/summary?bucketMinutes=60&fromUtc=2026-05-01T00:00:00Z&toUtc=2026-05-08T00:00:00Z",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "token-usage",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "bucketMinutes",
+                      "value": "60"
+                    },
+                    {
+                      "key": "fromUtc",
+                      "value": "2026-05-01T00:00:00Z"
+                    },
+                    {
+                      "key": "toUtc",
+                      "value": "2026-05-08T00:00:00Z"
+                    },
+                    {
+                      "key": "source",
+                      "value": "mission",
+                      "disabled": true
+                    },
+                    {
+                      "key": "model",
+                      "value": "claude-sonnet-4",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Token usage aggregated into time buckets (with a per-model breakdown), a per-model aggregate ordered most-used first, and grand totals. Powers the dashboard Token Usage charts."
+              },
+              "response": []
+            },
+            {
+              "name": "List Token Usage",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/token-usage?pageNumber=1&pageSize=50",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "token-usage"
+                  ],
+                  "query": [
+                    {
+                      "key": "pageNumber",
+                      "value": "1"
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "50"
+                    },
+                    {
+                      "key": "source",
+                      "value": "mission",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "List token-usage records scoped to the authenticated caller."
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Token Usage By Filter",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/token-usage/delete/by-filter",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "token-usage",
+                    "delete",
+                    "by-filter"
+                  ]
+                },
+                "description": "Delete all token-usage records matching the supplied filters within the caller's scope. Tenant admin or global admin only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Model\": \"claude-sonnet-4\",\n  \"Source\": \"mission\",\n  \"FromUtc\": \"2026-05-01T00:00:00Z\",\n  \"ToUtc\": \"2026-05-02T00:00:00Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "Runtime Helpers",
           "item": [
             {

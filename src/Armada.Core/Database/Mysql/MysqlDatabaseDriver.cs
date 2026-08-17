@@ -68,6 +68,7 @@ namespace Armada.Core.Database.Mysql
             Signals = new SignalMethods(_ConnectionString);
             Events = new EventMethods(_ConnectionString);
             RequestHistory = new RequestHistoryMethods(_ConnectionString);
+            TokenUsage = new TokenUsageMethods(_ConnectionString);
             MergeEntries = new MergeEntryMethods(_ConnectionString);
             Tenants = new TenantMethods(_ConnectionString);
             Users = new UserMethods(_ConnectionString);
@@ -550,6 +551,11 @@ namespace Armada.Core.Database.Mysql
                     55,
                     "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
                     TableQueries.MigrationV55Statements
+                ),
+                new SchemaMigration(
+                    56,
+                    "Add token_usage table for per-model token accounting",
+                    TableQueries.MigrationV56Statements
                 )
             };
         }

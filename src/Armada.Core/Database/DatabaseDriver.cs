@@ -90,6 +90,11 @@ namespace Armada.Core.Database
         public IMergeEntryMethods MergeEntries { get; protected set; } = null!;
 
         /// <summary>
+        /// Token-usage operations.
+        /// </summary>
+        public ITokenUsageMethods TokenUsage { get; protected set; } = null!;
+
+        /// <summary>
         /// Tenant operations.
         /// </summary>
         public ITenantMethods Tenants { get; protected set; } = null!;

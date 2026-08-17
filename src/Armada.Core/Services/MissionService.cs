@@ -962,6 +962,24 @@ namespace Armada.Core.Services
                 {
                     mission.AgentOutput = agentOutput;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                    // Best-effort token accounting for the mission run. Mission output is human-readable
+                    // (no provider usage report), so both counts are estimated from text length and flagged.
+                    await TokenUsageCapture.CaptureAsync(
+                        _Database, _Logging, "mission",
+                        model: captain.Model,
+                        runtime: captain.Runtime.ToString(),
+                        tenantId: mission.TenantId,
+                        userId: null,
+                        vesselId: String.IsNullOrEmpty(mission.VesselId) ? null : mission.VesselId,
+                        captainId: captain.Id,
+                        sourceId: mission.Id,
+                        inputTokens: null,
+                        outputTokens: null,
+                        cachedTokens: null,
+                        inputText: mission.Description,
+                        outputText: agentOutput,
+                        token: token).ConfigureAwait(false);
                 }
             }
 
@@ -1754,6 +1772,7 @@ namespace Armada.Core.Services
                         "- `[ARMADA:STATUS] Testing` -- transition mission to Testing status\n" +
                         "- `[ARMADA:STATUS] Review` -- transition mission to Review status\n" +
                         "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n" +
+                        "- `[ARMADA:TOKENS] input=1234 output=567 cached=0` -- report the tokens you consumed this session (input/prompt, output/completion, and cache-read). Emit this once near the end if your runtime can determine the counts; it lets the Admiral record real token usage instead of an estimate.\n" +
                         "- `[ARMADA:RESULT] COMPLETE` -- worker/test engineer mission finished successfully\n" +
                         "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
                         "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +

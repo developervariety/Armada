@@ -16,6 +16,7 @@ import type {
   Mission,
   MissionSummary,
   MissionHistorySummaryResult,
+  TokenUsageSummaryResult,
   Voyage,
   Objective,
   GitHubActionsSyncRequest,
@@ -717,6 +718,14 @@ export const listMissionSummaries = (params?: { pageNumber?: number; pageSize?: 
 export const getMission = (id: string) => get<Mission>(`/api/v1/missions/${id}`);
 export const getMissionHistory = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; fleetId?: string; vesselId?: string }) =>
   get<MissionHistorySummaryResult>(`/api/v1/missions/history${buildQuery(params ? {
+    filters: Object.fromEntries(
+      Object.entries(params)
+        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .map(([key, value]) => [key, String(value)]),
+    ),
+  } : undefined)}`);
+export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; model?: string; runtime?: string; source?: string; vesselId?: string; captainId?: string }) =>
+  get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${buildQuery(params ? {
     filters: Object.fromEntries(
       Object.entries(params)
         .filter(([, value]) => value !== undefined && value !== null && value !== '')
