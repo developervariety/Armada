@@ -804,6 +804,14 @@ armada mcp install    # Configure Claude Code, Codex, Gemini, and Cursor for Arm
 armada mcp remove     # Remove those Armada MCP entries again
 ```
 
+To add Armada to Claude Code manually instead of using `armada mcp install`, register its default HTTP MCP endpoint (`http://localhost:7891/mcp` — port 7891, unauthenticated on localhost):
+
+```bash
+claude mcp add --transport http --scope user armada http://localhost:7891/mcp
+```
+
+Drop `--scope user` to add it for the current project only; substitute your port if you changed `McpPort`. On **enterprise-managed** Claude Code this may fail with `not allowed by enterprise policy` — that restriction is set by your IT administrator (Claude Code's `allowedMcpServers` managed setting) and cannot be overridden locally; a Claude Code admin must allow `http://localhost:7891/mcp`. See [docs/MCP_API.md](docs/MCP_API.md#http-transport) for the exact managed-settings snippet and alternatives.
+
 If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`.
 
 Once installed, your MCP client can call tools like `status`, `dispatch`, `enumerate`, `voyage_status`, and `cancel_voyage`. There are also MCP tools for structured delivery and operations such as `run_check`, `get_check_run`, `retry_check_run`, `create_release`, `get_release`, `create_objective`, `get_objective`, `create_deployment`, `get_deployment`, `approve_deployment`, `verify_deployment`, `rollback_deployment`, `get_runbook`, `get_runbook_execution`, and `start_runbook_execution`, plus tool groups for playbook, persona, pipeline, and prompt-template management.
