@@ -20,6 +20,19 @@ if not exist "%DASHBOARD_DIR%\package.json" (
     exit /b 1
 )
 
+REM Building the dashboard requires Node.js. When Node is unavailable, fall back to the pre-built
+REM dist that ships in the repository so install still works on a machine without Node installed.
+where node >nul 2>nul
+if errorlevel 1 (
+    if exist "%DIST_DIR%\index.html" (
+        echo [deploy-dashboard] Node.js not found on PATH; deploying the pre-built dashboard from %DIST_DIR%
+        goto :deploy
+    )
+    echo ERROR: Node.js is not installed and no pre-built dashboard exists at %DIST_DIR%.
+    echo Install Node.js ^(https://nodejs.org^) or build the dashboard once on a machine that has Node.
+    exit /b 1
+)
+
 pushd "%DASHBOARD_DIR%"
 if not exist "node_modules" (
     echo [deploy-dashboard] Installing dependencies...
@@ -58,6 +71,7 @@ if not exist "%DIST_DIR%\index.html" (
     exit /b 1
 )
 
+:deploy
 echo [deploy-dashboard] Deploying dashboard to %TARGET_DIR%
 if exist "%STAGING_DIR%" rmdir /s /q "%STAGING_DIR%"
 mkdir "%STAGING_DIR%" >nul 2>nul

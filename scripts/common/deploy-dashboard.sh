@@ -15,17 +15,27 @@ if [ ! -f "${DASHBOARD_DIR}/package.json" ]; then
     exit 1
 fi
 
-cd "${DASHBOARD_DIR}"
-if [ ! -d "node_modules" ]; then
-    echo "[deploy-dashboard] Installing dependencies..."
-    npm install
-fi
+# Building the dashboard requires Node.js. When Node is unavailable, fall back to the pre-built
+# dist that ships in the repository so install still works on a machine without Node installed.
+if command -v node >/dev/null 2>&1; then
+    cd "${DASHBOARD_DIR}"
+    if [ ! -d "node_modules" ]; then
+        echo "[deploy-dashboard] Installing dependencies..."
+        npm install
+    fi
 
-echo "[deploy-dashboard] Building..."
-npm run build
+    echo "[deploy-dashboard] Building..."
+    npm run build
 
-if [ ! -f "${DIST_DIR}/index.html" ]; then
-    echo "ERROR: Dashboard build did not produce dist/index.html"
+    if [ ! -f "${DIST_DIR}/index.html" ]; then
+        echo "ERROR: Dashboard build did not produce dist/index.html"
+        exit 1
+    fi
+elif [ -f "${DIST_DIR}/index.html" ]; then
+    echo "[deploy-dashboard] Node.js not found on PATH; deploying the pre-built dashboard from ${DIST_DIR}"
+else
+    echo "ERROR: Node.js is not installed and no pre-built dashboard exists at ${DIST_DIR}."
+    echo "Install Node.js (https://nodejs.org) or build the dashboard once on a machine that has Node."
     exit 1
 fi
 
