@@ -865,16 +865,19 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 .mission-history-refresh-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 /* Token Usage Charts */
-.token-usage-toggles { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.token-usage-page { display: flex; flex-direction: column; gap: 1rem; }
+.token-usage-controls { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; }
+.token-usage-stats { margin: 0; }
 .token-usage-estimated-note { color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
-.token-usage-chart-title { font-size: 0.8rem; font-weight: 600; color: var(--text-dim); margin: 0.75rem 0 0.25rem; }
-.token-usage-hbars { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.25rem; }
-.token-usage-hbar-row { position: relative; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
-.token-usage-hbar-label { flex: 0 0 160px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-align: right; }
-.token-usage-hbar-track { flex: 1 1 auto; display: flex; align-items: stretch; height: 16px; background: var(--bg); border-radius: 3px; overflow: hidden; min-width: 0; }
-.token-usage-hbar-seg { height: 100%; transition: opacity 0.15s; }
-.token-usage-hbar-value { flex: 0 0 auto; min-width: 48px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.token-usage-hbar-tooltip { position: absolute; left: 170px; bottom: 100%; margin-bottom: 4px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; font-size: 0.8rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); pointer-events: none; z-index: 10; white-space: nowrap; }
+.token-usage-chart-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); padding: 0.75rem 1rem 1rem; }
+.token-usage-chart-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+.token-usage-chart-title { font-size: 0.85rem; font-weight: 600; color: var(--text); margin: 0; }
+.token-usage-copy-btn { background: none; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; padding: 0.2rem 0.55rem; color: var(--text-dim); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; }
+.token-usage-copy-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.token-usage-copy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.token-usage-copy-btn.failed { color: var(--red); border-color: var(--red); }
+.token-usage-tooltip { position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; font-size: 0.8rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); pointer-events: none; z-index: 1000; white-space: nowrap; max-width: min(360px, 90vw); }
+.token-usage-tooltip-title { font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
 
 .card {
     background: var(--bg-card);
