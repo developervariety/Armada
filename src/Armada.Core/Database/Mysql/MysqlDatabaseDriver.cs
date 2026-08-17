@@ -79,6 +79,8 @@ namespace Armada.Core.Database.Mysql
             Releases = new ReleaseMethods(_ConnectionString);
             Deployments = new DeploymentMethods(_ConnectionString);
             VesselPackHints = new VesselPackHintMethods(_ConnectionString, _Settings, _Logging);
+            Jobs = new JobMethods(_ConnectionString);
+            TokenUsage = new TokenUsageMethods(_ConnectionString);
         }
 
         #endregion
@@ -616,6 +618,46 @@ namespace Armada.Core.Database.Mysql
                     60,
                     "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
                     TableQueries.MigrationV60Statements
+                ),
+                new SchemaMigration(
+                    61,
+                    "Add skills directory",
+                    TableQueries.MigrationV61Statements
+                ),
+                new SchemaMigration(
+                    62,
+                    "Add reasoning_effort to captains",
+                    TableQueries.MigrationV62Statements
+                ),
+                new SchemaMigration(
+                    63,
+                    "Add redispatch_attempts to missions for no-op completion recovery",
+                    TableQueries.MigrationV63Statements
+                ),
+                new SchemaMigration(
+                    64,
+                    "Add dock-boundary scanner config to vessels",
+                    TableQueries.MigrationV64Statements
+                ),
+                new SchemaMigration(
+                    65,
+                    "Add jobs table for background job tracking",
+                    TableQueries.MigrationV65Statements
+                ),
+                new SchemaMigration(
+                    66,
+                    "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    TableQueries.MigrationV66Statements
+                ),
+                new SchemaMigration(
+                    67,
+                    "Add token_usage table for per-model token accounting",
+                    TableQueries.MigrationV67Statements
+                ),
+                new SchemaMigration(
+                    68,
+                    "Add project profiles for layered persona resolution",
+                    TableQueries.MigrationV68Statements
                 )
             };
         }

@@ -662,6 +662,125 @@ namespace Armada.Core.Database.SqlServer.Queries
                     61,
                     "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
                     @"IF COL_LENGTH('missions', 'retry_skip_captain_ids') IS NULL ALTER TABLE missions ADD retry_skip_captain_ids NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    62,
+                    "Add skills directory",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'skills')
+                    CREATE TABLE skills (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450),
+                        user_id NVARCHAR(450),
+                        name NVARCHAR(450) NOT NULL,
+                        description NVARCHAR(MAX),
+                        category NVARCHAR(450),
+                        content NVARCHAR(MAX),
+                        is_built_in BIT NOT NULL DEFAULT 0,
+                        active BIT NOT NULL DEFAULT 1,
+                        created_utc NVARCHAR(450) NOT NULL,
+                        last_update_utc NVARCHAR(450) NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_tenant') CREATE INDEX idx_skills_tenant ON skills(tenant_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_category') CREATE INDEX idx_skills_category ON skills(category);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_skills_active') CREATE INDEX idx_skills_active ON skills(active);"
+                ),
+                new SchemaMigration(
+                    63,
+                    "Add reasoning_effort to captains",
+                    @"IF COL_LENGTH('captains', 'reasoning_effort') IS NULL ALTER TABLE captains ADD reasoning_effort NVARCHAR(450);"
+                ),
+                new SchemaMigration(
+                    64,
+                    "Add redispatch_attempts to missions for no-op completion recovery",
+                    @"IF COL_LENGTH('missions', 'redispatch_attempts') IS NULL ALTER TABLE missions ADD redispatch_attempts INT NOT NULL CONSTRAINT DF_missions_redispatch_attempts DEFAULT 0;"
+                ),
+                new SchemaMigration(
+                    65,
+                    "Add dock-boundary scanner config to vessels",
+                    @"IF COL_LENGTH('vessels', 'secret_scan_enabled') IS NULL ALTER TABLE vessels ADD secret_scan_enabled BIT NOT NULL CONSTRAINT DF_vessels_secret_scan_enabled DEFAULT 0;",
+                    @"IF COL_LENGTH('vessels', 'protected_path_patterns_json') IS NULL ALTER TABLE vessels ADD protected_path_patterns_json NVARCHAR(MAX);",
+                    @"IF COL_LENGTH('vessels', 'private_identifier_denylist_json') IS NULL ALTER TABLE vessels ADD private_identifier_denylist_json NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    66,
+                    "Add jobs table for background job tracking",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'jobs')
+                    CREATE TABLE jobs (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450),
+                        user_id NVARCHAR(450),
+                        name NVARCHAR(MAX) NOT NULL DEFAULT '',
+                        kind NVARCHAR(450) NOT NULL,
+                        status NVARCHAR(450) NOT NULL,
+                        progress INT NOT NULL DEFAULT 0,
+                        result_json NVARCHAR(MAX),
+                        error_reason NVARCHAR(MAX),
+                        created_utc NVARCHAR(450) NOT NULL,
+                        started_utc NVARCHAR(450),
+                        completed_utc NVARCHAR(450),
+                        last_update_utc NVARCHAR(450) NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_jobs_created') CREATE INDEX idx_jobs_created ON jobs(created_utc DESC);"
+                ),
+                new SchemaMigration(
+                    67,
+                    "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+                    @"IF COL_LENGTH('personas', 'default_captain_id') IS NULL ALTER TABLE personas ADD default_captain_id NVARCHAR(450);",
+                    @"IF COL_LENGTH('missions', 'requested_captain_id') IS NULL ALTER TABLE missions ADD requested_captain_id NVARCHAR(450);",
+                    @"IF COL_LENGTH('voyages', 'captain_overrides_json') IS NULL ALTER TABLE voyages ADD captain_overrides_json NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    68,
+                    "Add token_usage table for per-model token accounting",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'token_usage')
+                    CREATE TABLE token_usage (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450),
+                        user_id NVARCHAR(450),
+                        model NVARCHAR(MAX) NOT NULL DEFAULT '',
+                        runtime NVARCHAR(450),
+                        source NVARCHAR(450) NOT NULL,
+                        source_id NVARCHAR(450),
+                        vessel_id NVARCHAR(450),
+                        captain_id NVARCHAR(450),
+                        input_tokens INT NOT NULL DEFAULT 0,
+                        output_tokens INT NOT NULL DEFAULT 0,
+                        cached_tokens INT NOT NULL DEFAULT 0,
+                        total_tokens INT NOT NULL DEFAULT 0,
+                        estimated BIT NOT NULL DEFAULT 0,
+                        created_utc NVARCHAR(450) NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_token_usage_created') CREATE INDEX idx_token_usage_created ON token_usage(created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_token_usage_tenant_created') CREATE INDEX idx_token_usage_tenant_created ON token_usage(tenant_id, created_utc);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_token_usage_model') CREATE INDEX idx_token_usage_model ON token_usage(model);"
+                ),
+                new SchemaMigration(
+                    69,
+                    "Add project profiles for layered persona resolution",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'project_profiles')
+                    CREATE TABLE project_profiles (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450),
+                        user_id NVARCHAR(450),
+                        name NVARCHAR(450) NOT NULL,
+                        description NVARCHAR(MAX),
+                        scope NVARCHAR(450) NOT NULL DEFAULT 'Global',
+                        fleet_id NVARCHAR(450),
+                        vessel_id NVARCHAR(450),
+                        is_default BIT NOT NULL DEFAULT 0,
+                        active BIT NOT NULL DEFAULT 1,
+                        default_pipeline_id NVARCHAR(450),
+                        workflow_profile_id NVARCHAR(450),
+                        persona_overrides_json NVARCHAR(MAX),
+                        skills_json NVARCHAR(MAX),
+                        created_utc NVARCHAR(450) NOT NULL,
+                        last_update_utc NVARCHAR(450) NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_tenant') CREATE INDEX idx_project_profiles_tenant ON project_profiles(tenant_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_scope') CREATE INDEX idx_project_profiles_scope ON project_profiles(scope);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_fleet') CREATE INDEX idx_project_profiles_fleet ON project_profiles(fleet_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_vessel') CREATE INDEX idx_project_profiles_vessel ON project_profiles(vessel_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_default_scope') CREATE INDEX idx_project_profiles_default_scope ON project_profiles(scope, is_default, active);"
                 )
             };
         }

@@ -277,6 +277,8 @@ namespace Armada.Core.Database.Postgresql
             Releases = new ReleaseMethods(this);
             Deployments = new DeploymentMethods(this);
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
+            Jobs = new JobMethods(this, _Settings, _Logging);
+            TokenUsage = new TokenUsageMethods(_DataSource);
         }
 
         #endregion

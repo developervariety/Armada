@@ -522,6 +522,22 @@ namespace Armada.Server.Routes
                         lineCount = Math.Max(1, parsedLines);
 
                     string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
+
+                    // ?formatted=true applies the readable formatter: resolves tool names out of runtime
+                    // JSONL, redacts secret-shaped values, truncates oversized payloads, and drops noise.
+                    bool formatted = String.Equals(req.Query.GetValueOrDefault("formatted"), "true", StringComparison.OrdinalIgnoreCase);
+                    if (formatted)
+                    {
+                        List<string> formattedLines = new List<string>();
+                        foreach (string raw in slice)
+                        {
+                            Armada.Core.Services.FormattedLogLine fl = Armada.Core.Services.RuntimeLogFormatter.Format(raw, captain.Runtime);
+                            if (fl.Dropped) continue;
+                            formattedLines.Add(fl.Text);
+                        }
+                        return (object)new { CaptainId = id, Log = String.Join("\n", formattedLines), Lines = formattedLines.Count, TotalLines = totalLines };
+                    }
+
                     string log = String.Join("\n", slice);
 
                     return (object)new { CaptainId = id, Log = log, Lines = slice.Length, TotalLines = totalLines };
@@ -579,6 +595,10 @@ namespace Armada.Server.Routes
                     await _database.Captains.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 else
                     await _database.Captains.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+
+                // Remove dependents (telemetry events + planning sessions) that referenced this captain.
+                await CascadeCleanup.RemoveDependentsForCaptainAsync(_database, id).ConfigureAwait(false);
+
                 req.Http.Response.StatusCode = 204;
                 return null;
             },

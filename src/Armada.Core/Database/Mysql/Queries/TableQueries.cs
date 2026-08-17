@@ -966,6 +966,147 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v61 statements for adding skills directory.
+        /// </summary>
+        public static readonly string[] MigrationV61Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS skills (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                category VARCHAR(450),
+                content LONGTEXT,
+                is_built_in TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+            );",
+            @"CREATE INDEX idx_skills_tenant ON skills(tenant_id);",
+            @"CREATE INDEX idx_skills_category ON skills(category);",
+            @"CREATE INDEX idx_skills_active ON skills(active);"
+        };
+
+        /// <summary>
+        /// Migration v62 statements for adding reasoning_effort to captains.
+        /// </summary>
+        public static readonly string[] MigrationV62Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN reasoning_effort VARCHAR(450) NULL;"
+        };
+
+        /// <summary>
+        /// Migration v63 statements for adding redispatch_attempts to missions.
+        /// </summary>
+        public static readonly string[] MigrationV63Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN redispatch_attempts INT NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
+        /// Migration v64 statements for adding dock-boundary scanner config to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV64Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json LONGTEXT;",
+            @"ALTER TABLE vessels ADD COLUMN private_identifier_denylist_json LONGTEXT;"
+        };
+
+        /// <summary>
+        /// Migration v65 statements for adding jobs table for background job tracking.
+        /// </summary>
+        public static readonly string[] MigrationV65Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS jobs (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name LONGTEXT NOT NULL,
+                kind VARCHAR(450) NOT NULL,
+                status VARCHAR(450) NOT NULL,
+                progress INT NOT NULL DEFAULT 0,
+                result_json LONGTEXT,
+                error_reason LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                started_utc DATETIME(6),
+                completed_utc DATETIME(6),
+                last_update_utc DATETIME(6) NOT NULL
+            );",
+            @"CREATE INDEX idx_jobs_created ON jobs(created_utc DESC);"
+        };
+
+        /// <summary>
+        /// Migration v66 statements for adding per-step captain selection.
+        /// </summary>
+        public static readonly string[] MigrationV66Statements = new string[]
+        {
+            @"ALTER TABLE personas ADD COLUMN default_captain_id VARCHAR(450) NULL;",
+            @"ALTER TABLE missions ADD COLUMN requested_captain_id VARCHAR(450) NULL;",
+            @"ALTER TABLE voyages ADD COLUMN captain_overrides_json LONGTEXT;"
+        };
+
+        /// <summary>
+        /// Migration v67 statements for adding token_usage table for per-model token accounting.
+        /// </summary>
+        public static readonly string[] MigrationV67Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS token_usage (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                model VARCHAR(450) NOT NULL DEFAULT '',
+                runtime VARCHAR(450),
+                source VARCHAR(450) NOT NULL,
+                source_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                captain_id VARCHAR(450),
+                input_tokens INT NOT NULL DEFAULT 0,
+                output_tokens INT NOT NULL DEFAULT 0,
+                cached_tokens INT NOT NULL DEFAULT 0,
+                total_tokens INT NOT NULL DEFAULT 0,
+                estimated TINYINT(1) NOT NULL DEFAULT 0,
+                created_utc DATETIME(6) NOT NULL
+            );",
+            @"CREATE INDEX idx_token_usage_created ON token_usage(created_utc DESC);",
+            @"CREATE INDEX idx_token_usage_tenant_created ON token_usage(tenant_id, created_utc);",
+            @"CREATE INDEX idx_token_usage_model ON token_usage(model);"
+        };
+
+        /// <summary>
+        /// Migration v68 statements for adding project profiles for layered persona resolution.
+        /// </summary>
+        public static readonly string[] MigrationV68Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS project_profiles (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                scope VARCHAR(450) NOT NULL DEFAULT 'Global',
+                fleet_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                is_default TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                default_pipeline_id VARCHAR(450),
+                workflow_profile_id VARCHAR(450),
+                persona_overrides_json LONGTEXT,
+                skills_json LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+            );",
+            @"CREATE INDEX idx_project_profiles_tenant ON project_profiles(tenant_id);",
+            @"CREATE INDEX idx_project_profiles_scope ON project_profiles(scope);",
+            @"CREATE INDEX idx_project_profiles_fleet ON project_profiles(fleet_id);",
+            @"CREATE INDEX idx_project_profiles_vessel ON project_profiles(vessel_id);",
+            @"CREATE INDEX idx_project_profiles_default_scope ON project_profiles(scope, is_default, active);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

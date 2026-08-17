@@ -117,6 +117,7 @@ namespace Armada.Server.Mcp
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
+            McpTokenUsageTools.Register(register, database);
             McpPapercutTools.Register(register, database);
             if (logging != null) McpInboxTools.Register(register, database, logging);
             McpDockTools.Register(register, database, dockService);

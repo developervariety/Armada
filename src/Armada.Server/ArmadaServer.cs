@@ -62,6 +62,7 @@ namespace Armada.Server
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
+        private Armada.Core.Services.JobService _JobService = null!;
         private IMergeRecoveryHandler _MergeRecoveryHandler = null!;
         private IAutoLandEvaluator _AutoLandEvaluator = null!;
         private IConventionChecker _ConventionChecker = null!;
@@ -219,6 +220,7 @@ namespace Armada.Server
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
+            _JobService = new Armada.Core.Services.JobService(_Database, _Logging);
 
             // Auto-recovery wiring: classifier -> router -> handler. The handler reads
             // the persisted classification on a Failed entry and routes to redispatch,
@@ -833,8 +835,16 @@ namespace Armada.Server
             new EventRoutes(_Database, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Token usage
+            new TokenUsageRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Merge queue
             new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Background jobs
+            new Routes.JobRoutes(_Database, _JobService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Prompt templates
@@ -1366,6 +1376,10 @@ namespace Armada.Server
                     _IncidentLifecycle.TriggerBackgroundSweep(token);
                     _ObjectiveScheduler.TriggerBackgroundSweep(token);
                     _ReflectionSweeper.TriggerBackgroundSweep(token);
+
+                    // Reap background jobs whose worker died so they do not hang in Running.
+                    try { await _JobService.MaintainAsync(token).ConfigureAwait(false); }
+                    catch (Exception jobEx) { _Logging.Warn(_Header + "job maintenance error: " + jobEx.Message); }
 
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;

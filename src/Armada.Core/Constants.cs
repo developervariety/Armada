@@ -63,7 +63,17 @@ namespace Armada.Core
         public static readonly string DefaultRemoteTunnelUrl = "http://proxy.armadago.ai:7893/tunnel";
 
         /// <summary>
-        /// Default heartbeat interval in seconds.
+        /// Environment variable set on a replacement Admiral process during an in-place restart. Its value
+        /// is the process id of the outgoing Admiral; the replacement waits for that process to exit (which
+        /// frees the listening port) before it binds, so a self-triggered restart cannot race the old
+        /// instance for the port.
+        /// </summary>
+        public static readonly string RestartWaitPidEnvVar = "ARMADA_RESTART_WAIT_PID";
+
+        /// <summary>
+        /// Default heartbeat interval in seconds. Drives the Admiral health-check loop, which is the cadence
+        /// on which pending missions are assigned to idle captains, stalls are detected, the merge queue is
+        /// processed, and dangling handoffs are re-driven.
         /// </summary>
         public static readonly int DefaultHeartbeatIntervalSeconds = 30;
 
@@ -76,6 +86,25 @@ namespace Armada.Core
         /// Default maximum number of auto-recovery attempts per captain.
         /// </summary>
         public static readonly int DefaultMaxRecoveryAttempts = 3;
+
+        /// <summary>
+        /// Default hard ceiling, in minutes, on how long a single mission may run before it is
+        /// force-failed as a runaway. A generous backstop; set to 0 to disable.
+        /// </summary>
+        public static readonly int DefaultMaxMissionRuntimeMinutes = 240;
+
+        /// <summary>
+        /// Default minutes a mission may sit awaiting human review before the review watchdog
+        /// escalates and releases the held captain (the mission and its dock are preserved for the
+        /// reviewer). 0 disables the timeout.
+        /// </summary>
+        public static readonly int DefaultReviewTimeoutMinutes = 1440;
+
+        /// <summary>
+        /// Default global ceiling on the number of missions (working captains) that may run
+        /// simultaneously. 0 means unlimited.
+        /// </summary>
+        public static readonly int DefaultMaxConcurrentMissions = 0;
 
         /// <summary>
         /// Default maximum log file size in bytes (10 MB).
@@ -91,6 +120,16 @@ namespace Armada.Core
         /// Objective ID prefix.
         /// </summary>
         public static readonly string ObjectiveIdPrefix = "obj_";
+
+        /// <summary>
+        /// Job ID prefix.
+        /// </summary>
+        public static readonly string JobIdPrefix = "job_";
+
+        /// <summary>
+        /// Token-usage record ID prefix.
+        /// </summary>
+        public static readonly string TokenUsageIdPrefix = "tku_";
 
         /// <summary>
         /// Fleet ID prefix.
@@ -146,6 +185,16 @@ namespace Armada.Core
         /// Workflow profile ID prefix.
         /// </summary>
         public static readonly string WorkflowProfileIdPrefix = "wfp_";
+
+        /// <summary>
+        /// Project profile ID prefix.
+        /// </summary>
+        public static readonly string ProjectProfileIdPrefix = "ppf_";
+
+        /// <summary>
+        /// Skill ID prefix.
+        /// </summary>
+        public static readonly string SkillIdPrefix = "skl_";
 
         /// <summary>
         /// Check run ID prefix.
@@ -206,6 +255,11 @@ namespace Armada.Core
         /// Default maximum number of request/response body bytes to persist.
         /// </summary>
         public static readonly int DefaultRequestHistoryMaxBodyBytes = 32768;
+
+        /// <summary>
+        /// Default planning session inactivity timeout in minutes.
+        /// </summary>
+        public static readonly int DefaultPlanningSessionInactivityTimeoutMinutes = 60;
 
         /// <summary>
         /// Default abandonment timeout in minutes for planning sessions with no active runtime process.

@@ -157,6 +157,16 @@ namespace Armada.Core.Database
         /// </summary>
         public IVesselPackHintMethods VesselPackHints { get; protected set; } = null!;
 
+        /// <summary>
+        /// Background job operations.
+        /// </summary>
+        public IJobMethods Jobs { get; protected set; } = null!;
+
+        /// <summary>
+        /// Per-model token accounting operations.
+        /// </summary>
+        public ITokenUsageMethods TokenUsage { get; protected set; } = null!;
+
         #endregion
 
         #region Constructors-and-Factories
