@@ -5,6 +5,7 @@ const History = lazy(() => import('./History'));
 const RequestHistory = lazy(() => import('./RequestHistory'));
 const Events = lazy(() => import('./Events'));
 const Signals = lazy(() => import('./Signals'));
+const TokenUsage = lazy(() => import('./TokenUsage'));
 
 function panel(node: ReactNode): ReactNode {
   return <Suspense fallback={<p className="text-dim" style={{ padding: '1rem' }}>Loading...</p>}>{node}</Suspense>;
@@ -25,6 +26,7 @@ export default function Activity() {
     { key: 'requests', label: 'API Requests', render: () => panel(<RequestHistory />) },
     { key: 'events', label: 'Events', render: () => panel(<Events />) },
     { key: 'signals', label: 'Signals', render: () => panel(<Signals />) },
+    { key: 'tokens', label: 'Token Usage', render: () => panel(<TokenUsage />) },
   ];
 
   return <Tabs tabs={tabs} param="source" defaultTabKey="history" ariaLabel="Activity sources" />;

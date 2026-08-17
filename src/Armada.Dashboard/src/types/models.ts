@@ -302,6 +302,38 @@ export interface MissionHistorySummaryResult {
   buckets: MissionHistoryBucket[];
 }
 
+export interface TokenUsageModelBreakdown {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+}
+
+export interface TokenUsageBucket {
+  bucketStartUtc: string;
+  bucketEndUtc: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  models: TokenUsageModelBreakdown[];
+}
+
+export interface TokenUsageSummaryResult {
+  fromUtc: string | null;
+  toUtc: string | null;
+  bucketMinutes: number;
+  recordCount: number;
+  estimatedCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  buckets: TokenUsageBucket[];
+  byModel: TokenUsageModelBreakdown[];
+}
+
 export interface Voyage {
   id: string;
   tenantId: string | null;
