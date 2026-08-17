@@ -46,6 +46,7 @@ Machine-readable OpenAPI is available at `/openapi.json`, and the interactive Sw
   - [History](#history)
   - [Runtime Helpers](#runtime-helpers)
   - [Request History](#request-history)
+  - [Token Usage](#token-usage)
   - [Playbooks](#playbooks)
   - [Prompt Templates](#prompt-templates)
   - [Personas](#personas)
@@ -208,6 +209,9 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/request-history/delete/multiple` | POST | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/request-history/delete/by-filter` | POST | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/request-history/summary` | GET | Authenticated | Summary cards/charts for visible request history |
+| `/api/v1/token-usage/summary` | GET | Authenticated | Token usage aggregated into time buckets + per-model totals (dashboard charts) |
+| `/api/v1/token-usage` | GET | Authenticated | Paginated token-usage records within scope |
+| `/api/v1/token-usage/delete/by-filter` | POST | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/missions/{id}/github/pull-request` | GET | Authenticated | Read GitHub PR review, comment, and required-check evidence for one mission |
 | `/api/v1/runtimes/mux/endpoints` | GET | Authenticated | List saved Mux endpoints, optionally from `configDirectory` |
 | `/api/v1/runtimes/mux/endpoints/{name}` | GET | Authenticated | Show one saved Mux endpoint |
@@ -3891,6 +3895,43 @@ Delete all request-history entries matching the supplied filters within the call
 {
   "Method": "GET",
   "Route": "/api/v1/status",
+  "FromUtc": "2026-05-01T00:00:00Z",
+  "ToUtc": "2026-05-02T00:00:00Z"
+}
+```
+
+- Response: `200 OK` - `DeleteMultipleResult`
+
+---
+
+### Token Usage
+
+Armada records per-model token usage for every mission run, Ask Armada turn, and planning turn. Counts are normalized across providers: `input` covers prompt tokens, `output` covers completion tokens, `cached` is the cache-read subset of input (informational), and `total` is input + output. Counts are measured where the runtime reports usage (for example Claude Code's `output_tokens`) and estimated from text length otherwise; estimated records set `estimated: true` and are counted in the summary's `estimatedCount`.
+
+#### GET /api/v1/token-usage/summary
+
+Return token usage aggregated into time buckets (each with a per-model breakdown), a whole-window per-model aggregate ordered most-used first, and grand totals. This is the data behind the dashboard Token Usage charts.
+
+- Query: `fromUtc`, `toUtc`, `bucketMinutes`, `model`, `runtime`, `source`, `vesselId`, `captainId`, `tenantId`, `userId`
+- Defaults: last 24 hours, 15-minute buckets
+- `source` is one of `mission`, `chat`, `planning`
+- Response: `200 OK` - `TokenUsageSummaryResult` (fields: `fromUtc`, `toUtc`, `bucketMinutes`, `recordCount`, `estimatedCount`, `inputTokens`, `outputTokens`, `cachedTokens`, `totalTokens`, `buckets[]`, `byModel[]`)
+
+#### GET /api/v1/token-usage
+
+List token-usage records in the caller's scope.
+
+- Query: `pageNumber`, `pageSize`, `model`, `runtime`, `source`, `vesselId`, `captainId`, `fromUtc`, `toUtc`
+- Response: `200 OK` - `EnumerationResult<TokenUsageRecord>`
+
+#### POST /api/v1/token-usage/delete/by-filter
+
+Delete all token-usage records matching the supplied filters within the caller's scope.
+
+```json
+{
+  "Model": "claude-sonnet-4",
+  "Source": "mission",
   "FromUtc": "2026-05-01T00:00:00Z",
   "ToUtc": "2026-05-02T00:00:00Z"
 }

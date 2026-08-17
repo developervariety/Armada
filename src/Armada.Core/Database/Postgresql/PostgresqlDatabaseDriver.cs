@@ -270,6 +270,7 @@ namespace Armada.Core.Database.Postgresql
             Signals = new SignalMethods(_DataSource);
             Events = new EventMethods(_DataSource);
             RequestHistory = new RequestHistoryMethods(_DataSource);
+            TokenUsage = new TokenUsageMethods(_DataSource);
             MergeEntries = new MergeEntryMethods(_DataSource);
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);

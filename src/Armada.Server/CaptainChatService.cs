@@ -401,6 +401,23 @@ namespace Armada.Server
                     Metrics = Armada.Core.Services.ChatTurnMetricsBuilder.Build(totalMs, ttftMs, reply, realCompletionTokens),
                 };
 
+                // Best-effort token accounting: real output tokens for Claude Code, estimated otherwise.
+                await Armada.Core.Services.TokenUsageCapture.CaptureAsync(
+                    _Database, _Logging, "chat",
+                    model: response.Model,
+                    runtime: captain.Runtime.ToString(),
+                    tenantId: captain.TenantId,
+                    userId: null,
+                    vesselId: null,
+                    captainId: captain.Id,
+                    sourceId: captain.CurrentMissionId,
+                    inputTokens: null,
+                    outputTokens: realCompletionTokens.HasValue ? (long?)realCompletionTokens.Value : null,
+                    cachedTokens: null,
+                    inputText: prompt,
+                    outputText: reply,
+                    token: token).ConfigureAwait(false);
+
                 _Logging.Debug(_Header + "chat turn for captain " + captainId + " (" + captain.Runtime + "): " +
                     (response.Metrics.TotalMs?.ToString("F0") ?? "?") + "ms, exit " + (exitCode?.ToString() ?? "?"));
 

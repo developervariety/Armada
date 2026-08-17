@@ -1251,6 +1251,33 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v56 statements: add the token_usage table for per-model token accounting.
+        /// </summary>
+        public static readonly string[] MigrationV56Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS token_usage (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(64),
+                user_id VARCHAR(64),
+                model VARCHAR(255) NOT NULL DEFAULT '',
+                runtime VARCHAR(64),
+                source VARCHAR(32) NOT NULL,
+                source_id VARCHAR(64),
+                vessel_id VARCHAR(64),
+                captain_id VARCHAR(64),
+                input_tokens BIGINT NOT NULL DEFAULT 0,
+                output_tokens BIGINT NOT NULL DEFAULT 0,
+                cached_tokens BIGINT NOT NULL DEFAULT 0,
+                total_tokens BIGINT NOT NULL DEFAULT 0,
+                estimated TINYINT(1) NOT NULL DEFAULT 0,
+                created_utc DATETIME(6) NOT NULL
+            );",
+            "CREATE INDEX idx_token_usage_created ON token_usage(created_utc DESC);",
+            "CREATE INDEX idx_token_usage_tenant_created ON token_usage(tenant_id, created_utc);",
+            "CREATE INDEX idx_token_usage_model ON token_usage(model);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

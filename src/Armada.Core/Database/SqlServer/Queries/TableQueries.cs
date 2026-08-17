@@ -898,6 +898,32 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('personas', 'default_captain_id') IS NULL ALTER TABLE personas ADD default_captain_id NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('missions', 'requested_captain_id') IS NULL ALTER TABLE missions ADD requested_captain_id NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('voyages', 'captain_overrides_json') IS NULL ALTER TABLE voyages ADD captain_overrides_json NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    56,
+                    "Add token_usage table for per-model token accounting",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'token_usage')
+                    CREATE TABLE token_usage (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450),
+                        user_id NVARCHAR(450),
+                        model NVARCHAR(255) NOT NULL CONSTRAINT DF_token_usage_model DEFAULT '',
+                        runtime NVARCHAR(64),
+                        source NVARCHAR(32) NOT NULL,
+                        source_id NVARCHAR(450),
+                        vessel_id NVARCHAR(450),
+                        captain_id NVARCHAR(450),
+                        input_tokens BIGINT NOT NULL CONSTRAINT DF_token_usage_input_tokens DEFAULT 0,
+                        output_tokens BIGINT NOT NULL CONSTRAINT DF_token_usage_output_tokens DEFAULT 0,
+                        cached_tokens BIGINT NOT NULL CONSTRAINT DF_token_usage_cached_tokens DEFAULT 0,
+                        total_tokens BIGINT NOT NULL CONSTRAINT DF_token_usage_total_tokens DEFAULT 0,
+                        estimated BIT NOT NULL CONSTRAINT DF_token_usage_estimated DEFAULT 0,
+                        created_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_token_usage_created') CREATE INDEX idx_token_usage_created ON token_usage(created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_token_usage_tenant_created') CREATE INDEX idx_token_usage_tenant_created ON token_usage(tenant_id, created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_token_usage_model') CREATE INDEX idx_token_usage_model ON token_usage(model);"
                 )
             };
         }

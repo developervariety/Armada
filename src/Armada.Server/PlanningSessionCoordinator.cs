@@ -860,6 +860,24 @@ namespace Armada.Server
                 assistantMessage.Content = finalContent.Trim();
                 assistantMessage.LastUpdateUtc = DateTime.UtcNow;
                 assistantMessage.Metrics = BuildTurnMetrics(turnStartUtc, firstOutputUtc, DateTime.UtcNow, assistantMessage.Content);
+
+                // Best-effort token accounting for the planning turn (output estimated from the reply).
+                await Armada.Core.Services.TokenUsageCapture.CaptureAsync(
+                    _Database, _Logging, "planning",
+                    model: captain.Model,
+                    runtime: captain.Runtime.ToString(),
+                    tenantId: session.TenantId,
+                    userId: null,
+                    vesselId: String.IsNullOrEmpty(session.VesselId) ? null : session.VesselId,
+                    captainId: captain.Id,
+                    sourceId: session.Id,
+                    inputTokens: null,
+                    outputTokens: null,
+                    cachedTokens: null,
+                    inputText: null,
+                    outputText: assistantMessage.Content,
+                    token: CancellationToken.None).ConfigureAwait(false);
+
                 await _Database.PlanningSessionMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
                 BroadcastMessageUpdated(assistantMessage);
 

@@ -1077,7 +1077,28 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(55, "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
                     @"ALTER TABLE personas ADD COLUMN IF NOT EXISTS default_captain_id TEXT;",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS requested_captain_id TEXT;",
-                    @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS captain_overrides_json TEXT;")
+                    @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS captain_overrides_json TEXT;"),
+                new SchemaMigration(56, "Add token_usage table for per-model token accounting",
+                    @"CREATE TABLE IF NOT EXISTS token_usage (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        model TEXT NOT NULL,
+                        runtime TEXT,
+                        source TEXT NOT NULL,
+                        source_id TEXT,
+                        vessel_id TEXT,
+                        captain_id TEXT,
+                        input_tokens BIGINT NOT NULL DEFAULT 0,
+                        output_tokens BIGINT NOT NULL DEFAULT 0,
+                        cached_tokens BIGINT NOT NULL DEFAULT 0,
+                        total_tokens BIGINT NOT NULL DEFAULT 0,
+                        estimated BOOLEAN NOT NULL DEFAULT FALSE,
+                        created_utc TIMESTAMP NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_token_usage_tenant_created ON token_usage(tenant_id, created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(model);")
             };
         }
 
