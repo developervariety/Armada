@@ -65,9 +65,10 @@ namespace Armada.Core.Models
         public int PageSize { get; set; } = 25;
 
         /// <summary>
-        /// Summary bucket width in minutes.
+        /// Summary bucket width in minutes. Fractional values are allowed (for example 0.5 for
+        /// 30-second buckets).
         /// </summary>
-        public int BucketMinutes { get; set; } = 15;
+        public double BucketMinutes { get; set; } = 15;
 
         /// <summary>
         /// Calculated zero-based offset.

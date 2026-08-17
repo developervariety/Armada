@@ -41,7 +41,7 @@ namespace Armada.Server.Mcp.Tools
                         sinceHours = new { type = "integer", description = "Only include usage newer than this many hours (default 24; ignored when fromUtc is set)" },
                         fromUtc = new { type = "string", description = "Explicit UTC window start (ISO-8601); overrides sinceHours" },
                         toUtc = new { type = "string", description = "Explicit UTC window end (ISO-8601; default now)" },
-                        bucketMinutes = new { type = "integer", description = "Time-bucket width in minutes (default 60)" },
+                        bucketMinutes = new { type = "number", description = "Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60)" },
                         model = new { type = "string", description = "Filter to one model" },
                         runtime = new { type = "string", description = "Filter to one runtime (for example claudecode, codex, mux)" },
                         source = new { type = "string", description = "Filter to one source: mission, chat, or planning" },

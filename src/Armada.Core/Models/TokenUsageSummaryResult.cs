@@ -24,9 +24,9 @@ namespace Armada.Core.Models
         public DateTime? ToUtc { get; set; } = null;
 
         /// <summary>
-        /// Bucket size in minutes.
+        /// Bucket size in minutes (may be fractional, for example 0.5 for 30-second buckets).
         /// </summary>
-        public int BucketMinutes { get; set; }
+        public double BucketMinutes { get; set; }
 
         /// <summary>
         /// Number of usage records aggregated.

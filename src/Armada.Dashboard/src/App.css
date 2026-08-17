@@ -870,7 +870,7 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 .token-usage-stats { margin: 0; }
 .token-usage-estimated-note { color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
 .token-usage-chart-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); padding: 0.75rem 1rem 1rem; }
-.token-usage-chart-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+.token-usage-chart-header { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.25rem; }
 .token-usage-chart-title { font-size: 0.85rem; font-weight: 600; color: var(--text); margin: 0; }
 .token-usage-copy-btn { background: none; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; padding: 0.2rem 0.55rem; color: var(--text-dim); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; }
 .token-usage-copy-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }

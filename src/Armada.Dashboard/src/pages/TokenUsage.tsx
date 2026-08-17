@@ -5,10 +5,11 @@ import type { TokenUsageSummaryResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { copySvgToClipboard } from '../lib/chartImage';
 
+// Bucket counts per range: hour = 2/min (120), day = 4/hour (96), week = 12/day (84), month = 4/day (120).
 const TIME_RANGES = [
-  { label: 'Last Hour', value: 'hour', hours: 1, stepMinutes: 1 },
+  { label: 'Last Hour', value: 'hour', hours: 1, stepMinutes: 0.5 },
   { label: 'Last Day', value: 'day', hours: 24, stepMinutes: 15 },
-  { label: 'Last Week', value: 'week', hours: 168, stepMinutes: 60 },
+  { label: 'Last Week', value: 'week', hours: 168, stepMinutes: 120 },
   { label: 'Last Month', value: 'month', hours: 720, stepMinutes: 360 },
 ] as const;
 
@@ -17,10 +18,7 @@ type Metric = 'total' | 'byType';
 type Shape = 'bars' | 'lines';
 type CopyState = 'idle' | 'ok' | 'fail';
 
-// Per-model palette: CSS variables first, then hex fallbacks so a large model set still gets distinct colors.
 const MODEL_COLORS = ['var(--accent)', 'var(--green)', 'var(--red)', '#a855f7', '#06b6d4', '#ec4899', 'var(--text-dim)', '#14b8a6'];
-
-// Token-type colors (input / output / cached) share one legend across both charts.
 const TYPE_COLORS = { input: 'var(--accent)', output: 'var(--green)', cached: 'var(--orange)' } as const;
 
 interface SeriesDef { key: string; label: string; color: string }
@@ -87,8 +85,6 @@ export default function TokenUsage() {
 
   const range = TIME_RANGES.find(r => r.value === timeRange)!;
 
-  // Measure the actual tooltip box and clamp it fully inside the viewport (runs before paint, so no flicker
-  // and no dependence on a guessed size -- the tooltip can never render outside the viewport).
   useLayoutEffect(() => {
     if (!tooltip || !tipRef.current) return;
     const rect = tipRef.current.getBoundingClientRect();
@@ -149,10 +145,11 @@ export default function TokenUsage() {
   const yTicks = computeYTicks(maxVal);
   const yMax = yTicks[yTicks.length - 1] || 1;
 
-  const chartHeight = 200;
-  const padTop = 20, padBot = 40, padLeft = 56, padRight = 16;
-  const barAreaHeight = chartHeight - padTop - padBot;
-  const barAreaWidth = 800 - padLeft - padRight;
+  // Time-series chart geometry (title band on top, X-axis title below tick labels, Y-axis title at left).
+  const CH = 232;
+  const padTop = 34, padBot = 52, padLeft = 64, padRight = 16;
+  const plotH = CH - padTop - padBot;
+  const plotW = 800 - padLeft - padRight;
 
   const byModel = data?.byModel || [];
   const maxModelTotal = Math.max(1, ...byModel.map(m => m.totalTokens));
@@ -175,15 +172,13 @@ export default function TokenUsage() {
     set(ok ? 'ok' : 'fail');
     window.setTimeout(() => set('idle'), 1600);
   };
-
   const copyLabel = (state: CopyState) => state === 'ok' ? t('Copied!') : state === 'fail' ? t('Copy failed') : t('Copy image');
 
-  // Model-chart geometry.
-  const rowH = 22;
-  const modelPadTop = 6, modelPadBot = 6;
-  const labelW = 160, valueW = 66, modelBarX = labelW + 8;
-  const modelBarW = 800 - modelBarX - valueW - 8;
-  const modelChartHeight = modelPadTop + modelPadBot + Math.max(1, byModel.length) * rowH;
+  // Model chart geometry (title band on top).
+  const titleBand = 24;
+  const rowH = 22, modelPadBot = 6, labelW = 160, valueW = 66;
+  const modelBarX = labelW + 8, modelBarW = 800 - (labelW + 8) - valueW - 8;
+  const modelChartHeight = titleBand + Math.max(1, byModel.length) * rowH + modelPadBot;
 
   return (
     <div className="token-usage-page">
@@ -214,10 +209,9 @@ export default function TokenUsage() {
         )}
       </div>
 
-      {/* Chart 1 -- Usage over time (its own card). */}
+      {/* Chart 1 -- Usage over time. Title + axis labels live inside the SVG so the copied image includes them. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <span className="token-usage-chart-title">{t('Usage over time')}</span>
           <button className={'token-usage-copy-btn' + (copiedTime === 'fail' ? ' failed' : '')} onClick={() => copyChart(timeChartRef, setCopiedTime)} disabled={!hasTimeData}>{copyLabel(copiedTime)}</button>
         </div>
         {loading ? (
@@ -226,9 +220,12 @@ export default function TokenUsage() {
           <div className="mission-history-empty">{t('No token usage for this time range')}</div>
         ) : (
           <>
-            <svg ref={timeChartRef} width="100%" viewBox={`0 0 800 ${chartHeight}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+            <svg ref={timeChartRef} width="100%" viewBox={`0 0 800 ${CH}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+              <text x={12} y={18} fontSize="11" fontWeight="600" fill="var(--text)">{t('Usage over time')}</text>
+              <text x={16} y={padTop + plotH / 2} fontSize="8" fill="var(--text-dim)" textAnchor="middle" transform={`rotate(-90 16 ${padTop + plotH / 2})`}>{t('Tokens')}</text>
+              <text x={padLeft + plotW / 2} y={CH - 8} fontSize="8" fill="var(--text-dim)" textAnchor="middle">{t('Time')}</text>
               {yTicks.map(tick => {
-                const y = padTop + barAreaHeight - (tick / yMax) * barAreaHeight;
+                const y = padTop + plotH - (tick / yMax) * plotH;
                 return (
                   <g key={tick}>
                     <line x1={padLeft} y1={y} x2={800 - padRight} y2={y} stroke="var(--border)" strokeDasharray={tick === 0 ? 'none' : '4,4'} strokeWidth={0.5} />
@@ -237,26 +234,26 @@ export default function TokenUsage() {
                 );
               })}
               {(() => {
-                const groupW = barAreaWidth / bucketTimestamps.length;
-                const barWidth = Math.max(2, Math.min(40, groupW * 0.7));
+                const groupW = plotW / bucketTimestamps.length;
+                const barWidth = Math.max(1, Math.min(40, groupW * 0.7));
                 const estLabelPx = range.hours > 48 ? 110 : 70;
-                const labelInterval = Math.max(1, Math.ceil(bucketTimestamps.length / Math.max(1, Math.floor(barAreaWidth / estLabelPx))));
+                const labelInterval = Math.max(1, Math.ceil(bucketTimestamps.length / Math.max(1, Math.floor(plotW / estLabelPx))));
                 const lines = !stacked ? series.map((s, si) => {
-                  const pts = bucketValues.map((row, i) => `${(padLeft + i * groupW + groupW / 2).toFixed(2)},${(padTop + barAreaHeight - (row[si] / yMax) * barAreaHeight).toFixed(2)}`).join(' ');
-                  return <polyline key={s.key} points={pts} fill="none" stroke={s.color} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />;
+                  const pts = bucketValues.map((row, i) => `${(padLeft + i * groupW + groupW / 2).toFixed(2)},${(padTop + plotH - (row[si] / yMax) * plotH).toFixed(2)}`).join(' ');
+                  return <polyline key={s.key} points={pts} fill="none" stroke={s.color} strokeWidth={1.3} strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />;
                 }) : null;
                 return (
                   <>
                     {stacked && bucketValues.map((row, i) => {
                       const x = padLeft + i * groupW + (groupW - barWidth) / 2;
-                      let cursor = padTop + barAreaHeight;
+                      let cursor = padTop + plotH;
                       return (
                         <g key={i}>
                           {row.map((value, si) => {
                             if (value <= 0) return null;
-                            const h = (value / yMax) * barAreaHeight;
+                            const h = (value / yMax) * plotH;
                             cursor -= h;
-                            return <rect key={series[si].key} x={x} y={cursor} width={barWidth} height={h} rx={1.5} fill={series[si].color} opacity={0.85} />;
+                            return <rect key={series[si].key} x={x} y={cursor} width={barWidth} height={h} rx={1} fill={series[si].color} opacity={0.85} />;
                           })}
                         </g>
                       );
@@ -266,9 +263,9 @@ export default function TokenUsage() {
                       <g key={'hit' + i}
                         onMouseMove={(e) => showTip(e.clientX, e.clientY, formatTooltipTime(ts), series.map((s, si) => ({ label: s.label, color: s.color, value: bucketValues[i][si] })), bucketValues[i].reduce((a, b) => a + b, 0))}
                         onMouseLeave={hideTip}>
-                        <rect x={padLeft + i * groupW} y={padTop} width={groupW} height={barAreaHeight + padBot} fill="transparent" />
+                        <rect x={padLeft + i * groupW} y={padTop} width={groupW} height={plotH + padBot - 16} fill="transparent" />
                         {i % labelInterval === 0 && (
-                          <text x={padLeft + i * groupW + groupW / 2} y={chartHeight - 8} textAnchor="middle" fontSize="6.5" fill="var(--text-dim)">{formatBucketLabel(ts, range.stepMinutes, range.hours)}</text>
+                          <text x={padLeft + i * groupW + groupW / 2} y={padTop + plotH + 16} textAnchor="middle" fontSize="6.5" fill="var(--text-dim)">{formatBucketLabel(ts, range.stepMinutes, range.hours)}</text>
                         )}
                       </g>
                     ))}
@@ -283,10 +280,9 @@ export default function TokenUsage() {
         )}
       </div>
 
-      {/* Chart 2 -- Usage by model (its own card). */}
+      {/* Chart 2 -- Usage by model. Title inside the SVG so the copied image includes it. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <span className="token-usage-chart-title">{t('Usage by model')}</span>
           <button className={'token-usage-copy-btn' + (copiedModel === 'fail' ? ' failed' : '')} onClick={() => copyChart(modelChartRef, setCopiedModel)} disabled={!hasModelData}>{copyLabel(copiedModel)}</button>
         </div>
         {loading ? (
@@ -296,8 +292,9 @@ export default function TokenUsage() {
         ) : (
           <>
             <svg ref={modelChartRef} width="100%" viewBox={`0 0 800 ${modelChartHeight}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+              <text x={12} y={16} fontSize="11" fontWeight="600" fill="var(--text)">{t('Usage by model')}</text>
               {byModel.map((m, i) => {
-                const y = modelPadTop + i * rowH;
+                const y = titleBand + i * rowH;
                 const cy = y + rowH / 2;
                 const segs = metric === 'byType'
                   ? [{ v: m.inputTokens, c: TYPE_COLORS.input }, { v: m.outputTokens, c: TYPE_COLORS.output }, { v: m.cachedTokens, c: TYPE_COLORS.cached }]
@@ -312,7 +309,7 @@ export default function TokenUsage() {
                     ], m.totalTokens)}
                     onMouseLeave={hideTip}>
                     <rect x={0} y={y} width={800} height={rowH} fill="transparent" />
-                    <text x={labelW - 4} y={cy + 3} textAnchor="end" fontSize="9" fill="var(--text)">{truncate(m.model, 24)}</text>
+                    <text x={labelW - 4} y={cy + 2.5} textAnchor="end" fontSize="7.5" fill="var(--text)">{truncate(m.model, 28)}</text>
                     {segs.map((seg, si) => {
                       if (seg.v <= 0) return null;
                       const w = (seg.v / maxModelTotal) * modelBarW;
@@ -320,7 +317,7 @@ export default function TokenUsage() {
                       cursor += w;
                       return <rect key={si} x={x} y={y + 4} width={Math.max(0.5, w)} height={rowH - 8} rx={2} fill={seg.c} opacity={0.9} />;
                     })}
-                    <text x={800 - 4} y={cy + 3} textAnchor="end" fontSize="8.5" fill="var(--text-dim)">{formatTokens(m.totalTokens)}</text>
+                    <text x={800 - 4} y={cy + 2.5} textAnchor="end" fontSize="7.5" fill="var(--text-dim)">{formatTokens(m.totalTokens)}</text>
                   </g>
                 );
               })}
@@ -336,7 +333,6 @@ export default function TokenUsage() {
         )}
       </div>
 
-      {/* Viewport-clamped tooltip, portaled to the body so it can never be clipped by a chart container. */}
       {tooltip && createPortal(
         <div ref={tipRef} className="token-usage-tooltip" style={{ left: tipPos.left, top: tipPos.top }}>
           <div className="token-usage-tooltip-title">{tooltip.title}</div>

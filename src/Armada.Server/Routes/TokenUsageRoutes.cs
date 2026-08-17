@@ -63,7 +63,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns token usage aggregated into time buckets (with a per-model breakdown), a whole-window per-model aggregate ordered most-used first, and grand totals -- the data behind the dashboard token-usage charts.")
                 .WithParameter(OpenApiParameterMetadata.Query("fromUtc", "UTC summary start timestamp (default now-24h)", false))
                 .WithParameter(OpenApiParameterMetadata.Query("toUtc", "UTC summary end timestamp (default now)", false))
-                .WithParameter(OpenApiParameterMetadata.Query("bucketMinutes", "Bucket width in minutes (default 15)", false, OpenApiSchemaMetadata.Integer()))
+                .WithParameter(OpenApiParameterMetadata.Query("bucketMinutes", "Bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 15)", false))
                 .WithParameter(OpenApiParameterMetadata.Query("model", "Optional model filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("runtime", "Optional runtime filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("source", "Optional source filter (mission, chat, planning)", false))
@@ -159,8 +159,8 @@ namespace Armada.Server.Routes
                 query.PageNumber = Math.Max(1, pageNumber);
             if (int.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (int.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), out int bucketMinutes))
-                query.BucketMinutes = Math.Max(1, bucketMinutes);
+            if (double.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double bucketMinutes) && bucketMinutes > 0)
+                query.BucketMinutes = bucketMinutes;
 
             query.Model = NormalizeEmpty(req.Query.GetValueOrDefault("model"));
             query.Runtime = NormalizeEmpty(req.Query.GetValueOrDefault("runtime"));

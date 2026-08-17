@@ -128,12 +128,15 @@ namespace Armada.Core.Services
             breakdown.TotalTokens += record.TotalTokens;
         }
 
-        private static DateTime FloorToBucket(DateTime value, int bucketMinutes)
+        private static DateTime FloorToBucket(DateTime value, double bucketMinutes)
         {
             // Floor on the absolute epoch grid so bucket boundaries match the dashboard's
-            // Math.floor(timeMs / bucketMs) * bucketMs alignment for every bucket width.
+            // Math.floor(timeMs / bucketMs) * bucketMs alignment for every bucket width. Supports
+            // fractional bucket widths (for example 0.5 minutes = 30-second buckets).
             DateTime utc = value.ToUniversalTime();
-            long bucketTicks = (long)Math.Max(1, bucketMinutes) * TimeSpan.TicksPerMinute;
+            double minutes = bucketMinutes > 0 ? bucketMinutes : 1;
+            long bucketTicks = (long)(minutes * TimeSpan.TicksPerMinute);
+            if (bucketTicks < 1) bucketTicks = 1;
             long flooredTicks = (utc.Ticks / bucketTicks) * bucketTicks;
             return new DateTime(flooredTicks, DateTimeKind.Utc);
         }

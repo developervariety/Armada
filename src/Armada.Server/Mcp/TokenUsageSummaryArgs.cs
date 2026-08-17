@@ -23,9 +23,9 @@ namespace Armada.Server.Mcp
         public string? ToUtc { get; set; } = null;
 
         /// <summary>
-        /// Time-bucket width in minutes (default 60).
+        /// Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60).
         /// </summary>
-        public int? BucketMinutes { get; set; } = null;
+        public double? BucketMinutes { get; set; } = null;
 
         /// <summary>
         /// Optional model filter.

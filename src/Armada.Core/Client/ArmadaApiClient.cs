@@ -778,7 +778,7 @@ namespace Armada.Core.Client
         public async Task<TokenUsageSummaryResult?> GetTokenUsageSummaryAsync(
             DateTime? fromUtc = null,
             DateTime? toUtc = null,
-            int? bucketMinutes = null,
+            double? bucketMinutes = null,
             string? model = null,
             string? runtime = null,
             string? source = null,
@@ -789,7 +789,7 @@ namespace Armada.Core.Client
             List<string> queryParts = new List<string>();
             if (fromUtc.HasValue) queryParts.Add("fromUtc=" + Uri.EscapeDataString(fromUtc.Value.ToUniversalTime().ToString("o")));
             if (toUtc.HasValue) queryParts.Add("toUtc=" + Uri.EscapeDataString(toUtc.Value.ToUniversalTime().ToString("o")));
-            if (bucketMinutes.HasValue) queryParts.Add("bucketMinutes=" + bucketMinutes.Value);
+            if (bucketMinutes.HasValue) queryParts.Add("bucketMinutes=" + bucketMinutes.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
             if (!String.IsNullOrEmpty(model)) queryParts.Add("model=" + Uri.EscapeDataString(model));
             if (!String.IsNullOrEmpty(runtime)) queryParts.Add("runtime=" + Uri.EscapeDataString(runtime));
             if (!String.IsNullOrEmpty(source)) queryParts.Add("source=" + Uri.EscapeDataString(source));
