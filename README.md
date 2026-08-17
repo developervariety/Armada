@@ -213,6 +213,8 @@ Examples:
 - `scripts\windows\install-windows-task.bat net8.0`
 - `scripts\windows\update-windows-task.bat --framework net8.0`
 
+Behind an SSL-inspecting corporate proxy (npm failing with `SELF_SIGNED_CERT_IN_CHAIN`), add `--insecure` (or `-k`) to any of these scripts to disable strict TLS certificate validation for npm/Node for that run, for example `scripts\windows\install.bat net8.0 --insecure`. Put the framework first, then the flag. This is honored across the install/update/reinstall/publish/mcp/task scripts on both Windows and Linux/macOS, and only affects npm/Node — dotnet/NuGet use the OS certificate store, which IT-managed machines normally already trust.
+
 These `install.*` scripts build the solution, deploy dashboard assets, and install `Armada.Helm` as a global tool from the current checkout.
 
 Platform entrypoints are split under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`.

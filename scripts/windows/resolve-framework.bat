@@ -33,4 +33,8 @@ set "FRAMEWORK="
 set "FORWARD_ARGS="
 set "DOTNET_FRAMEWORK_ARGS="
 set "DOTNET_MSBUILD_FRAMEWORK_ARGS="
+
+REM Also honor an "ignore TLS certificate" flag (-k / --insecure) from the same command line, so every
+REM script that resolves a framework transparently supports it too.
+call "%~dp0resolve-insecure.bat" %*
 exit /b 0

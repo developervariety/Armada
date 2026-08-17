@@ -35,4 +35,10 @@ armada_resolve_framework() {
     export ARMADA_TARGET_FRAMEWORK
     export ARMADA_FORWARD_FRAMEWORK_ARGS="--framework ${ARMADA_TARGET_FRAMEWORK}"
     export ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS="-p:TargetFramework=${ARMADA_TARGET_FRAMEWORK} -p:TargetFrameworks=${ARMADA_TARGET_FRAMEWORK}"
+
+    # Also honor an "ignore TLS certificate" flag (-k / --insecure) from the same command line, so every
+    # script that resolves a framework transparently supports it too.
+    # shellcheck source=scripts/common/resolve-insecure.sh
+    . "$(dirname "${BASH_SOURCE[0]}")/resolve-insecure.sh"
+    armada_resolve_insecure "$@"
 }

@@ -7,6 +7,11 @@ DASHBOARD_DIR="${REPO_ROOT}/src/Armada.Dashboard"
 DIST_DIR="${DASHBOARD_DIR}/dist"
 TARGET_DIR="${HOME}/.armada/dashboard"
 
+# Honor an "ignore TLS certificate" flag (-k / --insecure) for npm behind an SSL-inspecting proxy.
+# shellcheck source=scripts/common/resolve-insecure.sh
+. "${SCRIPT_DIR}/resolve-insecure.sh"
+armada_resolve_insecure "$@"
+
 echo
 echo "[deploy-dashboard] Starting dashboard build and deploy"
 

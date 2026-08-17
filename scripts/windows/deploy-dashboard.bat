@@ -12,6 +12,9 @@ set "LOCAL_BIN_DIR=%DASHBOARD_DIR%\node_modules\.bin"
 set "LOCAL_TSC=%LOCAL_BIN_DIR%\tsc.cmd"
 set "LOCAL_VITE=%LOCAL_BIN_DIR%\vite.cmd"
 
+REM Honor an "ignore TLS certificate" flag (-k / --insecure) for npm behind an SSL-inspecting proxy.
+call "%SCRIPT_DIR%\resolve-insecure.bat" %*
+
 echo.
 echo [deploy-dashboard] Starting dashboard build and deploy
 
