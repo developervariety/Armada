@@ -304,7 +304,7 @@ namespace Armada.Runtimes
         /// <summary>
         /// Stop an agent process gracefully.
         /// </summary>
-        public virtual async Task StopAsync(int processId, CancellationToken token = default)
+        public virtual Task StopAsync(int processId, CancellationToken token = default)
         {
             try
             {
@@ -340,6 +340,8 @@ namespace Armada.Runtimes
             {
                 _Logging.Warn(_Header + "error stopping process " + processId + ": " + ex.Message);
             }
+
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -366,16 +368,16 @@ namespace Armada.Runtimes
         /// <summary>
         /// Check if a process is still running.
         /// </summary>
-        public virtual async Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
+        public virtual Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
         {
             try
             {
                 Process process = Process.GetProcessById(processId);
-                return !process.HasExited;
+                return Task.FromResult(!process.HasExited);
             }
             catch (ArgumentException)
             {
-                return false;
+                return Task.FromResult(false);
             }
         }
 

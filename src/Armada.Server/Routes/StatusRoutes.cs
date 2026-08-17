@@ -99,10 +99,10 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<ArmadaStatus>("Armada status dashboard"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/status/health", async (ApiRequest req) =>
+            app.Get("/api/v1/status/health", (ApiRequest req) =>
             {
                 TimeSpan uptime = DateTime.UtcNow - _startUtc;
-                return new
+                return Task.FromResult<object>(new
                 {
                     Status = "healthy",
                     Timestamp = DateTime.UtcNow,
@@ -115,7 +115,7 @@ namespace Armada.Server.Routes
                         Mcp = _settings.McpPort
                     },
                     RemoteTunnel = BuildRemoteTunnelStatus()
-                };
+                });
             },
             api => api
                 .WithTag("Status")

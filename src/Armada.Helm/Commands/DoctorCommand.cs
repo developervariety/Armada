@@ -119,18 +119,18 @@ namespace Armada.Helm.Commands
             }
         }
 
-        private async Task<int> CheckDatabaseAsync()
+        private Task<int> CheckDatabaseAsync()
         {
             string dbPath = GetSettings().DatabasePath;
             if (File.Exists(dbPath))
             {
                 AnsiConsole.MarkupLine("[green]PASS[/]  Database file exists");
-                return 0;
+                return Task.FromResult(0);
             }
             else
             {
                 AnsiConsole.MarkupLine("[gold1]WARN[/]  Database not yet created (will be initialized on first use)");
-                return 0;
+                return Task.FromResult(0);
             }
         }
 

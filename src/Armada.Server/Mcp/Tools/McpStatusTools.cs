@@ -42,14 +42,14 @@ namespace Armada.Server.Mcp.Tools
                     "stop_server",
                     "Initiate a graceful shutdown of the Admiral server",
                     new { type = "object", properties = new { } },
-                    async (args) =>
+                    (args) =>
                     {
                         _ = Task.Run(async () =>
                         {
                             await Task.Delay(500).ConfigureAwait(false);
                             onStop();
                         });
-                        return (object)new { Status = "shutting_down" };
+                        return Task.FromResult((object)new { Status = "shutting_down" });
                     });
             }
         }

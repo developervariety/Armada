@@ -121,7 +121,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Build the direct runtime launch prompt from the same shared context used by mission instructions.
         /// </summary>
-        public static async Task<string> BuildLaunchPromptAsync(
+        public static Task<string> BuildLaunchPromptAsync(
             Mission mission,
             Vessel vessel,
             Captain captain,
@@ -157,11 +157,11 @@ namespace Armada.Core.Services
 
             string prompt = String.Join(" ", sections.Select(s => s.Replace("\r", " ").Replace("\n", " ").Trim())).Trim();
             if (prompt.Length <= MaxLaunchPromptChars)
-                return prompt;
+                return Task.FromResult(prompt);
 
             string overflowMessage = "\n\n" + instructionsFileName + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
             int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
-            return prompt.Substring(0, allowed).TrimEnd() + overflowMessage;
+            return Task.FromResult(prompt.Substring(0, allowed).TrimEnd() + overflowMessage);
         }
 
         private static string BuildBootstrapRoleSummary(string? persona)

@@ -62,11 +62,11 @@ namespace Armada.Proxy
         /// <summary>
         /// Start the proxy host.
         /// </summary>
-        public async Task StartAsync(CancellationToken token = default)
+        public Task StartAsync(CancellationToken token = default)
         {
             if (_Started)
             {
-                return;
+                return Task.CompletedTask;
             }
 
             WebserverSettings webserverSettings = new WebserverSettings(_Settings.Hostname, _Settings.Port, false);
@@ -86,6 +86,8 @@ namespace Armada.Proxy
             {
                 _Logging.Info(_Header + "proxy started on " + _Server.Settings.Prefix);
             }
+
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -188,7 +190,7 @@ namespace Armada.Proxy
 
         private void RegisterApiRoutes(Webserver server)
         {
-            MapJsonGet(server, "/proxy-api/v1/auth/challenge", async (req) =>
+            MapJsonGet(server, "/proxy-api/v1/auth/challenge", (req) =>
             {
                 ProxyAuthService.ProxyAuthChallenge challenge = _Auth.CreateChallenge();
                 return new
@@ -198,7 +200,7 @@ namespace Armada.Proxy
                 };
             });
 
-            MapJsonPost(server, "/proxy-api/v1/auth/login", async (req) =>
+            MapJsonPost(server, "/proxy-api/v1/auth/login", (req) =>
             {
                 JsonElement payload = ReadJsonBody(req);
                 string? nonce = GetOptionalProperty(payload, "nonce");
@@ -220,7 +222,7 @@ namespace Armada.Proxy
                 };
             });
 
-            MapJsonPost(server, "/proxy-api/v1/auth/logout", async (req) =>
+            MapJsonPost(server, "/proxy-api/v1/auth/logout", (req) =>
             {
                 string? sessionToken = GetProxySessionToken(req.Http.Request.Headers);
                 _Auth.Logout(sessionToken);
@@ -228,9 +230,9 @@ namespace Armada.Proxy
                 return new { success = true };
             });
 
-            MapJsonGet(server, "/proxy-api/v1/status/health", async (req) => BuildHealthPayload());
+            MapJsonGet(server, "/proxy-api/v1/status/health", (req) => BuildHealthPayload());
 
-            MapJsonGet(server, "/proxy-api/v1/instances", async (req) =>
+            MapJsonGet(server, "/proxy-api/v1/instances", (req) =>
             {
                 List<RemoteInstanceSummary> instances = _Registry.ListSummaries();
                 return new
@@ -240,7 +242,7 @@ namespace Armada.Proxy
                 };
             });
 
-            MapJsonGet(server, "/proxy-api/v1/session/context", async (req) =>
+            MapJsonGet(server, "/proxy-api/v1/session/context", (req) =>
             {
                 string? sessionToken = GetProxySessionToken(req.Http.Request.Headers);
                 if (!_Auth.TryGetSession(sessionToken, out ProxyAuthService.ProxyBrowserSession? session))
@@ -252,7 +254,7 @@ namespace Armada.Proxy
                 return BuildSessionContextPayload(session!);
             });
 
-            MapJsonPost(server, "/proxy-api/v1/session/instance", async (req) =>
+            MapJsonPost(server, "/proxy-api/v1/session/instance", (req) =>
             {
                 string? sessionToken = GetProxySessionToken(req.Http.Request.Headers);
                 JsonElement payload = ReadJsonBody(req);
@@ -285,7 +287,7 @@ namespace Armada.Proxy
                 return BuildSessionContextPayload(session!);
             });
 
-            MapJsonPost(server, "/proxy-api/v1/session/logout-instance", async (req) =>
+            MapJsonPost(server, "/proxy-api/v1/session/logout-instance", (req) =>
             {
                 string? sessionToken = GetProxySessionToken(req.Http.Request.Headers);
                 if (!_Auth.TrySetSelectedInstance(sessionToken, null, out ProxyAuthService.ProxyBrowserSession? session, out string? error))
@@ -304,14 +306,14 @@ namespace Armada.Proxy
             server.WebSocket("/ws", HandleDashboardWebSocketAsync);
         }
 
-        private void MapJsonGet(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
+        private void MapJsonGet(Webserver server, string path, Func<ApiRequest, object> handler)
         {
-            server.Get(path, async (req) => await handler(req).ConfigureAwait(false));
+            server.Get(path, (req) => Task.FromResult(handler(req)));
         }
 
-        private void MapJsonPost(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
+        private void MapJsonPost(Webserver server, string path, Func<ApiRequest, object> handler)
         {
-            server.Post(path, async (req) => await handler(req).ConfigureAwait(false));
+            server.Post(path, (req) => Task.FromResult(handler(req)));
         }
 
         private async Task RelayArmadaHttpRequestAsync(HttpContextBase ctx, ProxyAuthService.ProxyBrowserSession browserSession, CancellationToken token)
