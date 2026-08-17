@@ -91,6 +91,31 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("reported_token_marker_is_used_as_real", "Reported [ARMADA:TOKENS] marker is used as real counts", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = QuietLogging();
+
+                    string output = "did the work\n[ARMADA:TOKENS] input=500 output=1200 cached=300\n[ARMADA:RESULT] COMPLETE";
+                    await TokenUsageCapture.CaptureAsync(db, logging, "mission",
+                        model: "claude-sonnet-4", runtime: "claudecode",
+                        tenantId: null, userId: null, vesselId: null, captainId: null, sourceId: "msn_c",
+                        inputTokens: null, outputTokens: null, cachedTokens: null,
+                        inputText: "the prompt", outputText: output);
+
+                    EnumerationResult<TokenUsageRecord> all = await db.TokenUsage.EnumerateAsync(new TokenUsageQuery());
+                    AssertEqual(1, all.Objects.Count, "One record written");
+                    TokenUsageRecord record = all.Objects[0];
+                    AssertEqual(500L, record.InputTokens, "Reported input used");
+                    AssertEqual(1200L, record.OutputTokens, "Reported output used");
+                    AssertEqual(300L, record.CachedTokens, "Reported cached used");
+                    AssertEqual(1700L, record.TotalTokens, "Total is reported input + output");
+                    AssertFalse(record.Estimated, "Reported counts are not flagged estimated");
+                }
+            }));
+
             cases.Add(CaseAsync("zero_token_observation_writes_nothing", "All-zero observation writes nothing", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

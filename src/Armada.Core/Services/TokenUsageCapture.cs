@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Globalization;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -25,6 +27,16 @@ namespace Armada.Core.Services
         // Approximate characters per token (~3.5), matching ChatTurnMetricsBuilder, used only to estimate
         // counts when a runtime does not report real usage.
         private const double _CharsPerToken = 3.5;
+
+        // Matches an agent-reported "[ARMADA:TOKENS] input=1234 output=567 cached=0" line, which the
+        // mission/captain instructions ask runtimes to emit. Reported counts are treated as real, not
+        // estimated.
+        private static readonly Regex _TokenMarker = new Regex(
+            @"\[ARMADA:TOKENS\]\s*(?<body>[^\r\n]*)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex _InputField = new Regex(@"input\s*=\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex _OutputField = new Regex(@"output\s*=\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex _CachedField = new Regex(@"cached\s*=\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         #endregion
 
@@ -75,10 +87,23 @@ namespace Armada.Core.Services
 
                 bool estimated = false;
 
+                // Prefer counts the agent reported via an [ARMADA:TOKENS] marker over a text estimate.
+                long? reportedInput = null;
+                long? reportedOutput = null;
+                long? reportedCached = null;
+                if (!inputTokens.HasValue || !outputTokens.HasValue || !cachedTokens.HasValue)
+                {
+                    TryParseTokenMarker(outputText, out reportedInput, out reportedOutput, out reportedCached);
+                }
+
                 long output;
                 if (outputTokens.HasValue && outputTokens.Value >= 0)
                 {
                     output = outputTokens.Value;
+                }
+                else if (reportedOutput.HasValue)
+                {
+                    output = reportedOutput.Value;
                 }
                 else
                 {
@@ -91,13 +116,19 @@ namespace Armada.Core.Services
                 {
                     input = inputTokens.Value;
                 }
+                else if (reportedInput.HasValue)
+                {
+                    input = reportedInput.Value;
+                }
                 else
                 {
                     input = EstimateTokens(inputText);
                     if (input > 0) estimated = true;
                 }
 
-                long cached = cachedTokens.HasValue && cachedTokens.Value >= 0 ? cachedTokens.Value : 0;
+                long cached = cachedTokens.HasValue && cachedTokens.Value >= 0
+                    ? cachedTokens.Value
+                    : (reportedCached ?? 0);
 
                 if (input <= 0 && output <= 0 && cached <= 0) return;
 
@@ -148,6 +179,31 @@ namespace Armada.Core.Services
             if (!string.IsNullOrWhiteSpace(model)) return model.Trim();
             if (!string.IsNullOrWhiteSpace(runtime)) return runtime.Trim();
             return "unknown";
+        }
+
+        private static void TryParseTokenMarker(string? text, out long? input, out long? output, out long? cached)
+        {
+            input = null;
+            output = null;
+            cached = null;
+            if (string.IsNullOrEmpty(text)) return;
+
+            Match marker = _TokenMarker.Match(text);
+            if (!marker.Success) return;
+
+            string body = marker.Groups["body"].Value;
+            input = ParseField(_InputField, body);
+            output = ParseField(_OutputField, body);
+            cached = ParseField(_CachedField, body);
+        }
+
+        private static long? ParseField(Regex pattern, string body)
+        {
+            Match match = pattern.Match(body);
+            if (!match.Success) return null;
+            if (long.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) && value >= 0)
+                return value;
+            return null;
         }
 
         #endregion

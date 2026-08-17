@@ -1772,6 +1772,7 @@ namespace Armada.Core.Services
                         "- `[ARMADA:STATUS] Testing` -- transition mission to Testing status\n" +
                         "- `[ARMADA:STATUS] Review` -- transition mission to Review status\n" +
                         "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n" +
+                        "- `[ARMADA:TOKENS] input=1234 output=567 cached=0` -- report the tokens you consumed this session (input/prompt, output/completion, and cache-read). Emit this once near the end if your runtime can determine the counts; it lets the Admiral record real token usage instead of an estimate.\n" +
                         "- `[ARMADA:RESULT] COMPLETE` -- worker/test engineer mission finished successfully\n" +
                         "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
                         "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +
