@@ -47,6 +47,61 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Only a PullRequest landing asks the captain to push", async () =>
+            {
+                ArmadaSettings settings = CreateSettings();
+                settings.LandingMode = null;
+
+                Vessel localMerge = new Vessel("lm", "https://github.com/test/lm.git") { LandingMode = LandingModeEnum.LocalMerge };
+                Vessel mergeQueue = new Vessel("mq", "https://github.com/test/mq.git") { LandingMode = LandingModeEnum.MergeQueue };
+                Vessel none = new Vessel("no", "https://github.com/test/no.git") { LandingMode = LandingModeEnum.None };
+                Vessel pullRequest = new Vessel("pr", "https://github.com/test/pr.git") { LandingMode = LandingModeEnum.PullRequest };
+                Vessel unset = new Vessel("un", "https://github.com/test/un.git") { LandingMode = null };
+
+                // A push is only needed when a PR is opened against the remote branch. The other modes
+                // land from the bare repo, and a pushed branch there is never collected: LocalOnly
+                // cleanup skips origin, and no PR merge fires the host's auto-delete.
+                AssertFalse(MissionService.RequiresCaptainPush(localMerge, settings), "LocalMerge lands from the bare repo, so no push is needed");
+                AssertFalse(MissionService.RequiresCaptainPush(mergeQueue, settings), "MergeQueue takes the branch from the bare repo");
+                AssertFalse(MissionService.RequiresCaptainPush(none, settings), "None leaves the branch for manual integration locally");
+                AssertTrue(MissionService.RequiresCaptainPush(pullRequest, settings), "PullRequest needs the branch on origin to open the PR");
+
+                // Unresolved stays with the historical instruction: the legacy boolean settings can
+                // still derive a PullRequest landing, and suppressing the push would strand it.
+                AssertTrue(MissionService.RequiresCaptainPush(unset, settings), "An unresolved landing mode must keep the push");
+                AssertTrue(MissionService.RequiresCaptainPush(null, settings), "A null vessel must keep the push");
+
+                // A vessel setting overrides the global default in both directions.
+                settings.LandingMode = LandingModeEnum.PullRequest;
+                AssertFalse(MissionService.RequiresCaptainPush(localMerge, settings), "The vessel's LocalMerge must win over a PullRequest default");
+                settings.LandingMode = LandingModeEnum.LocalMerge;
+                AssertTrue(MissionService.RequiresCaptainPush(pullRequest, settings), "The vessel's PullRequest must win over a LocalMerge default");
+                AssertFalse(MissionService.RequiresCaptainPush(unset, settings), "With no vessel mode the settings default decides");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("The no-push rules module forbids pushing and keeps committing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, logging);
+                    await templates.SeedDefaultsAsync();
+
+                    PromptTemplate? noPush = await templates.ResolveAsync("mission.rules_no_push");
+                    AssertTrue(noPush != null, "the mission.rules_no_push template must be seeded");
+
+                    string content = noPush!.Content ?? String.Empty;
+                    AssertContains("Commit all changes to the current branch", content);
+                    AssertContains("Do NOT push", content);
+                    AssertFalse(content.Contains("Commit and push your changes"),
+                        "the no-push module must not carry the push instruction it exists to remove");
+                    AssertFalse(content.Contains("git push origin HEAD:refs/heads/"),
+                        "the detached-HEAD push recipe must not survive in the no-push module either");
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync includes ProjectContext when set", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

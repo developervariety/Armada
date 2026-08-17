@@ -325,6 +325,17 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task CopyRefAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(srcRef)) throw new ArgumentNullException(nameof(srcRef));
+            if (String.IsNullOrEmpty(destRef)) throw new ArgumentNullException(nameof(destRef));
+
+            _Logging.Info(_Header + "copying ref " + srcRef + " to " + destRef + " in " + repoPath);
+            await RunGitAsync(repoPath, token, "update-ref", destRef, srcRef).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
         public async Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));

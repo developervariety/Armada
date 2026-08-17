@@ -117,6 +117,18 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// Simulate a failed ref copy, so a caller that must not delete unpreserved work can be tested.
+        /// </summary>
+        public bool ShouldThrowOnCopyRef { get; set; } = false;
+
+        public Task CopyRefAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+        {
+            if (ShouldThrowOnCopyRef) throw new InvalidOperationException("Simulated ref copy failure");
+            OperationCalls.Add("copy-ref:" + srcRef + ":" + destRef);
+            return Task.CompletedTask;
+        }
+
         public List<string> ForceUpdateBranchRefCalls { get; } = new List<string>();
 
         public Task ForceUpdateBranchRefAsync(string repoPath, string branchName, string commitSha, CancellationToken token = default)

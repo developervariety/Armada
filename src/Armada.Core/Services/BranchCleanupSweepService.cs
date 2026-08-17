@@ -13,16 +13,35 @@ namespace Armada.Core.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Maintenance sweep that self-heals mission-branch accumulation: for every vessel, armada/*
+    /// Maintenance sweep that self-heals mission-branch accumulation: for every vessel, Armada-owned
     /// branches whose tip is already an ancestor of the default branch (i.e. their work landed) are
     /// deleted per the vessel's branch-cleanup policy, so landings that skipped cleanup on some path
     /// do not accumulate hundreds of dead branches. Unmerged branches are NEVER touched -- failed or
     /// in-flight work must be preserved. Only local deletion runs by default; LocalAndRemote also
     /// deletes the origin branch through the vessel's working checkout.
     /// </summary>
+    /// <remarks>
+    /// Armada owns TWO branch namespaces, and the sweep must cover both. Captain branches live under
+    /// "armada/" while landing branches live under "armada-landing/" (see GitService's landing ref
+    /// construction). A single "armada/" prefix filter does NOT match "armada-landing/" -- the names
+    /// diverge at the character after "armada" -- so filtering on one prefix silently exempts every
+    /// landing branch from cleanup and they accumulate without bound. Only branches carrying one of
+    /// the prefixes below are ever considered; a human branch is never a sweep candidate.
+    /// </remarks>
     public class BranchCleanupSweepService
     {
         #region Private-Members
+
+        /// <summary>
+        /// Branch namespaces Armada creates and is therefore allowed to reap. Both are required:
+        /// captain branches use the first, landing branches the second, and neither prefix matches
+        /// the other.
+        /// </summary>
+        private static readonly string[] _ManagedBranchPrefixes = new string[]
+        {
+            "armada/",
+            "armada-landing/"
+        };
 
         private string _Header = "[BranchCleanupSweepService] ";
         private LoggingModule _Logging;
@@ -90,7 +109,9 @@ namespace Armada.Core.Services
                 string defaultBranch = String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? "main" : vessel.DefaultBranch!;
                 try
                 {
-                    IReadOnlyList<string> branches = await _Inventory.EnumerateLocalBranchesAsync(vessel.LocalPath, "armada/", token).ConfigureAwait(false);
+                    // Enumerate unfiltered and select locally: the inventory takes a single prefix,
+                    // and Armada owns more than one namespace.
+                    IReadOnlyList<string> branches = await _Inventory.EnumerateLocalBranchesAsync(vessel.LocalPath, null, token).ConfigureAwait(false);
                     foreach (string branch in branches)
                     {
                         if (token.IsCancellationRequested)
@@ -99,6 +120,11 @@ namespace Armada.Core.Services
                         }
 
                         if (String.Equals(branch, defaultBranch, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (!IsManagedBranch(branch))
                         {
                             continue;
                         }
@@ -142,6 +168,27 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// True when the branch sits in a namespace Armada creates. Anything else -- a human branch,
+        /// a salvage branch, a release branch -- is never a sweep candidate.
+        /// </summary>
+        internal static bool IsManagedBranch(string branch)
+        {
+            if (String.IsNullOrWhiteSpace(branch))
+            {
+                return false;
+            }
+
+            foreach (string prefix in _ManagedBranchPrefixes)
+            {
+                if (branch.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         private async Task SweepMergedBranchAsync(Vessel vessel, string branch, BranchCleanupPolicyEnum policy, BranchCleanupSweepResult result, CancellationToken token)
         {

@@ -114,6 +114,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Reap_PreservesBranchAsRefBeforeDeleting", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings, git);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings, BranchCleanupPolicyEnum.LocalOnly).ConfigureAwait(false);
+
+                    Mission failed = await CreateMissionAsync(testDb.Driver, vessel, MissionStatusEnum.Failed, "armada/worker/reap-preserve").ConfigureAwait(false);
+
+                    await missions.ReapTerminalMissionBranchAsync(failed).ConfigureAwait(false);
+
+                    int copyIndex = git.OperationCalls.IndexOf("copy-ref:refs/heads/armada/worker/reap-preserve:refs/armada-preserved/armada/worker/reap-preserve");
+                    int deleteIndex = git.OperationCalls.IndexOf("delete-local-branch:armada/worker/reap-preserve");
+
+                    AssertTrue(copyIndex >= 0,
+                        "A terminal mission branch must be parked under refs/armada-preserved/ so its commit stays reachable by name.");
+                    AssertTrue(deleteIndex >= 0, "The branch must still be reaped after preservation.");
+                    AssertTrue(copyIndex < deleteIndex,
+                        "Preservation must happen BEFORE the delete; the reverse order can lose an unmerged commit.");
+                }
+            });
+
+            await RunTest("Reap_PreservationFails_RetainsBranch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.ShouldThrowOnCopyRef = true;
+                    MissionService missions = CreateMissionService(testDb.Driver, settings, git);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings, BranchCleanupPolicyEnum.LocalAndRemote).ConfigureAwait(false);
+
+                    Mission failed = await CreateMissionAsync(testDb.Driver, vessel, MissionStatusEnum.Failed, "armada/worker/reap-nopreserve").ConfigureAwait(false);
+
+                    await missions.ReapTerminalMissionBranchAsync(failed).ConfigureAwait(false);
+
+                    AssertFalse(git.OperationCalls.Contains("delete-local-branch:armada/worker/reap-nopreserve"),
+                        "When preservation fails the branch must be RETAINED: deleting it would leave the commit dangling with no ref.");
+                    AssertFalse(git.OperationCalls.Contains("delete-remote-branch:armada/worker/reap-nopreserve"),
+                        "A failed preservation must also stop the remote delete.");
+                }
+            });
+
             await RunTest("Reap_TerminallyCancelled_LocalOnly_DeletesLocalNotRemote", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

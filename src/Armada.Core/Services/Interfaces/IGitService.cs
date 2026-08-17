@@ -117,6 +117,25 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Copy a ref to another ref name inside the same repository, without network access.
+        /// Executes: git update-ref {destRef} {srcRef}
+        /// </summary>
+        /// <remarks>
+        /// Used to park a branch under refs/armada-preserved/ before the branch itself is deleted, so
+        /// the commit stays reachable by name instead of surviving only as a dangling object that can
+        /// be recovered only if someone recorded its SHA. Default-implemented as a no-op so existing
+        /// test doubles need not grow a member they do not exercise.
+        /// </remarks>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="srcRef">Source ref to copy, for example refs/heads/armada/captain/msn_x.</param>
+        /// <param name="destRef">Fully-qualified destination ref.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task CopyRefAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
         /// Get the symbolic ref currently stored in repository HEAD.
         /// </summary>
         /// <param name="repoPath">Path to the repository (bare or worktree).</param>

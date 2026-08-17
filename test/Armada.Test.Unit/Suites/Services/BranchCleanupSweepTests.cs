@@ -106,6 +106,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Sweeps the armada-landing namespace and never touches a human branch", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    SweepRepo repo = await CreateSweepRepoAsync(rootDir, extraNamespaces: true).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        Vessel vessel = new Vessel("sweep-vessel-4", "https://github.com/test/sweep.git");
+                        vessel.LocalPath = repo.Repo;
+                        vessel.WorkingDirectory = repo.Working;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(
+                            logging, testDb.Driver, new ArmadaSettings(), new GitService(logging));
+
+                        BranchCleanupSweepResult result = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                        // Two merged Armada branches now exist: one armada/, one armada-landing/.
+                        // Before the prefix fix this was 1, because armada-landing/ does not start
+                        // with "armada/" and was never enumerated.
+                        AssertEqual(2, result.SweptLocal, "both the armada and armada-landing merged branches must be swept");
+                        AssertEqual(1, result.KeptUnmerged, "the unmerged armada branch must still be preserved");
+
+                        GitService git = new GitService(logging);
+                        IReadOnlyList<string> landing = await git
+                            .EnumerateLocalBranchesAsync(repo.Repo, "armada-landing/").ConfigureAwait(false);
+                        AssertEqual(0, landing.Count, "no armada-landing branch may survive the sweep");
+
+                        IReadOnlyList<string> all = await git.EnumerateLocalBranchesAsync(repo.Repo, null).ConfigureAwait(false);
+                        AssertTrue(all.Contains("salvage/wave-a"), "a merged human branch must survive: the sweep owns only its own namespaces");
+                        AssertTrue(all.Contains("main"), "the default branch must survive");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("IsManagedBranch covers both Armada namespaces and nothing else", async () =>
+            {
+                AssertTrue(BranchCleanupSweepService.IsManagedBranch("armada/claude-1/msn_x"), "captain branches are managed");
+                AssertTrue(BranchCleanupSweepService.IsManagedBranch("armada-landing/armada/claude-1/msn_x"), "landing branches are managed");
+                AssertTrue(BranchCleanupSweepService.IsManagedBranch("armada/merge-queue/mrg_x"), "merge-queue branches are managed");
+                AssertTrue(!BranchCleanupSweepService.IsManagedBranch("main"), "the default branch is not managed");
+                AssertTrue(!BranchCleanupSweepService.IsManagedBranch("salvage/wave-a"), "a human branch is not managed");
+                AssertTrue(!BranchCleanupSweepService.IsManagedBranch("armadillo/x"), "a lookalike prefix is not managed");
+                AssertTrue(!BranchCleanupSweepService.IsManagedBranch(""), "an empty name is not managed");
+                await Task.CompletedTask.ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("None policy skips the vessel entirely", async () =>
             {
                 string rootDir = NewTempDir();
@@ -177,9 +233,12 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>
         /// Create a repository with a merged armada branch and an unmerged armada branch. When
         /// <paramref name="remote"/> is true, also creates a remote bare, pushes both branches, and
-        /// clones a working checkout whose origin points at the remote.
+        /// clones a working checkout whose origin points at the remote. When
+        /// <paramref name="extraNamespaces"/> is true, also creates a MERGED branch in the
+        /// armada-landing namespace and a human branch, so a test can prove the sweep covers the
+        /// second Armada namespace without reaching branches Armada does not own.
         /// </summary>
-        private static async Task<SweepRepo> CreateSweepRepoAsync(string rootDir, bool remote = false)
+        private static async Task<SweepRepo> CreateSweepRepoAsync(string rootDir, bool remote = false, bool extraNamespaces = false)
         {
             string repo = Path.Combine(rootDir, "bare.git");
             string working = Path.Combine(rootDir, "working");
@@ -203,6 +262,27 @@ namespace Armada.Test.Unit.Suites.Services
             await RunGitAsync(source, "commit", "-m", "merged work").ConfigureAwait(false);
             await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
             await RunGitAsync(source, "merge", "--no-ff", "-m", "merge merged branch", "armada/claude-1/msn_merged001").ConfigureAwait(false);
+
+            if (extraNamespaces)
+            {
+                // Landing branch, MERGED: this is the namespace an "armada/" prefix filter misses.
+                await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
+                await RunGitAsync(source, "checkout", "-b", "armada-landing/armada/claude-1/msn_landed001").ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(source, "landed.txt"), "landed work\n").ConfigureAwait(false);
+                await RunGitAsync(source, "add", "landed.txt").ConfigureAwait(false);
+                await RunGitAsync(source, "commit", "-m", "landed work").ConfigureAwait(false);
+                await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
+                await RunGitAsync(source, "merge", "--no-ff", "-m", "merge landing branch", "armada-landing/armada/claude-1/msn_landed001").ConfigureAwait(false);
+
+                // Human branch, MERGED: eligible on ancestry, ineligible on ownership. The sweep must
+                // leave it alone, or a maintenance job silently deletes a person's branch.
+                await RunGitAsync(source, "checkout", "-b", "salvage/wave-a").ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(source, "salvage.txt"), "salvage work\n").ConfigureAwait(false);
+                await RunGitAsync(source, "add", "salvage.txt").ConfigureAwait(false);
+                await RunGitAsync(source, "commit", "-m", "salvage work").ConfigureAwait(false);
+                await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
+                await RunGitAsync(source, "merge", "--no-ff", "-m", "merge salvage branch", "salvage/wave-a").ConfigureAwait(false);
+            }
 
             // Unmerged branch: work, do not merge.
             await RunGitAsync(source, "checkout", "-b", "armada/claude-1/msn_unmerged001").ConfigureAwait(false);

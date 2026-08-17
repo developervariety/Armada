@@ -168,7 +168,7 @@ namespace Armada.Runtimes
                 host = resolved.BaseUrl;
             }
 
-            // "https://cun.ai/v1" -> "custom-cun-ai"; "https://api.zyloo.io/v1" -> "custom-api-zyloo-io"
+            // "https://provider-a.example.com/v1" -> "custom-provider-a-example-com"
             string sanitized = host.Replace(".", "-").Replace(":", "-").Replace("/", "-");
             return "custom-" + sanitized;
         }

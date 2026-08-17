@@ -262,6 +262,25 @@ namespace Armada.Core.Services
                     "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n"
             };
 
+            defaults["mission.rules_no_push"] = new EmbeddedTemplate
+            {
+                Name = "mission.rules_no_push",
+                Description = "Mission rules for vessels that land from the bare repo, so the captain must not push.",
+                Category = "mission",
+                Content =
+                    "## Rules\n" +
+                    "- Work only within this worktree directory\n" +
+                    "- Stay strictly within the mission scope and listed files\n" +
+                    "- Do not create, modify, or delete files outside the listed scope unless the mission explicitly requires it\n" +
+                    "- If you discover a necessary out-of-scope change, report it in your result instead of expanding scope on your own\n" +
+                    "- Commit all changes to the current branch\n" +
+                    "- Do NOT push. This vessel lands from its own repository, so your commit is already reachable once you make it. A push creates a remote branch nothing will ever delete.\n" +
+                    "- If you encounter a blocking issue, commit what you have and exit\n" +
+                    "- Exit with code 0 on success\n" +
+                    "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
+                    "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n"
+            };
+
             defaults["mission.context_conservation"] = new EmbeddedTemplate
             {
                 Name = "mission.context_conservation",

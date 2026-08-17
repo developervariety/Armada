@@ -1809,7 +1809,14 @@ namespace Armada.Core.Services
             }
             else
             {
-                content += ledger.Track("mission.rules", await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false));
+                // Only a PullRequest landing needs the captain's branch on the remote. Every other
+                // mode lands from the bare repo, so a captain push buys nothing and leaves a remote
+                // branch behind: cleanup under the LocalOnly policy deletes locally and never touches
+                // origin, and a LocalMerge vessel opens no PR, so no host-side auto-delete collects
+                // it either. Telling the captain not to push is what keeps the remote from growing
+                // one dead branch per mission forever.
+                string rulesModule = RequiresCaptainPush(vessel, _Settings) ? "mission.rules" : "mission.rules_no_push";
+                content += ledger.Track(rulesModule, await ResolveSectionAsync(rulesModule, templateParams, token).ConfigureAwait(false));
             }
 
             content += "\n";
@@ -2513,6 +2520,36 @@ namespace Armada.Core.Services
 
             return head + "[git anchors truncated at " + MaxGitAnchorsSectionChars +
                 " characters; run git log or git grep yourself for the rest]\n";
+        }
+
+        /// <summary>
+        /// Whether this vessel's landing mode actually needs the captain to push its branch to origin.
+        /// Only a PullRequest landing does: the PR is opened against the remote branch, so without the
+        /// push there is nothing to review. LocalMerge, MergeQueue and None all land from the bare
+        /// repository, where the captain's commit is already reachable.
+        /// </summary>
+        /// <remarks>
+        /// This is a branch-accumulation control, not a convenience. A pushed branch outlives the
+        /// mission: the cleanup paths honour BranchCleanupPolicy, and under LocalOnly they delete from
+        /// the bare repo and leave origin alone. A LocalMerge vessel also never opens a PR, so the
+        /// git host's own auto-delete-on-merge never fires. The remote therefore keeps one branch per
+        /// mission, permanently, unless the push never happens.
+        ///
+        /// An unresolved mode returns true, preserving the historical instruction. The legacy boolean
+        /// settings can still derive a PullRequest landing, and suppressing the push in that case
+        /// would strand the branch with no way to open the PR.
+        /// </remarks>
+        /// <param name="vessel">The mission's vessel; may be null.</param>
+        /// <param name="settings">Settings supplying the fallback landing mode.</param>
+        /// <returns>True when the captain must push.</returns>
+        internal static bool RequiresCaptainPush(Vessel? vessel, ArmadaSettings settings)
+        {
+            LandingModeEnum? resolved = vessel?.LandingMode ?? settings?.LandingMode;
+            if (resolved == null)
+            {
+                return true;
+            }
+            return resolved.Value == LandingModeEnum.PullRequest;
         }
 
         /// <summary>
@@ -3261,6 +3298,17 @@ namespace Armada.Core.Services
                         "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
                         "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n";
 
+                case "mission.rules_no_push":
+                    return
+                        "## Rules\n" +
+                        "- Work only within this worktree directory\n" +
+                        "- Commit all changes to the current branch\n" +
+                        "- Do NOT push. This vessel lands from its own repository, so your commit is already reachable once you make it. A push creates a remote branch nothing will ever delete.\n" +
+                        "- If you encounter a blocking issue, commit what you have and exit\n" +
+                        "- Exit with code 0 on success\n" +
+                        "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
+                        "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n";
+
                 case "mission.context_conservation":
                     return
                         "## Context Conservation (CRITICAL)\n" +
@@ -3580,6 +3628,38 @@ namespace Armada.Core.Services
             if (cleanupPolicy == BranchCleanupPolicyEnum.None)
             {
                 _Logging.Info(_Header + "branch cleanup policy is None - retaining terminal mission branch " + branchName);
+                return;
+            }
+
+            // Park the branch under refs/armada-preserved/ before deleting it. A terminal mission's
+            // branch is frequently UNMERGED, so the delete would otherwise leave its commit as a
+            // dangling object -- recoverable only by someone who wrote the SHA down first. Preserving
+            // to a ref keeps the work reachable by name while removing it from the branch list, which
+            // is what makes reaping unlanded work safe rather than destructive.
+            //
+            // Best-effort and ordered first: if preservation fails, the reap is skipped rather than
+            // risking the only pointer to a captain's commit.
+            bool preserved = false;
+            string preservedRef = "refs/armada-preserved/" + branchName;
+            try
+            {
+                await _Git.CopyRefAsync(vessel.LocalPath, "refs/heads/" + branchName, preservedRef, token).ConfigureAwait(false);
+                preserved = true;
+                _Logging.Info(_Header + "preserved terminal mission branch " + branchName + " as " + preservedRef + " for mission " + mission.Id);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception preserveEx)
+            {
+                _Logging.Warn(_Header + "could not preserve terminal mission branch " + branchName +
+                    " as " + preservedRef + " for mission " + mission.Id + ": " + preserveEx.Message +
+                    " -- retaining the branch rather than reaping unpreserved work");
+            }
+
+            if (!preserved)
+            {
                 return;
             }
 
