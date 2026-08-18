@@ -312,6 +312,18 @@ namespace Armada.Core.Database.SqlServer
         }
 
         /// <summary>
+        /// Convert an object value to a nullable DateTime with UTC kind, handling DBNull.
+        /// </summary>
+        /// <param name="value">Object value.</param>
+        /// <returns>DateTime value or null.</returns>
+        internal static DateTime? NullableDateTime(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+            return DateTime.SpecifyKind(Convert.ToDateTime(value, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
+        }
+
+        /// <summary>
         /// Convert an object value to a nullable string, handling DBNull.
         /// </summary>
         /// <param name="value">Object value.</param>
