@@ -131,6 +131,20 @@ namespace Armada.Core.Models
         public string? Persona { get; set; } = null;
 
         /// <summary>
+        /// Explicitly requested captain for this mission. When set, the dispatcher tries to assign this
+        /// captain first, bypassing persona/tier routing. When the requested captain is busy, dispatch falls back to
+        /// <see cref="Tier"/> when the preferred captain was busy and dispatch fell back by tier.
+        /// </summary>
+        public string? RequestedCaptainId { get; set; } = null;
+
+        /// <summary>
+        /// Minimum captain tier required for this mission. When the requested captain is busy,
+        /// dispatch falls back to an idle captain at or above <see cref="Tier"/>. Null means
+        /// any tier is acceptable.
+        /// </summary>
+        public CaptainTierEnum? Tier { get; set; } = null;
+
+        /// <summary>
         /// Mission ID that this mission depends on.
         /// When set, this mission cannot be assigned until the dependency completes successfully.
         /// Used by pipelines to chain persona stages.

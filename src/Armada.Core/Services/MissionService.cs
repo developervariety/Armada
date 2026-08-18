@@ -518,6 +518,9 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // Resolve preferred captain from voyage overrides or persona defaults before assignment.
+            await ResolvePreferredCaptainAsync(mission, token).ConfigureAwait(false);
+
             // Find an idle captain, preferring those matching the mission's persona,
             // honouring optional PreferredModel pin on the mission.
             Captain? captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
@@ -7036,6 +7039,116 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrEmpty(body)) paths.Add(body);
             }
             return paths;
+        }
+
+        /// <summary>
+        /// Resolve and persist the preferred captain and fallback tier for a mission from (in order) an
+        /// explicit value already set, the voyage-level override for the mission's persona, or the persona's
+        /// default captain. A dangling captain reference is left as-is and degrades to normal routing at
+        /// assignment time. Best-effort: never throws for a missing persona/voyage.
+        /// </summary>
+        private async Task ResolvePreferredCaptainAsync(Mission mission, CancellationToken token)
+        {
+            if (mission == null) return;
+            if (!String.IsNullOrEmpty(mission.RequestedCaptainId)) return;
+            if (String.IsNullOrEmpty(mission.Persona)) return;
+
+            string? resolvedCaptainId = null;
+            CaptainTierEnum? resolvedTier = null;
+
+            List<CaptainAssignmentOverride> overrides = await ReadVoyageCaptainOverridesAsync(mission.VoyageId, token).ConfigureAwait(false);
+            foreach (CaptainAssignmentOverride ov in overrides)
+            {
+                if (!PersonaCatalog.Matches(ov.Persona, mission.Persona)) continue;
+                resolvedCaptainId = String.IsNullOrEmpty(ov.CaptainId) ? null : ov.CaptainId;
+                resolvedTier = ov.FallbackTier;
+                break;
+            }
+
+            if (String.IsNullOrEmpty(resolvedCaptainId))
+            {
+                Persona? persona = await ReadPersonaByNameAsync(mission.TenantId, mission.Persona, token).ConfigureAwait(false);
+                if (persona != null && !String.IsNullOrEmpty(persona.DefaultCaptainId))
+                    resolvedCaptainId = persona.DefaultCaptainId;
+            }
+
+            if (String.IsNullOrEmpty(resolvedCaptainId) && resolvedTier == null) return;
+
+            bool changed = false;
+            if (!String.IsNullOrEmpty(resolvedCaptainId))
+            {
+                mission.RequestedCaptainId = resolvedCaptainId;
+                changed = true;
+            }
+
+            if (mission.Tier == null)
+            {
+                if (resolvedTier != null)
+                {
+                    mission.Tier = resolvedTier;
+                    changed = true;
+                }
+                else if (!String.IsNullOrEmpty(mission.RequestedCaptainId))
+                {
+                    CaptainTierEnum? preferredTier = await CaptainEffectiveTierAsync(mission.RequestedCaptainId, token).ConfigureAwait(false);
+                    if (preferredTier != null)
+                    {
+                        mission.Tier = preferredTier;
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+            {
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<Persona?> ReadPersonaByNameAsync(string? tenantId, string personaName, CancellationToken token)
+        {
+            if (!String.IsNullOrEmpty(tenantId))
+            {
+                Persona? scoped = await _Database.Personas.ReadByNameAsync(tenantId, personaName, token).ConfigureAwait(false);
+                if (scoped != null) return scoped;
+            }
+
+            return await _Database.Personas.ReadByNameAsync(personaName, token).ConfigureAwait(false);
+        }
+
+        private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(captainId)) return null;
+            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (captain == null) return null;
+            return CaptainTierSelector.EffectiveTier(captain);
+        }
+
+        private async Task<List<CaptainAssignmentOverride>> ReadVoyageCaptainOverridesAsync(string? voyageId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(voyageId)) return new List<CaptainAssignmentOverride>();
+            Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+            if (voyage == null) return new List<CaptainAssignmentOverride>();
+            return DeserializeCaptainOverrides(voyage.CaptainOverridesJson);
+        }
+
+        /// <summary>
+        /// Deserialize a voyage's captain-override JSON into a list. Returns an empty list for null, empty, or
+        /// malformed input rather than throwing.
+        /// </summary>
+        public static List<CaptainAssignmentOverride> DeserializeCaptainOverrides(string? json)
+        {
+            if (String.IsNullOrWhiteSpace(json)) return new List<CaptainAssignmentOverride>();
+            try
+            {
+                List<CaptainAssignmentOverride>? parsed = JsonSerializer.Deserialize<List<CaptainAssignmentOverride>>(json);
+                return parsed ?? new List<CaptainAssignmentOverride>();
+            }
+            catch (JsonException)
+            {
+                return new List<CaptainAssignmentOverride>();
+            }
         }
 
         private async Task DispatchPendingMissionsAsync(CancellationToken token)

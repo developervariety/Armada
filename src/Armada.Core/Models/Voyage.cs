@@ -104,6 +104,13 @@ namespace Armada.Core.Models
         public string? SourcePlanningMessageId { get; set; } = null;
 
         /// <summary>
+        /// JSON-serialized list of per-persona captain assignment overrides for this voyage. When set,
+        /// the dispatcher resolves the requested captain and fallback tier from this list before
+        /// attempting normal persona/tier routing.
+        /// </summary>
+        public string? CaptainOverridesJson { get; set; } = null;
+
+        /// <summary>
         /// Ordered list of playbooks selected for this voyage.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

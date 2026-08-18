@@ -49,6 +49,12 @@ namespace Armada.Core.Models
         public string? Description { get; set; } = null;
 
         /// <summary>
+        /// When set, missions assigned to this persona default to this captain unless a voyage-level
+        /// override or an explicit RequestedCaptainId takes precedence.
+        /// </summary>
+        public string? DefaultCaptainId { get; set; } = null;
+
+        /// <summary>
         /// Name of the prompt template used by this persona (references PromptTemplate.Name).
         /// </summary>
         public string PromptTemplateName
