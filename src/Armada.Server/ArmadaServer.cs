@@ -870,6 +870,18 @@ namespace Armada.Server
             // Code index graph queries
             new CodeIndexRoutes(_CodeIndex, _Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
+
+            // Project profiles
+            new ProjectProfileRoutes(_Database, new ProjectProfileService(_Database, _Logging), _PromptTemplateService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Skills directory
+            new SkillRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Ask Armada assistant
+            new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
         }
 
         private void InitializeDashboard()
