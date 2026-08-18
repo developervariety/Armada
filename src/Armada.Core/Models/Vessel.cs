@@ -270,6 +270,24 @@ namespace Armada.Core.Models
         /// </summary>
         public int AutoLandCalibrationLandedCount { get; set; } = 0;
 
+        /// <summary>
+        /// When true, the dock-boundary scanner scans mission diffs for secret and
+        /// protected-path violations before allowing landing.
+        /// </summary>
+        public bool SecretScanEnabled { get; set; } = false;
+
+        /// <summary>
+        /// Glob patterns for paths the dock-boundary scanner protects. A mission that
+        /// touches a matching path is blocked from landing.
+        /// </summary>
+        public List<string> ProtectedPathPatterns { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Identifiers (names, URLs, partial keys) the dock-boundary scanner redacts
+        /// or blocks. A mission diff containing a matching string is blocked.
+        /// </summary>
+        public List<string> PrivateIdentifierDenylist { get; set; } = new List<string>();
+
         /// <summary>Lazy-parses the DefaultPlaybooks JSON string. Returns an empty list if unset or malformed.</summary>
         public List<SelectedPlaybook> GetDefaultPlaybooks()
         {

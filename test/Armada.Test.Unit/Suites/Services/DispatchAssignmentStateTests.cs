@@ -1085,10 +1085,13 @@ namespace Armada.Test.Unit.Suites.Services
             public Task ReapTerminalMissionBranchAsync(Mission mission, CancellationToken token = default)
                 => throw new NotImplementedException();
 
-            public Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+            public Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default)
                 => throw new NotImplementedException();
 
-            public Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+            public Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, ReviewDenyActionEnum? actionOverride = null, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
 
             public bool IsBroadScope(Mission mission) => false;

@@ -66,6 +66,7 @@ namespace Armada.Core.Services
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
+        private const string ReviewerGuidanceMarker = "<!-- ARMADA:REVIEWER-GUIDANCE -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
             new System.Text.RegularExpressions.Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase |
@@ -831,7 +832,43 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        public async Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default)
+        {
+            int redriven = 0;
+            List<Mission> workProduced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+
+            foreach (Mission produced in workProduced)
+            {
+                if (String.IsNullOrEmpty(produced.VoyageId)) continue;
+                if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
+
+                List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(produced.VoyageId, token).ConfigureAwait(false);
+                List<Mission> pendingDependents = voyageMissions
+                    .Where(m => m.DependsOnMissionId == produced.Id && m.Status == MissionStatusEnum.Pending)
+                    .ToList();
+                if (pendingDependents.Count == 0) continue;
+
+                bool anyUnprepared = pendingDependents.Any(dep => !IsPipelineHandoffPrepared(dep, produced));
+                if (!anyUnprepared) continue;
+
+                _Logging.Warn(_Header + "re-driving dangling pipeline handoff for WorkProduced mission " + produced.Id +
+                    " (" + pendingDependents.Count + " pending dependent(s) not prepared)");
+                try
+                {
+                    await TryHandoffToNextStageAsync(produced, token).ConfigureAwait(false);
+                    redriven++;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error re-driving handoff for mission " + produced.Id + ": " + ex.Message);
+                }
+            }
+
+            return redriven;
+        }
+
+        /// <inheritdoc />
+        public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
@@ -852,6 +889,14 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
                 await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+
+                // Conditionally Approve: fold the reviewer's guidance into the freshly-prepared next stage(s)
+                // before they dispatch, so the next captain is required to take that feedback into account.
+                if (conditional && !String.IsNullOrWhiteSpace(mission.ReviewComment))
+                {
+                    await ApplyConditionalFeedbackToNextStagesAsync(mission, mission.ReviewComment!, token).ConfigureAwait(false);
+                }
+
                 await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
 
@@ -892,7 +937,7 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, ReviewDenyActionEnum? actionOverride = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
@@ -909,7 +954,11 @@ namespace Armada.Core.Services
                 await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
             }
 
-            if (mission.ReviewDenyAction == ReviewDenyActionEnum.FailPipeline)
+            // "More Work Required" and "Deny" surface as an explicit action from the reviewer; fall back to the
+            // mission's configured deny action when the caller does not specify one.
+            ReviewDenyActionEnum effectiveAction = actionOverride ?? mission.ReviewDenyAction;
+
+            if (effectiveAction == ReviewDenyActionEnum.FailPipeline)
             {
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = BuildReviewDeniedFailureReason(reviewComment);
@@ -6875,6 +6924,118 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "error reclaiming dock " + dockId + ": " + reclaimEx.Message);
             }
+        }
+
+        private async Task ApplyConditionalFeedbackToNextStagesAsync(Mission mission, string reviewComment, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VoyageId)) return;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+            foreach (Mission next in voyageMissions)
+            {
+                if (next.DependsOnMissionId != mission.Id) continue;
+                if (next.Status != MissionStatusEnum.Pending) continue;
+
+                next.Description = ApplyReviewerGuidance(next.Description, reviewComment);
+                next.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(next, token).ConfigureAwait(false);
+            }
+        }
+
+        private static string ApplyReviewerGuidance(string? description, string reviewComment)
+        {
+            string existing = description ?? String.Empty;
+            int markerIndex = existing.IndexOf(ReviewerGuidanceMarker, StringComparison.Ordinal);
+            if (markerIndex >= 0)
+            {
+                existing = existing.Substring(0, markerIndex).TrimEnd();
+            }
+
+            string guidanceSection =
+                ReviewerGuidanceMarker + "\n" +
+                "## Reviewer Guidance (from prior stage approval)\n" +
+                reviewComment.Trim() + "\n\n" +
+                "The previous stage was conditionally approved with the guidance above. Take it into account as you carry out this stage.\n";
+
+            if (String.IsNullOrWhiteSpace(existing))
+            {
+                return guidanceSection;
+            }
+
+            return existing.TrimEnd() + "\n\n---\n\n" + guidanceSection;
+        }
+
+        /// <summary>
+        /// Run the pre-land dock-boundary scanner for the mission's vessel. On a finding, fail the mission
+        /// with a redaction-safe reason (which surfaces it in the operator inbox) and return true so the
+        /// caller does not land. Returns false when the vessel has no boundary rules or the dock is clean.
+        /// </summary>
+        private async Task<bool> TryFailMissionForBoundaryViolationAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VesselId)) return false;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return false;
+
+            DockBoundarySettings settings = _Settings?.DockBoundary ?? new DockBoundarySettings();
+            DockBoundaryScanResult scanResult = new DockBoundaryScanner().Scan(
+                mission.DiffSnapshot,
+                null,
+                vessel.Id,
+                vessel.Name,
+                vessel.RepoUrl,
+                vessel.ProtectedPaths,
+                settings);
+
+            if (scanResult.Passed) return false;
+
+            if (dock != null)
+            {
+                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "boundary reclaim error for mission " + mission.Id + ": " + ex.Message); }
+            }
+
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = FormatDockBoundaryFailure(scanResult);
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + mission.Id + " blocked by dock-boundary scanner (" + scanResult.Findings.Count + " finding(s))");
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return true;
+        }
+
+        private static string FormatDockBoundaryFailure(DockBoundaryScanResult result)
+        {
+            if (result?.Findings == null || result.Findings.Count == 0)
+                return "dock_boundary_violation: no details";
+            List<string> parts = new List<string>();
+            foreach (DockBoundaryFinding f in result.Findings)
+            {
+                string loc = !String.IsNullOrEmpty(f.Path) ? f.Path : "(unknown)";
+                parts.Add(f.Kind.ToString() + " [" + (f.FindingLabel ?? "") + "] at " + loc);
+            }
+            return "dock_boundary_violation: " + String.Join("; ", parts);
+        }
+
+        private static List<string> ExtractChangedPathsFromDiff(string? diff)
+        {
+            List<string> paths = new List<string>();
+            if (String.IsNullOrEmpty(diff)) return paths;
+            foreach (string raw in diff!.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (!raw.StartsWith("+++ ", StringComparison.Ordinal)) continue;
+                string body = raw.Length > 4 ? raw.Substring(4).Trim() : String.Empty;
+                if (body == "/dev/null") continue;
+                if (body.StartsWith("b/", StringComparison.Ordinal) || body.StartsWith("a/", StringComparison.Ordinal))
+                    body = body.Substring(2);
+                body = body.Replace('\\', '/').TrimStart('/').Trim();
+                if (!String.IsNullOrEmpty(body)) paths.Add(body);
+            }
+            return paths;
         }
 
         private async Task DispatchPendingMissionsAsync(CancellationToken token)
