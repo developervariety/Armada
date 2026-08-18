@@ -1107,6 +1107,32 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v69: coordination leases for distributed locking.
+        /// </summary>
+        public static readonly string[] MigrationV69Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS coordination_leases (
+                name VARCHAR(255) NOT NULL PRIMARY KEY,
+                holder TEXT NOT NULL,
+                tenant_id VARCHAR(255) NULL,
+                acquired_utc DATETIME(6) NOT NULL,
+                expires_utc DATETIME(6) NOT NULL,
+                INDEX idx_coordination_leases_expires (expires_utc)
+            );"
+        };
+
+        /// <summary>
+        /// Migration v70: reasoning_effort on captains, redispatch_attempts on missions, dock-boundary config on vessels.
+        /// </summary>
+        public static readonly string[] MigrationV70Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN reasoning_effort VARCHAR(64) NULL;",
+            @"ALTER TABLE missions ADD COLUMN redispatch_attempts INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json LONGTEXT NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

@@ -1401,7 +1401,24 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_project_profiles_fleet ON project_profiles(fleet_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_project_profiles_vessel ON project_profiles(vessel_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_project_profiles_default_scope ON project_profiles(scope, is_default, active);"
-                )
+                ),
+                new SchemaMigration(70, "Add coordination leases for distributed locking",
+                    @"CREATE TABLE IF NOT EXISTS coordination_leases (
+                        name TEXT PRIMARY KEY,
+                        holder TEXT NOT NULL,
+                        tenant_id TEXT,
+                        acquired_utc TEXT NOT NULL,
+                        expires_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_leases_expires ON coordination_leases(expires_utc);"
+                ),
+                new SchemaMigration(71, "Add reasoning_effort to captains",
+                    @"ALTER TABLE captains ADD COLUMN reasoning_effort TEXT;"),
+                new SchemaMigration(72, "Add redispatch_attempts to missions",
+                    @"ALTER TABLE missions ADD COLUMN redispatch_attempts INTEGER NOT NULL DEFAULT 0;"),
+                new SchemaMigration(73, "Add dock-boundary scanner config to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json TEXT;")
             };
         }
 

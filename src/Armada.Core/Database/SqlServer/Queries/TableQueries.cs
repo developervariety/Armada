@@ -781,6 +781,39 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_fleet') CREATE INDEX idx_project_profiles_fleet ON project_profiles(fleet_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_vessel') CREATE INDEX idx_project_profiles_vessel ON project_profiles(vessel_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_project_profiles_default_scope') CREATE INDEX idx_project_profiles_default_scope ON project_profiles(scope, is_default, active);"
+                ),
+                new SchemaMigration(
+                    70,
+                    "Add coordination leases for distributed locking",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'coordination_leases')
+                    CREATE TABLE coordination_leases (
+                        name NVARCHAR(255) NOT NULL PRIMARY KEY,
+                        holder NVARCHAR(MAX) NOT NULL,
+                        tenant_id NVARCHAR(255) NULL,
+                        acquired_utc DATETIME2 NOT NULL,
+                        expires_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_coordination_leases_expires') CREATE INDEX idx_coordination_leases_expires ON coordination_leases(expires_utc);"
+                ),
+                new SchemaMigration(
+                    71,
+                    "Add reasoning_effort to captains",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('captains') AND name = 'reasoning_effort')
+                    ALTER TABLE captains ADD reasoning_effort NVARCHAR(64) NULL;"
+                ),
+                new SchemaMigration(
+                    72,
+                    "Add redispatch_attempts to missions",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('missions') AND name = 'redispatch_attempts')
+                    ALTER TABLE missions ADD redispatch_attempts INT NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(
+                    73,
+                    "Add dock-boundary scanner config to vessels",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('vessels') AND name = 'secret_scan_enabled')
+                    ALTER TABLE vessels ADD secret_scan_enabled BIT NOT NULL DEFAULT 0;",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('vessels') AND name = 'protected_path_patterns_json')
+                    ALTER TABLE vessels ADD protected_path_patterns_json NVARCHAR(MAX) NULL;"
                 )
             };
         }

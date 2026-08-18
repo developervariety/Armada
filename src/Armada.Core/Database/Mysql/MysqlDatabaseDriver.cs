@@ -658,6 +658,16 @@ namespace Armada.Core.Database.Mysql
                     68,
                     "Add project profiles for layered persona resolution",
                     TableQueries.MigrationV68Statements
+                ),
+                new SchemaMigration(
+                    69,
+                    "Add coordination leases for distributed locking",
+                    TableQueries.MigrationV69Statements
+                ),
+                new SchemaMigration(
+                    70,
+                    "Add reasoning_effort to captains, redispatch_attempts to missions, dock-boundary config to vessels",
+                    TableQueries.MigrationV70Statements
                 )
             };
         }
