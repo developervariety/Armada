@@ -158,6 +158,21 @@ namespace Armada.Core.Database
         public IVesselPackHintMethods VesselPackHints { get; protected set; } = null!;
 
         /// <summary>
+        /// Project profile operations.
+        /// </summary>
+        public IProjectProfileMethods ProjectProfiles { get; protected set; } = null!;
+
+        /// <summary>
+        /// Skill operations.
+        /// </summary>
+        public ISkillMethods Skills { get; protected set; } = null!;
+
+        /// <summary>
+        /// Coordination lease operations.
+        /// </summary>
+        public ICoordinationLeaseMethods CoordinationLeases { get; protected set; } = null!;
+
+        /// <summary>
         /// Background job operations.
         /// </summary>
         public IJobMethods Jobs { get; protected set; } = null!;

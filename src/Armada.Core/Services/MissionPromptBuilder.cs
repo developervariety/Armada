@@ -184,30 +184,40 @@ namespace Armada.Core.Services
             string? persona,
             Dictionary<string, string> templateParams,
             IPromptTemplateService? promptTemplates,
+            PersonaOverride? personaOverride = null,
             CancellationToken token = default)
         {
             if (templateParams == null) throw new ArgumentNullException(nameof(templateParams));
 
-            string templateName = GetPersonaTemplateName(persona);
+            bool overrideActive = personaOverride != null && personaOverride.Enabled;
 
+            string templateName = GetPersonaTemplateName(persona);
+            if (overrideActive && !String.IsNullOrWhiteSpace(personaOverride!.PromptTemplateName))
+                templateName = personaOverride.PromptTemplateName!.Trim();
+
+            string result = GetPersonaPromptFallback(persona);
             if (promptTemplates != null)
             {
                 string rendered = await promptTemplates.RenderAsync(templateName, templateParams, token).ConfigureAwait(false);
                 if (!String.IsNullOrEmpty(rendered))
-                    return rendered;
+                    result = rendered;
+
+                // The fallback path must carry the same ownership directive as the template path, or a
+                // mission whose template is missing silently loses the rule.
+                string? ownershipDirective;
+                if (templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
+                    !String.IsNullOrEmpty(ownershipDirective))
+                {
+                    result = result + "\n\n" + ownershipDirective;
+                }
             }
 
-            // The fallback path must carry the same ownership directive as the template path, or a
-            // mission whose template is missing silently loses the rule.
-            string fallback = GetPersonaPromptFallback(persona);
-            string? ownershipDirective;
-            if (templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
-                !String.IsNullOrEmpty(ownershipDirective))
+            if (overrideActive && !String.IsNullOrWhiteSpace(personaOverride!.AdditionalInstructions))
             {
-                fallback = fallback + "\n\n" + ownershipDirective;
+                result = result + "\n\n" + personaOverride.AdditionalInstructions!.Trim();
             }
 
-            return fallback;
+            return result;
         }
 
         /// <summary>

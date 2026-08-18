@@ -3206,7 +3206,7 @@ namespace Armada.Core.Services
 
         private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, CancellationToken token)
         {
-            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, token).ConfigureAwait(false);
+            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, null, token).ConfigureAwait(false);
         }
 
         /// <summary>
