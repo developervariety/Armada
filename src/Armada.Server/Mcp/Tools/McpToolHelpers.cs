@@ -13,6 +13,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -43,37 +44,10 @@ namespace Armada.Server.Mcp.Tools
         /// <returns>True if the transition is allowed; otherwise, false.</returns>
         public static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {
-            return (current, target) switch
-            {
-                (MissionStatusEnum.Pending, MissionStatusEnum.Assigned) => true,
-                (MissionStatusEnum.Pending, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Testing) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.WaitingForInput) => true,
-                (MissionStatusEnum.WaitingForInput, MissionStatusEnum.Pending) => true,
-                (MissionStatusEnum.WaitingForInput, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.WaitingForInput, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Cancelled) => true,
-                _ => false
-            };
+            // Delegated to the single authoritative table so the MCP transition tool and the
+            // services agree. A local copy here omitted every PullRequestOpen transition, so the
+            // operator tool rejected the PR-fallback flow as an invalid transition.
+            return MissionStateMachine.IsValidTransition(current, target);
         }
 
         /// <summary>

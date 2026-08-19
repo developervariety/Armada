@@ -1,7 +1,6 @@
 namespace Armada.Test.Unit
 {
     using System.Text.Json;
-    using System.Text.RegularExpressions;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -274,34 +273,38 @@ namespace Armada.Test.Unit
             // and MissionRoutes.IsValidTransition are private, and Armada.Helm is not referenced
             // by this test project, so these surfaces are pinned with source guards (the accepted
             // pattern for this vessel when runtime coverage is impractical).
+            //
+            // These three once carried their own copy of the transition table, and the guards
+            // asserted the literal switch arms. The copies drifted anyway — two of them omitted
+            // every PullRequestOpen transition — because a guard on one copy cannot see the others.
+            // They now delegate to MissionStateMachine, so the guard asserts the delegation and
+            // MissionTransitionTableAgreementTests asserts the rules themselves.
 
-            await RunTest("AgentLifecycleHandler validator includes WaitingForInput arms", () =>
+            await RunTest("AgentLifecycleHandler validator delegates to the shared state machine", () =>
             {
                 string contents = ReadSource(Path.Combine("src", "Armada.Server", "AgentLifecycleHandler.cs"));
-                AssertContains("(MissionStatusEnum.InProgress, MissionStatusEnum.WaitingForInput) => true", contents, "InProgress -> WaitingForInput arm");
-                AssertContains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Pending) => true", contents, "WaitingForInput -> Pending arm");
-                AssertContains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Failed) => true", contents, "WaitingForInput -> Failed arm");
-                AssertContains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Cancelled) => true", contents, "WaitingForInput -> Cancelled arm");
+                AssertContains("return MissionStateMachine.IsValidTransition(current, target);", contents, "Delegates to MissionStateMachine");
+                Assert(
+                    !contents.Contains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Pending) => true"),
+                    "No local transition table remains to drift from the shared one");
             });
 
-            await RunTest("WebSocketCommandHandler validator includes WaitingForInput arms", () =>
+            await RunTest("WebSocketCommandHandler validator delegates to the shared state machine", () =>
             {
                 string contents = ReadSource(Path.Combine("src", "Armada.Server", "WebSocket", "WebSocketCommandHandler.cs"));
-                AssertContains("(MissionStatusEnum.InProgress, MissionStatusEnum.WaitingForInput) => true", contents, "InProgress -> WaitingForInput arm");
-                AssertContains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Pending) => true", contents, "WaitingForInput -> Pending arm");
-                AssertContains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Failed) => true", contents, "WaitingForInput -> Failed arm");
-                AssertContains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Cancelled) => true", contents, "WaitingForInput -> Cancelled arm");
+                AssertContains("return MissionStateMachine.IsValidTransition(current, target);", contents, "Delegates to MissionStateMachine");
+                Assert(
+                    !contents.Contains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Pending) => true"),
+                    "No local transition table remains to drift from the shared one");
             });
 
-            await RunTest("MissionRoutes validator includes WaitingForInput arms", () =>
+            await RunTest("MissionRoutes validator delegates to the shared state machine", () =>
             {
                 string contents = ReadSource(Path.Combine("src", "Armada.Server", "Routes", "MissionRoutes.cs"));
-                string normalized = Regex.Replace(contents, @"\s+", " ");
-                AssertContains("|| target == MissionStatusEnum.WaitingForInput", normalized, "InProgress allows WaitingForInput target");
-                AssertContains(
-                    "if (current == MissionStatusEnum.WaitingForInput) { return target == MissionStatusEnum.Pending || target == MissionStatusEnum.Failed || target == MissionStatusEnum.Cancelled; }",
-                    normalized,
-                    "WaitingForInput outbound transitions");
+                AssertContains("return MissionStateMachine.IsValidTransition(current, target);", contents, "Delegates to MissionStateMachine");
+                Assert(
+                    !contents.Contains("if (current == MissionStatusEnum.WaitingForInput)"),
+                    "No local transition table remains to drift from the shared one");
             });
 
             await RunTest("TableRenderer maps WaitingForInput to ASCII-safe color and icon", () =>

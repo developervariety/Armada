@@ -36,6 +36,15 @@ namespace Armada.Core.Services
                         || target == MissionStatusEnum.Review
                         || target == MissionStatusEnum.Complete
                         || target == MissionStatusEnum.Failed
+                        || target == MissionStatusEnum.Cancelled
+                        || target == MissionStatusEnum.WaitingForInput;
+
+                case MissionStatusEnum.WaitingForInput:
+                    // A blocked mission returns to Pending to be dispatched again, so this status is
+                    // not terminal. Omitting it here let the default arm classify it as terminal,
+                    // which is the opposite of what the blocking flow needs.
+                    return target == MissionStatusEnum.Pending
+                        || target == MissionStatusEnum.Failed
                         || target == MissionStatusEnum.Cancelled;
 
                 case MissionStatusEnum.WorkProduced:
