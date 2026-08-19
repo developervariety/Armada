@@ -1,0 +1,43 @@
+import type { Captain } from '../../types/models';
+import { useLocale } from '../../context/LocaleContext';
+
+interface CaptainPickerProps {
+  captains: Captain[];
+  value: string | null | undefined;
+  onChange: (captainId: string | null) => void;
+  /** Label for the empty option that leaves the choice on normal routing. */
+  autoLabel?: string;
+  disabled?: boolean;
+  id?: string;
+  ariaLabel?: string;
+  className?: string;
+}
+
+/**
+ * Dropdown for choosing a preferred captain. Shows each captain's name, tier, and runtime so the operator can
+ * pick by capability, and offers an explicit "auto" option that leaves the step on normal persona/tier
+ * routing. All labels are localized; the picker is a plain select so it stays keyboard-accessible.
+ */
+export default function CaptainPicker({ captains, value, onChange, autoLabel, disabled, id, ariaLabel, className }: CaptainPickerProps) {
+  const { t } = useLocale();
+
+  return (
+    <select
+      id={id}
+      className={`captain-picker${className ? ` ${className}` : ''}`}
+      value={value ?? ''}
+      disabled={disabled}
+      aria-label={ariaLabel ?? t('Preferred captain')}
+      onChange={(event) => onChange(event.target.value ? event.target.value : null)}
+    >
+      <option value="">{autoLabel ?? t('Auto (default routing)')}</option>
+      {captains.map((captain) => (
+        <option key={captain.id} value={captain.id}>
+          {captain.name}
+          {captain.tier ? ` - ${t(captain.tier)}` : ''}
+          {captain.runtime ? ` (${captain.runtime})` : ''}
+        </option>
+      ))}
+    </select>
+  );
+}

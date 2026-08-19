@@ -3608,3 +3608,48 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     gap: 0.5rem;
     flex-wrap: wrap;
 }
+
+/* Captain capability tier badge (Economy / Standard / Premium). Theme-aware via CSS variables; always shows
+   the tier text so it is not color-only. Premium uses --orange: this fork's palette has no --warning. */
+.captain-tier-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+.captain-tier-economy {
+    background: color-mix(in srgb, var(--green) 16%, transparent);
+    color: var(--green);
+    border-color: color-mix(in srgb, var(--green) 35%, transparent);
+}
+.captain-tier-standard {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.captain-tier-premium {
+    background: color-mix(in srgb, var(--orange) 18%, transparent);
+    color: var(--orange);
+    border-color: color-mix(in srgb, var(--orange) 40%, transparent);
+}
+
+/* Per-persona captain assignment rows on the Dispatch page */
+.captain-assignment-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.6fr) minmax(120px, 1fr);
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.4rem 0;
+}
+.captain-assignment-row + .captain-assignment-row {
+    border-top: 1px solid var(--border);
+}
+.captain-picker,
+.fallback-tier-select {
+    width: 100%;
+}

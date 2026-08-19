@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { listVessels, listPipelines, createVoyage, getVesselReadiness } from '../api/client';
-import type { Vessel, Pipeline, SelectedPlaybook, VesselReadinessResult } from '../types/models';
+import { listVessels, listPipelines, listCaptains, listPersonas, createVoyage, getVesselReadiness } from '../api/client';
+import type { Vessel, Pipeline, SelectedPlaybook, VesselReadinessResult, Captain, Persona, CaptainAssignmentOverride, CaptainTier } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import PlaybookSelector from '../components/shared/PlaybookSelector';
+import CaptainPicker from '../components/shared/CaptainPicker';
+import FallbackTierSelect from '../components/shared/FallbackTierSelect';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 
 interface DispatchPrefillState {
@@ -21,6 +23,12 @@ interface DispatchPrefillState {
   voyageTitle?: string;
 }
 
+/** One pipeline step's captain choice: a preferred captain and the tier to fall back to when it is busy. */
+interface StepAssignment {
+  captainId: string | null;
+  fallbackTier: CaptainTier | null;
+}
+
 export default function Dispatch() {
   const { t } = useLocale();
   const { pushToast } = useNotifications();
@@ -29,7 +37,10 @@ export default function Dispatch() {
 
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [captains, setCaptains] = useState<Captain[]>([]);
+  const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPipeline, setSelectedPipeline] = useState('');
+  const [stepAssignments, setStepAssignments] = useState<Record<string, StepAssignment>>({});
   const [voyageTitle, setVoyageTitle] = useState('');
 
   const [vesselId, setVesselId] = useState('');
@@ -47,11 +58,43 @@ export default function Dispatch() {
     Promise.all([
       listVessels({ pageSize: 9999 }).catch(() => null),
       listPipelines({ pageSize: 9999 }).catch(() => null),
-    ]).then(([vRes, pRes]) => {
+      listCaptains({ pageSize: 9999 }).catch(() => null),
+      listPersonas({ pageSize: 9999 }).catch(() => null),
+    ]).then(([vRes, pRes, cRes, prRes]) => {
       if (vRes) setVessels(vRes.objects);
       if (pRes) setPipelines(pRes.objects);
+      if (cRes) setCaptains(cRes.objects);
+      if (prRes) setPersonas(prRes.objects);
     });
   }, []);
+
+  // The distinct personas (steps) of the selected pipeline, in stage order, de-duplicated.
+  const selectedPipelineForSteps = pipelines.find((p) => p.name === selectedPipeline) ?? null;
+  const stepPersonas: string[] = selectedPipelineForSteps
+    ? Array.from(new Set(selectedPipelineForSteps.stages.slice().sort((a, b) => a.order - b.order).map((stage) => stage.personaName)))
+    : [];
+
+  // Seed each step's preferred captain from that persona's default whenever the pipeline or personas
+  // change. An assignment the operator already touched is preserved rather than reset by the reseed.
+  useEffect(() => {
+    if (stepPersonas.length === 0) {
+      setStepAssignments({});
+      return;
+    }
+    setStepAssignments((current) => {
+      const next: Record<string, StepAssignment> = {};
+      for (const personaName of stepPersonas) {
+        if (current[personaName]) {
+          next[personaName] = current[personaName];
+        } else {
+          const persona = personas.find((p) => p.name === personaName);
+          next[personaName] = { captainId: persona?.defaultCaptainId ?? null, fallbackTier: null };
+        }
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPipeline, personas]);
 
   useEffect(() => {
     if (prefillAppliedRef.current) return;
@@ -107,6 +150,12 @@ export default function Dispatch() {
     const tasks = [prompt.trim()];
     if (!tasks.length) return;
 
+    // Only steps the operator actually set are sent. An untouched step is left off entirely so the
+    // voyage stores no override for it and normal persona/tier routing still applies.
+    const captainAssignments: CaptainAssignmentOverride[] = Object.entries(stepAssignments)
+      .filter(([, assignment]) => assignment.captainId || assignment.fallbackTier)
+      .map(([persona, assignment]) => ({ persona, captainId: assignment.captainId, fallbackTier: assignment.fallbackTier }));
+
     setDispatching(true);
     setResult(null);
     try {
@@ -124,6 +173,7 @@ export default function Dispatch() {
         ...(objectiveId ? { objectiveId } : {}),
         ...(selectedPipeline ? { pipeline: selectedPipeline } : {}),
         ...(selectedPlaybooks.length > 0 ? { selectedPlaybooks } : {}),
+        ...(captainAssignments.length > 0 ? { captainAssignments } : {}),
       });
       const missionCount = isMultiStage
         ? t('{{count}} pipeline stages', { count: selectedPipelineObj!.stages.length })
@@ -256,6 +306,46 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
           </div>
 
           <PlaybookSelector value={selectedPlaybooks} onChange={setSelectedPlaybooks} disabled={dispatching} />
+
+          {stepPersonas.length > 0 && (
+            <div className="form-group">
+              <div className="form-label-row">
+                <label>{t('Captain Assignments')}</label>
+                <Link to="/personas" className="form-label-link">{t('Manage persona defaults')}</Link>
+              </div>
+              <p className="text-dim" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
+                {t('Pick a preferred captain per pipeline step. When it is busy, Armada falls back to an idle captain at or above the fallback tier. Defaults come from each persona.')}
+              </p>
+              <div className="card" style={{ padding: '0.5rem 0.85rem' }}>
+                <div className="captain-assignment-row" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dim)' }}>
+                  <span>{t('Step')}</span>
+                  <span>{t('Preferred Captain')}</span>
+                  <span>{t('Fallback Tier')}</span>
+                </div>
+                {stepPersonas.map((persona) => {
+                  const assignment = stepAssignments[persona] ?? { captainId: null, fallbackTier: null };
+                  return (
+                    <div className="captain-assignment-row" key={persona}>
+                      <span>{persona}</span>
+                      <CaptainPicker
+                        captains={captains}
+                        value={assignment.captainId}
+                        onChange={(captainId) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, captainId } }))}
+                        disabled={dispatching}
+                        ariaLabel={t('Preferred captain for {{persona}}', { persona })}
+                      />
+                      <FallbackTierSelect
+                        value={assignment.fallbackTier}
+                        onChange={(fallbackTier) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, fallbackTier } }))}
+                        disabled={dispatching}
+                        ariaLabel={t('Fallback tier for {{persona}}', { persona })}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="form-actions">
             <button

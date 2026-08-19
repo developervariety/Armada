@@ -149,7 +149,13 @@ export interface Captain {
   currentDockId: string | null;
   processId: number | null;
   recoveryAttempts: number;
+  /** Capability tier used for tier-based routing and fallback. */
+  tier?: CaptainTier | null;
+  /** Advances only on real agent output; stall detection measures its age. */
   lastHeartbeatUtc: string | null;
+  /** Last time the OS process was observed alive. Distinct from lastHeartbeatUtc: a running but
+   *  silent captain refreshes this one, so liveness stays current without masking a stall. */
+  lastProcessAliveUtc?: string | null;
   createdUtc: string;
   lastUpdateUtc: string;
 }
@@ -307,6 +313,17 @@ export interface Voyage {
   sourcePlanningSessionId?: string | null;
   sourcePlanningMessageId?: string | null;
   selectedPlaybooks?: SelectedPlaybook[];
+  captainOverridesJson?: string | null;
+}
+
+/** Capability tier used for fallback routing when a preferred captain is busy. */
+export type CaptainTier = 'Economy' | 'Standard' | 'Premium';
+
+/** Per-persona captain override selected at dispatch (preferred captain + fallback tier). */
+export interface CaptainAssignmentOverride {
+  persona: string;
+  captainId?: string | null;
+  fallbackTier?: CaptainTier | null;
 }
 
 export type ObjectiveStatus =
@@ -1987,6 +2004,7 @@ export interface VoyageCreateRequest {
   missions: DispatchRequest[];
   selectedPlaybooks?: SelectedPlaybook[];
   objectiveId?: string;
+  captainAssignments?: CaptainAssignmentOverride[];
 }
 
 export interface TransitionRequest {
@@ -2073,6 +2091,8 @@ export interface Persona {
   name: string;
   description: string | null;
   promptTemplateName: string;
+  /** Captain preferred for this persona, used to seed a dispatch's per-step assignment. */
+  defaultCaptainId?: string | null;
   isBuiltIn: boolean;
   active: boolean;
   createdUtc: string;

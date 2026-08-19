@@ -1,1 +1,0 @@
-import{r as o,aq as s}from"./index-B7I8H9h3.js";function x(){const[n,e]=o.useState(null);return o.useEffect(()=>{let t=!0;return s().then(r=>{t&&e(r)}).catch(()=>{t&&e(null)}),()=>{t=!1}},[]),n}export{x as u};
