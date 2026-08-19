@@ -628,6 +628,25 @@ a container-triggered deletion.
 | Read | `armada_disk_lifecycle` (action `scan`) |
 | Destructive | `armada_disk_lifecycle` (action `reconcile`; gated by `diskLifecycle.enabled` and `diskLifecycle.dryRun`) |
 
+### 8.21 Token Usage
+
+`token_usage_summary` summarizes model token usage over a time window: time
+buckets with a per-model breakdown, a whole-window per-model aggregate ordered
+most-used first, and grand totals for input, output, cached, and total tokens.
+Narrow it with `model`, `runtime`, `source` (mission, chat, or planning),
+`vesselId`, or `captainId`, and set the window with `sinceHours` or an explicit
+`fromUtc`/`toUtc` pair. `bucketMinutes` accepts fractional values.
+
+Read the `estimatedCount` before comparing models. Counts are real only where
+the runtime reports usage, and estimated otherwise, so a window mixing runtimes
+mixes measured and inferred numbers in one total. Several runtimes report no
+usage at all; for those, the admiral-side prompt-byte accounting is the figure
+that is comparable across runtimes.
+
+| Risk | Tools |
+| --- | --- |
+| Read | `token_usage_summary` |
+
 ## 9. Safety Rules
 
 - Read before write.
