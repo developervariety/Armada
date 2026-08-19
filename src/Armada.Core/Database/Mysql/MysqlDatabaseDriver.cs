@@ -79,6 +79,9 @@ namespace Armada.Core.Database.Mysql
             Releases = new ReleaseMethods(_ConnectionString);
             Deployments = new DeploymentMethods(_ConnectionString);
             VesselPackHints = new VesselPackHintMethods(_ConnectionString, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
+            Skills = new SkillMethods(_ConnectionString);
+            CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
             Jobs = new JobMethods(_ConnectionString);
             TokenUsage = new TokenUsageMethods(_ConnectionString);
         }

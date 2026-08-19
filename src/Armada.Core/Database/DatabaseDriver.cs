@@ -1,6 +1,7 @@
 namespace Armada.Core.Database
 {
     using System;
+    using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
@@ -158,7 +159,9 @@ namespace Armada.Core.Database
         public IVesselPackHintMethods VesselPackHints { get; protected set; } = null!;
 
         /// <summary>
-        /// Project profile operations.
+        /// Project profile operations. A provider that does not assign this leaves it null, and the
+        /// first caller then fails with a NullReferenceException naming nothing useful; see
+        /// <see cref="FindUnwiredMethodSets"/> for the check that reports the gap instead.
         /// </summary>
         public IProjectProfileMethods ProjectProfiles { get; protected set; } = null!;
 
@@ -196,6 +199,25 @@ namespace Armada.Core.Database
         #endregion
 
         #region Public-Methods
+
+        /// <summary>
+        /// Report which entity method sets this driver left unassigned. Every method set is declared
+        /// <c>null!</c> and assigned by the concrete provider's constructor, so a provider that gains a
+        /// new entity but never assigns it compiles cleanly and then throws a NullReferenceException at
+        /// the first call, from a stack that names neither the provider nor the missing entity. This
+        /// turns that into a list a caller can act on.
+        /// </summary>
+        /// <returns>Names of the unassigned method sets, empty when the driver is fully wired.</returns>
+        public List<string> FindUnwiredMethodSets()
+        {
+            List<string> missing = new List<string>();
+
+            if (ProjectProfiles == null) missing.Add(nameof(ProjectProfiles));
+            if (Skills == null) missing.Add(nameof(Skills));
+            if (CoordinationLeases == null) missing.Add(nameof(CoordinationLeases));
+
+            return missing;
+        }
 
         /// <summary>
         /// Initialize the database schema and seed data.

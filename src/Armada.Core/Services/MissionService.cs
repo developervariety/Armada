@@ -1772,6 +1772,16 @@ namespace Armada.Core.Services
                 }
             }
 
+            // The vessel's project-profile skills, injected as their own section. Tracked through the
+            // ledger like every other module: an untracked section still costs the captain its bytes,
+            // and an oversized brief must be visible in the accounting rather than shipping silently.
+            string skillsMarkdown = await ResolveSkillsMarkdownAsync(vessel, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(skillsMarkdown))
+            {
+                content += ledger.Track("mission.skills", "## Skills\n\n" + skillsMarkdown + "\n");
+                content += "\n";
+            }
+
             if (_Settings.CodeIndex.Enabled)
             {
                 content += ledger.Track("mission.code_index", BuildCodeRetrievalSection(worktreePath, mission));
@@ -1818,9 +1828,16 @@ namespace Armada.Core.Services
             // changes, run checks before committing -- which contradicts the read-only rules further
             // down the same brief. Reviewer personas are unaffected: their contract already reports
             // rather than changes.
+            // Apply the vessel's project-profile persona override so per-project customization takes
+            // effect. A read-only mission keeps its mode-aware output contract: the override customizes
+            // the producing persona template, which that contract deliberately replaces.
+            PersonaOverride? personaOverride = mission.IsReadOnlyMode
+                ? null
+                : await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
+
             string personaPrompt = mission.IsReadOnlyMode
                 ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens)
-                : await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
+                : await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
 
             // The metadata module embeds the mission description verbatim. A long accumulated
@@ -3295,9 +3312,105 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, CancellationToken token)
+        private async Task<string> ResolvePersonaPromptAsync(
+            string? persona,
+            Dictionary<string, string> templateParams,
+            PersonaOverride? personaOverride,
+            CancellationToken token)
         {
-            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, null, token).ConfigureAwait(false);
+            return await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the effective per-project persona override for a mission's persona by selecting the
+        /// vessel's project profile (vessel then fleet then global). Best-effort: returns null on any
+        /// error so a profile lookup never blocks dispatch.
+        /// </summary>
+        /// <param name="vessel">Vessel the mission runs against.</param>
+        /// <param name="persona">Persona name the mission runs as.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The persona override to apply, or null when no profile customizes this persona.</returns>
+        internal async Task<PersonaOverride?> ResolvePersonaOverrideAsync(Vessel vessel, string? persona, CancellationToken token)
+        {
+            if (vessel == null || String.IsNullOrWhiteSpace(persona)) return null;
+
+            try
+            {
+                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
+                    new ProjectProfileQuery
+                    {
+                        TenantId = vessel.TenantId,
+                        Active = true,
+                        PageNumber = 1,
+                        PageSize = 1000
+                    },
+                    token).ConfigureAwait(false);
+
+                if (profiles.Count == 0) return null;
+
+                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                return ProjectProfileService.ResolvePersonaOverride(profile, persona);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error resolving persona override for vessel " + vessel.Id + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Resolve the vessel's project-profile skills into a combined markdown block for prompt
+        /// injection. Best-effort: returns an empty string on any error or when no profile or skill
+        /// applies. Skill references in the profile may be skill ids or skill names.
+        /// </summary>
+        /// <param name="vessel">Vessel the mission runs against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Rendered skills markdown, or an empty string when nothing applies.</returns>
+        internal async Task<string> ResolveSkillsMarkdownAsync(Vessel vessel, CancellationToken token)
+        {
+            if (vessel == null) return String.Empty;
+
+            try
+            {
+                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
+                    new ProjectProfileQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
+                    token).ConfigureAwait(false);
+                if (profiles.Count == 0) return String.Empty;
+
+                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                if (profile == null || profile.Skills == null || profile.Skills.Count == 0) return String.Empty;
+
+                List<Skill> skills = await _Database.Skills.EnumerateAllAsync(
+                    new SkillQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
+                    token).ConfigureAwait(false);
+                if (skills.Count == 0) return String.Empty;
+
+                Dictionary<string, Skill> byId = new Dictionary<string, Skill>(StringComparer.Ordinal);
+                Dictionary<string, Skill> byName = new Dictionary<string, Skill>(StringComparer.OrdinalIgnoreCase);
+                foreach (Skill skill in skills)
+                {
+                    byId[skill.Id] = skill;
+                    if (!String.IsNullOrWhiteSpace(skill.Name)) byName[skill.Name.Trim()] = skill;
+                }
+
+                List<string> blocks = new List<string>();
+                foreach (string reference in profile.Skills)
+                {
+                    if (String.IsNullOrWhiteSpace(reference)) continue;
+                    Skill? resolved = null;
+                    if (byId.TryGetValue(reference.Trim(), out Skill? byIdMatch)) resolved = byIdMatch;
+                    else if (byName.TryGetValue(reference.Trim(), out Skill? byNameMatch)) resolved = byNameMatch;
+                    if (resolved == null || String.IsNullOrWhiteSpace(resolved.Content)) continue;
+                    blocks.Add("### " + resolved.Name + "\n\n" + resolved.Content.Trim());
+                }
+
+                return String.Join("\n\n", blocks);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error resolving skills for vessel " + vessel.Id + ": " + ex.Message);
+                return String.Empty;
+            }
         }
 
         /// <summary>

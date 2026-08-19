@@ -85,6 +85,8 @@ namespace Armada.Core.Database.SqlServer
             Releases = new ReleaseMethods(this);
             Deployments = new DeploymentMethods(this);
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(this);
+            Skills = new SkillMethods(this);
             Jobs = new JobMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(this);
         }

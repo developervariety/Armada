@@ -87,6 +87,9 @@ namespace Armada.Core.Database.Sqlite
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
+            Skills = new SkillMethods(this, _Settings, _Logging);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
         }
 
         /// <summary>
@@ -129,6 +132,9 @@ namespace Armada.Core.Database.Sqlite
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
+            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
+            Skills = new SkillMethods(this, _Settings, _Logging);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             Jobs = new JobMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(this, _Settings, _Logging);
         }
