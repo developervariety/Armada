@@ -6782,14 +6782,54 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrEmpty(missionPersona))
             {
-                if (String.IsNullOrEmpty(captain.AllowedPersonas))
-                    return true;
-                if (captain.AllowedPersonas.Contains("\"" + missionPersona + "\"", StringComparison.OrdinalIgnoreCase))
-                    return true;
-                return false;
+                return CaptainAllowsPersona(captain, missionPersona);
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Whether a captain may take a mission of the supplied persona. An empty allow-list means the
+        /// captain accepts any persona.
+        /// </summary>
+        /// <remarks>
+        /// Matching is normalized rather than literal. Persona names have two spellings in persisted
+        /// data -- "Test Engineer" is canonical and "TestEngineer" is what older builds wrote -- and a
+        /// substring test against the raw JSON treats those as different personas. A captain carrying the
+        /// legacy spelling was then eligible for nothing: it stayed Idle while its mission queued for
+        /// ever, which reads as a capacity problem and is really a spelling one.
+        /// </remarks>
+        /// <param name="captain">Captain being considered.</param>
+        /// <param name="persona">Persona the mission runs as.</param>
+        /// <returns>True when the captain may take the persona.</returns>
+        internal static bool CaptainAllowsPersona(Captain captain, string? persona)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (String.IsNullOrEmpty(persona)) return true;
+            if (String.IsNullOrEmpty(captain.AllowedPersonas)) return true;
+
+            try
+            {
+                List<string>? allowedPersonas = JsonSerializer.Deserialize<List<string>>(captain.AllowedPersonas);
+                if (allowedPersonas != null)
+                {
+                    foreach (string allowedPersona in allowedPersonas)
+                    {
+                        if (PersonaCatalog.Matches(allowedPersona, persona)) return true;
+                    }
+
+                    return false;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall through to the substring form below: an allow-list that is not a JSON array is
+                // malformed, and refusing every persona for it would bench the captain silently.
+            }
+
+            string normalized = PersonaCatalog.NormalizeName(persona);
+            return captain.AllowedPersonas.Contains("\"" + persona + "\"", StringComparison.OrdinalIgnoreCase)
+                || captain.AllowedPersonas.Contains("\"" + normalized + "\"", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)
@@ -6941,18 +6981,11 @@ namespace Armada.Core.Services
             List<Captain> eligible = new List<Captain>();
             foreach (Captain captain in idleCaptains)
             {
-                if (String.IsNullOrEmpty(captain.AllowedPersonas))
+                // Normalized match, so a captain whose allow-list carries the legacy spelling of a
+                // persona is still eligible for that persona's missions.
+                if (CaptainAllowsPersona(captain, persona))
                 {
-                    // No restriction -- captain can fill any persona
                     eligible.Add(captain);
-                }                else
-                {
-                    // Check if the persona is in the allowed list
-                    // AllowedPersonas is a JSON array string, e.g. '["Worker","Judge"]'
-                    if (captain.AllowedPersonas.Contains("\"" + persona + "\"", StringComparison.OrdinalIgnoreCase))
-                    {
-                        eligible.Add(captain);
-                    }
                 }
             }
 
