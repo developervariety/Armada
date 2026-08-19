@@ -73,6 +73,7 @@ namespace Armada.Core.Database.Mysql.Queries
             process_id INT,
             recovery_attempts INT NOT NULL DEFAULT 0,
             last_heartbeat_utc DATETIME(6),
+            last_process_alive_utc DATETIME(6),
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL
         );";
@@ -1130,6 +1131,14 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE missions ADD COLUMN redispatch_attempts INT NOT NULL DEFAULT 0;",
             @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled TINYINT(1) NOT NULL DEFAULT 0;",
             @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json LONGTEXT NULL;"
+        };
+
+        /// <summary>
+        /// Migration v71: last_process_alive_utc on captains.
+        /// </summary>
+        public static readonly string[] MigrationV71Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN last_process_alive_utc DATETIME(6) NULL;"
         };
 
         /// <summary>

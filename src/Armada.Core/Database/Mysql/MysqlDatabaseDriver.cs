@@ -668,6 +668,11 @@ namespace Armada.Core.Database.Mysql
                     70,
                     "Add reasoning_effort to captains, redispatch_attempts to missions, dock-boundary config to vessels",
                     TableQueries.MigrationV70Statements
+                ),
+                new SchemaMigration(
+                    71,
+                    "Add last_process_alive_utc to captains",
+                    TableQueries.MigrationV71Statements
                 )
             };
         }
@@ -815,6 +820,9 @@ namespace Armada.Core.Database.Mysql
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
+            // Read defensively: the column arrives with a migration, and a reader built
+            // against a database that has not run it yet must still map the rest of the row.
+            try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
             try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
             try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

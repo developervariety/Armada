@@ -424,6 +424,34 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <summary>
+        /// Update the captain's process-liveness timestamp without advancing the output heartbeat.
+        /// Refreshed while the agent's OS process is alive but silent, so liveness telemetry stays
+        /// current without masking a stall (which is measured from the output heartbeat).
+        /// </summary>
+        /// <param name="id">Captain identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task UpdateProcessAliveAsync(string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = @"UPDATE captains SET last_process_alive_utc = @last_process_alive_utc, last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    cmd.Parameters.AddWithValue("@last_process_alive_utc", now);
+                    cmd.Parameters.AddWithValue("@last_update_utc", now);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
         /// Check if a captain exists by identifier.
         /// </summary>
         /// <param name="id">Captain identifier.</param>
@@ -887,6 +915,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             captain.ProcessId = NullableInt(reader["process_id"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = NullableDateTime(reader["last_heartbeat_utc"]);
+            // Read defensively: the column arrives with a migration, and a reader built
+            // against a database that has not run it yet must still map the rest of the row.
+            try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }
             try { captain.QuarantineUntilUtc = NullableDateTime(reader["quarantine_until_utc"]); } catch { }
             try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
             captain.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();

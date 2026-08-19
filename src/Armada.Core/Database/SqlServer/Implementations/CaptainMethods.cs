@@ -306,6 +306,33 @@ namespace Armada.Core.Database.SqlServer.Implementations
             }
         }
 
+        /// <summary>
+        /// Update the captain's process-liveness timestamp without advancing the output heartbeat.
+        /// Refreshed while the agent's OS process is alive but silent, so liveness telemetry stays
+        /// current without masking a stall (which is measured from the output heartbeat).
+        /// </summary>
+        /// <param name="id">Captain identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task UpdateProcessAliveAsync(string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"UPDATE captains SET last_process_alive_utc = @last_process_alive_utc, last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    cmd.Parameters.AddWithValue("@last_process_alive_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
         /// <inheritdoc />
         public async Task<EnumerationResult<Captain>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
         {

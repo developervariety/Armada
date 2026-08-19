@@ -814,6 +814,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     ALTER TABLE vessels ADD secret_scan_enabled BIT NOT NULL DEFAULT 0;",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('vessels') AND name = 'protected_path_patterns_json')
                     ALTER TABLE vessels ADD protected_path_patterns_json NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    74,
+                    "Add last_process_alive_utc to captains",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('captains') AND name = 'last_process_alive_utc')
+                    ALTER TABLE captains ADD last_process_alive_utc NVARCHAR(450) NULL;"
                 )
             };
         }
@@ -942,6 +948,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 process_id INT,
                 recovery_attempts INT NOT NULL DEFAULT 0,
                 last_heartbeat_utc NVARCHAR(450),
+                last_process_alive_utc NVARCHAR(450),
                 created_utc NVARCHAR(450) NOT NULL,
                 last_update_utc NVARCHAR(450) NOT NULL
             );";

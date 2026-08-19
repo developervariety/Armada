@@ -418,6 +418,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                         process_id INTEGER,
                         recovery_attempts INTEGER NOT NULL DEFAULT 0,
                         last_heartbeat_utc TEXT,
+                        last_process_alive_utc TEXT,
                         created_utc TEXT NOT NULL,
                         last_update_utc TEXT NOT NULL,
                         FOREIGN KEY (tenant_id) REFERENCES tenants(id),
@@ -1418,7 +1419,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE missions ADD COLUMN redispatch_attempts INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(73, "Add dock-boundary scanner config to vessels",
                     @"ALTER TABLE vessels ADD COLUMN secret_scan_enabled INTEGER NOT NULL DEFAULT 0;",
-                    @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json TEXT;")
+                    @"ALTER TABLE vessels ADD COLUMN protected_path_patterns_json TEXT;"),
+                new SchemaMigration(74, "Add last_process_alive_utc to captains",
+                    @"ALTER TABLE captains ADD COLUMN last_process_alive_utc TEXT;")
             };
         }
 

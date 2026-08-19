@@ -153,9 +153,18 @@ namespace Armada.Core.Models
         public int RecoveryAttempts { get; set; } = 0;
 
         /// <summary>
-        /// Last heartbeat timestamp in UTC.
+        /// Last heartbeat timestamp in UTC. Advances only on real agent output, because stall
+        /// detection measures its age; refreshing it for a merely-alive process masks a stall.
         /// </summary>
         public DateTime? LastHeartbeatUtc { get; set; } = null;
+
+        /// <summary>
+        /// UTC time the captain's OS process was last observed alive by the supervisor. This is
+        /// distinct from <see cref="LastHeartbeatUtc"/>, which advances only on real agent output:
+        /// stall detection compares output-heartbeat age so a process that is alive but silent is
+        /// still detected as stalled, while liveness telemetry stays fresh here.
+        /// </summary>
+        public DateTime? LastProcessAliveUtc { get; set; } = null;
 
         /// <summary>
         /// UTC instant after which a quarantined captain may be restored to Idle.

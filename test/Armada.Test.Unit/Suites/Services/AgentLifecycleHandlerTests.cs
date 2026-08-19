@@ -375,7 +375,11 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Silent running process still refreshes captain and mission heartbeats", async () =>
+            // A silent-but-running process must keep telemetry fresh WITHOUT advancing the captain's
+            // output heartbeat: stall detection measures that value's age, so refreshing it here is
+            // what stops a silent agent from ever being detected as stalled. This test used to assert
+            // LastHeartbeatUtc was set, which pinned exactly that masking behaviour as intended.
+            await RunTest("Silent running process refreshes liveness telemetry without masking a stall", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -411,12 +415,21 @@ namespace Armada.Test.Unit.Suites.Services
                             Mission? refreshedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                             Voyage? refreshedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
 
-                            return refreshedCaptain?.LastHeartbeatUtc.HasValue == true
+                            return refreshedCaptain?.LastProcessAliveUtc.HasValue == true
                                 && refreshedMission != null
                                 && refreshedMission.LastUpdateUtc > beforeMission!.LastUpdateUtc
                                 && refreshedVoyage != null
                                 && refreshedVoyage.LastUpdateUtc > beforeVoyage!.LastUpdateUtc;
                         }, TimeSpan.FromSeconds(8)).ConfigureAwait(false);
+
+                        // The captain produced no output, so the value stall detection reads must
+                        // still be unset. If the liveness loop advanced it, a silent agent would
+                        // look freshly active for as long as its process stayed up.
+                        Captain? silentCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        AssertNotNull(silentCaptain);
+                        Assert(
+                            !silentCaptain!.LastHeartbeatUtc.HasValue,
+                            "A silent process must not advance the captain output heartbeat");
                     }
                     finally
                     {

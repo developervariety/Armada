@@ -553,9 +553,19 @@ namespace Armada.Server
                             break;
                         }
 
-                        try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
+                        // Refresh process-liveness telemetry ONLY. The output heartbeat
+                        // (LastHeartbeatUtc, advanced by HandleAgentHeartbeat on real agent output)
+                        // must NOT be touched here: stall detection measures time since last output,
+                        // so refreshing the heartbeat for a merely-alive process would mask a stalled
+                        // agent that is running but producing nothing. This loop previously called
+                        // UpdateHeartbeatAsync on the same interval as the stall threshold is
+                        // measured against, which is why no captain was ever detected as stalled.
+                        try { await _Database.Captains.UpdateProcessAliveAsync(captainId).ConfigureAwait(false); }
                         catch { }
 
+                        // The mission-side call is kept: it advances the mission's last_update_utc and
+                        // touches the voyage, which the WorkProduced and assignment-age watchdogs read.
+                        // It does not feed stall detection, so it is not part of the masking above.
                         try { await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false); }
                         catch { }
                     }

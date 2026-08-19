@@ -126,6 +126,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         process_id INTEGER,
                         recovery_attempts INTEGER NOT NULL DEFAULT 0,
                         last_heartbeat_utc TIMESTAMP,
+                        last_process_alive_utc TIMESTAMP,
                         created_utc TIMESTAMP NOT NULL,
                         last_update_utc TIMESTAMP NOT NULL
                     );",
@@ -822,7 +823,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS redispatch_attempts INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(73, "Add dock-boundary scanner config to vessels",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS secret_scan_enabled BOOLEAN NOT NULL DEFAULT FALSE;",
-                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS protected_path_patterns_json TEXT;")
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS protected_path_patterns_json TEXT;"),
+                new SchemaMigration(74, "Add last_process_alive_utc to captains",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS last_process_alive_utc TIMESTAMP;")
             };
         }
 
