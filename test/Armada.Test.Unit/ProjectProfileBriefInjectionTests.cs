@@ -147,6 +147,38 @@ namespace Armada.Test.Unit
                 }
             });
 
+            // A persona's default captain seeds the dispatch UI's per-step assignment. The column was
+            // added by a migration and then touched by no INSERT, UPDATE, or mapper, so the value could
+            // be set and never stored -- the seed would silently always be empty.
+
+            await RunTest("A persona default captain survives create, read, and update", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Persona persona = new Persona();
+                    persona.Name = "persona-default-captain-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                    persona.PromptTemplateName = "persona.worker";
+                    persona.DefaultCaptainId = "cpt_exampledefault";
+                    Persona created = await testDb.Driver.Personas.CreateAsync(persona);
+
+                    Persona? readBack = await testDb.Driver.Personas.ReadAsync(created.Id);
+                    AssertNotNull(readBack, "Persona should exist after create");
+                    AssertEqual(
+                        "cpt_exampledefault",
+                        readBack!.DefaultCaptainId,
+                        "The default captain must persist through create; null here is the original defect");
+
+                    readBack.DefaultCaptainId = "cpt_examplereassigned";
+                    await testDb.Driver.Personas.UpdateAsync(readBack);
+
+                    Persona? updated = await testDb.Driver.Personas.ReadAsync(created.Id);
+                    AssertEqual(
+                        "cpt_examplereassigned",
+                        updated!.DefaultCaptainId,
+                        "An updated default captain must persist");
+                }
+            });
+
             // Both resolvers are best-effort and return empty on failure, so a wiring mistake in brief
             // assembly is invisible at runtime: the brief simply renders without the section, exactly as
             // it did when nothing called them at all. The guard asserts the calls exist.

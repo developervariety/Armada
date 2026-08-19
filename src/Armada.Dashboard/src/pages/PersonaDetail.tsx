@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { createPersona, deletePersona, getPersona, getPromptTemplate, listPromptTemplates, resetPromptTemplate, updatePersona, updatePromptTemplate } from '../api/client';
-import type { Persona, PromptTemplate } from '../types/models';
+import { createPersona, deletePersona, getPersona, getPromptTemplate, listCaptains, listPromptTemplates, resetPromptTemplate, updatePersona, updatePromptTemplate } from '../api/client';
+import type { Captain, Persona, PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
+import CaptainPicker from '../components/shared/CaptainPicker';
+import CaptainRef from '../components/shared/CaptainRef';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -23,7 +25,8 @@ export default function PersonaDetail() {
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ description: '', promptTemplateName: '' });
+  const [form, setForm] = useState<{ description: string; promptTemplateName: string; defaultCaptainId: string | null }>({ description: '', promptTemplateName: '', defaultCaptainId: null });
+  const [captains, setCaptains] = useState<Captain[]>([]);
   const [templateNames, setTemplateNames] = useState<string[]>([]);
   const [promptTemplate, setPromptTemplate] = useState<PromptTemplate | null>(null);
   const [promptDescription, setPromptDescription] = useState('');
@@ -72,6 +75,10 @@ export default function PersonaDetail() {
       setPersona(found);
       const templateResult = await listPromptTemplates({ pageSize: 9999 });
       setTemplateNames(templateResult.objects.map(t => t.name));
+      // Best-effort: the picker degrades to showing the raw id when captains cannot be listed,
+      // which is better than failing the whole persona page over a secondary lookup.
+      const captainResult = await listCaptains({ pageSize: 9999 }).catch(() => null);
+      if (captainResult) setCaptains(captainResult.objects);
       if (found.promptTemplateName) {
         await loadPromptForPersona(found.promptTemplateName);
       } else {
@@ -89,7 +96,7 @@ export default function PersonaDetail() {
 
   function openEdit() {
     if (!persona) return;
-    setForm({ description: persona.description ?? '', promptTemplateName: persona.promptTemplateName ?? '' });
+    setForm({ description: persona.description ?? '', promptTemplateName: persona.promptTemplateName ?? '', defaultCaptainId: persona.defaultCaptainId ?? null });
     setShowForm(true);
   }
 
@@ -97,7 +104,7 @@ export default function PersonaDetail() {
     e.preventDefault();
     if (!persona) return;
     try {
-      await updatePersona(persona.name, { description: form.description, promptTemplateName: form.promptTemplateName });
+      await updatePersona(persona.name, { description: form.description, promptTemplateName: form.promptTemplateName, defaultCaptainId: form.defaultCaptainId });
       setShowForm(false);
       pushToast('success', t('Persona "{{name}}" saved.', { name: persona.name }));
       load();
@@ -222,6 +229,14 @@ export default function PersonaDetail() {
                 ))}
               </select>
             </label>
+            <label>{t('Default Captain')}
+              <CaptainPicker
+                captains={captains}
+                value={form.defaultCaptainId}
+                onChange={(defaultCaptainId) => setForm({ ...form, defaultCaptainId })}
+                ariaLabel={t('Default captain for this persona')}
+              />
+            </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
@@ -252,6 +267,10 @@ export default function PersonaDetail() {
               <Link to={`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`}>{persona.promptTemplateName}</Link>
             ) : '-'}
           </span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Default Captain')}</span>
+          <CaptainRef captainId={persona.defaultCaptainId} captains={captains} />
         </div>
         <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
