@@ -756,6 +756,57 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<string?> ResolveTrackedPathSuffixAsync(
+            string worktreePath,
+            string revision,
+            string relativePath,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) return null;
+            if (String.IsNullOrWhiteSpace(relativePath)) return null;
+
+            string effectiveRevision = String.IsNullOrEmpty(revision) ? "HEAD" : revision;
+            string needle = relativePath.Trim().TrimStart('/');
+            if (needle.Length == 0) return null;
+
+            try
+            {
+                // The glob pathspec matches the name at any depth. A bare name would match too much
+                // to be a fact, so resolution succeeds only when the repository tracks exactly one
+                // such path: an ambiguous answer is no better than no answer, and asserting one of
+                // several candidates is how a brief sends a captain to the wrong file.
+                string output = await RunGitAsync(
+                    worktreePath,
+                    token,
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    effectiveRevision,
+                    "--",
+                    ":(glob)**/" + needle).ConfigureAwait(false);
+
+                string[] lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                List<string> matches = new List<string>();
+                foreach (string line in lines)
+                {
+                    string candidate = line.Trim();
+                    if (candidate.Length == 0) continue;
+                    if (!candidate.EndsWith("/" + needle, StringComparison.Ordinal)) continue;
+                    matches.Add(candidate);
+                }
+
+                if (matches.Count != 1) return null;
+                return matches[0];
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not resolve path suffix " + needle + " on " + effectiveRevision +
+                    " in " + worktreePath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<GitAnchorPriorArt> SearchTrackedContentAsync(
             string worktreePath,
             string term,

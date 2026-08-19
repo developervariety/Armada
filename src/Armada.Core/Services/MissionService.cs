@@ -2387,8 +2387,29 @@ namespace Armada.Core.Services
                     history.ExistsOnRevision = await _Git.PathExistsOnRevisionAsync(
                         worktreePath, "HEAD", path, token).ConfigureAwait(false);
 
+                    // A mission names a file the way a reader says it, which is usually a suffix of the
+                    // tracked path. Reporting that name as absent states a false fact about a present
+                    // file, and a captain that believes it writes a second copy of landed work. Resolve
+                    // the suffix before concluding anything, and anchor the history on what git tracks.
+                    if (!history.ExistsOnRevision)
+                    {
+                        string? resolved = await _Git.ResolveTrackedPathSuffixAsync(
+                            worktreePath, "HEAD", path, token).ConfigureAwait(false);
+
+                        if (!String.IsNullOrEmpty(resolved))
+                        {
+                            history.RequestedPath = path;
+                            history.Path = resolved!;
+                            history.ExistsOnRevision = true;
+                        }
+                        else
+                        {
+                            history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(path);
+                        }
+                    }
+
                     IReadOnlyList<GitAnchorCommit> commits = await _Git.GetCommitsTouchingPathAsync(
-                        worktreePath, path, MaxAnchorCommitsPerPath, token).ConfigureAwait(false);
+                        worktreePath, history.Path, MaxAnchorCommitsPerPath, token).ConfigureAwait(false);
 
                     history.Commits = new List<GitAnchorCommit>(commits);
                     anchors.Files.Add(history);
@@ -2469,11 +2490,29 @@ namespace Armada.Core.Services
                 {
                     if (!file.ExistsOnRevision)
                     {
+                        if (file.IsExternalSourceTree)
+                        {
+                            // A read-only sibling tree is absent from every checkout by design. Calling
+                            // that new work tells a captain to create the source it was sent to read.
+                            builder.Append("- `" + file.Path + "` is not tracked here and reads as a path in a " +
+                                "sibling read-only source tree, which is provisioned beside the dock rather than in it. " +
+                                "Read it there; never create it in this repository.\n");
+                            continue;
+                        }
+
                         builder.Append("- `" + file.Path + "` does not exist on this checkout. It is new work, not an edit.\n");
                         continue;
                     }
 
-                    builder.Append("- `" + file.Path + "`\n");
+                    if (!String.IsNullOrEmpty(file.RequestedPath))
+                    {
+                        builder.Append("- `" + file.Path + "` (the mission names it `" + file.RequestedPath +
+                            "`; the repository tracks it at the path above)\n");
+                    }
+                    else
+                    {
+                        builder.Append("- `" + file.Path + "`\n");
+                    }
                     if (file.Commits.Count == 0)
                     {
                         builder.Append("  - no commit history found for this path\n");

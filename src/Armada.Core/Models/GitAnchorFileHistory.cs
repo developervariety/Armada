@@ -34,6 +34,31 @@ namespace Armada.Core.Models
         public bool ExistsOnRevision { get; set; } = false;
 
         /// <summary>
+        /// The path exactly as the mission text named it, when that differs from <see cref="Path"/>.
+        /// A mission commonly names a file by a suffix of its tracked path, so the resolver reports
+        /// both: the name the captain will search for, and the path the repository actually tracks.
+        /// Empty when the mission named the tracked path itself.
+        /// </summary>
+        public string RequestedPath
+        {
+            get
+            {
+                return _RequestedPath;
+            }
+            set
+            {
+                _RequestedPath = value ?? "";
+            }
+        }
+
+        /// <summary>
+        /// Whether the path names a read-only tree outside this repository, such as a sibling
+        /// deobfuscator's decompiled output. Such a path is absent from the checkout for a reason
+        /// that has nothing to do with the mission, so it must never be reported as new work.
+        /// </summary>
+        public bool IsExternalSourceTree { get; set; } = false;
+
+        /// <summary>
         /// Recent commits that touched the path, newest first. Never null.
         /// </summary>
         public List<GitAnchorCommit> Commits
@@ -53,6 +78,7 @@ namespace Armada.Core.Models
         #region Private-Members
 
         private string _Path = "";
+        private string _RequestedPath = "";
         private List<GitAnchorCommit> _Commits = new List<GitAnchorCommit>();
 
         #endregion

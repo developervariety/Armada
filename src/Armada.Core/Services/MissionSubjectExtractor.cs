@@ -51,6 +51,18 @@ namespace Armada.Core.Services
             @"^(flt|vsl|cpt|msn|vyg|dck|sig|art|obj|rbx|chk|inc)_",
             RegexOptions.Compiled);
 
+        // Directory names that only ever occur in a sibling read-only source tree: a deobfuscator's
+        // decompiled or decrypted output, or an extractor's export. A mission cites those trees as
+        // the SOURCE it ports from, never as a path it may create, so an absent one is not new work.
+        private static readonly string[] _ExternalSourceTreeMarkers = new string[]
+        {
+            "decompiled-src",
+            "decompiled-src-clean",
+            "decrypted-xml",
+            "decrypted-db",
+            "-export"
+        };
+
         // Words that are PascalCase in prose but name nothing in a repository.
         private static readonly HashSet<string> _StopTerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -108,6 +120,32 @@ namespace Armada.Core.Services
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Whether a path names a read-only tree that belongs to a sibling checkout rather than to
+        /// the mission's own repository. Callers use this to keep an absent path from being reported
+        /// as new work: the source a port reads from is absent by design, and telling a captain to
+        /// create it produces exactly the wrong diff.
+        /// </summary>
+        /// <param name="path">Repository-relative path, as named by the mission.</param>
+        /// <returns>True when the path carries a sibling-source marker.</returns>
+        public static bool IsExternalSourceTreePath(string? path)
+        {
+            if (String.IsNullOrWhiteSpace(path)) return false;
+
+            // Matched per segment, not per substring, so a repository file whose NAME merely contains
+            // a marker is not mistaken for a tree that lives somewhere else.
+            string[] segments = path!.Split('/');
+            foreach (string segment in segments)
+            {
+                foreach (string marker in _ExternalSourceTreeMarkers)
+                {
+                    if (segment.EndsWith(marker, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

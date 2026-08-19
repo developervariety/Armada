@@ -286,6 +286,26 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Resolve a path a mission named by a suffix of its tracked path to the single tracked path
+        /// that ends with it. A mission commonly names a file the way a reader would say it aloud
+        /// ("Decoders/Foo.cs") rather than from the repository root, and an exact-path test on
+        /// that name answers "absent" about a file that is present.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="revision">Revision to resolve against; defaults to HEAD when empty.</param>
+        /// <param name="relativePath">Path as the mission named it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The tracked path when exactly one matches; null when none or several match.</returns>
+        Task<string?> ResolveTrackedPathSuffixAsync(
+            string worktreePath,
+            string revision,
+            string relativePath,
+            CancellationToken token = default)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        /// <summary>
         /// Search tracked content for a fixed term and report how many files contain it, with a few
         /// sample locations. A caller must establish that the repository answers git before calling
         /// this, because a search that cannot run is reported the same way as one that found nothing.
