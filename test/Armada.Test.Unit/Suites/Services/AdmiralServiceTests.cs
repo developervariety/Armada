@@ -434,6 +434,99 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A read-only mission produces no diff, so the stage that exists to cover a diff has
+            // nothing to do. It used to be created anyway, and the captain could only report the
+            // contradiction. The reviewing stages read a report as readily as a diff and stay.
+            await RunTest("DispatchVoyageAsync ReadOnlyMissionDropsTheTestEngineerStage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Pipeline tested = new Pipeline("WorkerTestedJudged");
+                    tested.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    };
+                    tested = await db.Pipelines.CreateAsync(tested);
+
+                    Vessel vessel = new Vessel("StageModeVessel", "https://github.com/test/repo");
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Voyage auditVoyage = await service.DispatchVoyageAsync(
+                        "Audit With Full Pipeline", "diagnostic", vessel.Id,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Probe", "inspect") { Mode = "Audit" }
+                        },
+                        tested.Id).ConfigureAwait(false);
+
+                    List<Mission> auditMissions = await db.Missions.EnumerateByVoyageAsync(auditVoyage.Id).ConfigureAwait(false);
+
+                    AssertEqual(2, auditMissions.Count, "The diff-dependent stage must not be materialized for a read-only mission");
+                    AssertFalse(
+                        auditMissions.Any(m => String.Equals(m.Persona, "TestEngineer", StringComparison.OrdinalIgnoreCase)),
+                        "A TestEngineer stage has no diff to cover on an Audit mission");
+                    AssertTrue(
+                        auditMissions.Any(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)),
+                        "The review stage still has a report to read and must survive");
+
+                    Voyage implVoyage = await service.DispatchVoyageAsync(
+                        "Implementation With Full Pipeline", "build it", vessel.Id,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Build", "implement") { Mode = "Implementation" }
+                        },
+                        tested.Id).ConfigureAwait(false);
+
+                    List<Mission> implMissions = await db.Missions.EnumerateByVoyageAsync(implVoyage.Id).ConfigureAwait(false);
+                    AssertEqual(3, implMissions.Count, "An implementing mission keeps every stage of its pipeline");
+                }
+            });
+
+            // A stage that does not inherit the dispatch mode runs as Implementation: the gate then
+            // judges report-only work by its commit, and the brief carries instructions the captain
+            // cannot follow.
+            await RunTest("DispatchVoyageAsync PipelineStagesInheritTheMissionMode", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Pipeline reviewed = new Pipeline("WorkerJudged");
+                    reviewed.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    reviewed = await db.Pipelines.CreateAsync(reviewed);
+
+                    Vessel vessel = new Vessel("ModeInheritVessel", "https://github.com/test/repo");
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Voyage voyage = await service.DispatchVoyageAsync(
+                        "Audit Modes", "diagnostic", vessel.Id,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Probe", "inspect") { Mode = "Audit" }
+                        },
+                        reviewed.Id).ConfigureAwait(false);
+
+                    List<Mission> missions = await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+
+                    AssertTrue(missions.Count > 0, "the dispatch must create stages");
+                    AssertTrue(
+                        missions.All(m => m.Mode == MissionModeEnum.Audit),
+                        "every stage of a read-only dispatch must run read-only");
+                }
+            });
+
             await RunTest("DispatchVoyageQueuedAsync ReturnsBeforeAssignmentLaunchCompletes", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

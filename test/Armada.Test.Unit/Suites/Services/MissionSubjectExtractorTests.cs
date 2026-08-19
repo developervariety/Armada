@@ -92,6 +92,34 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("src/Theta.cs", paths[paths.Count - 1], "eighth path is the last one kept");
                 AssertFalse(paths.Contains("src/Iota.cs"), "paths beyond the cap are not extracted");
             });
+
+            await RunTest("Sibling source-tree markers are recognised as paths outside the repository", () =>
+            {
+                AssertTrue(MissionSubjectExtractor.IsExternalSourceTreePath(
+                    "output/decompiled-src/ExampleVendor.Core/ExampleDecoder.cs"),
+                    "a decompiled tree is a source to read, not a path to create");
+                AssertTrue(MissionSubjectExtractor.IsExternalSourceTreePath(
+                    "output/decompiled-src-clean/ExampleVendor/Widget.cs"),
+                    "the clean variant is the same tree");
+                AssertTrue(MissionSubjectExtractor.IsExternalSourceTreePath(
+                    "output/vendor-export/items.json"),
+                    "an extractor export lives beside the dock");
+                AssertTrue(MissionSubjectExtractor.IsExternalSourceTreePath(
+                    "output/decrypted-xml/Catalog.xml"),
+                    "a decrypted catalogue tree is provisioned, not committed");
+            });
+
+            await RunTest("An ordinary repository path is not mistaken for a sibling source tree", () =>
+            {
+                AssertFalse(MissionSubjectExtractor.IsExternalSourceTreePath(
+                    "src/Example/Example.Core/Vendor/WidgetDecoder.cs"),
+                    "a normal source path must keep the new-work wording");
+                AssertFalse(MissionSubjectExtractor.IsExternalSourceTreePath(
+                    "src/Example/Exporter/CatalogExporter.cs"),
+                    "a marker inside a FILE name is not a tree that lives elsewhere");
+                AssertFalse(MissionSubjectExtractor.IsExternalSourceTreePath(null),
+                    "no path is not an external path");
+            });
         }
 
         #endregion

@@ -2074,6 +2074,48 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("new work, not an edit", section, "the captain must not hunt for history that cannot exist");
             });
 
+            await RunTest("GitAnchors Section Does Not Call A Sibling Source Tree New Work", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.BaseCommit = "abc1234";
+
+                GitAnchorFileHistory external = new GitAnchorFileHistory();
+                external.Path = "output/decompiled-src/ExampleVendor.Core/ExampleDecoder.cs";
+                external.ExistsOnRevision = false;
+                external.IsExternalSourceTree = true;
+                anchors.Files.Add(external);
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("sibling read-only source tree", section,
+                    "an absent source tree must be named as a source, not as a gap in this repository");
+                AssertContains("never create it in this repository", section,
+                    "the captain must be told the path is not its to write");
+                AssertFalse(section.Contains("new work, not an edit"),
+                    "porting source is absent by design and must never read as work to do");
+            });
+
+            await RunTest("GitAnchors Section Reports Both The Named Path And The Tracked Path", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.BaseCommit = "abc1234";
+
+                GitAnchorFileHistory resolved = new GitAnchorFileHistory();
+                resolved.Path = "src/Example/Example.Core/Vendor/Widget/WidgetStep.cs";
+                resolved.RequestedPath = "Vendor/Widget/WidgetStep.cs";
+                resolved.ExistsOnRevision = true;
+                anchors.Files.Add(resolved);
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("src/Example/Example.Core/Vendor/Widget/WidgetStep.cs", section,
+                    "the tracked path must be given so the captain can open the file");
+                AssertContains("the mission names it", section,
+                    "the captain must be able to tie the tracked path to the name the brief used");
+                AssertFalse(section.Contains("does not exist on this checkout"),
+                    "a file named by a suffix of its tracked path is present, not absent");
+            });
+
             await RunTest("GitAnchors Section Marks A Partial Resolution Incomplete", () =>
             {
                 GitAnchors anchors = new GitAnchors();
