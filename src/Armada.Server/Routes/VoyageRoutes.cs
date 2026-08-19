@@ -120,7 +120,8 @@ namespace Armada.Server.Routes
                 PipelineId = request.PipelineId,
                 Pipeline = request.Pipeline,
                 ObjectiveId = request.ObjectiveId,
-                SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>()
+                SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
+                CaptainAssignments = request.CaptainAssignments
             };
         }
 

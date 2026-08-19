@@ -224,6 +224,17 @@ namespace Armada.Server
             }
 
             await LinkObjectiveToVoyageAsync(objectiveId, request.ObjectiveAuthContext, voyage).ConfigureAwait(false);
+
+            // Persist per-persona captain overrides so assignment resolves the preferred captain and
+            // fallback tier for every mission of a step, including fan-out missions created later. Both
+            // the REST and MCP dispatch paths reach this one seam, so the overrides cannot be stored by
+            // one caller and silently dropped by the other.
+            if (request.CaptainAssignments != null && request.CaptainAssignments.Count > 0)
+            {
+                voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(request.CaptainAssignments);
+                voyage = await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+            }
+
             LogDispatchInfo("dispatch complete voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds);
             return VoyageDispatchResult.Success(voyage);
         }

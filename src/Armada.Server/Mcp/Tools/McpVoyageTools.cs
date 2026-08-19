@@ -144,6 +144,22 @@ namespace Armada.Server.Mcp.Tools
                                 },
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
+                        },
+                        captainAssignments = new
+                        {
+                            type = "array",
+                            description = "Optional per-persona captain overrides. Each entry binds a pipeline step (persona) to a preferred captain and a fallback tier, applied to every mission of that persona including fan-out missions.",
+                            items = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    persona = new { type = "string", description = "Persona name the override applies to, for example Worker, Architect, Judge" },
+                                    captainId = new { type = "string", description = "Preferred captain ID (cpt_ prefix), or omit to leave normal routing and supply only a fallback tier" },
+                                    fallbackTier = new { type = "string", description = "Capability tier used when the preferred captain is busy: Economy, Standard, or Premium" }
+                                },
+                                required = new[] { "persona" }
+                            }
                         }
                     },
                     required = new[] { "title", "vesselId", "missions" }
@@ -164,7 +180,8 @@ namespace Armada.Server.Mcp.Tools
                         Pipeline = request.Pipeline,
                         ObjectiveId = request.ObjectiveId,
                         SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
-                        Settings = settings
+                        Settings = settings,
+                        CaptainAssignments = request.CaptainAssignments
                     };
                     VoyageDispatchService dispatchService = new VoyageDispatchService(
                         database,

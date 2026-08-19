@@ -74,5 +74,13 @@ namespace Armada.Server
         /// Settings used by pipeline model-tier enforcement.
         /// </summary>
         public ArmadaSettings? Settings { get; set; }
+
+        /// <summary>
+        /// Optional per-persona captain overrides for this voyage. Each entry binds a pipeline step
+        /// (persona) to a preferred captain and a fallback tier, applied to every mission of that persona
+        /// in the voyage including fan-out missions created later. Persisted to the voyage at dispatch and
+        /// resolved at assignment time.
+        /// </summary>
+        public List<CaptainAssignmentOverride>? CaptainAssignments { get; set; } = null;
     }
 }

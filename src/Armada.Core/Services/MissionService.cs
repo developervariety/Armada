@@ -7190,6 +7190,19 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Serialize a list of captain overrides for voyage persistence. Returns null when the list is
+        /// null or empty so the column stays null rather than storing "[]", which would otherwise read
+        /// as "overrides were configured" to anyone inspecting the row.
+        /// </summary>
+        /// <param name="overrides">The overrides to serialize, or null.</param>
+        /// <returns>The serialized JSON array, or null when there is nothing to store.</returns>
+        public static string? SerializeCaptainOverrides(List<CaptainAssignmentOverride>? overrides)
+        {
+            if (overrides == null || overrides.Count == 0) return null;
+            return JsonSerializer.Serialize(overrides);
+        }
+
         private async Task DispatchPendingMissionsAsync(CancellationToken token)
         {
             List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);

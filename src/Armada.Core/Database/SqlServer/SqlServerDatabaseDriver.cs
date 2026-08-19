@@ -566,6 +566,9 @@ namespace Armada.Core.Database.SqlServer
             string? voyageLandingModeStr = NullableString(reader["landing_mode"]);
             if (!String.IsNullOrEmpty(voyageLandingModeStr) && Enum.TryParse<LandingModeEnum>(voyageLandingModeStr, out LandingModeEnum vlm))
                 voyage.LandingMode = vlm;
+            // Read defensively: the column arrives with a migration, so a reader running against
+            // a database that has not applied it must still map the rest of the row.
+            try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
             return voyage;
         }
 
