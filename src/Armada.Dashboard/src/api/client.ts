@@ -114,6 +114,14 @@ import type {
   RunbookQuery,
   RunbookUpsertRequest,
   TokenUsageSummary,
+  ProjectProfile,
+  ProjectProfileValidationResult,
+  ProjectProfileResolutionResult,
+  PersonaPromptPreview,
+  Skill,
+  Job,
+  TokenUsageSummaryResult,
+  TokenUsageSummaryQuery,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -981,3 +989,40 @@ export function getEntity(type: string, id: string): Promise<unknown> {
   if (!endpoint) throw new Error(`Unknown entity type: ${type}`);
   return get<unknown>(`/api/v1/${endpoint}/${id}`);
 }
+
+// ==================== Project Profiles ====================
+export const listProjectProfiles = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<ProjectProfile>>(`/api/v1/project-profiles${buildQuery(params)}`);
+export const getProjectProfile = (id: string) => get<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`);
+export const createProjectProfile = (data: Partial<ProjectProfile>) => post<ProjectProfile>('/api/v1/project-profiles', data);
+export const updateProjectProfile = (id: string, data: Partial<ProjectProfile>) => put<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`, data);
+export const deleteProjectProfile = (id: string) => del<void>(`/api/v1/project-profiles/${encodeURIComponent(id)}`);
+export const validateProjectProfile = (data: Partial<ProjectProfile>) => post<ProjectProfileValidationResult>('/api/v1/project-profiles/validate', data);
+export const previewPersonaPrompt = (profileId: string, persona: string) =>
+  get<PersonaPromptPreview>(`/api/v1/project-profiles/${encodeURIComponent(profileId)}/persona-preview/${encodeURIComponent(persona)}`);
+
+// ==================== Skills ====================
+export const listSkills = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<Skill>>(`/api/v1/skills${buildQuery(params)}`);
+export const getSkill = (id: string) => get<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`);
+export const createSkill = (data: Partial<Skill>) => post<Skill>('/api/v1/skills', data);
+export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`, data);
+export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURIComponent(id)}`);
+
+// ==================== Background Jobs ====================
+export const listJobs = () => get<EnumerationResult<Job>>('/api/v1/jobs');
+export const getJob = (id: string) => get<Job>(`/api/v1/jobs/${encodeURIComponent(id)}`);
+export const cancelJob = (id: string) => post<Job>(`/api/v1/jobs/${encodeURIComponent(id)}/cancel`, {});
+
+/** Bucketed token-usage summary. Distinct from getTokenUsage, which returns the flat per-model
+ *  rollup from the events route; this one carries time buckets and powers the usage charts. */
+export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery) => {
+  const search = new URLSearchParams();
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+    }
+  }
+  const query = search.toString();
+  return get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${query ? `?${query}` : ''}`);
+};

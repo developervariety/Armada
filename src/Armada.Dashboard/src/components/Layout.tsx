@@ -361,7 +361,7 @@ const navSections: NavSection[] = [
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks', '/requests', '/api-explorer'],
+    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks', '/project-profiles', '/skills', '/jobs', '/token-usage', '/requests', '/api-explorer'],
     items: [
       {
         to: '/personas',
@@ -385,6 +385,49 @@ const navSections: NavSection[] = [
             <polyline points="21 16 21 21 16 21" />
             <line x1="15" y1="15" x2="21" y2="21" />
             <line x1="4" y1="4" x2="9" y2="9" />
+          </svg>
+        ),
+      },
+      {
+        to: '/project-profiles',
+        label: 'Project Profiles',
+        tooltip: 'Layered persona overrides and skills applied per vessel, fleet, or globally',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+        ),
+      },
+      {
+        to: '/skills',
+        label: 'Skills',
+        tooltip: 'Reusable instruction blocks contributed to captain briefs',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" />
+          </svg>
+        ),
+      },
+      {
+        to: '/jobs',
+        label: 'Jobs',
+        tooltip: 'Long-running background operations and their status',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+        ),
+      },
+      {
+        to: '/token-usage',
+        label: 'Token Usage',
+        tooltip: 'Model token usage over time, by model, runtime, and vessel',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
           </svg>
         ),
       },

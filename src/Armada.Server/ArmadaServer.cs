@@ -882,6 +882,11 @@ namespace Armada.Server
             // Ask Armada assistant
             new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
+
+            // Token usage. The bucketed summary already existed behind the token_usage_summary MCP
+            // tool; this exposes the same builder over REST so the dashboard can chart it.
+            new TokenUsageRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
         }
 
         private void InitializeDashboard()

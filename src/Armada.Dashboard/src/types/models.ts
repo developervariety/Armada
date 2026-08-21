@@ -2123,3 +2123,137 @@ export interface PipelineStage {
 }
 
 export type EntityType = 'fleets' | 'vessels' | 'captains' | 'missions' | 'voyages' | 'signals' | 'events' | 'docks' | 'merge-queue' | 'personas' | 'prompt-templates' | 'pipelines' | 'playbooks' | 'releases' | 'environments' | 'deployments' | 'incidents' | 'runbooks';
+
+// ==================== Project Profiles, Skills, and Jobs ====================
+
+/** Layer a project profile applies to; the resolver walks Vessel, then Fleet, then Global. */
+export type ProjectProfileScope = 'Global' | 'Fleet' | 'Vessel';
+
+/** Which layer supplied the resolved profile, or None when no profile applied. */
+export type ProjectProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global' | 'None';
+
+/** A profile's customization of one persona: a replacement template, extra instructions, or both. */
+export interface PersonaOverride {
+  personaName: string;
+  promptTemplateName: string | null;
+  additionalInstructions: string | null;
+  enabled: boolean;
+}
+
+/** A layered set of persona overrides and skills applied to a fleet, a vessel, or globally. */
+export interface ProjectProfile {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  scope: ProjectProfileScope;
+  fleetId: string | null;
+  vesselId: string | null;
+  isDefault: boolean;
+  active: boolean;
+  defaultPipelineId: string | null;
+  workflowProfileId: string | null;
+  personaOverrides: PersonaOverride[];
+  skills: string[];
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** Result of validating a profile before it is saved. */
+export interface ProjectProfileValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/** The profile that applies to a vessel, and which layer supplied it. */
+export interface ProjectProfileResolutionResult {
+  profile: ProjectProfile | null;
+  mode: ProjectProfileResolutionMode;
+}
+
+/** Base and effective prompt for one persona under a profile, for previewing an override. */
+export interface PersonaPromptPreview {
+  personaName: string;
+  baseTemplateName: string;
+  effectiveTemplateName: string;
+  basePrompt: string;
+  effectivePrompt: string;
+  additionalInstructions: string | null;
+  isOverridden: boolean;
+}
+
+/** A reusable instruction block contributed to a captain brief through a project profile. */
+export interface Skill {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  category: string | null;
+  content: string;
+  isBuiltIn: boolean;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** A long-running background operation, polled for status rather than blocking a request. */
+export interface Job {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  kind: string;
+  status: string;
+  progress: number;
+  resultJson: string | null;
+  errorReason: string | null;
+  createdUtc: string;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  lastUpdateUtc: string;
+}
+
+/** One time bucket of the token-usage summary. Bucket totals carry a single cachedTokens figure;
+ *  the per-model breakdown splits it into cacheReadTokens and cacheWriteTokens. */
+export interface TokenUsageBucket {
+  bucketStartUtc: string;
+  bucketEndUtc: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  models: TokenUsageModelBreakdown[];
+}
+
+/** Bucketed token usage over a window, from GET /api/v1/token-usage/summary. Distinct from
+ *  TokenUsageSummary, which is the flat per-model rollup served by the events route.
+ *  estimatedCount reports how many aggregated records were estimated rather than reported by the
+ *  runtime, so a window mixing runtimes mixes measured and inferred numbers in one total. */
+export interface TokenUsageSummaryResult {
+  fromUtc: string | null;
+  toUtc: string | null;
+  bucketMinutes: number;
+  recordCount: number;
+  estimatedCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  buckets: TokenUsageBucket[];
+  byModel: TokenUsageModelBreakdown[];
+}
+
+/** Query parameters for the bucketed token-usage summary. */
+export interface TokenUsageSummaryQuery {
+  fromUtc?: string;
+  toUtc?: string;
+  bucketMinutes?: number;
+  model?: string;
+  runtime?: string;
+  source?: string;
+  vesselId?: string;
+  captainId?: string;
+}

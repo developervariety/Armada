@@ -11,6 +11,12 @@ import './App.css';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Fleets = lazy(() => import('./pages/Fleets'));
+const ProjectProfiles = lazy(() => import('./pages/ProjectProfiles'));
+const ProjectProfileDetail = lazy(() => import('./pages/ProjectProfileDetail'));
+const Skills = lazy(() => import('./pages/Skills'));
+const SkillDetail = lazy(() => import('./pages/SkillDetail'));
+const Jobs = lazy(() => import('./pages/Jobs'));
+const TokenUsage = lazy(() => import('./pages/TokenUsage'));
 const Vessels = lazy(() => import('./pages/Vessels'));
 const CodeIndex = lazy(() => import('./pages/CodeIndex'));
 const Captains = lazy(() => import('./pages/Captains'));
@@ -139,6 +145,15 @@ export default function App() {
                       <Route path="prompt-templates" element={<PromptTemplates />} />
                       <Route path="prompt-templates/create" element={<PromptTemplateDetail />} />
                       <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
+                      <Route path="project-profiles" element={<ProjectProfiles />} />
+                      <Route path="project-profiles/:id" element={<ProjectProfileDetail />} />
+
+                      <Route path="skills" element={<Skills />} />
+                      <Route path="skills/:id" element={<SkillDetail />} />
+
+                      <Route path="jobs" element={<Jobs />} />
+                      <Route path="token-usage" element={<TokenUsage />} />
+
                       <Route path="playbooks" element={<Playbooks />} />
                       <Route path="playbooks/:id" element={<PlaybookDetail />} />
                       <Route path="workflow-profiles" element={<WorkflowProfiles />} />

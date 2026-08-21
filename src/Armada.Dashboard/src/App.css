@@ -3653,3 +3653,17 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .fallback-tier-select {
     width: 100%;
 }
+
+/* Per-table auto-refresh interval dropdown */
+.auto-refresh-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+}
+.auto-refresh-select select {
+    font-size: 0.78rem;
+    padding: 0.25rem 0.4rem;
+}
+.auto-refresh-select-label { white-space: nowrap; }
