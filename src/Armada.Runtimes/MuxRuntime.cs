@@ -77,7 +77,7 @@ namespace Armada.Runtimes
             Captain? captain)
         {
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
-            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options);
+            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options, ShowThinking);
         }
 
         /// <summary>
@@ -161,6 +161,36 @@ namespace Armada.Runtimes
             if (!String.IsNullOrWhiteSpace(options?.BaseUrl))
             {
                 startInfo.Environment["OPENAI_BASE_URL"] = options.BaseUrl!;
+            }
+        }
+
+        /// <summary>
+        /// Determine whether an output line is a Mux structured protocol event (for example
+        /// run_started / run_completed) rather than assistant text. Mux emits these as single-line
+        /// JSON objects carrying an eventType field; a consumer rendering the captain's reply skips
+        /// them so raw protocol JSON does not leak into the chat.
+        /// </summary>
+        /// <param name="line">A single output line from the Mux CLI.</param>
+        /// <returns>True if the line is a Mux protocol event; otherwise false.</returns>
+        public static bool IsProtocolEventLine(string? line)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return false;
+
+            string trimmed = line.Trim();
+            if (trimmed.Length < 2 || trimmed[0] != '{' || trimmed[trimmed.Length - 1] != '}') return false;
+
+            try
+            {
+                using (JsonDocument document = JsonDocument.Parse(trimmed))
+                {
+                    return document.RootElement.ValueKind == JsonValueKind.Object
+                        && document.RootElement.TryGetProperty("eventType", out JsonElement eventType)
+                        && eventType.ValueKind == JsonValueKind.String;
+                }
+            }
+            catch (JsonException)
+            {
+                return false;
             }
         }
 

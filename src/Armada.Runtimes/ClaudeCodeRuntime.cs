@@ -56,6 +56,15 @@ namespace Armada.Runtimes
         /// </summary>
         public bool SkipPermissions { get; set; } = true;
 
+        /// <summary>
+        /// When true, add --include-partial-messages so the runtime emits incremental text deltas and
+        /// the caller can render a reply token by token. Captains on this fork already run with
+        /// --output-format stream-json unconditionally, so unlike upstream this flag controls only the
+        /// partial-message deltas, not the stream-json mode itself. Interactive chat sets it; missions
+        /// leave it false, since partial deltas add volume to a mission log nobody reads live.
+        /// </summary>
+        public bool StreamJsonOutput { get; set; } = false;
+
         #endregion
 
         #region Private-Members
@@ -131,6 +140,13 @@ namespace Armada.Runtimes
             args.Add("--verbose");
             args.Add("--output-format");
             args.Add("stream-json");
+
+            if (StreamJsonOutput)
+            {
+                // Incremental text deltas, so an interactive caller can stream the reply as it is
+                // produced rather than waiting for the terminal result event.
+                args.Add("--include-partial-messages");
+            }
 
             // Isolate captain settings to project and local sources only; prevents user-level
             // plugins and MCP servers (e.g. Playwright) from leaking into headless captain processes.

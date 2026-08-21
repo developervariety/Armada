@@ -764,7 +764,12 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Vessels
-            new VesselRoutes(_Database, EmitEventAsync, _JsonOptions, _Docks)
+            new VesselRoutes(
+                _Database,
+                EmitEventAsync,
+                _JsonOptions,
+                _Docks,
+                new VesselContextService(_Database, _RuntimeFactory, _Docks, _PromptTemplateService, _Logging))
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Workspace
@@ -895,7 +900,10 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Ask Armada assistant
-            new AskRoutes(new AskArmadaService(_Database, _Admiral, _Logging), _JsonOptions)
+            new AskRoutes(
+                new AskArmadaService(_Database, _Admiral, _Logging),
+                new CaptainChatService(_Database, _RuntimeFactory, _WebSocketHub, _PromptTemplateService, _Logging),
+                _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Token usage. The bucketed summary already existed behind the token_usage_summary MCP

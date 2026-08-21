@@ -1,0 +1,165 @@
+// Light, non-confrontational "thinking" phrases shown while Ask Armada waits on a captain.
+// Inspired by Mux's thinking-messages list and expanded with Armada's own nautical / fleet flavor.
+// Keep every entry gentle and safe -- nothing confrontational, alarming, or risky.
+export const ASK_THINKING_MESSAGES: string[] = [
+  // --- General (calm, playful) ---
+  'Thinking...',
+  'Working on it...',
+  'Just a moment...',
+  'Considering...',
+  'Gathering thoughts...',
+  'Putting it together...',
+  'Almost there...',
+  'Getting oriented...',
+  'Lining things up...',
+  'Making progress...',
+  'Assembling a response...',
+  'Mulling it over...',
+  'Weighing the options...',
+  'Connecting the dots...',
+  'Untangling this...',
+  'Following the thread...',
+  'Cross-referencing...',
+  'Looking into it...',
+  'Organizing my thoughts...',
+  'Sorting through this...',
+  'Taking a closer look...',
+  'Mapping this out...',
+  'Finding the right words...',
+  'Checking my reasoning...',
+  'Building an answer...',
+  'Refining the response...',
+  'Gathering context...',
+  'Making sense of it...',
+  'Working through the details...',
+  'Reviewing the request...',
+  'Forming a response...',
+  'Preparing an answer...',
+  'Reasoning through it...',
+  'Exploring the possibilities...',
+  'Checking the details...',
+  'Distilling the useful parts...',
+  'Choosing my words carefully...',
+  'Double-checking the details...',
+  'Bringing it into focus...',
+  'Tying up the loose ends...',
+  'Running one last check...',
+  'Nearly finished...',
+  'Preparing the response...',
+  'Here comes the answer...',
+
+  // --- Library / research ---
+  'Consulting the records...',
+  'Checking the archives...',
+  'Flipping through the index...',
+  'Following the references...',
+  'Comparing the sources...',
+  'Reviewing the latest findings...',
+  'Reading the relevant passages...',
+  'Verifying the details...',
+  'Checking the fine print...',
+  'Following a promising lead...',
+  'Reviewing the manifests...',
+  'Consulting the logbook...',
+
+  // --- Workshop / machinery ---
+  'Calibrating...',
+  'Consulting the schematic...',
+  'Aligning the cogs...',
+  'Fitting the pieces together...',
+  'Checking the measurements...',
+  'Adjusting the gears...',
+  'Tightening the loose ends...',
+  'Polishing the result...',
+  'Making a few adjustments...',
+  'Running a quick inspection...',
+  'Fastening the last bolt...',
+
+  // --- Kitchen ---
+  'Letting it simmer...',
+  'Stirring the possibilities...',
+  'Checking the recipe...',
+  'Adding a pinch of context...',
+  'Tasting for balance...',
+  'Plating the answer...',
+  'Bringing it to the table...',
+
+  // --- Navigation / stars ---
+  'Charting a course...',
+  'Consulting the compass...',
+  'Scanning the horizon...',
+  'Plotting the coordinates...',
+  'Finding the best path...',
+  'Checking the star charts...',
+  'Reading the map...',
+  'Following the trail markers...',
+  'Rounding the next bend...',
+  'Nearing the destination...',
+
+  // --- Armada: fleet & voyage flavor (gentle, on-theme) ---
+  'Signaling the fleet...',
+  'Consulting the captains...',
+  'Hailing the vessels...',
+  'Charting the voyage...',
+  'Plotting the next mission...',
+  'Reviewing the merge queue...',
+  'Checking the docks...',
+  'Raising the signal flags...',
+  'Trimming the sails...',
+  'Setting a course...',
+  'Sounding the depths...',
+  'Consulting the harbor master...',
+  'Reading the ship’s log...',
+  'Weighing anchor...',
+  'Mustering the crew...',
+  'Checking the rigging...',
+  'Calling the roll...',
+  'Studying the charts...',
+  'Coordinating the armada...',
+  'Dispatching a scout...',
+  'Gathering the fleet reports...',
+  'Consulting the admiral’s notes...',
+  'Aligning the voyages...',
+  'Tallying the missions...',
+  'Inspecting the worktrees...',
+  'Checking the tide tables...',
+  'Steering toward the answer...',
+  'Marking the sea charts...',
+  'Counting the vessels...',
+  'Preparing the orders...',
+  'Relaying the signal...',
+  'Surveying the fleet...',
+  'Making way...',
+  'Coming about...',
+  'Holding steady...',
+  'Guiding it into harbor...',
+  'Reviewing the captain’s log...',
+  'Checking on the crew...',
+  'Consulting the fleet roster...',
+  'Reading the wind...',
+  'Setting the sails...',
+  'Following the current...',
+  'Keeping an even keel...',
+  'Bringing the thought into port...',
+
+  // --- Quiet closers ---
+  'Almost ready...',
+  'Just about there...',
+  'One final adjustment...',
+  'Ready in a moment...',
+  'The pieces are in place...',
+];
+
+// Return a random thinking message, avoiding an immediate repeat of `previous` when possible.
+export function randomThinkingMessage(previous?: string): string {
+  const list = ASK_THINKING_MESSAGES;
+  if (list.length === 0) return 'Thinking...';
+  if (list.length === 1) return list[0];
+  let pick = list[Math.floor(Math.random() * list.length)];
+  let guard = 0;
+  while (pick === previous && guard < 8) {
+    pick = list[Math.floor(Math.random() * list.length)];
+    guard += 1;
+  }
+  return pick;
+}

@@ -203,6 +203,7 @@ namespace Armada.Runtimes
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool showThinking = false,
             CancellationToken token = default)
         {
             ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, captain?.Model ?? model, _ModelProviders);
@@ -219,6 +220,7 @@ namespace Armada.Runtimes
                 finalMessageFilePath,
                 model,
                 captain,
+                showThinking,
                 token).ConfigureAwait(false);
         }
 

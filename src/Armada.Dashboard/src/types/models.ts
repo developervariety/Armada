@@ -2257,3 +2257,46 @@ export interface TokenUsageSummaryQuery {
   vesselId?: string;
   captainId?: string;
 }
+
+// ==================== Captain Chat ====================
+
+/** One turn of chat history sent back to the captain for context. */
+export interface CaptainChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** Per-turn timing and token metrics. Any field may be null when the runtime does not report it. */
+export interface CaptainChatMetrics {
+  timeToFirstTokenMs: number | null;
+  streamingMs: number | null;
+  totalMs: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  tokensPerSecond: number | null;
+}
+
+/** A chat turn sent to a captain. showThinking is honored by the Mux runtime only. */
+export interface CaptainChatRequest {
+  message: string;
+  history: CaptainChatMessage[];
+  turnId?: string;
+  showThinking?: boolean;
+}
+
+/** A captain's reply plus its metrics. */
+export interface CaptainChatResponse {
+  success: boolean;
+  reply: string;
+  model: string | null;
+  metrics: CaptainChatMetrics;
+  error: string | null;
+  thinking?: string | null;
+}
+
+/** Request to build or refine a vessel's Model Context document. */
+export interface VesselBuildContextRequest {
+  captainId: string;
+  notes?: string | null;
+}

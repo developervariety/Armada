@@ -3667,3 +3667,265 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     padding: 0.25rem 0.4rem;
 }
 .auto-refresh-select-label { white-space: nowrap; }
+
+/* Captain chat and Ask Armada. Ported from upstream; --font-mono is mapped to this fork's --mono so
+   chat code matches the rest of the dashboard rather than falling back to a different stack. */
+.planning-chat-window {
+    max-height: 56vh;
+    min-height: 24rem;
+    padding: 1rem;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.planning-chat-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    text-align: center;
+}
+.planning-chat-message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-width: min(82%, 900px);
+}
+.planning-chat-message-user {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+.planning-chat-message-assistant,
+.planning-chat-message-system {
+    align-self: flex-start;
+    align-items: flex-start;
+}
+.planning-chat-message-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.8rem;
+}
+.planning-chat-role {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.planning-chat-message-user .planning-chat-message-meta {
+    justify-content: flex-end;
+}
+.planning-chat-bubble {
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+}
+.planning-chat-message-user .planning-chat-bubble {
+    background: var(--accent-soft, rgba(80, 120, 255, 0.12));
+}
+.planning-chat-message.is-selected .planning-chat-bubble {
+    border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.planning-chat-content {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--font);
+    font-size: 0.94rem;
+    line-height: 1.55;
+    color: var(--text);
+}
+.planning-chat-message-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+.planning-chat-composer {
+    display: grid;
+    gap: 0.75rem;
+}
+.planning-chat-composer textarea {
+    min-height: 6.5rem;
+    resize: vertical;
+}
+.planning-chat-composer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.planning-chat-composer-actions .btn-primary {
+        width: 100%;
+    }
+.chat-metric { white-space: nowrap; }
+.chat-metric-value { font-weight: 600; color: var(--text, inherit); }
+.ask-hero-title {
+    margin: 0;
+    font-size: 1.15rem;
+    color: var(--accent);
+}
+.ask-hero-sub {
+    margin: 0.2rem 0 0;
+    color: var(--text-dim);
+    font-size: 0.86rem;
+    max-width: 60ch;
+}
+.ask-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.ask-thinking { animation: none; }
+.chat-tool-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.22rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.72rem;
+    list-style: none;
+    user-select: none;
+}
+.chat-tool-summary::-webkit-details-marker { display: none; }
+.chat-tool-summary::marker { content: ''; }
+.chat-tool-status {
+    display: inline-flex;
+    width: 1rem;
+    justify-content: center;
+    font-weight: 700;
+}
+.chat-tool-running .chat-tool-status { color: var(--text-dim, #94a3b8); }
+.chat-tool-success .chat-tool-status { color: #3fb950; }
+.chat-tool-failed .chat-tool-status { color: #f85149; }
+.chat-tool-name {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chat-tool-meta {
+    margin-left: auto;
+    color: var(--text-dim, #94a3b8);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+}
+.chat-tool-detail {
+    padding: 0.1rem 0.5rem 0.45rem;
+    border-top: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+}
+.chat-tool-label {
+    color: var(--text-dim, #94a3b8);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 0.35rem 0 0.15rem;
+}
+.chat-tool-pre {
+    margin: 0;
+    max-height: 240px;
+    overflow: auto;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    background: rgba(0, 0, 0, 0.22);
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.chat-metrics-info {
+    position: relative;
+    display: inline-flex;
+}
+.chat-metrics-info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 50%;
+}
+.chat-metrics-info-btn svg { display: block; width: 13px; height: 13px; }
+.chat-metrics-info-btn:hover { color: var(--accent); }
+.chat-metrics-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 60;
+    min-width: 190px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+    padding: 0.5rem 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.chat-metrics-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.75rem;
+}
+.chat-metrics-row-label { color: var(--text-dim); }
+.chat-metrics-row-value { color: var(--text); font-weight: 600; font-family: var(--mono); }
+.chat-stream-notice svg { color: var(--accent); flex-shrink: 0; }
+.ask-header-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+}
+.ask-stream-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.ask-body {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.ask-chat-window {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    /* Keep wheel/touch scrolling inside the transcript instead of chaining to the page once it reaches an
+       edge. */
+    overscroll-behavior: contain;
+}
+.ask-disclaimer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    margin: 0.5rem 0 0.45rem;
+}
+.ask-input-form {
+    flex-shrink: 0;
+    margin-top: 0;
+}
+.planning-chat-shell .ask-chat-window {
+    flex: none;
+    min-height: 16rem;
+    max-height: 58vh;
+}

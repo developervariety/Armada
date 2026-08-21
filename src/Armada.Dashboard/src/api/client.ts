@@ -122,6 +122,9 @@ import type {
   Job,
   TokenUsageSummaryResult,
   TokenUsageSummaryQuery,
+  CaptainChatRequest,
+  CaptainChatResponse,
+  VesselBuildContextRequest,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -157,6 +160,8 @@ function camelizeKeys(obj: any): any {
 interface RequestOptions {
   timeout?: number;
   rawText?: boolean;
+  /** Caller-supplied cancellation, so a long turn (chat) can be stopped from the UI. */
+  signal?: AbortSignal;
 }
 
 export interface ProxySessionContext {
@@ -186,6 +191,12 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
   const controller = new AbortController();
   const timeoutMs = opts?.timeout ?? 30000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  // A caller's signal aborts the same controller, so timeout and manual cancel share one path.
+  if (opts?.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
 
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
@@ -1026,3 +1037,12 @@ export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery) => {
   const query = search.toString();
   return get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${query ? `?${query}` : ''}`);
 };
+
+// ==================== Captain Chat and Vessel Context ====================
+/** A chat turn runs the captain's model, so it needs far longer than the default request timeout. */
+export const chatWithCaptain = (captainId: string, body: CaptainChatRequest, opts?: { signal?: AbortSignal }) =>
+  post<CaptainChatResponse>(`/api/v1/captains/${encodeURIComponent(captainId)}/chat`, body, { timeout: 600000, signal: opts?.signal });
+
+/** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */
+export const buildVesselContext = (vesselId: string, body: VesselBuildContextRequest) =>
+  post<Vessel>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/build-context`, body, { timeout: 1800000 });

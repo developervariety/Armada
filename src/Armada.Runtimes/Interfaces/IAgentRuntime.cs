@@ -79,6 +79,9 @@ namespace Armada.Runtimes.Interfaces
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
         /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
+        /// <param name="showThinking">When true, ask the runtime to surface the model's reasoning for this
+        /// run. Honored by the Mux runtime (--show-thinking); other runtimes have no headless equivalent
+        /// and ignore it.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Process ID of the started agent.</returns>
         Task<int> StartAsync(
@@ -89,6 +92,7 @@ namespace Armada.Runtimes.Interfaces
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool showThinking = false,
             CancellationToken token = default);
 
         /// <summary>

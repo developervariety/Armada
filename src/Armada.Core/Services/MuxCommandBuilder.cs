@@ -16,12 +16,21 @@ namespace Armada.Core.Services
         /// positional argument. `-w` sets the tool-execution directory, `--yolo` auto-approves
         /// tool calls, and `--config-dir`/`--endpoint` select the OpenAI-compatible backend.
         /// </summary>
+        /// <param name="workingDirectory">Tool-execution directory passed as -w.</param>
+        /// <param name="prompt">Prompt delivered as the trailing positional argument.</param>
+        /// <param name="model">Optional model override.</param>
+        /// <param name="finalMessageFilePath">Optional path for --output-last-message.</param>
+        /// <param name="options">Captain runtime options selecting the backend.</param>
+        /// <param name="showThinking">When true, add --show-thinking so the model's reasoning is
+        /// streamed. Mux is the only runtime with a headless reasoning channel.</param>
+        /// <returns>Argument list for the Mux CLI.</returns>
         public static List<string> BuildPrintArguments(
             string workingDirectory,
             string prompt,
             string? model,
             string? finalMessageFilePath,
-            MuxCaptainOptions? options)
+            MuxCaptainOptions? options,
+            bool showThinking = false)
         {
             if (String.IsNullOrWhiteSpace(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrWhiteSpace(prompt)) throw new ArgumentNullException(nameof(prompt));
@@ -54,6 +63,13 @@ namespace Armada.Core.Services
             args.Add(workingDirectory);
 
             args.Add("--yolo");
+
+            if (showThinking)
+            {
+                // Mux is the only runtime with a headless reasoning channel, so an interactive caller
+                // asking to see the model's thinking is honored here and nowhere else.
+                args.Add("--show-thinking");
+            }
 
             if (!String.IsNullOrWhiteSpace(finalMessageFilePath))
             {

@@ -39,6 +39,12 @@ namespace Armada.Runtimes
         public event Action<int, string>? OnStdoutReceived;
 
         /// <summary>
+        /// Whether the current launch asked for the model's reasoning to be surfaced. Set at the start of
+        /// <see cref="StartAsync"/> and read by runtimes that support a thinking channel.
+        /// </summary>
+        protected bool ShowThinking { get; private set; }
+
+        /// <summary>
         /// Event raised when the runtime receives authoritative provider token usage.
         /// </summary>
         public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
@@ -120,10 +126,13 @@ namespace Armada.Runtimes
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool showThinking = false,
             CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
+
+            ShowThinking = showThinking;
 
             // Recorded so activity records can render dock-relative paths. A runtime instance is
             // created per launch (AgentRuntimeFactory.Create), so this is not shared across missions.

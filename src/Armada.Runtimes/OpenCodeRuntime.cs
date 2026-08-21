@@ -55,6 +55,7 @@ namespace Armada.Runtimes
             string? finalMessageFilePath = null,
             string? model = null,
             Captain? captain = null,
+            bool showThinking = false,
             CancellationToken token = default)
         {
             Dictionary<string, string>? launchEnvironment = environment == null
@@ -80,6 +81,7 @@ namespace Armada.Runtimes
                 finalMessageFilePath,
                 model,
                 captain,
+                showThinking,
                 token).ConfigureAwait(false);
         }
 

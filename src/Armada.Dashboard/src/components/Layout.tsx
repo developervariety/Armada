@@ -361,7 +361,7 @@ const navSections: NavSection[] = [
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks', '/project-profiles', '/skills', '/jobs', '/token-usage', '/requests', '/api-explorer'],
+    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks', '/project-profiles', '/skills', '/jobs', '/token-usage', '/ask', '/requests', '/api-explorer'],
     items: [
       {
         to: '/personas',
@@ -385,6 +385,16 @@ const navSections: NavSection[] = [
             <polyline points="21 16 21 21 16 21" />
             <line x1="15" y1="15" x2="21" y2="21" />
             <line x1="4" y1="4" x2="9" y2="9" />
+          </svg>
+        ),
+      },
+      {
+        to: '/ask',
+        label: 'Ask Armada',
+        tooltip: 'Ask about fleet state in plain language, or chat with a captain',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         ),
       },

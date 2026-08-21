@@ -17,6 +17,7 @@ const Skills = lazy(() => import('./pages/Skills'));
 const SkillDetail = lazy(() => import('./pages/SkillDetail'));
 const Jobs = lazy(() => import('./pages/Jobs'));
 const TokenUsage = lazy(() => import('./pages/TokenUsage'));
+const AskArmada = lazy(() => import('./pages/AskArmada'));
 const Vessels = lazy(() => import('./pages/Vessels'));
 const CodeIndex = lazy(() => import('./pages/CodeIndex'));
 const Captains = lazy(() => import('./pages/Captains'));
@@ -153,6 +154,7 @@ export default function App() {
 
                       <Route path="jobs" element={<Jobs />} />
                       <Route path="token-usage" element={<TokenUsage />} />
+                      <Route path="ask" element={<AskArmada />} />
 
                       <Route path="playbooks" element={<Playbooks />} />
                       <Route path="playbooks/:id" element={<PlaybookDetail />} />

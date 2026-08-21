@@ -4,6 +4,7 @@ import { listVessels, listFleets, listPipelines, createVessel, updateVessel, del
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
+import BuildContextModal from '../components/vessels/BuildContextModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -59,6 +60,7 @@ export default function Vessels() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [buildContextVessel, setBuildContextVessel] = useState<Vessel | null>(null);
 
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -439,6 +441,16 @@ export default function Vessels() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {buildContextVessel && (
+        <BuildContextModal
+          vessel={buildContextVessel}
+          onClose={() => setBuildContextVessel(null)}
+          onBuilt={(updated) => {
+            setVessels((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+            pushToast('success', t('Model Context updated for "{{name}}".', { name: updated.name }));
+          }}
+        />
+      )}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -554,6 +566,7 @@ export default function Vessels() {
                         { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${v.fleetId}`), disabled: !v.fleetId },
                         { label: 'Open Workspace', onClick: () => navigate(`/workspace/${v.id}`) },
                         { label: 'View Detail', onClick: () => navigate(`/vessels/${v.id}`) },
+                        { label: v.modelContext && v.modelContext.trim().length > 0 ? 'Refine Context' : 'Build Context', onClick: () => setBuildContextVessel(v) },
                         { label: 'Edit', onClick: () => openEdit(v) },
                         { label: 'Duplicate', onClick: () => void handleDuplicate(v) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Vessel: ${v.name}`, data: v }) },
