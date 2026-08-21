@@ -35,6 +35,9 @@ namespace Armada.Runtimes
         /// </summary>
         public event Action<int, string>? OnOutputReceived;
 
+        /// <inheritdoc />
+        public event Action<int, string>? OnStdoutReceived;
+
         /// <summary>
         /// Event raised when the runtime receives authoritative provider token usage.
         /// </summary>
@@ -255,6 +258,11 @@ namespace Armada.Runtimes
                         catch (ObjectDisposedException) { }
 
                         try { OnOutputReceived?.Invoke(process.Id, outputLine); }
+                        catch { }
+
+                        // Raised only here, never from the stderr handler below. An interactive
+                        // consumer capturing a reply must not pick up CLI banners and prompt echoes.
+                        try { OnStdoutReceived?.Invoke(process.Id, outputLine); }
                         catch { }
                     }
                 }

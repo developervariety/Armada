@@ -24,10 +24,22 @@ namespace Armada.Runtimes.Interfaces
         bool SupportsPlanningSessions { get; }
 
         /// <summary>
-        /// Event raised when the agent writes a line to stdout.
-        /// The int parameter is the process ID, the string is the output line.
+        /// Event raised when the agent writes a line to EITHER stdout or stderr. The int parameter is
+        /// the process ID, the string is the output line. Missions subscribe here because some CLIs
+        /// emit useful progress and diagnostics on stderr. Interactive consumers that only want the
+        /// model's answer (chat, planning) should subscribe to <see cref="OnStdoutReceived"/> instead,
+        /// since agent CLIs print human-readable banners and prompt echoes to stderr that must not
+        /// appear in the reply.
         /// </summary>
         event Action<int, string>? OnOutputReceived;
+
+        /// <summary>
+        /// Event raised only when the agent writes a line to stdout, never stderr. The int parameter is
+        /// the process ID, the string is the output line. Use this for interactive reply capture so CLI
+        /// stderr banners (for example Codex's "Reading prompt from stdin..." preamble) are excluded
+        /// from what the user is shown as the model's answer.
+        /// </summary>
+        event Action<int, string>? OnStdoutReceived;
 
         /// <summary>
         /// Event raised when the runtime receives authoritative provider token usage.

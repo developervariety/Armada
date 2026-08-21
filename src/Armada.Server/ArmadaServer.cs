@@ -79,6 +79,7 @@ namespace Armada.Server
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
         private DiskLifecycleService _DiskLifecycle = null!;
+        private ArmadaTelemetryHost? _TelemetryHost = null;
         private BranchCleanupSweepService _BranchCleanupSweep = null!;
         private OpenCodeServerLauncher _OpenCodeServerLauncher = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
@@ -330,6 +331,12 @@ namespace Armada.Server
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
             _DataExpiry = new DataExpiryService(_Logging, _Settings.Database.GetConnectionString(), _Settings.DataRetentionDays);
             _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
+
+            // Telemetry export. ArmadaMetrics already emits the meters; without this host nothing
+            // observes or exports them. Start is a no-op unless telemetry.enabled is true, so a
+            // fresh install still ships no telemetry surface.
+            _TelemetryHost = new ArmadaTelemetryHost(_Logging);
+            _TelemetryHost.Start(_Settings.Telemetry);
             _BranchCleanupSweep = new BranchCleanupSweepService(_Logging, _Database, _Settings, _Git);
 
             // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
@@ -676,6 +683,14 @@ namespace Armada.Server
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
             _McpServer?.StopAsync().GetAwaiter().GetResult();
+            try
+            {
+                _TelemetryHost?.Dispose();
+                _TelemetryHost = null;
+            }
+            catch
+            {
+            }
             _Database?.Dispose();
             OnStopping?.Invoke();
         }

@@ -1109,6 +1109,16 @@ namespace Armada.Core.Settings
             set => _DiskLifecycle = value ?? new DiskLifecycleSettings();
         }
 
+        /// <summary>
+        /// Telemetry export settings (OpenTelemetry via Prometheus/Grafana/Loki). Disabled by default,
+        /// so a fresh install ships no telemetry surface until an operator opts in.
+        /// </summary>
+        public TelemetrySettings Telemetry
+        {
+            get => _Telemetry;
+            set => _Telemetry = value ?? new TelemetrySettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -1193,6 +1203,7 @@ namespace Armada.Core.Settings
         private DockBoundarySettings _DockBoundary = new DockBoundarySettings();
         private DefinitionOfDoneSettings _DefinitionOfDone = new DefinitionOfDoneSettings();
         private DiskLifecycleSettings _DiskLifecycle = new DiskLifecycleSettings();
+        private TelemetrySettings _Telemetry = new TelemetrySettings();
         private bool _DatabasePathConfigured = false;
 
         #endregion
