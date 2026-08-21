@@ -279,6 +279,9 @@ namespace Armada.Core.Database.Postgresql
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
             Jobs = new JobMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(_DataSource);
+            ProjectProfiles = new ProjectProfileMethods(this);
+            Skills = new SkillMethods(this);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
         }
 
         #endregion

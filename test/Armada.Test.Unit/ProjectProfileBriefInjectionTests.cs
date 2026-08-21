@@ -3,6 +3,8 @@ namespace Armada.Test.Unit
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -145,6 +147,56 @@ namespace Armada.Test.Unit
                     AssertNotNull(testDb.Driver.Skills, "Skills must be assigned");
                     AssertNotNull(testDb.Driver.CoordinationLeases, "CoordinationLeases must be assigned");
                 }
+            });
+
+            // The SQLite-only check above is how SQL Server came to ship a coordination-lease
+            // implementation its driver never constructed: the guard existed, and the provider it
+            // would have caught sat outside its scope. A driver constructor only assigns method
+            // sets -- connections are opened in InitializeAsync -- so every provider can be
+            // constructed offline and checked, without a server for any of them.
+
+            await RunTest("Every provider driver wires every entity method set", () =>
+            {
+                LoggingModule logging = new LoggingModule();
+                List<string> providerFailures = new List<string>();
+
+                foreach (DatabaseTypeEnum type in new DatabaseTypeEnum[]
+                {
+                    DatabaseTypeEnum.Sqlite,
+                    DatabaseTypeEnum.Mysql,
+                    DatabaseTypeEnum.SqlServer,
+                    DatabaseTypeEnum.Postgresql
+                })
+                {
+                    DatabaseSettings settings = new DatabaseSettings();
+                    settings.Type = type;
+                    settings.Filename = Path.Combine(Path.GetTempPath(), "armada-wiring-" + Guid.NewGuid().ToString("N") + ".db");
+                    settings.Hostname = "localhost";
+                    settings.DatabaseName = "armada";
+                    settings.Username = "armada";
+                    settings.Password = "armada";
+
+                    DatabaseDriver driver;
+                    try
+                    {
+                        driver = DatabaseDriverFactory.Create(settings, logging);
+                    }
+                    catch (Exception ex)
+                    {
+                        providerFailures.Add(type + " driver could not be constructed: " + ex.Message);
+                        continue;
+                    }
+
+                    List<string> unwired = driver.FindUnwiredMethodSets();
+                    if (unwired.Count > 0)
+                        providerFailures.Add(type + " left unassigned: " + String.Join(", ", unwired));
+
+                    try { File.Delete(settings.Filename); } catch { }
+                }
+
+                Assert(
+                    providerFailures.Count == 0,
+                    "Every provider must wire every method set. " + String.Join(" | ", providerFailures));
             });
 
             // A persona's default captain seeds the dispatch UI's per-step assignment. The column was
