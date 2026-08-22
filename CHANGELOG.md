@@ -4,6 +4,15 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+Focus: operator signal fidelity - make a failure say what actually failed.
+
+### Checks
+- A Judge PASS rejected by the real-signal gate now NAMES the Checks that blocked it (id, type and label) in the mission's `FailureReason`, and states that every failed Check must be resolved. The message previously named only the rule, so an operator could not tell which record to inspect; when several Checks failed for one environmental cause, resolving all but one left a leftover that silently rejected the PASS hours later
+
+---
+
 ## v0.9.0
 
 Focus: upstream v0.9.0 feature ports on top of the fork's delivery-management core.

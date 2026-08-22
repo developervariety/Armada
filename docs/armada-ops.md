@@ -215,6 +215,31 @@ A passing suite proves only that the suite passed. It proves a fix only when
 the check covers the original symptom. Record before and after evidence when
 the task is a defect.
 
+A Judge PASS is backed by the real signal, not by the Judge's own report. The
+gate reads every Check attached to the voyage and to the Judge mission:
+
+| Check state | Effect on a Judge PASS |
+| --- | --- |
+| All green | PASS stands |
+| Any `Failed` | PASS is rejected |
+| Any `Pending` or `Running` | PASS is held, then re-run in place |
+| None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
+| `Canceled` | Ignored |
+
+Two consequences follow, and both have cost real voyages.
+
+Resolve EVERY failed Check, not most of them. When several Checks fail for one
+environmental cause, resolving all but one leaves a record that rejects the
+PASS hours later, long after the cause is forgotten. The rejection now names
+the specific Checks that blocked it, so read the `FailureReason` and confirm no
+record remains `Failed` before the Judge stage runs. Resolve an environmental
+failure as `Canceled`, not `Passed`: the run genuinely did not pass, and the
+reason field is where the evidence belongs.
+
+Checks are attached by the operator, not by captains. Arm them in the same
+action as the dispatch call. Cancelling a voyage discards its Checks, so a
+re-dispatch starts with none and the cost is not visible until the Judge stage.
+
 ### 4.7 Review And Land
 
 Read the mission diff and relevant logs. Drain the audit queue and record the

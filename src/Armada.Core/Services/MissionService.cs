@@ -1324,7 +1324,13 @@ namespace Armada.Core.Services
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
-                                mission.FailureReason = "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)";
+                                string blocking = DescribeBlockingChecks(_LastJudgeGateChecks, CheckRunStatusEnum.Failed);
+                                mission.FailureReason =
+                                    "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)."
+                                    + (String.IsNullOrEmpty(blocking)
+                                        ? String.Empty
+                                        : " Failed Checks: " + blocking + ".")
+                                    + " Resolve or re-run EVERY failed Check on this voyage before the Judge re-runs; a single unresolved record rejects the PASS.";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;
@@ -5187,7 +5193,41 @@ namespace Armada.Core.Services
                 .EnumerateAsync(new CheckRunQuery { MissionId = judgeMission.Id }, token).ConfigureAwait(false);
             foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
 
-            return ClassifyJudgeCheckGate(checks.Values.ToList(), judgeMission.AgentOutput);
+            List<CheckRun> collected = checks.Values.ToList();
+            _LastJudgeGateChecks = collected;
+            return ClassifyJudgeCheckGate(collected, judgeMission.AgentOutput);
+        }
+
+        /// <summary>
+        /// The Checks collected by the most recent <see cref="EvaluateJudgeCheckGateAsync"/> call,
+        /// retained so a rejection can name the specific records that blocked the PASS. The gate
+        /// message previously named only the rule, which left an operator with no way to tell WHICH
+        /// Check to inspect - and, when several Checks failed for one environmental cause, no way to
+        /// notice that one had been left unresolved.
+        /// </summary>
+        private List<CheckRun>? _LastJudgeGateChecks = null;
+
+        /// <summary>
+        /// Renders the Checks that block a Judge PASS as a compact, operator-actionable list.
+        /// Canceled Checks are excluded because the gate ignores them. Returns an empty string when
+        /// nothing matches, so callers can append it unconditionally.
+        /// </summary>
+        internal static string DescribeBlockingChecks(List<CheckRun>? checks, CheckRunStatusEnum status)
+        {
+            if (checks == null) return String.Empty;
+            List<CheckRun> matching = checks
+                .Where(c => c != null && c.Status == status)
+                .OrderBy(c => c.Id, StringComparer.Ordinal)
+                .ToList();
+            if (matching.Count == 0) return String.Empty;
+
+            List<string> parts = new List<string>();
+            foreach (CheckRun c in matching)
+            {
+                string label = String.IsNullOrWhiteSpace(c.Label) ? c.Type.ToString() : c.Label!;
+                parts.Add(c.Id + " (" + c.Type + ": " + label + ")");
+            }
+            return String.Join(", ", parts);
         }
 
         /// <summary>

@@ -258,6 +258,66 @@ namespace Armada.Test.Unit
                     "the reason states who attaches Checks instead of ordering the captain to");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            // A rejection that names only the rule leaves the operator hunting for WHICH record
+            // blocked the PASS. When several Checks fail for one environmental cause it is easy to
+            // resolve all but one, and the leftover silently rejects the PASS hours later.
+            await RunTest("DescribeBlockingChecks_NamesEachFailedCheck", () =>
+            {
+                List<CheckRun> checks = new List<CheckRun>
+                {
+                    new CheckRun { Id = "chk_b", Type = CheckRunTypeEnum.UnitTest, Label = "Voyage gate: UnitTest", Status = CheckRunStatusEnum.Failed },
+                    new CheckRun { Id = "chk_a", Type = CheckRunTypeEnum.Build, Label = "Voyage gate: Build", Status = CheckRunStatusEnum.Failed },
+                    new CheckRun { Id = "chk_ok", Type = CheckRunTypeEnum.Build, Label = "green", Status = CheckRunStatusEnum.Passed },
+                    new CheckRun { Id = "chk_x", Type = CheckRunTypeEnum.Build, Label = "cancelled", Status = CheckRunStatusEnum.Canceled }
+                };
+
+                string described = MissionService.DescribeBlockingChecks(checks, CheckRunStatusEnum.Failed);
+                AssertContains("chk_a", described, "the failed Build check is named");
+                AssertContains("chk_b", described, "the failed UnitTest check is named");
+                AssertContains("Voyage gate: Build", described, "the label is carried so the operator can recognise it");
+                AssertFalse(described.Contains("chk_ok", StringComparison.Ordinal),
+                    "a passing Check is not reported as blocking");
+                AssertFalse(described.Contains("chk_x", StringComparison.Ordinal),
+                    "a Canceled Check is not reported as blocking - the gate ignores those");
+                AssertTrue(described.IndexOf("chk_a", StringComparison.Ordinal) < described.IndexOf("chk_b", StringComparison.Ordinal),
+                    "ordering is deterministic so the same failure renders identically each time");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // The helper must be safe on the paths that produce no blocking records at all,
+            // because the caller appends its result unconditionally.
+            await RunTest("DescribeBlockingChecks_EmptyWhenNothingBlocks", () =>
+            {
+                AssertEqual(String.Empty, MissionService.DescribeBlockingChecks(null, CheckRunStatusEnum.Failed),
+                    "a null collection renders as empty rather than throwing");
+                AssertEqual(String.Empty, MissionService.DescribeBlockingChecks(new List<CheckRun>(), CheckRunStatusEnum.Failed),
+                    "an empty collection renders as empty");
+                AssertEqual(
+                    String.Empty,
+                    MissionService.DescribeBlockingChecks(
+                        new List<CheckRun> { new CheckRun { Id = "chk_ok", Status = CheckRunStatusEnum.Passed } },
+                        CheckRunStatusEnum.Failed),
+                    "no failed records renders as empty");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // A Check with no Label must still be identifiable; falling back to the type keeps the
+            // message useful instead of emitting a bare id with empty parentheses.
+            await RunTest("DescribeBlockingChecks_FallsBackToTypeWhenLabelMissing", () =>
+            {
+                string described = MissionService.DescribeBlockingChecks(
+                    new List<CheckRun>
+                    {
+                        new CheckRun { Id = "chk_nolabel", Type = CheckRunTypeEnum.UnitTest, Label = null, Status = CheckRunStatusEnum.Failed }
+                    },
+                    CheckRunStatusEnum.Failed);
+                AssertContains("chk_nolabel", described, "the id is present");
+                AssertContains("UnitTest", described, "the type stands in for the missing label");
+                AssertFalse(described.Contains("()", StringComparison.Ordinal),
+                    "no empty parentheses are emitted for a missing label");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
     }
 }
