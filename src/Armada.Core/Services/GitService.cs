@@ -982,6 +982,27 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        /// <summary>
+        /// Ancestry as a three-state answer: true, false, or null when the probe itself failed.
+        /// </summary>
+        /// <param name="repoPath">Repository or worktree path.</param>
+        /// <param name="ancestorRef">The ref that should be contained.</param>
+        /// <param name="descendantRef">The ref that should contain it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True, false, or null when ancestry could not be established.</returns>
+        public async Task<bool?> TryIsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
+        {
+            try
+            {
+                return await IsAncestorAsync(repoPath, ancestorRef, descendantRef, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // A broken probe is not evidence that the base is wrong.
+                return null;
+            }
+        }
+
         public async Task<bool> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));

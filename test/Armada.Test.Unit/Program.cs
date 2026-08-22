@@ -260,6 +260,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VoyageCheckArmingPlanTests());
             runner.AddSuite(new CheckRunSummaryViewTests());
             runner.AddSuite(new RescueEffectivenessTests());
+            runner.AddSuite(new StageBaseVerifierTests());
             runner.AddSuite(new DiskLifecycleTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
             runner.AddSuite(new MergeRefCandidateTests());

@@ -185,6 +185,35 @@ dispatches single-stage. A read-only probe must not silently inherit a
 multi-stage default (a four-mission diagnostic once expanded to sixteen
 missions). An explicitly requested pipeline is always honored.
 
+### Stage handoff is verified, not assumed
+
+A downstream pipeline stage inherits its predecessor's branch. Inheriting a
+branch NAME is not the same as inheriting its commit: a local ref can predate
+the upstream stage's push, and the resulting worktree looks correct while
+missing the work.
+
+Armada now proves the containment before the captain starts. A stage whose
+checkout demonstrably lacks the upstream commit fails immediately with
+`stage_base_missing`, which names the commit, the branch, and the upstream
+mission, and says plainly that the fault is in provisioning rather than in the
+stage's own work. Read that before reading the diff - the previous version of
+this failure presented as a Worker that could not compile its own change, and
+the diagnosis started in exactly the wrong place.
+
+What is NOT failed, deliberately:
+
+| Condition | Verdict |
+| --- | --- |
+| Mission has no upstream stage | Not applicable |
+| Dependency is in another vessel | Not applicable - commits are not shared across repositories |
+| Upstream produced no commit (Audit, Research) | Unverified, stage proceeds, fact logged |
+| Ancestry probe could not answer | Unverified, stage proceeds, fact logged |
+
+A base that could not be proved is never reported as one that was. The git
+ancestry probe answers true, false, or UNKNOWN, and its default for any
+implementation that does not consult a real repository is unknown - so a stub
+can never manufacture a passing verification.
+
 ### 4.5 Monitor
 
 Dispatch is the start of the operator loop.
@@ -206,6 +235,28 @@ ID, dock status, log activity, and elapsed time.
 Create Pending Checks when the objective or voyage is created. Build and unit
 test are the minimum for code changes. Add the vessel-profile gates that the
 change needs.
+
+Armada runs at most ONE expensive command on a host at a time. Two full build
+or test suites at once produce a burst of simultaneous sub-millisecond failures
+across unrelated test classes, usually classified Timeout, which reads exactly
+like a real regression - and the same command passes alone. A host-wide
+interlock now serializes all four callers that run a vessel's build and test
+commands: a check run, a pending check executed at the Judge stage, a
+definition-of-done gate, and a merge-queue test run.
+
+Two consequences for an operator:
+
+- A check submitted while a gate is running does not fail and does not race. It
+  QUEUES, so it can take much longer to return than the command itself takes.
+  A slow check is not necessarily a slow suite.
+- The contended resource is the host, not the vessel, so checks on DIFFERENT
+  vessels serialize against each other too.
+
+The interlock covers commands Armada starts. It cannot see a captain running a
+suite by hand inside its own dock, because that is a separate process, so a
+dock-side suite can still overlap a gate. When a wrong-value failure appears
+under load, an isolated re-run remains the discriminator: a contention flake
+passes alone, a genuine mismatch fails alone every time.
 
 Use `run_check` to execute a check. Use `retry_check_run` for a real rerun.
 Use `resolve_check` only when valid evidence was produced outside Armada. Do

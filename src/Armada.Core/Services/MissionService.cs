@@ -318,6 +318,10 @@ namespace Armada.Core.Services
             // below: cross-vessel deps cannot share a branch (different repos), so the downstream
             // mission must always start on a fresh branch in its own vessel.
             bool dependencyIsCrossVessel = false;
+
+            // Captured for the stage-base check after provisioning: a stage must be cut from the
+            // commit its predecessor actually produced, and proving that needs the hash here.
+            string? upstreamCommitHash = null;
             if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
             {
                 Mission? dependency = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
@@ -333,6 +337,7 @@ namespace Armada.Core.Services
                 dependencyIsCrossVessel = !String.IsNullOrEmpty(dependency.VesselId)
                     && !String.IsNullOrEmpty(mission.VesselId)
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
+                upstreamCommitHash = dependency.CommitHash;
 
                 if (!IsDependencySatisfyingStatus(dependency.Status))
                 {
@@ -605,6 +610,17 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                return false;
+            }
+
+            // Prove the stage is cut from its predecessor's commit before a captain works in it.
+            // Inheriting a branch NAME is not the same as inheriting its commit: a local ref can
+            // predate the upstream stage's push, and the worktree then looks correct while missing
+            // the work. One Worker's dock was cut without the preceding stage's commit, rebuilt on
+            // a base still carrying errors that stage had already fixed, failed on them, and took
+            // ten downstream missions with it - and every symptom pointed at the Worker's code.
+            if (!await VerifyStageBaseAsync(mission, dock, captain, upstreamCommitHash, dependencyIsCrossVessel, token).ConfigureAwait(false))
+            {
                 return false;
             }
 
@@ -1025,6 +1041,80 @@ namespace Armada.Core.Services
         /// Both reach WorkProduced with an empty diff and a tiny AgentOutput, which the
         /// pipeline downstream would otherwise accept as real progress.
         /// </summary>
+        /// <summary>
+        /// Confirm a downstream pipeline stage's checkout contains its predecessor's commit.
+        /// </summary>
+        /// <remarks>
+        /// A verdict of BaseMissing fails the mission LOUDLY rather than letting the captain start.
+        /// The alternative is what used to happen: the stage runs, fails on problems that were
+        /// already fixed upstream, and the diagnosis begins at the stage's own diff - which is
+        /// correct - while the real fault is the checkout it was handed.
+        /// </remarks>
+        /// <returns>True when the stage may proceed.</returns>
+        private async Task<bool> VerifyStageBaseAsync(
+            Mission mission,
+            Dock dock,
+            Captain captain,
+            string? upstreamCommitHash,
+            bool dependencyIsCrossVessel,
+            CancellationToken token)
+        {
+            bool? containsUpstream = null;
+
+            bool applicable = !String.IsNullOrEmpty(mission.DependsOnMissionId)
+                && !dependencyIsCrossVessel
+                && !String.IsNullOrWhiteSpace(upstreamCommitHash);
+
+            if (applicable && _Git != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+            {
+                try
+                {
+                    containsUpstream = await _Git.TryIsAncestorAsync(
+                        dock.WorktreePath!, upstreamCommitHash!, "HEAD", token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Leave the verdict Unverifiable rather than guessing. A failed ancestry probe
+                    // is not evidence that the base is wrong.
+                    _Logging.Warn(_Header + "stage-base ancestry probe failed for mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            StageBaseVerdictEnum verdict = StageBaseVerifier.Evaluate(
+                mission.DependsOnMissionId,
+                upstreamCommitHash,
+                dependencyIsCrossVessel,
+                containsUpstream);
+
+            if (verdict == StageBaseVerdictEnum.BaseMissing)
+            {
+                string reason = StageBaseVerifier.BuildBaseMissingReason(
+                    mission.DependsOnMissionId, upstreamCommitHash, mission.BranchName);
+
+                _Logging.Warn(_Header + "mission " + mission.Id + " " + reason);
+
+                mission.AssignmentState = MissionAssignmentStateEnum.Failed;
+                mission.Status = MissionStatusEnum.Failed;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.FailureReason = reason;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await AppendMissionActivityAsync(mission.Id, "validation failed: " + reason, token).ConfigureAwait(false);
+
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                return false;
+            }
+
+            if (verdict == StageBaseVerdictEnum.Unverifiable && applicable)
+            {
+                // Say so. A base that could not be proved must not read as one that was.
+                _Logging.Warn(_Header + "mission " + mission.Id + " stage base UNVERIFIED against upstream commit "
+                    + upstreamCommitHash + "; proceeding without proof");
+            }
+
+            return true;
+        }
+
         /// <summary>
         /// Render a change set for a failure record, bounded so a wide diff cannot flood the field.
         /// </summary>
