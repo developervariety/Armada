@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.IO;
     using System.Linq;
     using System.Text.RegularExpressions;
     using System.Threading;
@@ -29,6 +30,7 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
         private readonly IContainerRuntimeProbe? _ContainerRuntimeProbe;
+        private readonly IGitService? _Git;
         private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
 
         private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
@@ -54,16 +56,23 @@ namespace Armada.Core.Services
         /// unit-test command, the gate falls back to that command if no runtime is available.
         /// Null disables the pre-flight and preserves the original behavior.
         /// </param>
+        /// <param name="gitService">
+        /// Optional git seam used to provision declared consumers for verification. Null disables
+        /// consumer verification entirely, preserving the original behavior for every caller that
+        /// does not supply it.
+        /// </param>
         public DefinitionOfDoneGate(
             DefinitionOfDoneSettings settings,
             DatabaseDriver database,
             LoggingModule logging,
-            IContainerRuntimeProbe? containerRuntimeProbe = null)
+            IContainerRuntimeProbe? containerRuntimeProbe = null,
+            IGitService? gitService = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ContainerRuntimeProbe = containerRuntimeProbe;
+            _Git = gitService;
         }
 
         #endregion
@@ -149,7 +158,7 @@ namespace Armada.Core.Services
             {
                 using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
                 {
-                    return await RunGateCommandsAsync(profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
+                    return await RunGateCommandsAsync(mission, profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
                 }
             }
             finally
@@ -163,6 +172,7 @@ namespace Armada.Core.Services
         #region Private-Methods
 
         private async Task<DefinitionOfDoneResult> RunGateCommandsAsync(
+            Mission mission,
             WorkflowProfile? profile,
             string? buildCommand,
             string? testCommand,
@@ -200,7 +210,9 @@ namespace Armada.Core.Services
                     return testResult;
             }
 
-            return DefinitionOfDoneResult.Pass();
+            // The vessel's own build and tests pass. That says nothing about the repositories that
+            // compile against it, so verify those before the branch is allowed to land.
+            return await VerifyDeclaredConsumersAsync(mission, worktreePath, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -217,6 +229,302 @@ namespace Armada.Core.Services
         protected virtual TimeSpan ResolveCommandTimeout()
         {
             return TimeSpan.FromSeconds(_Settings.CommandTimeoutSeconds);
+        }
+
+        /// <summary>
+        /// Build every vessel that declares the mission's vessel as a sibling repository.
+        /// </summary>
+        /// <remarks>
+        /// The producer's change is still unlanded here, which is the whole point: this is the
+        /// last moment at which a public-API break can be attributed to the change that caused
+        /// it rather than to whatever happens to build next.
+        /// <para>
+        /// Each consumer is materialized under a scratch root unique to this verification. That
+        /// is deliberate and not merely tidy: shared sibling checkouts are reused rather than
+        /// re-pointed when another dock already owns them, so a shared path could leave the
+        /// consumer compiling against some other commit while reporting on this one. A private
+        /// root cannot be reused by anyone, so what is built is always what was asked for.
+        /// </para>
+        /// <para>
+        /// The producer is checked out detached at the mission branch; the consumer's other
+        /// declared siblings take their default branches, because only the producer is under
+        /// test. Consumers are built, not tested: a build catches the break that leaves a target
+        /// branch red, while running every consumer's suite inside every producer gate would cost
+        /// more wall time than the gate itself.
+        /// </para>
+        /// </remarks>
+        private async Task<DefinitionOfDoneResult> VerifyDeclaredConsumersAsync(
+            Mission mission,
+            string producerWorktreePath,
+            CancellationToken token)
+        {
+            if (!_Settings.VerifyDeclaredConsumers) return DefinitionOfDoneResult.Pass();
+
+            // No git seam means no way to provision a consumer. Skipping is correct; failing would
+            // block every gate in a host that simply did not wire the dependency.
+            if (_Git == null) return DefinitionOfDoneResult.Pass();
+
+            if (String.IsNullOrWhiteSpace(mission.VesselId)) return DefinitionOfDoneResult.Pass();
+
+            Vessel? producer = await ReadVesselAsync(mission.TenantId, mission.VesselId!, token).ConfigureAwait(false);
+            if (producer == null) return DefinitionOfDoneResult.Pass();
+
+            List<Vessel> allVessels = await EnumerateVesselsAsync(mission.TenantId, token).ConfigureAwait(false);
+            IReadOnlyList<ConsumerDeclaration> consumers =
+                ConsumerVesselResolver.Resolve(producer.Id, producer.Name, allVessels);
+            if (consumers.Count == 0) return DefinitionOfDoneResult.Pass();
+
+            string? producerRef = !String.IsNullOrWhiteSpace(mission.BranchName)
+                ? mission.BranchName
+                : await _Git.GetHeadCommitHashAsync(producerWorktreePath, token).ConfigureAwait(false);
+
+            if (String.IsNullOrWhiteSpace(producerRef))
+            {
+                return ConsumerVerificationError(
+                    "consumer-verify",
+                    "Could not determine the producer ref to verify consumers against.");
+            }
+
+            _Logging.Info(_Header + "verifying " + consumers.Count + " declared consumer(s) of vessel " + producer.Id);
+
+            foreach (ConsumerDeclaration edge in consumers)
+            {
+                DefinitionOfDoneResult result = await VerifyOneConsumerAsync(
+                    producer,
+                    producerRef!,
+                    edge,
+                    token).ConfigureAwait(false);
+                if (!result.Passed) return result;
+            }
+
+            return DefinitionOfDoneResult.Pass();
+        }
+
+        private async Task<DefinitionOfDoneResult> VerifyOneConsumerAsync(
+            Vessel producer,
+            string producerRef,
+            ConsumerDeclaration edge,
+            CancellationToken token)
+        {
+            Vessel consumer = edge.Consumer;
+            string label = "consumer-build (" + consumer.Name + ")";
+
+            WorkflowProfile? consumerProfile = await ResolveProfileForVesselAsync(consumer, token).ConfigureAwait(false);
+            string? consumerBuild = consumerProfile?.BuildCommand;
+            if (String.IsNullOrWhiteSpace(consumerBuild))
+            {
+                return ConsumerVerificationError(
+                    label,
+                    "Consumer vessel '" + consumer.Name + "' has no BuildCommand on its workflow profile, so its "
+                    + "compilation against this change cannot be verified.");
+            }
+
+            string scratchRoot = Path.Combine(
+                Path.GetTempPath(),
+                "armada-consumer-verify",
+                Guid.NewGuid().ToString("N"));
+
+            List<string> createdWorktrees = new List<string>();
+
+            try
+            {
+                Directory.CreateDirectory(scratchRoot);
+
+                string consumerWorktree = Path.Combine(scratchRoot, SafeDirName(consumer.Name));
+                string? consumerRepo = ResolveVesselRepoPath(consumer);
+                if (consumerRepo == null)
+                {
+                    return ConsumerVerificationError(
+                        label,
+                        "Consumer vessel '" + consumer.Name + "' has no LocalPath, so its repository cannot be located.");
+                }
+
+                string consumerBranch = ResolveDefaultBranch(consumer);
+
+                await _Git.CreateWorktreeAsync(
+                    consumerRepo, consumerWorktree, consumerBranch, consumerBranch, true, token).ConfigureAwait(false);
+                createdWorktrees.Add(consumerWorktree);
+
+                // Materialize every sibling the consumer declares. The producer takes the mission
+                // ref; the rest take their declared defaults, because only the producer is under
+                // test and pinning the others would verify a combination nobody is proposing.
+                foreach (SiblingRepo sibling in consumer.GetSiblingRepos())
+                {
+                    if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath)) continue;
+
+                    Vessel? siblingVessel = await ResolveSiblingVesselAsync(sibling, allowNull: true, token).ConfigureAwait(false);
+                    if (siblingVessel == null) continue;
+
+                    bool isProducer = String.Equals(siblingVessel.Id, producer.Id, StringComparison.OrdinalIgnoreCase);
+                    string siblingRef = isProducer
+                        ? producerRef
+                        : (!String.IsNullOrWhiteSpace(sibling.DefaultBranch) ? sibling.DefaultBranch! : ResolveDefaultBranch(siblingVessel));
+
+                    string siblingPath = Path.GetFullPath(Path.Combine(consumerWorktree, sibling.RelativePath));
+                    string? siblingRepo = ResolveVesselRepoPath(siblingVessel);
+                    if (siblingRepo == null)
+                    {
+                        // The producer is the subject of this verification; without it the build
+                        // would prove nothing, so report rather than run a misleading compile.
+                        if (isProducer)
+                        {
+                            return ConsumerVerificationError(
+                                label,
+                                "Producer vessel '" + siblingVessel.Name + "' has no LocalPath, so it cannot be "
+                                + "provisioned into consumer '" + consumer.Name + "' for verification.");
+                        }
+
+                        _Logging.Warn(_Header + "sibling " + siblingVessel.Name + " has no LocalPath; skipping it for consumer verification");
+                        continue;
+                    }
+
+                    await _Git.CreateWorktreeAsync(
+                        siblingRepo, siblingPath, siblingRef, siblingRef, true, token).ConfigureAwait(false);
+                    createdWorktrees.Add(siblingPath);
+                }
+
+                string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(consumerBuild!) : consumerBuild!;
+                DefinitionOfDoneResult result = await RunCommandAsync(label, effective, consumerWorktree, token).ConfigureAwait(false);
+
+                if (!result.Passed)
+                {
+                    _Logging.Warn(_Header + "consumer " + consumer.Name + " failed to build against this change");
+                }
+
+                return result;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return ConsumerVerificationError(
+                    label,
+                    "Could not prepare consumer '" + consumer.Name + "' for verification: " + ex.Message);
+            }
+            finally
+            {
+                foreach (string worktree in createdWorktrees)
+                {
+                    try { await _Git!.RemoveWorktreeAsync(worktree, token).ConfigureAwait(false); }
+                    catch (Exception ex) { _Logging.Debug(_Header + "consumer worktree cleanup failed for " + worktree + ": " + ex.Message); }
+                }
+
+                try { if (Directory.Exists(scratchRoot)) Directory.Delete(scratchRoot, true); }
+                catch (Exception ex) { _Logging.Debug(_Header + "consumer scratch cleanup failed for " + scratchRoot + ": " + ex.Message); }
+            }
+        }
+
+        /// <summary>
+        /// Report a verification that could not be carried out, as distinct from a consumer that
+        /// genuinely failed to compile.
+        /// </summary>
+        private DefinitionOfDoneResult ConsumerVerificationError(string label, string message)
+        {
+            if (_Settings.FailOnConsumerVerificationError)
+            {
+                _Logging.Warn(_Header + message);
+                return DefinitionOfDoneResult.Fail(label, -1, BuildDiagnosticText(message), DefinitionOfDoneFailureClassEnum.Infra);
+            }
+
+            // Say it out loud. A verification that silently did not happen is indistinguishable
+            // from one that passed, and that is the failure this whole step exists to prevent.
+            _Logging.Warn(_Header + "consumer verification incomplete: " + message);
+            return DefinitionOfDoneResult.Pass();
+        }
+
+        private async Task<Vessel?> ReadVesselAsync(string? tenantId, string vesselId, CancellationToken token)
+        {
+            try
+            {
+                return !String.IsNullOrWhiteSpace(tenantId)
+                    ? await _Database.Vessels.ReadAsync(tenantId, vesselId, token).ConfigureAwait(false)
+                    : await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
+            }
+            catch { return null; }
+        }
+
+        private async Task<List<Vessel>> EnumerateVesselsAsync(string? tenantId, CancellationToken token)
+        {
+            try
+            {
+                return !String.IsNullOrWhiteSpace(tenantId)
+                    ? await _Database.Vessels.EnumerateAsync(tenantId, token).ConfigureAwait(false)
+                    : await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
+            }
+            catch { return new List<Vessel>(); }
+        }
+
+        private async Task<Vessel?> ResolveSiblingVesselAsync(SiblingRepo sibling, bool allowNull, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(sibling.VesselRef)) return null;
+
+            Vessel? vessel = null;
+            try { vessel = await _Database.Vessels.ReadAsync(sibling.VesselRef!, token).ConfigureAwait(false); }
+            catch { }
+            if (vessel == null)
+            {
+                try { vessel = await _Database.Vessels.ReadByNameAsync(sibling.VesselRef!, token).ConfigureAwait(false); }
+                catch { }
+            }
+            return vessel;
+        }
+
+        /// <summary>
+        /// Locate a vessel's bare repository, or null when the record does not say where it is.
+        /// </summary>
+        /// <remarks>
+        /// Only the vessel's own <see cref="Vessel.LocalPath"/> is consulted. Guessing a path from
+        /// the vessel name would produce a plausible directory that may not be the repository, and
+        /// a verification that silently built the wrong tree is worse than one that reports it
+        /// could not run.
+        /// </remarks>
+        private static string? ResolveVesselRepoPath(Vessel vessel)
+        {
+            if (String.IsNullOrWhiteSpace(vessel.LocalPath)) return null;
+            return Path.GetFullPath(vessel.LocalPath!);
+        }
+
+        private static string ResolveDefaultBranch(Vessel vessel)
+        {
+            return !String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? vessel.DefaultBranch! : "main";
+        }
+
+        private static string SafeDirName(string name)
+        {
+            if (String.IsNullOrWhiteSpace(name)) return "consumer";
+            foreach (char invalid in Path.GetInvalidFileNameChars()) name = name.Replace(invalid, '_');
+            return name;
+        }
+
+        private async Task<WorkflowProfile?> ResolveProfileForVesselAsync(Vessel vessel, CancellationToken token)
+        {
+            WorkflowProfileQuery query = new WorkflowProfileQuery
+            {
+                TenantId = vessel.TenantId,
+                Active = true,
+                PageNumber = 1,
+                PageSize = 1000
+            };
+
+            List<WorkflowProfile> candidates = await _Database.WorkflowProfiles.EnumerateAllAsync(query, token).ConfigureAwait(false);
+            if (candidates.Count == 0) return null;
+
+            WorkflowProfile? match = ChooseBestFromScope(
+                candidates.Where(p => p.Scope == WorkflowProfileScopeEnum.Vessel
+                    && String.Equals(p.VesselId, vessel.Id, StringComparison.Ordinal)).ToList());
+            if (match != null) return match;
+
+            if (!String.IsNullOrWhiteSpace(vessel.FleetId))
+            {
+                match = ChooseBestFromScope(
+                    candidates.Where(p => p.Scope == WorkflowProfileScopeEnum.Fleet
+                        && String.Equals(p.FleetId, vessel.FleetId, StringComparison.Ordinal)).ToList());
+                if (match != null) return match;
+            }
+
+            return ChooseBestFromScope(candidates.Where(p => p.Scope == WorkflowProfileScopeEnum.Global).ToList());
         }
 
         private bool IsPersonaApplicable(string? persona)

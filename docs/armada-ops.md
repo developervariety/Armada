@@ -240,6 +240,47 @@ Checks are attached by the operator, not by captains. Arm them in the same
 action as the dispatch call. Cancelling a voyage discards its Checks, so a
 re-dispatch starts with none and the cost is not visible until the Judge stage.
 
+The definition-of-done gate also builds the vessels that DECLARE this vessel as
+a sibling repository. A producer's own build cannot observe a break it causes
+in a consumer, because the consumer is a different repository with a different
+compilation: the producer's gate passes, the branch lands, and the break
+surfaces on whatever builds next, attributed to that build rather than to the
+change that caused it.
+
+The consumer edge is derived, not configured. A vessel declares the
+repositories it depends ON, in `SiblingRepos`; the gate reads that same data in
+the opposite direction to find who depends on IT. Nothing extra needs to be set
+up for a vessel whose consumers already declare it.
+
+What the gate does for each consumer:
+
+| Step | Behavior |
+| --- | --- |
+| Provision | A scratch root private to this one verification, never a shared sibling path |
+| Producer ref | The mission branch, checked out detached |
+| Other siblings | Their declared default branches - only the producer is under test |
+| Command | The consumer's `BuildCommand`, not its test suite |
+| Cleanup | Worktrees removed and the scratch root deleted, pass or fail |
+
+The private scratch root is load-bearing. A shared sibling checkout that another
+dock already owns is REUSED rather than re-pointed, so verifying through one
+could compile the consumer against some other commit while reporting on this
+one - the exact false green the step exists to prevent.
+
+Consumers are built, not tested. A build catches the break that leaves a target
+branch red; running every consumer's suite inside every producer gate would
+cost more wall time than the gate itself. A consumer break that shows up only
+in a test oracle is therefore still found by the consumer's own gate, not by
+the producer's.
+
+A consumer that fails to COMPILE fails the producer's gate. A consumer that
+cannot be PREPARED - no workflow profile, no `LocalPath`, a worktree that will
+not provision - is an infrastructure fault in the verification rather than
+evidence about the producer's change, so by default it is logged and the gate
+passes. Set `DefinitionOfDone.FailOnConsumerVerificationError` to make those
+fail instead. Set `DefinitionOfDone.VerifyDeclaredConsumers` to `false` to
+switch the step off entirely.
+
 ### 4.7 Review And Land
 
 Read the mission diff and relevant logs. Drain the audit queue and record the

@@ -71,6 +71,36 @@ namespace Armada.Core.Settings
             set => _DiagnosticLines = Math.Max(1, Math.Min(100, value));
         }
 
+        /// <summary>
+        /// Whether a passing gate also builds the vessels that declare this vessel as a sibling
+        /// repository. Defaults to true.
+        /// </summary>
+        /// <remarks>
+        /// A producer's own build cannot observe a break it causes in a consumer: the consumer is
+        /// a different repository with a different compilation. The gate passes, the branch lands,
+        /// and the break surfaces on the consumer's next build, attributed to whatever ran then
+        /// rather than to the change that caused it. Building the declared consumers closes that
+        /// gap at the only point where the producer's change is still unlanded.
+        /// <para>
+        /// Verification requires a git seam; without one the step is skipped rather than failed,
+        /// so a gate constructed without that dependency behaves exactly as before.
+        /// </para>
+        /// </remarks>
+        public bool VerifyDeclaredConsumers { get; set; } = true;
+
+        /// <summary>
+        /// Whether a consumer that cannot be prepared fails the producer's gate. Defaults to
+        /// false, which reports the problem and lets the gate pass.
+        /// </summary>
+        /// <remarks>
+        /// A missing repository, an absent workflow profile, or a worktree that will not
+        /// provision is an infrastructure fault in the verification, not evidence that the
+        /// producer's change is wrong. Failing the producer for it would block landing on a
+        /// condition the captain cannot fix. A consumer that genuinely fails to COMPILE is a
+        /// different matter and always fails the gate.
+        /// </remarks>
+        public bool FailOnConsumerVerificationError { get; set; } = false;
+
         #endregion
 
         #region Private-Members
