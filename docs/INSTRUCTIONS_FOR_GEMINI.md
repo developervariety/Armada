@@ -60,8 +60,16 @@ the result.
 
 ## Checks And Landing
 
-Create Pending Checks when the objective or voyage starts. Build and unit test
-are the minimum for code work. Add the profile gates that the change needs.
+Dispatch arms a voyage's Build and UnitTest Checks itself, so those two are
+already attached. Add the profile gates the change needs beyond them. Build and
+unit test remain the minimum for code work; you no longer have to create them,
+but you do have to confirm they are present when a voyage was built some other
+way.
+
+`run_check`, `retry_check_run`, and `get_check_run` return a bounded summary -
+status, exit code, parsed test totals, artifacts, and the tail of the output -
+not the whole command log. Pass `includeOutput=true` to `get_check_run` when
+you need the complete log.
 
 Review the diff, logs, audit state, and Checks before landing. Process the exact
 merge entry. Verify the target branch after landing.
