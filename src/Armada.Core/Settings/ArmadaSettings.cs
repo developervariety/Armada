@@ -1099,6 +1099,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether dispatch arms a voyage with its own Build and UnitTest Checks, so a voyage is
+        /// never condemned at the Judge stage for carrying none.
+        /// </summary>
+        public VoyageCheckArmingSettings VoyageCheckArming
+        {
+            get => _VoyageCheckArming;
+            set => _VoyageCheckArming = value ?? new VoyageCheckArmingSettings();
+        }
+
+        /// <summary>
         /// Disk-lifecycle settings that bound and make observable the reclamation of
         /// Armada-owned storage. Destructive periodic cleanup is off by default (dry-run
         /// observability first, per the direct-edit rollout constraint).
@@ -1202,6 +1212,7 @@ namespace Armada.Core.Settings
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
         private DockBoundarySettings _DockBoundary = new DockBoundarySettings();
         private DefinitionOfDoneSettings _DefinitionOfDone = new DefinitionOfDoneSettings();
+        private VoyageCheckArmingSettings _VoyageCheckArming = new VoyageCheckArmingSettings();
         private DiskLifecycleSettings _DiskLifecycle = new DiskLifecycleSettings();
         private TelemetrySettings _Telemetry = new TelemetrySettings();
         private bool _DatabasePathConfigured = false;
@@ -1337,6 +1348,7 @@ namespace Armada.Core.Settings
             IncidentLifecycle = source.IncidentLifecycle;
             DockBoundary = source.DockBoundary;
             DefinitionOfDone = source.DefinitionOfDone;
+            VoyageCheckArming = source.VoyageCheckArming;
             DiskLifecycle = source.DiskLifecycle;
             Architect = source.Architect;
         }

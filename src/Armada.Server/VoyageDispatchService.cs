@@ -235,6 +235,14 @@ namespace Armada.Server
                 voyage = await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
             }
 
+            // Arm the voyage's own Checks here, in the same action as the dispatch. A Judge PASS is
+            // rejected when no green independent Check is attached, so a voyage dispatched bare is
+            // already condemned - and nothing reports that until the Judge stage, after the whole
+            // pipeline has run. Leaving this to a second operator call made the outcome depend on
+            // remembering it, and cancelling a voyage discards its Checks, so a re-dispatch
+            // silently started bare again.
+            await ArmVoyageChecksAsync(voyage, dispatchVessel, token).ConfigureAwait(false);
+
             LogDispatchInfo("dispatch complete voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds);
             return VoyageDispatchResult.Success(voyage);
         }
@@ -242,6 +250,71 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Attach Pending Build and UnitTest Checks to a freshly dispatched voyage.
+        /// </summary>
+        /// <remarks>
+        /// The Checks are armed Pending, not executed. A Pending Check attached to a voyage is run
+        /// in place when the Judge stage reaches it, so arming costs nothing now and still
+        /// satisfies the real-signal gate; running a full suite at dispatch would instead load the
+        /// host at the moment the first captain starts working.
+        /// <para>
+        /// Arming never fails a dispatch. A voyage that exists without its Checks can still be
+        /// armed by hand, whereas refusing to dispatch over a Check record would turn a
+        /// convenience into an outage.
+        /// </para>
+        /// </remarks>
+        private async Task ArmVoyageChecksAsync(Voyage voyage, Vessel vessel, CancellationToken token)
+        {
+            try
+            {
+                VoyageCheckArmingSettings? arming = _Settings?.VoyageCheckArming;
+                if (arming == null || !arming.Enabled) return;
+
+                AuthContext auth = AuthContext.Authenticated(
+                    voyage.TenantId ?? vessel.TenantId ?? "default",
+                    voyage.UserId ?? "default",
+                    true,
+                    true,
+                    "system");
+
+                WorkflowProfileService profiles = new WorkflowProfileService(_Database, _Logging!);
+                WorkflowProfile? profile = await profiles.ResolveForVesselAsync(auth, vessel, null, token).ConfigureAwait(false);
+
+                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(arming, profile, null);
+                if (planned.Count == 0)
+                {
+                    LogDispatchInfo("dispatch step checks_armed voyage " + voyage.Id + " armed=0"
+                        + (profile == null ? " reason=no_workflow_profile" : " reason=no_matching_commands"));
+                    return;
+                }
+
+                foreach (CheckRunTypeEnum type in planned)
+                {
+                    CheckRun run = new CheckRun
+                    {
+                        TenantId = voyage.TenantId,
+                        UserId = voyage.UserId,
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        WorkflowProfileId = profile?.Id,
+                        Type = type,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = type.ToString() + " (armed at dispatch)"
+                    };
+
+                    await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+                }
+
+                LogDispatchInfo("dispatch step checks_armed voyage " + voyage.Id + " armed=" + planned.Count);
+            }
+            catch (Exception ex)
+            {
+                _Logging?.Warn("[VoyageDispatchService] could not arm Checks for voyage " + voyage.Id + ": " + ex.Message);
+            }
+        }
 
         private static VoyageDispatchResult? ValidateRequest(string title, List<MissionDescription>? missions)
         {

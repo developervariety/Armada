@@ -236,9 +236,27 @@ record remains `Failed` before the Judge stage runs. Resolve an environmental
 failure as `Canceled`, not `Passed`: the run genuinely did not pass, and the
 reason field is where the evidence belongs.
 
-Checks are attached by the operator, not by captains. Arm them in the same
-action as the dispatch call. Cancelling a voyage discards its Checks, so a
-re-dispatch starts with none and the cost is not visible until the Judge stage.
+Dispatch arms the voyage's Build and UnitTest Checks itself. A type is armed
+only when the vessel's resolved workflow profile actually defines the command
+for it, and a type already attached to the voyage is never armed twice - adding
+a second Build beside a failed one would leave a green and a red on the same
+voyage, and one failed Check rejects a Judge PASS however many green ones sit
+next to it.
+
+The armed Checks are `Pending`, not executed. A Pending Check attached to a
+voyage is run in place when the Judge stage reaches it, so arming costs nothing
+at dispatch and still satisfies the real-signal gate; executing at dispatch
+would put a full suite on the host at the moment the first captain starts work.
+
+Arming never fails a dispatch. A voyage that exists without its Checks can
+still be armed by hand, whereas refusing to dispatch over a Check record would
+turn a convenience into an outage. Set `VoyageCheckArming.Enabled` to `false`
+to switch it off, or `ArmBuild` / `ArmUnitTest` to control the types.
+
+Operators may still attach further Checks, and must do so for any gate beyond
+build and unit test. What changed is the floor: a voyage no longer reaches its
+Judge stage carrying nothing, and a re-dispatch after a cancellation no longer
+starts bare because the previous voyage's Checks went with it.
 
 The definition-of-done gate also builds the vessels that DECLARE this vessel as
 a sibling repository. A producer's own build cannot observe a break it causes
