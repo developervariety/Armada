@@ -38,6 +38,15 @@ export function markSetupComplete(): void {
   }
 }
 
+/** Forget that setup was completed, so the wizard can be re-run from the sidebar. */
+export function clearSetupComplete(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // storage unavailable
+  }
+}
+
 export interface SetupWizardProps {
   onClose: () => void;
   onHighlightChange?: (paths: string[]) => void;

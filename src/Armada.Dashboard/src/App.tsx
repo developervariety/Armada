@@ -6,25 +6,19 @@ import { ThemeProvider } from './context/ThemeContext';
 import { WebSocketProvider } from './context/WebSocketContext';
 import { NotificationProvider } from './context/NotificationContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import LoadingIndicator from './components/shared/LoadingIndicator';
 import Layout from './components/Layout';
 import './App.css';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Fleets = lazy(() => import('./pages/Fleets'));
-const ProjectProfiles = lazy(() => import('./pages/ProjectProfiles'));
-const ProjectProfileDetail = lazy(() => import('./pages/ProjectProfileDetail'));
-const Skills = lazy(() => import('./pages/Skills'));
-const SkillDetail = lazy(() => import('./pages/SkillDetail'));
-const Jobs = lazy(() => import('./pages/Jobs'));
-const TokenUsage = lazy(() => import('./pages/TokenUsage'));
-const AskArmada = lazy(() => import('./pages/AskArmada'));
 const Vessels = lazy(() => import('./pages/Vessels'));
-const CodeIndex = lazy(() => import('./pages/CodeIndex'));
 const Captains = lazy(() => import('./pages/Captains'));
 const Missions = lazy(() => import('./pages/Missions'));
 const Voyages = lazy(() => import('./pages/Voyages'));
 const Events = lazy(() => import('./pages/Events'));
 const MergeQueue = lazy(() => import('./pages/MergeQueue'));
+const Jobs = lazy(() => import('./pages/Jobs'));
 const Docks = lazy(() => import('./pages/Docks'));
 const Doctor = lazy(() => import('./pages/Doctor'));
 const Tenants = lazy(() => import('./pages/admin/Tenants'));
@@ -35,8 +29,6 @@ const Planning = lazy(() => import('./pages/Planning'));
 const Objectives = lazy(() => import('./pages/Objectives'));
 const ObjectiveDetail = lazy(() => import('./pages/ObjectiveDetail'));
 const Signals = lazy(() => import('./pages/Signals'));
-const Notifications = lazy(() => import('./pages/Notifications'));
-const Inbox = lazy(() => import('./pages/Inbox'));
 const Server = lazy(() => import('./pages/Server'));
 const FleetDetail = lazy(() => import('./pages/FleetDetail'));
 const VesselDetail = lazy(() => import('./pages/VesselDetail'));
@@ -59,6 +51,18 @@ const Playbooks = lazy(() => import('./pages/Playbooks'));
 const PlaybookDetail = lazy(() => import('./pages/PlaybookDetail'));
 const WorkflowProfiles = lazy(() => import('./pages/WorkflowProfiles'));
 const WorkflowProfileDetail = lazy(() => import('./pages/WorkflowProfileDetail'));
+const ProjectProfiles = lazy(() => import('./pages/ProjectProfiles'));
+const ProjectProfileDetail = lazy(() => import('./pages/ProjectProfileDetail'));
+const Skills = lazy(() => import('./pages/Skills'));
+const SkillDetail = lazy(() => import('./pages/SkillDetail'));
+const AskArmada = lazy(() => import('./pages/AskArmada'));
+// Fork-only: code index has no upstream counterpart, so it keeps a standalone route.
+const CodeIndex = lazy(() => import('./pages/CodeIndex'));
+// Fork-only: upstream folds /notifications into the inbox and drops this page. The fork keeps it,
+// because the two are different surfaces -- the inbox is what needs attention, this is delivered
+// notification history with read state, mark-all-read, and clear-history.
+const Notifications = lazy(() => import('./pages/Notifications'));
+const Inbox = lazy(() => import('./pages/Inbox'));
 const CheckRuns = lazy(() => import('./pages/CheckRuns'));
 const CheckRunDetail = lazy(() => import('./pages/CheckRunDetail'));
 const Environments = lazy(() => import('./pages/Environments'));
@@ -75,13 +79,17 @@ const Workspace = lazy(() => import('./pages/Workspace'));
 const RequestHistory = lazy(() => import('./pages/RequestHistory'));
 const ApiExplorer = lazy(() => import('./pages/ApiExplorer'));
 const History = lazy(() => import('./pages/History'));
+const Configuration = lazy(() => import('./pages/Configuration'));
+const Activity = lazy(() => import('./pages/Activity'));
+const ServerHub = lazy(() => import('./pages/ServerHub'));
+const VesselsHub = lazy(() => import('./pages/VesselsHub'));
+const CaptainsHub = lazy(() => import('./pages/CaptainsHub'));
+const MissionsHub = lazy(() => import('./pages/MissionsHub'));
+const DispatchHub = lazy(() => import('./pages/DispatchHub'));
+const DeliveryHub = lazy(() => import('./pages/DeliveryHub'));
 
 function RouteFallback() {
-  return (
-    <div style={{ padding: '2rem 2.5rem' }}>
-      <p className="text-dim">Loading page...</p>
-    </div>
-  );
+  return <LoadingIndicator fullHeight label="Loading page..." />;
 }
 
 export default function App() {
@@ -99,94 +107,100 @@ export default function App() {
                       <Route path="dashboard" element={<Navigate to="/" replace />} />
                       <Route path="planning" element={<Planning />} />
                       <Route path="planning/:id" element={<Planning />} />
-                      <Route path="dispatch" element={<Dispatch />} />
-                      <Route path="backlog" element={<Objectives />} />
+                      <Route path="dispatch" element={<DispatchHub />} />
+                      <Route path="backlog" element={<Navigate to="/dispatch?tab=backlog" replace />} />
                       <Route path="backlog/:id" element={<ObjectiveDetail />} />
                       <Route path="objectives" element={<Objectives />} />
                       <Route path="objectives/:id" element={<ObjectiveDetail />} />
 
-                      <Route path="fleets" element={<Fleets />} />
+                      <Route path="fleets" element={<Navigate to="/vessels?tab=fleets" replace />} />
                       <Route path="fleets/:id" element={<FleetDetail />} />
 
-                      <Route path="vessels" element={<Vessels />} />
-                      <Route path="code-index" element={<CodeIndex />} />
+                      <Route path="vessels" element={<VesselsHub />} />
                       <Route path="vessels/:id" element={<VesselDetail />} />
                       <Route path="vessels/:id/onboarding" element={<VesselOnboarding />} />
-                      <Route path="workspace" element={<Workspace />} />
+                      <Route path="workspace" element={<Navigate to="/vessels?tab=workspace" replace />} />
                       <Route path="workspace/:vesselId" element={<Workspace />} />
                       <Route path="workspace/:vesselId/:panel" element={<Workspace />} />
 
-                      <Route path="captains" element={<Captains />} />
+                      <Route path="captains" element={<CaptainsHub />} />
                       <Route path="captains/:id" element={<CaptainDetail />} />
 
-                      <Route path="missions" element={<Missions />} />
+                      <Route path="missions" element={<MissionsHub />} />
                       <Route path="missions/:id" element={<MissionDetail />} />
 
-                      <Route path="voyages" element={<Voyages />} />
+                      <Route path="voyages" element={<Navigate to="/missions?tab=voyages" replace />} />
                       <Route path="voyages/create" element={<VoyageCreate />} />
                       <Route path="voyages/:id" element={<VoyageDetail />} />
 
-                      <Route path="signals" element={<Signals />} />
-                      <Route path="history" element={<History />} />
+                      <Route path="activity" element={<Activity />} />
+                      <Route path="signals" element={<Navigate to="/activity?source=signals" replace />} />
+                      <Route path="history" element={<Navigate to="/activity?source=history" replace />} />
                       <Route path="signals/:id" element={<SignalDetail />} />
 
-                      <Route path="events" element={<Events />} />
+                      <Route path="events" element={<Navigate to="/activity?source=events" replace />} />
                       <Route path="events/:id" element={<EventDetail />} />
 
-                      <Route path="docks" element={<Docks />} />
+                      <Route path="docks" element={<Navigate to="/captains?tab=docks" replace />} />
                       <Route path="docks/:id" element={<DockDetail />} />
 
-                      <Route path="merge-queue" element={<MergeQueue />} />
+                      <Route path="merge-queue" element={<Navigate to="/missions?tab=merge-queue" replace />} />
                       <Route path="merge-queue/:id" element={<MergeQueueDetail />} />
 
-                      <Route path="personas" element={<Personas />} />
+                      <Route path="jobs" element={<Jobs />} />
+
+                      <Route path="configuration" element={<Configuration />} />
+                      <Route path="personas" element={<Navigate to="/configuration?tab=personas" replace />} />
                       <Route path="personas/:name" element={<PersonaDetail />} />
-                      <Route path="pipelines" element={<Pipelines />} />
+                      <Route path="pipelines" element={<Navigate to="/configuration?tab=pipelines" replace />} />
                       <Route path="pipelines/:name" element={<PipelineDetail />} />
-                      <Route path="prompt-templates" element={<PromptTemplates />} />
+                      <Route path="prompt-templates" element={<Navigate to="/configuration?tab=prompts" replace />} />
                       <Route path="prompt-templates/create" element={<PromptTemplateDetail />} />
                       <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
-                      <Route path="project-profiles" element={<ProjectProfiles />} />
+                      <Route path="playbooks" element={<Navigate to="/configuration?tab=playbooks" replace />} />
+                      <Route path="playbooks/:id" element={<PlaybookDetail />} />
+                      <Route path="workflow-profiles" element={<Navigate to="/configuration?tab=workflow-profiles" replace />} />
+                      <Route path="workflow-profiles/:id" element={<WorkflowProfileDetail />} />
+                      <Route path="project-profiles" element={<Navigate to="/configuration?tab=project-profiles" replace />} />
                       <Route path="project-profiles/:id" element={<ProjectProfileDetail />} />
-
-                      <Route path="skills" element={<Skills />} />
+                      <Route path="skills" element={<Navigate to="/configuration?tab=skills" replace />} />
                       <Route path="skills/:id" element={<SkillDetail />} />
-
-                      <Route path="jobs" element={<Jobs />} />
-                      <Route path="token-usage" element={<TokenUsage />} />
                       <Route path="ask" element={<AskArmada />} />
 
-                      <Route path="playbooks" element={<Playbooks />} />
-                      <Route path="playbooks/:id" element={<PlaybookDetail />} />
-                      <Route path="workflow-profiles" element={<WorkflowProfiles />} />
-                      <Route path="workflow-profiles/:id" element={<WorkflowProfileDetail />} />
-                      <Route path="checks" element={<CheckRuns />} />
+                      {/* Fork-only page; upstream has no code index and therefore no hub tab for it. */}
+                      <Route path="code-index" element={<CodeIndex />} />
+
+                      {/* Token usage lives in the Activity hub upstream; keep the old path working.
+                          The Activity hub keys its tabs on ?source=, not ?tab=. */}
+                      <Route path="token-usage" element={<Navigate to="/activity?source=tokens" replace />} />
+                      <Route path="inbox" element={<Inbox />} />
+                      <Route path="delivery" element={<DeliveryHub />} />
+                      <Route path="checks" element={<Navigate to="/delivery?tab=checks" replace />} />
                       <Route path="checks/:id" element={<CheckRunDetail />} />
-                      <Route path="environments" element={<Environments />} />
+                      <Route path="environments" element={<Navigate to="/delivery?tab=environments" replace />} />
                       <Route path="environments/:id" element={<EnvironmentDetail />} />
-                      <Route path="deployments" element={<Deployments />} />
+                      <Route path="deployments" element={<Navigate to="/delivery?tab=deployments" replace />} />
                       <Route path="deployments/:id" element={<DeploymentDetail />} />
-                      <Route path="releases" element={<Releases />} />
+                      <Route path="releases" element={<Navigate to="/delivery?tab=releases" replace />} />
                       <Route path="releases/new" element={<ReleaseDetail />} />
                       <Route path="releases/:id" element={<ReleaseDetail />} />
-                      <Route path="incidents" element={<Incidents />} />
+                      <Route path="incidents" element={<Navigate to="/delivery?tab=incidents" replace />} />
                       <Route path="incidents/:id" element={<IncidentDetail />} />
-                      <Route path="runbooks" element={<Runbooks />} />
+                      <Route path="runbooks" element={<Navigate to="/delivery?tab=runbooks" replace />} />
                       <Route path="runbooks/:id" element={<RunbookDetail />} />
-                      <Route path="requests" element={<RequestHistory />} />
+                      <Route path="requests" element={<Navigate to="/activity?source=requests" replace />} />
                       <Route path="requests/:id" element={<RequestHistory />} />
                       <Route path="api-explorer" element={<ApiExplorer />} />
                       <Route path="api-explorer/:operationId" element={<ApiExplorer />} />
 
                       <Route path="notifications" element={<Notifications />} />
-                      <Route path="inbox" element={<Inbox />} />
 
-                      <Route path="admin/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
-                      <Route path="admin/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
-                      <Route path="admin/credentials" element={<ProtectedRoute><Credentials /></ProtectedRoute>} />
+                      <Route path="admin/tenants" element={<Navigate to="/server?tab=tenants" replace />} />
+                      <Route path="admin/users" element={<Navigate to="/server?tab=users" replace />} />
+                      <Route path="admin/credentials" element={<Navigate to="/server?tab=credentials" replace />} />
 
-                      <Route path="server" element={<Server />} />
-                      <Route path="doctor" element={<Doctor />} />
+                      <Route path="server" element={<ServerHub />} />
+                      <Route path="doctor" element={<Navigate to="/server?tab=diagnostics" replace />} />
                       <Route path="settings" element={<Navigate to="/server" replace />} />
                     </Route>
                   </Routes>
