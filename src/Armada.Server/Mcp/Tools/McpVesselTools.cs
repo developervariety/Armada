@@ -95,14 +95,15 @@ namespace Armada.Server.Mcp.Tools
                         defaultPlaybooks = new
                         {
                             type = "array",
-                            description = "Optional default playbooks merged into every dispatch against this vessel. Each entry: { playbookId: string, deliveryMode: string }. Omit to set no defaults.",
+                            description = "Optional default playbooks merged into every dispatch against this vessel. Each entry: { playbookId: string, deliveryMode: string, inlineFullContent?: string }. An entry that omits inlineFullContent KEEPS the content already stored for the entry with the same playbookId; pass an empty string to clear it deliberately. Omit to set no defaults.",
                             items = new
                             {
                                 type = "object",
                                 properties = new
                                 {
                                     playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
-                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" },
+                                    inlineFullContent = new { type = "string", description = "Optional literal playbook content delivered inline instead of resolving the playbook by id. OMIT to keep the entry's existing value; pass an empty string to clear it." }
                                 },
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
@@ -110,7 +111,7 @@ namespace Armada.Server.Mcp.Tools
                         siblingRepos = new
                         {
                             type = "array",
-                            description = "Optional dependency repositories provisioned alongside this vessel's worktree so cross-repo source probes resolve in a dock. Each entry: { vesselRef?: string, repoUrl?: string, relativePath: string, branchStrategy?: \"MatchBranchElseDefault\"|\"DefaultOnly\", defaultBranch?: string }. relativePath is resolved against the dock worktree (use \"../Name\" to place a sibling next to the dock). Omit to set none.",
+                            description = "Optional dependency repositories provisioned alongside this vessel's worktree so cross-repo source probes resolve in a dock. Each entry: { vesselRef?: string, repoUrl?: string, relativePath: string, branchStrategy?: \"MatchBranchElseDefault\"|\"DefaultOnly\", defaultBranch?: string, extractionArtifactPaths?: string[] }. An entry that omits extractionArtifactPaths KEEPS the paths already stored for the entry with the same relativePath, so editing a sibling through this tool cannot silently discard artifact configuration it did not mention; pass an empty array to clear them deliberately. relativePath is resolved against the dock worktree (use \"../Name\" to place a sibling next to the dock). Omit to set none.",
                             items = new
                             {
                                 type = "object",
@@ -120,7 +121,13 @@ namespace Armada.Server.Mcp.Tools
                                     repoUrl = new { type = "string", description = "Optional git URL for the sibling source (used when vesselRef is unset/unresolvable)" },
                                     relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../ExampleSibling)" },
                                     branchStrategy = new { type = "string", description = "MatchBranchElseDefault (default) or DefaultOnly" },
-                                    defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" }
+                                    defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" },
+                                    extractionArtifactPaths = new
+                                    {
+                                        type = "array",
+                                        items = new { type = "string" },
+                                        description = "Relative paths copied from the sibling vessel's working directory into the dock after provisioning, to materialise git-ignored extraction artifacts the consumer's build probes expect. Requires vesselRef to resolve to a vessel with a working directory. OMIT to keep the entry's existing paths; pass an empty array to clear them."
+                                    }
                                 },
                                 required = new[] { "relativePath" }
                             }
@@ -271,14 +278,15 @@ namespace Armada.Server.Mcp.Tools
                         defaultPlaybooks = new
                         {
                             type = "array",
-                            description = "Default playbooks merged into every dispatch against this vessel. Each entry: { playbookId: string, deliveryMode: string }. Omit to leave unchanged; pass an empty array to clear all defaults; pass null to clear all defaults.",
+                            description = "Default playbooks merged into every dispatch against this vessel. Each entry: { playbookId: string, deliveryMode: string, inlineFullContent?: string }. An entry that omits inlineFullContent KEEPS the content already stored for the entry with the same playbookId; pass an empty string to clear it deliberately. Omit to leave unchanged; pass an empty array to clear all defaults; pass null to clear all defaults.",
                             items = new
                             {
                                 type = "object",
                                 properties = new
                                 {
                                     playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
-                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" },
+                                    inlineFullContent = new { type = "string", description = "Optional literal playbook content delivered inline instead of resolving the playbook by id. OMIT to keep the entry's existing value; pass an empty string to clear it." }
                                 },
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
@@ -286,7 +294,7 @@ namespace Armada.Server.Mcp.Tools
                         siblingRepos = new
                         {
                             type = "array",
-                            description = "Dependency repositories provisioned alongside this vessel's worktree so cross-repo source probes resolve in a dock. Each entry: { vesselRef?: string, repoUrl?: string, relativePath: string, branchStrategy?: \"MatchBranchElseDefault\"|\"DefaultOnly\", defaultBranch?: string }. relativePath is resolved against the dock worktree (use \"../Name\" to place a sibling next to the dock). Omit to leave unchanged; pass an empty array or null to clear all.",
+                            description = "Dependency repositories provisioned alongside this vessel's worktree so cross-repo source probes resolve in a dock. Each entry: { vesselRef?: string, repoUrl?: string, relativePath: string, branchStrategy?: \"MatchBranchElseDefault\"|\"DefaultOnly\", defaultBranch?: string, extractionArtifactPaths?: string[] }. An entry that omits extractionArtifactPaths KEEPS the paths already stored for the entry with the same relativePath, so editing a sibling through this tool cannot silently discard artifact configuration it did not mention; pass an empty array to clear them deliberately. relativePath is resolved against the dock worktree (use \"../Name\" to place a sibling next to the dock). Omit to leave unchanged; pass an empty array or null to clear all.",
                             items = new
                             {
                                 type = "object",
@@ -296,7 +304,13 @@ namespace Armada.Server.Mcp.Tools
                                     repoUrl = new { type = "string", description = "Optional git URL for the sibling source (used when vesselRef is unset/unresolvable)" },
                                     relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../ExampleSibling)" },
                                     branchStrategy = new { type = "string", description = "MatchBranchElseDefault (default) or DefaultOnly" },
-                                    defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" }
+                                    defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" },
+                                    extractionArtifactPaths = new
+                                    {
+                                        type = "array",
+                                        items = new { type = "string" },
+                                        description = "Relative paths copied from the sibling vessel's working directory into the dock after provisioning, to materialise git-ignored extraction artifacts the consumer's build probes expect. Requires vesselRef to resolve to a vessel with a working directory. OMIT to keep the entry's existing paths; pass an empty array to clear them."
+                                    }
                                 },
                                 required = new[] { "relativePath" }
                             }
@@ -379,7 +393,9 @@ namespace Armada.Server.Mcp.Tools
                                 List<SelectedPlaybook>? parsed = JsonSerializer.Deserialize<List<SelectedPlaybook>>(
                                     updDpRaw,
                                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                                vessel.DefaultPlaybooks = (parsed == null || parsed.Count == 0) ? null : updDpRaw;
+                                vessel.DefaultPlaybooks = (parsed == null || parsed.Count == 0)
+                                    ? null
+                                    : SerializeDefaultPlaybooks(MergePlaybookInlineContent(parsed, updDpElem, vessel.DefaultPlaybooks));
                             }
                             catch (JsonException ex)
                             {
@@ -401,7 +417,9 @@ namespace Armada.Server.Mcp.Tools
                                 List<Armada.Core.Models.SiblingRepo>? parsed = JsonSerializer.Deserialize<List<Armada.Core.Models.SiblingRepo>>(
                                     updSrRaw,
                                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                                vessel.SiblingRepos = (parsed == null || parsed.Count == 0) ? null : updSrRaw;
+                                vessel.SiblingRepos = (parsed == null || parsed.Count == 0)
+                                    ? null
+                                    : SerializeSiblingRepos(MergeSiblingArtifactPaths(parsed, updSrElem, vessel.SiblingRepos));
                             }
                             catch (JsonException ex)
                             {
@@ -553,6 +571,139 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="value">Candidate policy name.</param>
         /// <returns>The matching enum member, or null when the value is not a declared member.</returns>
+        /// <summary>
+        /// JSON options used when re-serializing a structured vessel sub-object back to its stored
+        /// form. camelCase matches the shape every other writer and reader of these columns uses.
+        /// </summary>
+        private static readonly JsonSerializerOptions _SubObjectJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+
+        /// <summary>
+        /// Carry forward the extraction artifact paths of any incoming sibling entry that did not
+        /// mention the field, matching the stored entry by relative path.
+        ///
+        /// A caller who edits siblingRepos sends a whole array, and the tool schema is what tells
+        /// them which fields an entry has. Any field the schema omits is therefore absent from
+        /// what they send, and replacing wholesale would delete configuration they never saw and
+        /// could not have preserved. That is silent data loss: the vessel keeps working, docks
+        /// simply stop receiving the extraction trees, and the first symptom is a captain
+        /// reporting that a briefed source path does not exist -- which reads as a bad brief.
+        ///
+        /// So an ABSENT field means "leave it alone", matching how the tool already treats
+        /// siblingRepos itself, and an explicitly EMPTY array means "clear it". Only an explicit
+        /// value can destroy an existing one.
+        /// </summary>
+        private static List<Armada.Core.Models.SiblingRepo> MergeSiblingArtifactPaths(
+            List<Armada.Core.Models.SiblingRepo> incoming,
+            JsonElement incomingRaw,
+            string? existingJson)
+        {
+            if (String.IsNullOrEmpty(existingJson)) return incoming;
+
+            List<Armada.Core.Models.SiblingRepo>? existing;
+            try
+            {
+                existing = JsonSerializer.Deserialize<List<Armada.Core.Models.SiblingRepo>>(
+                    existingJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (JsonException)
+            {
+                return incoming;
+            }
+            if (existing == null || existing.Count == 0) return incoming;
+
+            for (int i = 0; i < incoming.Count; i++)
+            {
+                if (SubObjectMentions(incomingRaw, i, "extractionArtifactPaths")) continue;
+
+                string relativePath = incoming[i].RelativePath ?? String.Empty;
+                foreach (Armada.Core.Models.SiblingRepo prior in existing)
+                {
+                    if (!String.Equals(prior.RelativePath ?? String.Empty, relativePath, StringComparison.Ordinal)) continue;
+                    incoming[i].ExtractionArtifactPaths = prior.ExtractionArtifactPaths;
+                    break;
+                }
+            }
+            return incoming;
+        }
+
+        /// <summary>
+        /// Carry forward the inline content of any incoming playbook entry that did not mention the
+        /// field, matching the stored entry by playbook id. Same reasoning as
+        /// <see cref="MergeSiblingArtifactPaths"/>: the schema is the caller's map of the shape, so
+        /// a field it does not name cannot be preserved by a caller acting in good faith.
+        /// </summary>
+        private static List<SelectedPlaybook> MergePlaybookInlineContent(
+            List<SelectedPlaybook> incoming,
+            JsonElement incomingRaw,
+            string? existingJson)
+        {
+            if (String.IsNullOrEmpty(existingJson)) return incoming;
+
+            List<SelectedPlaybook>? existing;
+            try
+            {
+                existing = JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                    existingJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (JsonException)
+            {
+                return incoming;
+            }
+            if (existing == null || existing.Count == 0) return incoming;
+
+            for (int i = 0; i < incoming.Count; i++)
+            {
+                if (SubObjectMentions(incomingRaw, i, "inlineFullContent")) continue;
+
+                string playbookId = incoming[i].PlaybookId ?? String.Empty;
+                foreach (SelectedPlaybook prior in existing)
+                {
+                    if (!String.Equals(prior.PlaybookId ?? String.Empty, playbookId, StringComparison.Ordinal)) continue;
+                    incoming[i].InlineFullContent = prior.InlineFullContent;
+                    break;
+                }
+            }
+            return incoming;
+        }
+
+        /// <summary>
+        /// Whether the array element at the given index explicitly carried the named property.
+        /// Deserialization cannot answer this: an absent field and an explicit null both arrive as
+        /// null on the model, and those two must mean different things here.
+        /// </summary>
+        private static bool SubObjectMentions(JsonElement array, int index, string propertyName)
+        {
+            if (array.ValueKind != JsonValueKind.Array) return false;
+            int i = 0;
+            foreach (JsonElement element in array.EnumerateArray())
+            {
+                if (i++ != index) continue;
+                if (element.ValueKind != JsonValueKind.Object) return false;
+                foreach (JsonProperty property in element.EnumerateObject())
+                {
+                    if (String.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                return false;
+            }
+            return false;
+        }
+
+        private static string SerializeSiblingRepos(List<Armada.Core.Models.SiblingRepo> value)
+        {
+            return JsonSerializer.Serialize(value, _SubObjectJsonOptions);
+        }
+
+        private static string SerializeDefaultPlaybooks(List<SelectedPlaybook> value)
+        {
+            return JsonSerializer.Serialize(value, _SubObjectJsonOptions);
+        }
+
         private static BranchCleanupPolicyEnum? ParseBranchCleanupPolicy(string value)
         {
             foreach (string name in Enum.GetNames(typeof(BranchCleanupPolicyEnum)))
