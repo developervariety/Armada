@@ -211,6 +211,10 @@ Use `run_check` to execute a check. Use `retry_check_run` for a real rerun.
 Use `resolve_check` only when valid evidence was produced outside Armada. Do
 not use it to hide a failure.
 
+These tools return a bounded summary rather than the whole command log; section
+8.7 gives the fields and how to fetch the full output when the tail is not
+enough.
+
 A passing suite proves only that the suite passed. It proves a fix only when
 the check covers the original symptom. Record before and after evidence when
 the task is a defect.
@@ -570,6 +574,28 @@ shows only critical items).
 | Execute | `run_check`, `retry_check_run` |
 
 `armada_resolve_check` is a compatibility alias for `resolve_check`.
+
+`run_check`, `retry_check_run`, and `get_check_run` return a BOUNDED view of a
+check run, not the complete command log. A build or test log is routinely one
+to several megabytes; returning it overran the tool output limit, so the caller
+received a truncation error instead of the verdict and had to parse the record
+out of band on every call - including the common case where the only question
+was whether the check passed.
+
+The bounded view carries what answers that question:
+
+| Field | Purpose |
+| --- | --- |
+| `status`, `exitCode` | The verdict |
+| `testSummary`, `coverageSummary` | Parsed totals, replacing a count grepped from the log |
+| `artifacts` | Paths to the per-project `.trx` files, which name individual failures |
+| `outputTail` | The last 40 lines, where a failure's cause almost always is |
+| `outputLength`, `outputTruncated` | How much was withheld |
+| `outputRetrieval` | The exact call that returns the rest |
+
+Nothing is silently withheld: a truncated view states the full log's size and
+names the call that fetches it. Use `get_check_run` with `includeOutput=true`
+for the complete record, or `outputTailLines` to widen the tail.
 
 ### 8.8 Merge Queue And Audit
 

@@ -14,6 +14,13 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpCheckRunTools
     {
+        /// <summary>
+        /// Trailing output lines returned with a bounded check-run view. A failure's cause is
+        /// almost always in the tail, so this is what makes the common question answerable in one
+        /// call instead of a fetch-and-parse round trip.
+        /// </summary>
+        private const int _DefaultOutputTailLines = 40;
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -28,13 +35,15 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "get_check_run",
-                "Inspect one structured check run including status, output, artifacts, parsed test summary, and coverage summary.",
+                "Inspect one structured check run: status, exit code, parsed test and coverage summaries, artifacts, and the tail of the command output. Pass includeOutput=true for the complete log, which for a build or test run is routinely megabytes and can exceed the tool output limit.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        checkRunId = new { type = "string", description = "Check run ID (chk_ prefix)" }
+                        checkRunId = new { type = "string", description = "Check run ID (chk_ prefix)" },
+                        includeOutput = new { type = "boolean", description = "Return the complete command log instead of a bounded tail. Defaults to false." },
+                        outputTailLines = new { type = "integer", description = "How many trailing output lines to include when includeOutput is false. Defaults to 40." }
                     },
                     required = new[] { "checkRunId" }
                 },
@@ -59,12 +68,16 @@ namespace Armada.Server.Mcp.Tools
                             checkRunId: request.CheckRunId);
                     }
 
-                    return (object)run;
+                    // The complete log is returned only when it is asked for. A build or test log
+                    // routinely runs to megabytes, which overruns the tool output limit and gives
+                    // the caller a truncation error in place of the verdict it wanted.
+                    if (request.IncludeOutput) return (object)run;
+                    return (object)CheckRunSummaryView.From(run, request.OutputTailLines ?? _DefaultOutputTailLines);
                 });
 
             register(
                 "run_check",
-                "Start a structured check run for a vessel using the resolved workflow profile or an explicit command override.",
+                "Start a structured check run for a vessel using the resolved workflow profile or an explicit command override. Returns status, exit code, parsed test totals, and the tail of the output; fetch the complete log with get_check_run includeOutput=true.",
                 new
                 {
                     type = "object",
@@ -89,7 +102,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         CheckRunRequest request = DeserializeArgs<CheckRunRequest>(args, "run_check");
                         AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                        return (object)await checkRunService.RunAsync(auth, request).ConfigureAwait(false);
+                        CheckRun executed = await checkRunService.RunAsync(auth, request).ConfigureAwait(false);
+                        return (object)CheckRunSummaryView.From(executed, _DefaultOutputTailLines);
                     }
                     catch (JsonException ex)
                     {
@@ -107,7 +121,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "retry_check_run",
-                "Retry a previously completed structured check run using the same resolved scope and command context.",
+                "Retry a previously completed structured check run using the same resolved scope and command context. Returns the same bounded summary as run_check.",
                 new
                 {
                     type = "object",
@@ -123,7 +137,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         CheckRunIdArgs request = DeserializeArgs<CheckRunIdArgs>(args, "retry_check_run");
                         AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                        return (object)await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
+                        CheckRun retried = await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
+                        return (object)CheckRunSummaryView.From(retried, _DefaultOutputTailLines);
                     }
                     catch (Exception ex) when (IsExpectedToolFailure(ex))
                     {

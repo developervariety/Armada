@@ -258,6 +258,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SiblingLeaseRegistryTests());
             runner.AddSuite(new ConsumerVesselResolverTests());
             runner.AddSuite(new VoyageCheckArmingPlanTests());
+            runner.AddSuite(new CheckRunSummaryViewTests());
             runner.AddSuite(new DiskLifecycleTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
             runner.AddSuite(new MergeRefCandidateTests());
