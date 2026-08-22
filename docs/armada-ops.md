@@ -426,6 +426,35 @@ Incident closure is evidence-driven. Produce a newer passing check, successful
 rescue, shipped release, verified deployment, or completed rollback. Do not
 close an incident only because a captain reported success.
 
+### A rescue is judged by what it changed
+
+A rescue that starts, logs, and exits satisfies every liveness measure Armada
+keeps: the process lived, the captain reported, the pipeline advanced. None of
+that says the defect was touched. One rescue ran for twenty-four hours, drew
+escalating stall nudges, died on a runtime crash, and left behind a single
+changed documentation file.
+
+An Implementation-mode rescue whose change set is empty, or consists only of
+documentation, now fails with `ineffective_rescue` and the change set named in
+the `FailureReason`. Read that field before retrying: the correct response is a
+replacement brief that quotes the defect, not another attempt at the same one.
+
+Three limits keep this from firing on correct work:
+
+- **Only rescues are assessed.** A first-attempt mission may legitimately have
+  been dispatched to write documentation.
+- **Only Implementation mode.** An Audit or Research mission delivers a report
+  and is never expected to change code. Judging those by a diff is the same
+  mistake in the other direction, and it once marked correct work Failed.
+- **The original mission's paths are NOT compared against.** A rescue is
+  expected to rewrite the prior branch from scratch over the same files, so
+  treating an overlapping path set as a no-op would flag the normal case.
+
+Documentation means a `.md`, `.txt`, `.rst`, or `.adoc` file, anything under a
+`docs/` directory at any depth, or a conventional bare name such as `README` or
+`LICENSE`. A directory that merely contains the letters "doc" - `docker/`, a
+`DocumentStore/` source tree - is not documentation.
+
 ## 6. Release And Deployment Workflow
 
 Use a workflow profile for repeatable commands. Use named environments for

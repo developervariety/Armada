@@ -1025,6 +1025,24 @@ namespace Armada.Core.Services
         /// Both reach WorkProduced with an empty diff and a tiny AgentOutput, which the
         /// pipeline downstream would otherwise accept as real progress.
         /// </summary>
+        /// <summary>
+        /// Render a change set for a failure record, bounded so a wide diff cannot flood the field.
+        /// </summary>
+        /// <param name="changedPaths">Paths the mission changed.</param>
+        /// <returns>Readable description of the change set.</returns>
+        private static string DescribeChangedPaths(IReadOnlyList<string> changedPaths)
+        {
+            if (changedPaths == null || changedPaths.Count == 0) return "(no files changed).";
+
+            const int maxListed = 10;
+            int listed = Math.Min(maxListed, changedPaths.Count);
+            string joined = String.Join(", ", changedPaths.Take(listed));
+            if (changedPaths.Count > listed)
+                joined += ", and " + (changedPaths.Count - listed) + " more";
+
+            return changedPaths.Count + " file(s): " + joined + ".";
+        }
+
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
             return DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, diffLineCount > 0);
@@ -1242,9 +1260,42 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Judge a rescue by what it CHANGED, not by whether it ran. A rescue that starts,
+            // logs, and exits satisfies every liveness measure the platform keeps, and none of
+            // them can tell a repaired defect from a day spent writing about one. The case this
+            // exists for ran twenty-four hours, drew escalating stall nudges, died on a runtime
+            // crash, and left a single changed documentation file behind.
+            //
+            // Only rescues are assessed. A first-attempt mission that produces docs may simply
+            // have been dispatched to write docs; a RESCUE was dispatched against a named defect,
+            // so a change set that cannot carry behavior is evidence on its own.
+            bool failedForIneffectiveRescue = false;
+            if (!failedForScopeViolation && !failedForNoOpCompletion && RescueMissionMarker.IsAutoRescue(mission))
+            {
+                IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
+                RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
+                    changedPaths,
+                    mission.Mode == MissionModeEnum.Implementation);
+
+                if (assessment.IsIneffective)
+                {
+                    failedForIneffectiveRescue = true;
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission.FailureReason = "ineffective_rescue: " + assessment.Reason
+                        + " Change set: " + DescribeChangedPaths(changedPaths)
+                        + " Dispatch a replacement with a brief that quotes the defect, rather than retrying this one.";
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "mission " + mission.Id + " failed ineffective-rescue check substance="
+                        + assessment.Substance + " changedPaths=" + changedPaths.Count);
+                }
+            }
+
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
             bool failedForDodGate = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && dock != null && _DefinitionOfDoneGate != null)
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null && _DefinitionOfDoneGate != null)
             {
                 try
                 {
@@ -1482,7 +1533,7 @@ namespace Armada.Core.Services
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation && !failedForDodGate && !awaitingManualReview)
+            if (!failedForScopeViolation && !failedForDodGate && !failedForIneffectiveRescue && !awaitingManualReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }
