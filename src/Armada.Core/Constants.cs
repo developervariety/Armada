@@ -395,6 +395,12 @@ namespace Armada.Core
         /// <summary>
         /// Default credential identifier.
         /// </summary>
+        /// <summary>
+        /// Display name for the credential seeded during first-boot setup. The seeded credential
+        /// previously had no name, which showed as a blank row on the credentials surface.
+        /// </summary>
+        public static readonly string DefaultCredentialName = "Default Admin Credential";
+
         public static readonly string DefaultCredentialId = "default";
 
         /// <summary>

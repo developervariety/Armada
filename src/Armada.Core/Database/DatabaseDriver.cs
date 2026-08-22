@@ -252,6 +252,15 @@ namespace Armada.Core.Database
         /// <summary>
         /// Dispose.
         /// </summary>
+        /// <summary>
+        /// Get the highest applied schema-migration version, or 0 when the migrations table does not
+        /// exist yet. Every provider already implemented this; declaring it here is what lets a caller
+        /// holding a DatabaseDriver ask, rather than needing the concrete provider type.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Applied schema version, or 0 when no migrations have run.</returns>
+        public abstract Task<int> GetSchemaVersionAsync(CancellationToken token = default);
+
         public abstract void Dispose();
 
         #endregion

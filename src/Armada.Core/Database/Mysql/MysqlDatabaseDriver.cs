@@ -197,7 +197,8 @@ namespace Armada.Core.Database.Mysql
                 defaultCred.Id = Constants.DefaultCredentialId;
                 defaultCred.TenantId = Constants.DefaultTenantId;
                 defaultCred.UserId = Constants.DefaultUserId;
-                defaultCred.BearerToken = Constants.DefaultBearerToken;
+                defaultCred.Name = Constants.DefaultCredentialName;
+            defaultCred.BearerToken = Constants.DefaultBearerToken;
                 defaultCred.IsProtected = true;
                 await Credentials.CreateAsync(defaultCred, token).ConfigureAwait(false);
 
@@ -312,7 +313,7 @@ namespace Armada.Core.Database.Mysql
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Current schema version number, or 0 if no migrations have been applied.</returns>
-        public async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+        public override async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
         {
             using (MySqlConnection conn = await GetConnectionAsync(token).ConfigureAwait(false))
             {

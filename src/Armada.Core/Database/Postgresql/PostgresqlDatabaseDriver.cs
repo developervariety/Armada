@@ -190,7 +190,8 @@ namespace Armada.Core.Database.Postgresql
                 defaultCred.Id = Constants.DefaultCredentialId;
                 defaultCred.TenantId = Constants.DefaultTenantId;
                 defaultCred.UserId = Constants.DefaultUserId;
-                defaultCred.BearerToken = Constants.DefaultBearerToken;
+                defaultCred.Name = Constants.DefaultCredentialName;
+            defaultCred.BearerToken = Constants.DefaultBearerToken;
                 defaultCred.IsProtected = true;
                 await Credentials.CreateAsync(defaultCred, token).ConfigureAwait(false);
 
@@ -226,6 +227,28 @@ namespace Armada.Core.Database.Postgresql
         /// <summary>
         /// Dispose of the database driver.
         /// </summary>
+        /// <inheritdoc />
+        public override async Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+        {
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                // The table is absent before the first migration runs, and to_regclass answers null
+                // rather than throwing, so a fresh database reports version 0 instead of an error.
+                using (NpgsqlCommand exists = new NpgsqlCommand("SELECT to_regclass('public.schema_migrations');", conn))
+                {
+                    object? table = await exists.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (table == null || table == DBNull.Value) return 0;
+                }
+
+                using (NpgsqlCommand cmd = new NpgsqlCommand("SELECT COALESCE(MAX(version), 0) FROM schema_migrations;", conn))
+                {
+                    object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (result == null || result == DBNull.Value) return 0;
+                    return Convert.ToInt32(result);
+                }
+            }
+        }
+
         public override void Dispose()
         {
             if (_Disposed) return;
