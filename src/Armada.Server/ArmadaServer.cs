@@ -87,6 +87,7 @@ namespace Armada.Server
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
         private CoordinationService _CoordinationService = null!;
+        private Armada.Core.Services.DispatchHold _DispatchHold = null!;
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
@@ -219,7 +220,8 @@ namespace Armada.Server
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             _BuildDriftService = new BuildDriftService(_Git, _Database, BuildInfo.RunningCommit, _Logging);
-            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService, captainQuarantineService, resourcePressureAdmission);
+            _DispatchHold = new Armada.Core.Services.DispatchHold();
+            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService, captainQuarantineService, resourcePressureAdmission, null, _DispatchHold);
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
@@ -1314,7 +1316,8 @@ namespace Armada.Server
                 unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging),
                 diskLifecycle: _DiskLifecycle,
                 longRunningJobs: _LongRunningJobs,
-                coordinationService: _CoordinationService);
+                coordinationService: _CoordinationService,
+                dispatchHold: _DispatchHold);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

@@ -16,6 +16,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The dashboard gains a `/chatroom` page: room list, presence chips with last-seen times, a chronological stream, a composer, live WebSocket delivery with a polling fallback, and a per-browser heartbeat so an open dashboard shows as present
 - Board notes are advisory context only. They never inject into captain briefs; signals remain the handoff-boundary mechanism. Captains cannot post yet - that path is tracked as a backlog objective on the operator's own instance
 
+### Dispatch hold
+- `armada_dispatch_hold` engages, clears, or inspects a fleet-wide dispatch hold so an operator working on Armada itself can stop new voyages before a rebuild or redeploy. While engaged, every voyage and mission dispatch through the admiral is refused - operator MCP, REST, standalone missions, and the autonomous objective scheduler alike - while in-flight voyages continue
+- The refusal names when the hold started, who set it, why, and the exact call that clears it, instead of a generic failure an operator has to decode
+- Engaging or clearing posts a system note to the coordination board automatically, so peer sessions learn about the freeze without polling anything
+- The guard sits at the admiral's dispatch entries (`DispatchVoyageAsync`, `DispatchVoyageQueuedAsync`, `DispatchMissionAsync`, `DispatchMissionQueuedAsync`), so every current and future caller inherits it rather than re-deriving it
+- The hold is runtime state and an admiral restart clears it deliberately: a successful redeploy resumes dispatching on its own, failing open where failing closed would strand a fleet behind a forgotten flag
+
 ### Definition-of-done gate
 - A passing gate now also builds every vessel that declares the mission's vessel as a sibling repository, so a public-API break is caught while the producer's change is still unlanded instead of surfacing on whatever builds next. The consumer edge is derived from the existing `SiblingRepos` declarations read in reverse, so nothing new has to be configured
 - Each consumer is provisioned under a scratch root private to that verification. A shared sibling checkout owned by another dock is reused rather than re-pointed, so verifying through one could compile the consumer against a different commit than the one being reported on

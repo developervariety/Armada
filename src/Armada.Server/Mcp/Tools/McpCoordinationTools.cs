@@ -11,7 +11,8 @@ namespace Armada.Server.Mcp.Tools
 
     /// <summary>
     /// Registers MCP tools for the shared coordination board (chatroom) that keeps
-    /// concurrent operator sessions aware of each other's work.
+    /// concurrent operator sessions aware of each other's work, plus the dispatch
+    /// hold that stops new voyages while Armada itself is being worked on.
     /// </summary>
     public static class McpCoordinationTools
     {
@@ -27,7 +28,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for coordination data access.</param>
         /// <param name="coordination">Coordination service.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService coordination)
+        /// <param name="dispatchHold">Optional dispatch hold shared with the admiral's dispatch paths.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService coordination, Armada.Core.Services.DispatchHold? dispatchHold = null)
         {
             register(
                 "armada_coordination_post",
@@ -154,6 +156,82 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = ex.Message };
                     }
                 });
+
+            if (dispatchHold != null)
+            {
+                register(
+                    "armada_dispatch_hold",
+                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            action = new { type = "string", description = "engage | clear | status" },
+                            reason = new { type = "string", description = "Why the hold is engaged. Required for engage." },
+                            setBy = new { type = "string", description = "Your session or operator name. Required for engage." }
+                        },
+                        required = new[] { "action" }
+                    },
+                    async (args) =>
+                    {
+                        DispatchHoldArgs request = JsonSerializer.Deserialize<DispatchHoldArgs>(args!.Value, _JsonOptions)!;
+                        string action = String.IsNullOrWhiteSpace(request.Action) ? "status" : request.Action!.Trim().ToLowerInvariant();
+
+                        if (String.Equals(action, "status", StringComparison.Ordinal))
+                            return (object)new { Active = dispatchHold.Snapshot() != null, Hold = dispatchHold.Snapshot() };
+
+                        if (String.Equals(action, "clear", StringComparison.Ordinal))
+                        {
+                            bool wasActive = dispatchHold.Snapshot() != null;
+                            dispatchHold.Clear();
+                            if (wasActive)
+                            {
+                                await SafePostAsync(coordination, "[hold] Dispatching resumed. The admiral is clear for new voyages.").ConfigureAwait(false);
+                            }
+
+                            return (object)new { Active = false, Cleared = true };
+                        }
+
+                        if (String.Equals(action, "engage", StringComparison.Ordinal))
+                        {
+                            if (String.IsNullOrWhiteSpace(request.Reason))
+                                return (object)new { Error = "reason is required when engaging the hold" };
+                            if (String.IsNullOrWhiteSpace(request.SetBy))
+                                return (object)new { Error = "setBy is required when engaging the hold - name your session so others know who to ask" };
+
+                            dispatchHold.Engage(request.Reason!, request.SetBy);
+                            await SafePostAsync(coordination, "[hold] Dispatching paused by " + request.SetBy + ": " + request.Reason + " Hold off dispatching new voyages until this is cleared.").ConfigureAwait(false);
+                            return (object)new { Active = true, Hold = dispatchHold.Snapshot() };
+                        }
+
+                        return (object)new { Error = "action must be engage, clear, or status" };
+                    });
+            }
+        }
+
+        private static async Task SafePostAsync(CoordinationService coordination, string content)
+        {
+            try
+            {
+                await coordination.PostMessageAsync(
+                    CoordinationService.DefaultRoomKey,
+                    CoordinationAuthorTypeEnum.System,
+                    null,
+                    "armada",
+                    content).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The hold state change already happened; board mirroring is best-effort.
+            }
+        }
+
+        private sealed class DispatchHoldArgs
+        {
+            public string? Action { get; set; } = null;
+            public string? Reason { get; set; } = null;
+            public string? SetBy { get; set; } = null;
         }
 
         private sealed class CoordinationPostArgs

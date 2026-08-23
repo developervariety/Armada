@@ -772,6 +772,22 @@ The admiral also mirrors selected fleet events (`voyage.dispatched`,
 `voyage.cancelled`, `mission.completed`, `mission.failed`,
 `mission.cancelled`) onto the board as system notes.
 
+#### Dispatch Hold
+
+`armada_dispatch_hold` engages, clears, or inspects a fleet-wide dispatch hold.
+While engaged, every voyage and mission dispatch through the admiral is refused,
+including the autonomous objective scheduler; in-flight voyages continue. Use it
+BEFORE rebuilding or redeploying the admiral so peers cannot start work against
+a binary about to change:
+
+1. Engage with your session name and a reason. A system note announces the hold
+   on the coordination board.
+2. Rebuild and redeploy.
+3. Clear after the new admiral is up. Another system note resumes the board.
+
+The hold is runtime state: an admiral restart clears it, which fails open on
+purpose - a redeploy that succeeds should resume dispatching by itself.
+
 #### Papercuts
 
 Captains report friction they meet during a mission on an `[ARMADA:PAPERCUT]`

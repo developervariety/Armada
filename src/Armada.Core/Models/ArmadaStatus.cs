@@ -53,6 +53,15 @@ namespace Armada.Core.Models
         /// <summary>
         /// Recent signals.
         /// </summary>
+        /// <summary>
+        /// Snapshot of the active dispatch hold, or null when dispatching is open.
+        /// </summary>
+        public Armada.Core.Services.DispatchHoldSnapshot? DispatchHold
+        {
+            get => _DispatchHold;
+            set => _DispatchHold = value;
+        }
+
         public List<Signal> RecentSignals
         {
             get => _RecentSignals;
@@ -110,6 +119,7 @@ namespace Armada.Core.Models
         private Dictionary<string, int> _MissionsByStatus = new Dictionary<string, int>();
         private List<VoyageProgress> _Voyages = new List<VoyageProgress>();
         private List<Signal> _RecentSignals = new List<Signal>();
+        private Armada.Core.Services.DispatchHoldSnapshot? _DispatchHold = null;
         private RemoteTunnelStatus _RemoteTunnel = new RemoteTunnelStatus();
         private StructuredDeliveryStatus _StructuredDelivery = new StructuredDeliveryStatus();
         private ObjectiveSchedulerStatus _Scheduler = new ObjectiveSchedulerStatus();
