@@ -112,8 +112,63 @@ namespace Armada.Server
             return executed;
         }
 
+        /// <summary>
+        /// The mission carrying the work a voyage-armed Check should measure: a stage that has
+        /// committed to a branch. Returns null while no stage has produced measurable work.
+        /// </summary>
+        private async Task<Mission?> ResolveWorkUnderReviewAsync(string voyageId, CancellationToken token)
+        {
+            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+
+            return missions
+                .Where(mission => mission != null)
+                .Where(mission => !String.IsNullOrWhiteSpace(mission.BranchName))
+                .Where(mission => !String.IsNullOrWhiteSpace(mission.CommitHash))
+                .Where(mission => mission.Status == MissionStatusEnum.WorkProduced
+                    || mission.Status == MissionStatusEnum.PullRequestOpen
+                    || mission.Status == MissionStatusEnum.Testing
+                    || mission.Status == MissionStatusEnum.Review
+                    || mission.Status == MissionStatusEnum.Complete)
+                .OrderByDescending(mission => mission.LastUpdateUtc)
+                .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Point an armed Check at the work it is meant to measure before it executes.
+        /// </summary>
+        /// <remarks>
+        /// A Check armed at dispatch carries no branch, and Build and UnitTest run in an isolated
+        /// checkout resolved from the record's branch and commit. Executing one unstamped measures
+        /// the vessel's DEFAULT branch, which is a green that says nothing about the work under
+        /// review -- worse than no green, because a gate would honor it. A voyage that has already
+        /// completed is left alone: its work is on the default branch by then, so the default branch
+        /// is the correct subject.
+        /// </remarks>
+        internal async Task<CheckRun> StampWorkUnderReviewAsync(CheckRun run, CancellationToken token)
+        {
+            if (!String.IsNullOrWhiteSpace(run.BranchName)) return run;
+            if (String.IsNullOrWhiteSpace(run.VoyageId)) return run;
+
+            Voyage? voyage = await _Database.Voyages.ReadAsync(run.VoyageId, token).ConfigureAwait(false);
+            if (voyage == null || voyage.Status == VoyageStatusEnum.Complete) return run;
+
+            Mission? work = await ResolveWorkUnderReviewAsync(run.VoyageId!, token).ConfigureAwait(false);
+            if (work == null) return run;
+
+            run.BranchName = work.BranchName;
+            run.CommitHash = work.CommitHash;
+            run.LastUpdateUtc = DateTime.UtcNow;
+
+            _Logging.Info(_Header + "armed check " + run.Id + " pointed at " + work.BranchName
+                + " (" + work.CommitHash + ") from mission " + work.Id);
+
+            return await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+        }
+
         private async Task<CheckRun> ExecutePendingAsync(AuthContext auth, CheckRun pending, CancellationToken token)
         {
+            pending = await StampWorkUnderReviewAsync(pending, token).ConfigureAwait(false);
+
             await WriteEventAsync(
                 "check.auto_started",
                 "Automated check started: " + (pending.Label ?? pending.Type.ToString()),
@@ -133,7 +188,7 @@ namespace Armada.Server
             return result;
         }
 
-        private async Task<bool> IsEligibleAsync(CheckRun run, CancellationToken token)
+        internal async Task<bool> IsEligibleAsync(CheckRun run, CancellationToken token)
         {
             if (run.Status != CheckRunStatusEnum.Pending) return false;
             if (String.IsNullOrWhiteSpace(run.VesselId)) return false;
@@ -145,7 +200,16 @@ namespace Armada.Server
             if (!String.IsNullOrWhiteSpace(run.VoyageId))
             {
                 Voyage? voyage = await _Database.Voyages.ReadAsync(run.VoyageId, token).ConfigureAwait(false);
-                return voyage?.Status == VoyageStatusEnum.Complete;
+                if (voyage == null) return false;
+                if (voyage.Status == VoyageStatusEnum.Complete) return true;
+                if (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Failed) return false;
+
+                // Waiting for the voyage to COMPLETE is a condition this Check itself prevents: a
+                // Judge PASS requires a green independent Check, so the voyage cannot complete until
+                // this record runs, and this record would not run until the voyage completed. The
+                // work becomes measurable much earlier -- as soon as a stage commits it to a branch --
+                // and that is the point the gate actually needs an answer.
+                return await ResolveWorkUnderReviewAsync(run.VoyageId!, token).ConfigureAwait(false) != null;
             }
 
             if (!String.IsNullOrWhiteSpace(run.MissionId))
