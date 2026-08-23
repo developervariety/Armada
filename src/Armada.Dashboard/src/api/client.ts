@@ -874,6 +874,7 @@ export const updateRelease = (id: string, data: ReleaseUpsertRequest) => put<Rel
 export const refreshRelease = (id: string) => post<Release>(`/api/v1/releases/${encodeURIComponent(id)}/refresh`, {});
 export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encodeURIComponent(id)}`);
 export const getReleaseGitHubPullRequests = (id: string) => get<GitHubPullRequestDetail[]>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests`);
+export const getReleaseWebhookEvents = (id: string) => get<ArmadaEvent[]>(`/api/v1/releases/${encodeURIComponent(id)}/webhook-events`);
 
 // ==================== Check Runs ====================
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

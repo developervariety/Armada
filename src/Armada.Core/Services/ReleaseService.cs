@@ -270,6 +270,25 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Lists the CD webhook delivery events recorded for one release, most recent first. The
+        /// release must exist within the caller scope; access to it grants access to its delivery
+        /// events.
+        /// </summary>
+        public async Task<List<ArmadaEvent>> ListWebhookEventsAsync(
+            AuthContext auth,
+            string id,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+
+            _ = await ReadAsync(auth, id, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Release not found.");
+
+            return await _Database.Events.EnumerateByEntityAsync("release", id, 50, token).ConfigureAwait(false);
+        }
+
         private async Task<ResolvedReleaseDraft> ResolveDraftAsync(
             AuthContext auth,
             Release? existing,
