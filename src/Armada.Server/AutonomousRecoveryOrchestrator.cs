@@ -945,6 +945,8 @@ namespace Armada.Server
                 return RecoveryDecision.Blocked("landing failures remain owned by landing and merge recovery workflows");
             if (IsAutoRescueMission(mission))
                 return RecoveryDecision.Blocked("failed mission is already an autonomous rescue");
+            if (IsEnvironmentalFailure(reason))
+                return RecoveryDecision.Blocked("environmental or provisioning fault, which no captain can repair: " + reason);
             if (HasSeriousFailureReason(reason))
                 return RecoveryDecision.Blocked("failure requires human review: " + reason);
 
@@ -1861,6 +1863,42 @@ namespace Armada.Server
             if (String.IsNullOrWhiteSpace(failedMission.CaptainId)) return false;
             Captain? captain = await _Database.Captains.ReadAsync(failedMission.CaptainId, token).ConfigureAwait(false);
             return captain != null && captain.Runtime == AgentRuntimeEnum.ClaudeCode;
+        }
+
+        /// <summary>
+        /// Determine whether a failure was caused by the ENVIRONMENT the mission ran in rather than
+        /// by the work the stage produced.
+        /// </summary>
+        /// <remarks>
+        /// A rescue re-runs the same brief in the same environment with a different captain. When
+        /// the cause is a missing dependency commit, an unprovisioned sibling, an absent environment
+        /// variable or an unusable working directory, nothing the replacement captain can do will
+        /// change the outcome -- so the rescue fails identically and spends the recovery budget that
+        /// a genuine defect would have needed. stage_base_missing already tells the operator it is
+        /// "a provisioning fault, not a defect in the stage's own work"; this is that sentence
+        /// driving the policy instead of only describing it.
+        /// </remarks>
+        /// <param name="reason">Recorded mission failure reason.</param>
+        /// <returns>True when the failure is environmental and must be routed to the operator.</returns>
+        public static bool IsEnvironmentalFailure(string? reason)
+        {
+            if (String.IsNullOrWhiteSpace(reason)) return false;
+
+            string normalized = reason.ToLowerInvariant();
+            string[] environmentalMarkers =
+            {
+                "stage_base_missing",
+                "provisioning fault",
+                "ineffective_rescue",
+                "working_directory_sync_failed",
+                "usable working directory",
+                "environment variable",
+                "no workflow profile",
+                "not a git repository",
+                "could not provision"
+            };
+
+            return environmentalMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal));
         }
 
         private static bool HasSeriousFailureReason(string reason)

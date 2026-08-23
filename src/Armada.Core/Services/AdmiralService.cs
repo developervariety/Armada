@@ -2558,7 +2558,7 @@ namespace Armada.Core.Services
         /// alive; the dependent stages cannot run without the failed upstream, so they are cancelled
         /// explicitly instead of waiting forever.
         /// </summary>
-        private async Task CancelDirectDependentsAsync(Mission failedMission, string failureReason, CancellationToken token)
+        internal async Task CancelDirectDependentsAsync(Mission failedMission, string failureReason, CancellationToken token)
         {
             if (failedMission == null || String.IsNullOrEmpty(failedMission.VoyageId))
             {
@@ -2566,33 +2566,57 @@ namespace Armada.Core.Services
             }
 
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(failedMission.VoyageId, token).ConfigureAwait(false);
-            foreach (Mission dependent in voyageMissions)
+
+            // Walk the whole downstream CHAIN, not only its first link. A cancelled dependent is
+            // itself a dependency, so stopping after one level leaves every later stage waiting on a
+            // mission that can now never run: the stages sit Pending for ever while the voyage still
+            // reads InProgress, which is not slow but unrecoverable, and nothing in the status
+            // surface says so. One fault must cost the chain behind it, not the voyage's liveness.
+            HashSet<string> blocked = new HashSet<string>(StringComparer.Ordinal) { failedMission.Id };
+            bool discoveredMore = true;
+
+            while (discoveredMore)
             {
-                if (dependent == null) continue;
-                if (!String.Equals(dependent.DependsOnMissionId, failedMission.Id, StringComparison.Ordinal)) continue;
+                discoveredMore = false;
 
-                bool isTerminal =
-                    dependent.Status == MissionStatusEnum.Complete ||
-                    dependent.Status == MissionStatusEnum.Failed ||
-                    dependent.Status == MissionStatusEnum.Cancelled ||
-                    dependent.Status == MissionStatusEnum.LandingFailed ||
-                    dependent.Status == MissionStatusEnum.PullRequestOpen ||
-                    dependent.Status == MissionStatusEnum.WorkProduced;
-                if (isTerminal) continue;
+                foreach (Mission dependent in voyageMissions)
+                {
+                    if (dependent == null) continue;
+                    if (blocked.Contains(dependent.Id)) continue;
+                    if (String.IsNullOrEmpty(dependent.DependsOnMissionId)) continue;
+                    if (!blocked.Contains(dependent.DependsOnMissionId!)) continue;
 
-                dependent.Status = MissionStatusEnum.Cancelled;
-                dependent.FailureReason = "Blocked by failed dependency " + failedMission.Id + ": " + failureReason;
-                dependent.ProcessId = null;
-                dependent.CompletedUtc = DateTime.UtcNow;
-                dependent.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "cancelled dependent mission " + dependent.Id
-                    + " because upstream mission " + failedMission.Id + " failed with recoverable work");
+                    // A stage that already produced work is not blocked by an upstream failure, and
+                    // neither is anything behind it: its output exists for the next stage to use.
+                    bool hasProducedWork =
+                        dependent.Status == MissionStatusEnum.Complete ||
+                        dependent.Status == MissionStatusEnum.PullRequestOpen ||
+                        dependent.Status == MissionStatusEnum.WorkProduced;
+                    if (hasProducedWork) continue;
 
-                await EmitEventAsync("mission.cancelled_dependency",
-                    "Mission cancelled: blocked by failed dependency " + failedMission.Id,
-                    entityType: "mission", entityId: dependent.Id,
-                    missionId: dependent.Id, voyageId: dependent.VoyageId, token: token).ConfigureAwait(false);
+                    blocked.Add(dependent.Id);
+                    discoveredMore = true;
+
+                    // Already terminal: nothing to cancel, but its own dependents are still stranded
+                    // behind it, so it must keep propagating.
+                    if (dependent.Status == MissionStatusEnum.Failed ||
+                        dependent.Status == MissionStatusEnum.Cancelled ||
+                        dependent.Status == MissionStatusEnum.LandingFailed) continue;
+
+                    dependent.Status = MissionStatusEnum.Cancelled;
+                    dependent.FailureReason = "Blocked by failed dependency " + failedMission.Id + ": " + failureReason;
+                    dependent.ProcessId = null;
+                    dependent.CompletedUtc = DateTime.UtcNow;
+                    dependent.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "cancelled dependent mission " + dependent.Id
+                        + " because upstream mission " + failedMission.Id + " failed with recoverable work");
+
+                    await EmitEventAsync("mission.cancelled_dependency",
+                        "Mission cancelled: blocked by failed dependency " + failedMission.Id,
+                        entityType: "mission", entityId: dependent.Id,
+                        missionId: dependent.Id, voyageId: dependent.VoyageId, token: token).ConfigureAwait(false);
+                }
             }
         }
 

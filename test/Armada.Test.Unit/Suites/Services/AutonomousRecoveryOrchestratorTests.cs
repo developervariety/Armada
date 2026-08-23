@@ -48,6 +48,67 @@ namespace Armada.Test.Unit.Suites.Services
                     "Ordinary process failures should not match.");
             }).ConfigureAwait(false);
 
+            await RunTest("IsEnvironmentalFailure separates provisioning faults from stage defects", () =>
+            {
+                AssertTrue(
+                    AutonomousRecoveryOrchestrator.IsEnvironmentalFailure(
+                        "stage_base_missing: this stage was provisioned on branch 'x' which lacks its dependency's commit"),
+                    "A missing stage base is a provisioning fault no captain can repair.");
+                AssertTrue(
+                    AutonomousRecoveryOrchestrator.IsEnvironmentalFailure(
+                        "Check failed: ECULINK_PORT_ROOT environment variable is not set"),
+                    "A missing environment variable cannot be fixed by re-running the brief.");
+                AssertFalse(
+                    AutonomousRecoveryOrchestrator.IsEnvironmentalFailure("Agent process exited with code 1"),
+                    "An ordinary process failure is still rescuable.");
+                AssertFalse(
+                    AutonomousRecoveryOrchestrator.IsEnvironmentalFailure("Judge verdict: NEEDS_REVISION"),
+                    "A substantive rejection of the work is still rescuable.");
+            }).ConfigureAwait(false);
+
+            await RunTest("An environmental failure is routed to the operator instead of rescued", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_env_fault", "usr_env_fault").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_env_fault", "usr_env_fault").ConfigureAwait(false);
+
+                // A rescue re-runs the same brief in the same environment. The replacement captain
+                // hits the identical provisioning fault, so the rescue burns the recovery budget a
+                // genuine defect would have needed and changes nothing.
+                Mission failed = await CreateFailedMissionAsync(
+                    testDb,
+                    vessel,
+                    "stage_base_missing: this stage was provisioned on a branch that lacks its dependency's commit. "
+                    + "This is a provisioning fault, not a defect in the stage's own work.").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue == null, "An environmental fault must not dispatch a rescue that cannot fix it.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_env_fault", "usr_env_fault", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "The operator still needs an incident to act on.");
+                AssertEqual(
+                    IncidentSeverityEnum.High,
+                    incidentPage.Objects[0].Severity,
+                    "A fault that stops autonomous recovery is High: it waits for a human.");
+            }).ConfigureAwait(false);
+
             await RunTest("Recoverable failed mission creates incident, runbook execution, and rescue mission", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
