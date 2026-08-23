@@ -125,6 +125,7 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 - **Merge queue with PR fallback.** The queue lands sequentially per vessel and target branch, landing each success immediately to avoid cascade failures. It classifies failures at fail-time, routes audit-critical or failed entries to a pull request instead of auto-land, unblocks dependent entries at PullRequestOpen, and refreshes the code index after each land.
 - **LocalMerge no-push landing.** LocalMerge lands by merging into the local working directory and never pushes to origin; push-based modes verify the remote target commit after push; terminal mission branches are reliably deleted per the branch-cleanup policy, surfacing cleanup failures.
 - **Landing-retry conflict capture** *(port of upstream v0.9.0)*. When a landing retry fails, the mission's `FailureReason` records the conflicted-file list (`git diff --name-only --diff-filter=U`) so the operator sees exactly which paths to fix, exposed as `IGitService.GetConflictedFilesAsync`.
+- **CD webhook on Shipped approval.** When a release transitions to Shipped with the optional `cdWebhook` setting configured, the admiral POSTs a `release.shipped` payload — release identity, version, tag, and linked voyages, missions, and check runs — to an external continuous-delivery endpoint, retrying retriable failures (5xx, network, timeout, auth) with backoff without ever blocking the release update. Delivery attempts are recorded per release and readable through `GET /api/v1/releases/{id}/webhook-events`, the dashboard delivery card, or release events, and the MCP `test_release_webhook` tool verifies reachability first with a clearly-labeled synthetic payload (`f3d65e03`, `12af255f`).
 
 ### Operations and deployment
 
@@ -257,6 +258,7 @@ Armada is not only a captain launcher. It also keeps delivery records connected 
 - Workflow profiles define build, test, package, deploy, rollback, smoke-test, and health-check commands.
 - Check runs persist structured validation output and can import external CI results.
 - Releases collect linked voyages, missions, checks, notes, versions, tags, and artifacts.
+- Release shipping can notify an external CD system through an authenticated webhook (`cdWebhook`), with bounded retries, per-release delivery history, and a synthetic-payload test tool.
 - Deployments support approval, execution, verification, and rollback records.
 - Incidents track operational issues, hotfix handoff, evidence, mitigation, and closure.
 - Runbooks provide guided operational procedures with execution history.
