@@ -619,7 +619,7 @@ namespace Armada.Core.Services
             // the work. One Worker's dock was cut without the preceding stage's commit, rebuilt on
             // a base still carrying errors that stage had already fixed, failed on them, and took
             // ten downstream missions with it - and every symptom pointed at the Worker's code.
-            if (!await VerifyStageBaseAsync(mission, dock, captain, upstreamCommitHash, dependencyIsCrossVessel, token).ConfigureAwait(false))
+            if (!await VerifyStageBaseAsync(mission, dock, captain, upstreamCommitHash, dependencyIsCrossVessel, preserveInheritedBranch, token).ConfigureAwait(false))
             {
                 return false;
             }
@@ -1057,12 +1057,14 @@ namespace Armada.Core.Services
             Captain captain,
             string? upstreamCommitHash,
             bool dependencyIsCrossVessel,
+            bool stageContinuesUpstreamBranch,
             CancellationToken token)
         {
             bool? containsUpstream = null;
 
             bool applicable = !String.IsNullOrEmpty(mission.DependsOnMissionId)
                 && !dependencyIsCrossVessel
+                && stageContinuesUpstreamBranch
                 && !String.IsNullOrWhiteSpace(upstreamCommitHash);
 
             if (applicable && _Git != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
@@ -1084,7 +1086,8 @@ namespace Armada.Core.Services
                 mission.DependsOnMissionId,
                 upstreamCommitHash,
                 dependencyIsCrossVessel,
-                containsUpstream);
+                containsUpstream,
+                stageContinuesUpstreamBranch);
 
             if (verdict == StageBaseVerdictEnum.BaseMissing)
             {

@@ -64,14 +64,28 @@ namespace Armada.Core.Services
         /// Whether the provisioned checkout contains that commit. Null when ancestry could not be
         /// determined.
         /// </param>
+        /// <param name="stageContinuesUpstreamBranch">
+        /// Whether this stage continues its predecessor's branch. False for a stage intentionally
+        /// cut a fresh branch, such as an Architect fan-out worker, where containment is not
+        /// expected and must not be demanded.
+        /// </param>
         /// <returns>The verdict.</returns>
         public static StageBaseVerdictEnum Evaluate(
             string? dependsOnMissionId,
             string? upstreamCommitHash,
             bool dependencyIsCrossVessel,
-            bool? checkoutContainsUpstreamCommit)
+            bool? checkoutContainsUpstreamCommit,
+            bool stageContinuesUpstreamBranch = true)
         {
             if (String.IsNullOrWhiteSpace(dependsOnMissionId)) return StageBaseVerdictEnum.NotApplicable;
+
+            // A stage that was deliberately cut a FRESH branch cannot be expected to contain the
+            // upstream commit. Architect fan-out workers are exactly that: they are spawned as new
+            // work with no branch, by design. Demanding containment there fails them on every
+            // attempt -- and every rescue -- for doing what the pipeline intends. This only bites
+            // when the Architect also commits code, which it does when it overreaches and
+            // implements its own plan instead of emitting one.
+            if (!stageContinuesUpstreamBranch) return StageBaseVerdictEnum.NotApplicable;
 
             // A different repository has a different commit graph; ancestry is meaningless across
             // one, and demanding it would fail every legitimate cross-vessel stage.
