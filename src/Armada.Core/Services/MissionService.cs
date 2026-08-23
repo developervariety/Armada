@@ -6789,12 +6789,26 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(agentOutput) || String.IsNullOrWhiteSpace(sectionName)) return false;
 
+            // A judge writes these headers by hand, so they arrive wrapped in whatever markdown the
+            // model chose: `## Tests`, `**## Tests**`, `- __Tests__:`. Strip the decoration first and
+            // match on the heading TEXT, because a review is rejected for what it fails to say and
+            // never for how it was formatted. Emphasis can sit outside the heading markers as well as
+            // inside them, which a pattern anchored on a leading `#` run cannot see. This is the same
+            // normalization the verdict line already gets in ExtractJudgeNarrative.
             string pattern =
-                @"(?im)^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*|__|`)?"
+                @"^(?:\d+[\.\)]\s*)?"
                 + System.Text.RegularExpressions.Regex.Escape(sectionName)
-                + @"(?:\*\*|__|`)?\s*(?::|-)?(?:\s|$)";
+                + @"(?:$|[\s:\-\u2013\u2014(].*$)";
 
-            return System.Text.RegularExpressions.Regex.IsMatch(agentOutput, pattern);
+            foreach (string rawLine in agentOutput.Replace("\r\n", "\n").Split('\n'))
+            {
+                string normalized = rawLine.Trim().Trim('*', '_', '`', '#', '>', '-', ' ', ':').Trim();
+                if (String.IsNullOrEmpty(normalized)) continue;
+                if (System.Text.RegularExpressions.Regex.IsMatch(
+                        normalized, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
+            }
+
+            return false;
         }
 
         private static string ExtractJudgeNarrative(string agentOutput)

@@ -2262,6 +2262,89 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Judge parser accepts review sections wrapped in markdown emphasis", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    int landingCalls = 0;
+                    missionService.OnMissionComplete = (m, d) =>
+                    {
+                        landingCalls++;
+                        m.Status = MissionStatusEnum.Complete;
+                        m.CompletedUtc = DateTime.UtcNow;
+                        m.LastUpdateUtc = DateTime.UtcNow;
+                        return testDb.Driver.Missions.UpdateAsync(m);
+                    };
+
+                    Vessel vessel = new Vessel("judge-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain judgeCaptain = new Captain("judge-captain");
+                    judgeCaptain.State = CaptainStateEnum.Working;
+                    judgeCaptain = await testDb.Driver.Captains.CreateAsync(judgeCaptain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("judge-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission judge = new Mission("[Judge] Review worker output", "Review changes");
+                    judge.VesselId = vessel.Id;
+                    judge.VoyageId = voyage.Id;
+                    judge.Persona = "Judge";
+                    judge.Status = MissionStatusEnum.InProgress;
+                    judge.CaptainId = judgeCaptain.Id;
+                    judge.BranchName = "armada/judge/review";
+                    judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+                    Dock judgeDock = new Dock(vessel.Id);
+                    judgeDock.CaptainId = judgeCaptain.Id;
+                    judgeDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, judge.Id);
+                    judgeDock.BranchName = judge.BranchName;
+                    judgeDock.Active = true;
+                    judgeDock = await testDb.Driver.Docks.CreateAsync(judgeDock).ConfigureAwait(false);
+
+                    judge.DockId = judgeDock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                    judgeCaptain.CurrentMissionId = judge.Id;
+                    judgeCaptain.CurrentDockId = judgeDock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(judgeCaptain).ConfigureAwait(false);
+
+                    await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
+
+                    // Emphasis can wrap the heading markers as well as sit inside them. A judge that
+                    // writes `**## Completeness**` has produced every required section; rejecting the
+                    // review for its formatting fails work that is sound on substance.
+                    missionService.OnGetMissionOutput = _ =>
+                        "**## Completeness**\n" +
+                        "The mission requirements are fully implemented with no missing scope items.\n\n" +
+                        "**## Correctness**\n" +
+                        "The reviewed changes are logically consistent and I do not see defects in the touched paths.\n\n" +
+                        "__Tests__\n" +
+                        "Automated coverage exists for the new behavior and the affected scenarios are exercised.\n\n" +
+                        "  *## Failure Modes:*\n" +
+                        "I reviewed error and edge behavior for this scope and found no unaddressed safety issues.\n\n" +
+                        "## Verdict\n" +
+                        "[ARMADA:VERDICT] PASS\n" +
+                        "Everything is complete and correctly scoped.";
+
+                    await missionService.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
+
+                    Mission? reloadedJudge = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    AssertNotNull(reloadedJudge, "Judge mission should remain readable");
+                    AssertEqual(MissionStatusEnum.Complete, reloadedJudge!.Status, "Emphasis-wrapped review sections should permit landing");
+                    AssertEqual(1, landingCalls, "PASS review with emphasis-wrapped sections should invoke landing");
+                }
+            });
+
             await RunTest("Completion backfills missing branch from dock before handoff", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
