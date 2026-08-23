@@ -717,8 +717,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                         description TEXT,
                         category TEXT,
                         content TEXT,
-                        is_built_in INTEGER NOT NULL DEFAULT 0,
-                        active INTEGER NOT NULL DEFAULT 1,
+                        is_built_in BOOLEAN NOT NULL DEFAULT FALSE,
+                        active BOOLEAN NOT NULL DEFAULT TRUE,
                         created_utc TEXT NOT NULL,
                         last_update_utc TEXT NOT NULL
                     );",
@@ -792,8 +792,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                         scope TEXT NOT NULL DEFAULT 'Global',
                         fleet_id TEXT,
                         vessel_id TEXT,
-                        is_default INTEGER NOT NULL DEFAULT 0,
-                        active INTEGER NOT NULL DEFAULT 1,
+                        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+                        active BOOLEAN NOT NULL DEFAULT TRUE,
                         default_pipeline_id TEXT,
                         workflow_profile_id TEXT,
                         persona_overrides_json TEXT,
@@ -825,7 +825,25 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS secret_scan_enabled BOOLEAN NOT NULL DEFAULT FALSE;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS protected_path_patterns_json TEXT;"),
                 new SchemaMigration(74, "Add last_process_alive_utc to captains",
-                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS last_process_alive_utc TIMESTAMP;")
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS last_process_alive_utc TIMESTAMP;"),
+                new SchemaMigration(75, "Correct skills and project_profiles boolean columns typed as INTEGER by the upstream port",
+                    @"DO $$
+                      DECLARE r record;
+                      BEGIN
+                        FOR r IN
+                          SELECT table_name, column_name
+                          FROM information_schema.columns
+                          WHERE table_schema = current_schema()
+                            AND ((table_name = 'skills' AND column_name IN ('is_built_in', 'active'))
+                              OR (table_name = 'project_profiles' AND column_name IN ('is_default', 'active')))
+                            AND data_type <> 'boolean'
+                        LOOP
+                          EXECUTE format('ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT', r.table_name, r.column_name);
+                          EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE BOOLEAN USING (%I <> 0)', r.table_name, r.column_name, r.column_name);
+                          EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s', r.table_name, r.column_name,
+                            CASE WHEN r.column_name = 'active' THEN 'TRUE' ELSE 'FALSE' END);
+                        END LOOP;
+                      END $$;")
             };
         }
 

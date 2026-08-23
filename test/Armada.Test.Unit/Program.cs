@@ -46,6 +46,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DatabaseInitializationTests());
             runner.AddSuite(new PlanningSessionDatabaseTests());
             runner.AddSuite(new SchemaMigrationTests());
+            runner.AddSuite(new PostgresBooleanColumnTypeTests());
             runner.AddSuite(new SchemaMigrationV40ReflectionTests());
             runner.AddSuite(new SchemaMigrationV41ReorganizeTests());
             runner.AddSuite(new VesselArchitectCapColumnTests());
