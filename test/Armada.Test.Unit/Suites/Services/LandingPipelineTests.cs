@@ -366,6 +366,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Reclaim anchors a branchless dock commit by identity", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("anchor-test", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel);
+
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("anchor-captain"));
+
+                    // An architect fan-out worker is spawned BRANCHLESS by design, so a
+                    // branch-keyed preserve skips it and its commit ends up on no ref at all.
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.BranchName = null;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_anchor_" + Guid.NewGuid().ToString("N"));
+                    dock.Active = true;
+                    dock = await testDb.Driver.Docks.CreateAsync(dock);
+
+                    Directory.CreateDirectory(dock.WorktreePath!);
+
+                    Mission mission = new Mission("[Worker] fan-out", "work");
+                    mission.VesselId = vessel.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.DockId = dock.Id;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission);
+
+                    try
+                    {
+                        await dockService.ReclaimAsync(dock.Id);
+
+                        AssertTrue(
+                            git.PushCalls.Any(call => call.EndsWith("HEAD:refs/armada/docks/" + dock.Id, StringComparison.Ordinal)),
+                            "Reclaim must anchor the dock HEAD under a dock-keyed ref");
+                        AssertTrue(
+                            git.PushCalls.Any(call => call.EndsWith("HEAD:refs/armada/missions/" + mission.Id, StringComparison.Ordinal)),
+                            "Reclaim must anchor the dock HEAD under the owning mission's ref");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(dock.WorktreePath!)) Directory.Delete(dock.WorktreePath!, true);
+                    }
+                }
+            });
+
             await RunTest("Successful local landing removes active worktree before deleting branch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

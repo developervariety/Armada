@@ -599,6 +599,59 @@ namespace Armada.Core.Services
         /// checked out as a worktree at the path the consumer's parent-probe arithmetic expects.
         /// </summary>
         /// <summary>
+        /// Anchors a dock's HEAD under refs/armada/docks/&lt;dockId&gt;, and under
+        /// refs/armada/missions/&lt;missionId&gt; when the owning mission can be resolved, so a
+        /// produced commit is recoverable by lookup rather than by knowing its SHA.
+        /// </summary>
+        /// <remarks>
+        /// Keyed by identity rather than by branch: a dock id is always present and always unique,
+        /// where a branch name is neither. Best-effort -- never throws, never blocks reclaim.
+        /// </remarks>
+        private async Task AnchorDockCommitAsync(Dock dock, CancellationToken token)
+        {
+            try
+            {
+                await _Git.PushRefSpecAsync(
+                    dock.WorktreePath!, "HEAD", "refs/armada/docks/" + dock.Id, token).ConfigureAwait(false);
+
+                string? missionId = await ResolveDockMissionIdAsync(dock, token).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(missionId))
+                {
+                    await _Git.PushRefSpecAsync(
+                        dock.WorktreePath!, "HEAD", "refs/armada/missions/" + missionId, token).ConfigureAwait(false);
+                }
+
+                _Logging.Info(_Header + "anchored dock " + dock.Id + " HEAD"
+                    + (String.IsNullOrWhiteSpace(missionId) ? "" : " and mission " + missionId)
+                    + " before reclaim");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not anchor dock " + dock.Id + " HEAD: " + ex.Message);
+            }
+        }
+
+        private async Task<string?> ResolveDockMissionIdAsync(Dock dock, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(dock.CaptainId)) return null;
+
+            List<Mission> missions = await _Database.Missions
+                .EnumerateByCaptainAsync(dock.CaptainId, token).ConfigureAwait(false);
+
+            foreach (Mission mission in missions)
+            {
+                if (mission != null && String.Equals(mission.DockId, dock.Id, StringComparison.Ordinal))
+                    return mission.Id;
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Mirrors a dock's branch into the vessel bare under refs/armada-preserved/&lt;branch&gt; before
         /// the dock is torn down, so a captain's committed work is recoverable even when the mission
         /// failed and the working tree is deleted. Best-effort: never throws, never blocks reclaim.
@@ -606,8 +659,17 @@ namespace Armada.Core.Services
         private async Task PreserveDockBranchAsync(Vessel? vessel, Dock dock, CancellationToken token)
         {
             if (vessel == null || String.IsNullOrEmpty(vessel.LocalPath)) return;
-            if (String.IsNullOrWhiteSpace(dock.BranchName)) return;
             if (String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath)) return;
+
+            // Anchor the dock HEAD under a ref keyed by identity BEFORE considering the branch. A
+            // branch-keyed anchor preserves nothing for the stage most likely to strand a commit:
+            // an architect fan-out worker is spawned BRANCHLESS by design, so the early return below
+            // used to skip it entirely. Two stages sharing one branch also overwrite each other's
+            // anchor. A commit that no ref names survives only as a dangling object, and recovering
+            // one requires already knowing its SHA -- which is archaeology, not recovery.
+            await AnchorDockCommitAsync(dock, token).ConfigureAwait(false);
+
+            if (String.IsNullOrWhiteSpace(dock.BranchName)) return;
 
             try
             {

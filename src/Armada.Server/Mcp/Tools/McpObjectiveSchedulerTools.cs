@@ -101,8 +101,11 @@ namespace Armada.Server.Mcp.Tools
                             scheduler.SetMaxConcurrentVoyages(request.MaxConcurrentVoyages.Value);
                     }
 
-                    await Task.CompletedTask.ConfigureAwait(false);
-                    return (object)BuildStatus(scheduler);
+                    bool persisted = await scheduler.TryPersistAsync().ConfigureAwait(false);
+
+                    ObjectiveSchedulerStatus status = BuildStatus(scheduler);
+                    status.SettingsPersisted = persisted;
+                    return (object)status;
                 });
 
             register(

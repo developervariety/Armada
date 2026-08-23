@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -247,6 +248,43 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, admiral.DispatchVoyageCallCount, "Scheduler must never re-dispatch a Completed objective.");
                 AssertContains("dispatched=0", scheduler.LastResultSummary ?? string.Empty, "Sweep summary should show zero dispatches.");
                 AssertNotNull(objective.Id, "Objective fixture should have an id.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Enabling the scheduler survives a restart", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                // A restart rebuilds the scheduler from the settings FILE. Enabling it in memory
+                // only therefore reverts silently on the next Admiral start, and the campaign stops
+                // with nothing to notice: the tool reported success and the setting was real until
+                // the process ended.
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = false,
+                        IntervalMinutes = 15
+                    }
+                };
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, new RecordingAdmiralService(testDb.Driver), settings);
+
+                scheduler.Enable();
+                scheduler.SetMaxConcurrentVoyages(4);
+                bool persisted = await scheduler.TryPersistAsync().ConfigureAwait(false);
+                AssertTrue(persisted, "Persisting the scheduler state should report success.");
+
+                // Read the FILE a restart would read, not the object that was just mutated.
+                ArmadaSettings reloaded = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
+
+                AssertTrue(
+                    reloaded.AutonomousObjectiveScheduler.Enabled,
+                    "A scheduler enabled over MCP must still be enabled after a restart.");
+                AssertEqual(
+                    4,
+                    reloaded.AutonomousObjectiveScheduler.MaxConcurrentVoyages,
+                    "Concurrency set over MCP must survive a restart too.");
             }).ConfigureAwait(false);
         }
 

@@ -20,6 +20,12 @@ namespace Armada.Core.Models
         public bool Paused { get; set; } = false;
 
         /// <summary>
+        /// True when the current state was written to the settings file and will survive a restart.
+        /// Null when the status was read rather than set.
+        /// </summary>
+        public bool? SettingsPersisted { get; set; } = null;
+
+        /// <summary>
         /// Minutes between scheduler sweep ticks.
         /// </summary>
         public int IntervalMinutes { get; set; } = 25;

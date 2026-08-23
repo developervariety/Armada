@@ -121,6 +121,35 @@ namespace Armada.Server
         #region Public-Methods
 
         /// <summary>
+        /// Mirror the current runtime state into settings and write them to disk.
+        /// </summary>
+        /// <remarks>
+        /// Runtime state does not survive a restart. A scheduler enabled over MCP therefore reverts
+        /// to the file's value at the next Admiral start, and an autonomous campaign stops with no
+        /// failure for anyone to notice -- the tool reported success and the setting was real until
+        /// the process ended. Writing the file is the second half of the change, not an
+        /// optimisation, so every caller that changes runtime state must call this.
+        /// </remarks>
+        /// <returns>True when the settings file was written.</returns>
+        public async Task<bool> TryPersistAsync()
+        {
+            try
+            {
+                _Settings.AutonomousObjectiveScheduler.Enabled = Enabled;
+                _Settings.AutonomousObjectiveScheduler.Paused = Paused;
+                _Settings.AutonomousObjectiveScheduler.IntervalMinutes = IntervalMinutes;
+                _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = MaxConcurrentVoyages;
+                await _Settings.SaveAsync().ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not persist scheduler settings: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Allow the scheduler to dispatch objectives on subsequent sweeps.
         /// </summary>
         public void Enable() => Enabled = true;
