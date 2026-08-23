@@ -26,7 +26,9 @@ Before a release or deployment:
 2. Confirm the workflow profile.
 3. Confirm the target environment.
 4. Confirm whether the environment requires approval.
-5. Create Pending Checks for every required gate.
+5. Create Pending Checks for every required gate beyond build and unit test.
+   Dispatch arms a voyage's Build and UnitTest Checks itself, so those two are
+   already attached; add the rest.
 6. Link the objective, voyage, missions, and Checks.
 
 The profile should define the commands the delivery needs. Common fields are
@@ -34,7 +36,10 @@ build, unit test, integration test, package, release version, deploy, smoke
 test, deployment verification, rollback, and rollback verification.
 
 Pending Checks are requirements, not proof. They become proof only after a
-real command result or valid external evidence resolves them.
+real command result or valid external evidence resolves them. An armed Pending
+Check is executed in place when the Judge stage reaches it, which is what lets
+dispatch arm the build and unit-test gates without loading the host at the
+moment the first captain starts working.
 
 Use `list_workflow_profiles`, `get_workflow_profile`,
 `validate_workflow_profile`, and `preview_workflow_profile` to inspect the
@@ -167,6 +172,20 @@ not replace it with a general human checklist.
 Use `get_check_run` to read one Check. Use `run_check` for initial execution and
 `retry_check_run` for a real rerun. Use `resolve_check` only for valid evidence
 that was produced outside Armada.
+
+These three return a BOUNDED view: status, exit code, parsed test and coverage
+totals, artifacts, and the last lines of output. They do not return the whole
+command log, which for a real vessel runs to megabytes and overruns the tool
+output limit. Pass `includeOutput=true` to `get_check_run` for the complete
+record, or `outputTailLines` to widen the tail. A truncated view states the
+full log's size and names the call that fetches it, so nothing is withheld
+silently. The REST check endpoints are unchanged and still return the full
+record.
+
+An expensive Check does not run concurrently with a definition-of-done gate or
+a merge-queue test run; Armada serializes them host-wide. A Check submitted
+during a gate queues rather than racing, so it can take considerably longer to
+return than the command itself takes.
 
 When automatic Check resolution is enabled, the heartbeat can run eligible
 non-deployment Checks after linked missions or voyages complete, when a release

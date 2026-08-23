@@ -360,11 +360,15 @@ namespace Armada.Server
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
             if (_Settings.DefinitionOfDone.Enabled)
             {
+                // The git seam enables consumer verification: a passing gate also builds the
+                // vessels that declare this one as a sibling, so a public-API break is caught
+                // while the producer's change is still unlanded.
                 missionService.DefinitionOfDone = new DefinitionOfDoneGate(
                     _Settings.DefinitionOfDone,
                     _Database,
                     _Logging,
-                    new DockerCliContainerRuntimeProbe());
+                    new DockerCliContainerRuntimeProbe(),
+                    _Git);
             }
             MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(_RemoteTriggerService, _Logging);
             missionService.OnMissionOutcome = async (Mission mission, bool willInvokeLanding) =>

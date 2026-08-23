@@ -50,12 +50,22 @@ ARMADA UNIT TEST SUITE
 ================================================================================
 TEST SUMMARY
 ================================================================================
-Total: 3344  Passed: 3344  Failed: 0  Runtime: 239580ms
+Total: 3524  Passed: 3524  Failed: 0  Runtime: 283243ms
 
 ================================================================================
 RESULT: PASS
 ================================================================================
 ```
+
+The totals above are an ILLUSTRATION of the output shape, not a gate. Only
+`Failed: 0` is a contract. The pass total moves with every suite that lands and
+differs between hosts, so a run that reports a different total than this page
+is not a regression - read the failure count.
+
+Because there is no reflection-based discovery in this runner, the total IS the
+check that a new test is wired in: after adding tests, confirm the total moved
+by exactly the number you added. A total that did not move means the tests are
+not registered and will never run, never fail, and never appear.
 
 ## Command-Line Options
 

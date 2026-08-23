@@ -26,7 +26,9 @@ namespace Armada.Server
     {
         private const string _Header = "[AutonomousRecoveryOrchestrator] ";
         private const string _RecoveryRunbookFileName = "system/mission-recovery.md";
-        private const string _RescueMarker = "<!-- ARMADA:AUTO-RESCUE -->";
+        // The literal lives in Armada.Core.Services.RescueMissionMarker; this alias keeps the
+        // existing call sites readable without giving the rule a second definition.
+        private const string _RescueMarker = RescueMissionMarker.Marker;
         private const string _NudgeMarker = "[ARMADA_AUTO_NUDGE]";
 
         private static readonly Regex _JudgePassLinePattern = new Regex(
@@ -1808,8 +1810,7 @@ namespace Armada.Server
 
         private static bool IsAutoRescueMission(Mission mission)
         {
-            return (mission.Description ?? String.Empty).Contains(_RescueMarker, StringComparison.Ordinal)
-                || (mission.Title ?? String.Empty).StartsWith("Rescue:", StringComparison.OrdinalIgnoreCase);
+            return RescueMissionMarker.IsAutoRescue(mission);
         }
 
         /// <summary>

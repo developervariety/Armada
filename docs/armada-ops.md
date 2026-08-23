@@ -185,6 +185,35 @@ dispatches single-stage. A read-only probe must not silently inherit a
 multi-stage default (a four-mission diagnostic once expanded to sixteen
 missions). An explicitly requested pipeline is always honored.
 
+### Stage handoff is verified, not assumed
+
+A downstream pipeline stage inherits its predecessor's branch. Inheriting a
+branch NAME is not the same as inheriting its commit: a local ref can predate
+the upstream stage's push, and the resulting worktree looks correct while
+missing the work.
+
+Armada now proves the containment before the captain starts. A stage whose
+checkout demonstrably lacks the upstream commit fails immediately with
+`stage_base_missing`, which names the commit, the branch, and the upstream
+mission, and says plainly that the fault is in provisioning rather than in the
+stage's own work. Read that before reading the diff - the previous version of
+this failure presented as a Worker that could not compile its own change, and
+the diagnosis started in exactly the wrong place.
+
+What is NOT failed, deliberately:
+
+| Condition | Verdict |
+| --- | --- |
+| Mission has no upstream stage | Not applicable |
+| Dependency is in another vessel | Not applicable - commits are not shared across repositories |
+| Upstream produced no commit (Audit, Research) | Unverified, stage proceeds, fact logged |
+| Ancestry probe could not answer | Unverified, stage proceeds, fact logged |
+
+A base that could not be proved is never reported as one that was. The git
+ancestry probe answers true, false, or UNKNOWN, and its default for any
+implementation that does not consult a real repository is unknown - so a stub
+can never manufacture a passing verification.
+
 ### 4.5 Monitor
 
 Dispatch is the start of the operator loop.
@@ -207,13 +236,123 @@ Create Pending Checks when the objective or voyage is created. Build and unit
 test are the minimum for code changes. Add the vessel-profile gates that the
 change needs.
 
+Armada runs at most ONE expensive command on a host at a time. Two full build
+or test suites at once produce a burst of simultaneous sub-millisecond failures
+across unrelated test classes, usually classified Timeout, which reads exactly
+like a real regression - and the same command passes alone. A host-wide
+interlock now serializes all four callers that run a vessel's build and test
+commands: a check run, a pending check executed at the Judge stage, a
+definition-of-done gate, and a merge-queue test run.
+
+Two consequences for an operator:
+
+- A check submitted while a gate is running does not fail and does not race. It
+  QUEUES, so it can take much longer to return than the command itself takes.
+  A slow check is not necessarily a slow suite.
+- The contended resource is the host, not the vessel, so checks on DIFFERENT
+  vessels serialize against each other too.
+
+The interlock covers commands Armada starts. It cannot see a captain running a
+suite by hand inside its own dock, because that is a separate process, so a
+dock-side suite can still overlap a gate. When a wrong-value failure appears
+under load, an isolated re-run remains the discriminator: a contention flake
+passes alone, a genuine mismatch fails alone every time.
+
 Use `run_check` to execute a check. Use `retry_check_run` for a real rerun.
 Use `resolve_check` only when valid evidence was produced outside Armada. Do
 not use it to hide a failure.
 
+These tools return a bounded summary rather than the whole command log; section
+8.7 gives the fields and how to fetch the full output when the tail is not
+enough.
+
 A passing suite proves only that the suite passed. It proves a fix only when
 the check covers the original symptom. Record before and after evidence when
 the task is a defect.
+
+A Judge PASS is backed by the real signal, not by the Judge's own report. The
+gate reads every Check attached to the voyage and to the Judge mission:
+
+| Check state | Effect on a Judge PASS |
+| --- | --- |
+| All green | PASS stands |
+| Any `Failed` | PASS is rejected |
+| Any `Pending` or `Running` | PASS is held, then re-run in place |
+| None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
+| `Canceled` | Ignored |
+
+Two consequences follow, and both have cost real voyages.
+
+Resolve EVERY failed Check, not most of them. When several Checks fail for one
+environmental cause, resolving all but one leaves a record that rejects the
+PASS hours later, long after the cause is forgotten. The rejection now names
+the specific Checks that blocked it, so read the `FailureReason` and confirm no
+record remains `Failed` before the Judge stage runs. Resolve an environmental
+failure as `Canceled`, not `Passed`: the run genuinely did not pass, and the
+reason field is where the evidence belongs.
+
+Dispatch arms the voyage's Build and UnitTest Checks itself. A type is armed
+only when the vessel's resolved workflow profile actually defines the command
+for it, and a type already attached to the voyage is never armed twice - adding
+a second Build beside a failed one would leave a green and a red on the same
+voyage, and one failed Check rejects a Judge PASS however many green ones sit
+next to it.
+
+The armed Checks are `Pending`, not executed. A Pending Check attached to a
+voyage is run in place when the Judge stage reaches it, so arming costs nothing
+at dispatch and still satisfies the real-signal gate; executing at dispatch
+would put a full suite on the host at the moment the first captain starts work.
+
+Arming never fails a dispatch. A voyage that exists without its Checks can
+still be armed by hand, whereas refusing to dispatch over a Check record would
+turn a convenience into an outage. Set `VoyageCheckArming.Enabled` to `false`
+to switch it off, or `ArmBuild` / `ArmUnitTest` to control the types.
+
+Operators may still attach further Checks, and must do so for any gate beyond
+build and unit test. What changed is the floor: a voyage no longer reaches its
+Judge stage carrying nothing, and a re-dispatch after a cancellation no longer
+starts bare because the previous voyage's Checks went with it.
+
+The definition-of-done gate also builds the vessels that DECLARE this vessel as
+a sibling repository. A producer's own build cannot observe a break it causes
+in a consumer, because the consumer is a different repository with a different
+compilation: the producer's gate passes, the branch lands, and the break
+surfaces on whatever builds next, attributed to that build rather than to the
+change that caused it.
+
+The consumer edge is derived, not configured. A vessel declares the
+repositories it depends ON, in `SiblingRepos`; the gate reads that same data in
+the opposite direction to find who depends on IT. Nothing extra needs to be set
+up for a vessel whose consumers already declare it.
+
+What the gate does for each consumer:
+
+| Step | Behavior |
+| --- | --- |
+| Provision | A scratch root private to this one verification, never a shared sibling path |
+| Producer ref | The mission branch, checked out detached |
+| Other siblings | Their declared default branches - only the producer is under test |
+| Command | The consumer's `BuildCommand`, not its test suite |
+| Cleanup | Worktrees removed and the scratch root deleted, pass or fail |
+
+The private scratch root is load-bearing. A shared sibling checkout that another
+dock already owns is REUSED rather than re-pointed, so verifying through one
+could compile the consumer against some other commit while reporting on this
+one - the exact false green the step exists to prevent.
+
+Consumers are built, not tested. A build catches the break that leaves a target
+branch red; running every consumer's suite inside every producer gate would
+cost more wall time than the gate itself. A consumer break that shows up only
+in a test oracle is therefore still found by the consumer's own gate, not by
+the producer's.
+
+A consumer that fails to COMPILE fails the producer's gate. A consumer that
+cannot be PREPARED - no workflow profile, no `LocalPath`, a worktree that will
+not provision - is an infrastructure fault in the verification rather than
+evidence about the producer's change, so by default it is logged and the gate
+passes. Set `DefinitionOfDone.FailOnConsumerVerificationError` to make those
+fail instead. Set `DefinitionOfDone.VerifyDeclaredConsumers` to `false` to
+switch the step off entirely.
 
 ### 4.7 Review And Land
 
@@ -337,6 +476,35 @@ Use this order for manual diagnosis:
 Incident closure is evidence-driven. Produce a newer passing check, successful
 rescue, shipped release, verified deployment, or completed rollback. Do not
 close an incident only because a captain reported success.
+
+### A rescue is judged by what it changed
+
+A rescue that starts, logs, and exits satisfies every liveness measure Armada
+keeps: the process lived, the captain reported, the pipeline advanced. None of
+that says the defect was touched. One rescue ran for twenty-four hours, drew
+escalating stall nudges, died on a runtime crash, and left behind a single
+changed documentation file.
+
+An Implementation-mode rescue whose change set is empty, or consists only of
+documentation, now fails with `ineffective_rescue` and the change set named in
+the `FailureReason`. Read that field before retrying: the correct response is a
+replacement brief that quotes the defect, not another attempt at the same one.
+
+Three limits keep this from firing on correct work:
+
+- **Only rescues are assessed.** A first-attempt mission may legitimately have
+  been dispatched to write documentation.
+- **Only Implementation mode.** An Audit or Research mission delivers a report
+  and is never expected to change code. Judging those by a diff is the same
+  mistake in the other direction, and it once marked correct work Failed.
+- **The original mission's paths are NOT compared against.** A rescue is
+  expected to rewrite the prior branch from scratch over the same files, so
+  treating an overlapping path set as a no-op would flag the normal case.
+
+Documentation means a `.md`, `.txt`, `.rst`, or `.adoc` file, anything under a
+`docs/` directory at any depth, or a conventional bare name such as `README` or
+`LICENSE`. A directory that merely contains the letters "doc" - `docker/`, a
+`DocumentStore/` source tree - is not documentation.
 
 ## 6. Release And Deployment Workflow
 
@@ -486,6 +654,28 @@ shows only critical items).
 | Execute | `run_check`, `retry_check_run` |
 
 `armada_resolve_check` is a compatibility alias for `resolve_check`.
+
+`run_check`, `retry_check_run`, and `get_check_run` return a BOUNDED view of a
+check run, not the complete command log. A build or test log is routinely one
+to several megabytes; returning it overran the tool output limit, so the caller
+received a truncation error instead of the verdict and had to parse the record
+out of band on every call - including the common case where the only question
+was whether the check passed.
+
+The bounded view carries what answers that question:
+
+| Field | Purpose |
+| --- | --- |
+| `status`, `exitCode` | The verdict |
+| `testSummary`, `coverageSummary` | Parsed totals, replacing a count grepped from the log |
+| `artifacts` | Paths to the per-project `.trx` files, which name individual failures |
+| `outputTail` | The last 40 lines, where a failure's cause almost always is |
+| `outputLength`, `outputTruncated` | How much was withheld |
+| `outputRetrieval` | The exact call that returns the rest |
+
+Nothing is silently withheld: a truncated view states the full log's size and
+names the call that fetches it. Use `get_check_run` with `includeOutput=true`
+for the complete record, or `outputTailLines` to widen the tail.
 
 ### 8.8 Merge Queue And Audit
 

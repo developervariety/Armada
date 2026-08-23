@@ -252,6 +252,24 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Whether one ref is an ancestor of another, or null when it cannot be determined.
+        /// </summary>
+        /// <remarks>
+        /// The default is null - UNKNOWN - and deliberately not true. An implementation that does
+        /// not really consult a repository must not be able to answer "yes, the base is correct";
+        /// a caller acting on that would report a verification it never performed.
+        /// </remarks>
+        /// <param name="repoPath">Repository or worktree path.</param>
+        /// <param name="ancestorRef">The ref that should be contained.</param>
+        /// <param name="descendantRef">The ref that should contain it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True, false, or null when ancestry could not be established.</returns>
+        Task<bool?> TryIsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
+        {
+            return Task.FromResult<bool?>(null);
+        }
+
+        /// <summary>
         /// List the most recent commits that touched a path, newest first.
         /// </summary>
         /// <param name="worktreePath">Path to the worktree.</param>

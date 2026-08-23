@@ -1,0 +1,78 @@
+namespace Armada.Core.Services
+{
+    using System;
+    using System.Collections.Generic;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Settings;
+
+    /// <summary>
+    /// Decides which Checks a freshly dispatched voyage should be armed with.
+    /// </summary>
+    /// <remarks>
+    /// Checks are armed as Pending rather than executed. A Pending Check attached to a voyage is
+    /// run in place when the Judge stage reaches it, so arming costs nothing at dispatch time and
+    /// still satisfies the real-signal gate; executing at dispatch would instead put a full suite
+    /// on the host at the moment the first captain starts working.
+    /// <para>
+    /// A type already attached to the voyage is never armed again, whatever its state. Adding a
+    /// second Build beside a failed one would leave the voyage carrying a green and a red, and a
+    /// single failed Check rejects a Judge PASS however many green ones sit next to it - so
+    /// re-arming would manufacture exactly the condition an operator has to clean up by hand.
+    /// </para>
+    /// </remarks>
+    public static class VoyageCheckArmingPlan
+    {
+        #region Public-Methods
+
+        /// <summary>
+        /// Resolve the Check types to arm for a voyage.
+        /// </summary>
+        /// <param name="settings">Arming configuration. Null disables arming.</param>
+        /// <param name="profile">
+        /// The vessel's resolved workflow profile. A type is only armed when the profile actually
+        /// defines the command for it, because a Check with no command cannot produce a real
+        /// signal and would sit Pending until it failed the Judge.
+        /// </param>
+        /// <param name="existingVoyageChecks">Checks already attached to the voyage, if any.</param>
+        /// <returns>The types to create, in a stable order. Empty when nothing should be armed.</returns>
+        public static IReadOnlyList<CheckRunTypeEnum> Resolve(
+            VoyageCheckArmingSettings? settings,
+            WorkflowProfile? profile,
+            IEnumerable<CheckRun>? existingVoyageChecks)
+        {
+            List<CheckRunTypeEnum> planned = new List<CheckRunTypeEnum>();
+
+            if (settings == null || !settings.Enabled) return planned;
+            if (profile == null) return planned;
+
+            HashSet<CheckRunTypeEnum> alreadyAttached = new HashSet<CheckRunTypeEnum>();
+            if (existingVoyageChecks != null)
+            {
+                foreach (CheckRun existing in existingVoyageChecks)
+                {
+                    if (existing == null) continue;
+                    alreadyAttached.Add(existing.Type);
+                }
+            }
+
+            if (settings.ArmBuild
+                && !String.IsNullOrWhiteSpace(profile.BuildCommand)
+                && !alreadyAttached.Contains(CheckRunTypeEnum.Build))
+            {
+                planned.Add(CheckRunTypeEnum.Build);
+            }
+
+            if (settings.ArmUnitTest
+                && !String.IsNullOrWhiteSpace(profile.UnitTestCommand)
+                && !alreadyAttached.Contains(CheckRunTypeEnum.UnitTest))
+            {
+                planned.Add(CheckRunTypeEnum.UnitTest);
+            }
+
+            return planned;
+        }
+
+        #endregion
+    }
+}

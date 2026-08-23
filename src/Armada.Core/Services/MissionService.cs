@@ -318,6 +318,10 @@ namespace Armada.Core.Services
             // below: cross-vessel deps cannot share a branch (different repos), so the downstream
             // mission must always start on a fresh branch in its own vessel.
             bool dependencyIsCrossVessel = false;
+
+            // Captured for the stage-base check after provisioning: a stage must be cut from the
+            // commit its predecessor actually produced, and proving that needs the hash here.
+            string? upstreamCommitHash = null;
             if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
             {
                 Mission? dependency = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
@@ -333,6 +337,7 @@ namespace Armada.Core.Services
                 dependencyIsCrossVessel = !String.IsNullOrEmpty(dependency.VesselId)
                     && !String.IsNullOrEmpty(mission.VesselId)
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
+                upstreamCommitHash = dependency.CommitHash;
 
                 if (!IsDependencySatisfyingStatus(dependency.Status))
                 {
@@ -605,6 +610,17 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                return false;
+            }
+
+            // Prove the stage is cut from its predecessor's commit before a captain works in it.
+            // Inheriting a branch NAME is not the same as inheriting its commit: a local ref can
+            // predate the upstream stage's push, and the worktree then looks correct while missing
+            // the work. One Worker's dock was cut without the preceding stage's commit, rebuilt on
+            // a base still carrying errors that stage had already fixed, failed on them, and took
+            // ten downstream missions with it - and every symptom pointed at the Worker's code.
+            if (!await VerifyStageBaseAsync(mission, dock, captain, upstreamCommitHash, dependencyIsCrossVessel, token).ConfigureAwait(false))
+            {
                 return false;
             }
 
@@ -1025,6 +1041,98 @@ namespace Armada.Core.Services
         /// Both reach WorkProduced with an empty diff and a tiny AgentOutput, which the
         /// pipeline downstream would otherwise accept as real progress.
         /// </summary>
+        /// <summary>
+        /// Confirm a downstream pipeline stage's checkout contains its predecessor's commit.
+        /// </summary>
+        /// <remarks>
+        /// A verdict of BaseMissing fails the mission LOUDLY rather than letting the captain start.
+        /// The alternative is what used to happen: the stage runs, fails on problems that were
+        /// already fixed upstream, and the diagnosis begins at the stage's own diff - which is
+        /// correct - while the real fault is the checkout it was handed.
+        /// </remarks>
+        /// <returns>True when the stage may proceed.</returns>
+        private async Task<bool> VerifyStageBaseAsync(
+            Mission mission,
+            Dock dock,
+            Captain captain,
+            string? upstreamCommitHash,
+            bool dependencyIsCrossVessel,
+            CancellationToken token)
+        {
+            bool? containsUpstream = null;
+
+            bool applicable = !String.IsNullOrEmpty(mission.DependsOnMissionId)
+                && !dependencyIsCrossVessel
+                && !String.IsNullOrWhiteSpace(upstreamCommitHash);
+
+            if (applicable && _Git != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+            {
+                try
+                {
+                    containsUpstream = await _Git.TryIsAncestorAsync(
+                        dock.WorktreePath!, upstreamCommitHash!, "HEAD", token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Leave the verdict Unverifiable rather than guessing. A failed ancestry probe
+                    // is not evidence that the base is wrong.
+                    _Logging.Warn(_Header + "stage-base ancestry probe failed for mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            StageBaseVerdictEnum verdict = StageBaseVerifier.Evaluate(
+                mission.DependsOnMissionId,
+                upstreamCommitHash,
+                dependencyIsCrossVessel,
+                containsUpstream);
+
+            if (verdict == StageBaseVerdictEnum.BaseMissing)
+            {
+                string reason = StageBaseVerifier.BuildBaseMissingReason(
+                    mission.DependsOnMissionId, upstreamCommitHash, mission.BranchName);
+
+                _Logging.Warn(_Header + "mission " + mission.Id + " " + reason);
+
+                mission.AssignmentState = MissionAssignmentStateEnum.Failed;
+                mission.Status = MissionStatusEnum.Failed;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.FailureReason = reason;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await AppendMissionActivityAsync(mission.Id, "validation failed: " + reason, token).ConfigureAwait(false);
+
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                return false;
+            }
+
+            if (verdict == StageBaseVerdictEnum.Unverifiable && applicable)
+            {
+                // Say so. A base that could not be proved must not read as one that was.
+                _Logging.Warn(_Header + "mission " + mission.Id + " stage base UNVERIFIED against upstream commit "
+                    + upstreamCommitHash + "; proceeding without proof");
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Render a change set for a failure record, bounded so a wide diff cannot flood the field.
+        /// </summary>
+        /// <param name="changedPaths">Paths the mission changed.</param>
+        /// <returns>Readable description of the change set.</returns>
+        private static string DescribeChangedPaths(IReadOnlyList<string> changedPaths)
+        {
+            if (changedPaths == null || changedPaths.Count == 0) return "(no files changed).";
+
+            const int maxListed = 10;
+            int listed = Math.Min(maxListed, changedPaths.Count);
+            string joined = String.Join(", ", changedPaths.Take(listed));
+            if (changedPaths.Count > listed)
+                joined += ", and " + (changedPaths.Count - listed) + " more";
+
+            return changedPaths.Count + " file(s): " + joined + ".";
+        }
+
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
             return DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, diffLineCount > 0);
@@ -1242,9 +1350,42 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Judge a rescue by what it CHANGED, not by whether it ran. A rescue that starts,
+            // logs, and exits satisfies every liveness measure the platform keeps, and none of
+            // them can tell a repaired defect from a day spent writing about one. The case this
+            // exists for ran twenty-four hours, drew escalating stall nudges, died on a runtime
+            // crash, and left a single changed documentation file behind.
+            //
+            // Only rescues are assessed. A first-attempt mission that produces docs may simply
+            // have been dispatched to write docs; a RESCUE was dispatched against a named defect,
+            // so a change set that cannot carry behavior is evidence on its own.
+            bool failedForIneffectiveRescue = false;
+            if (!failedForScopeViolation && !failedForNoOpCompletion && RescueMissionMarker.IsAutoRescue(mission))
+            {
+                IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
+                RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
+                    changedPaths,
+                    mission.Mode == MissionModeEnum.Implementation);
+
+                if (assessment.IsIneffective)
+                {
+                    failedForIneffectiveRescue = true;
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission.FailureReason = "ineffective_rescue: " + assessment.Reason
+                        + " Change set: " + DescribeChangedPaths(changedPaths)
+                        + " Dispatch a replacement with a brief that quotes the defect, rather than retrying this one.";
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "mission " + mission.Id + " failed ineffective-rescue check substance="
+                        + assessment.Substance + " changedPaths=" + changedPaths.Count);
+                }
+            }
+
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
             bool failedForDodGate = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && dock != null && _DefinitionOfDoneGate != null)
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null && _DefinitionOfDoneGate != null)
             {
                 try
                 {
@@ -1324,7 +1465,13 @@ namespace Armada.Core.Services
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
-                                mission.FailureReason = "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)";
+                                string blocking = DescribeBlockingChecks(_LastJudgeGateChecks, CheckRunStatusEnum.Failed);
+                                mission.FailureReason =
+                                    "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)."
+                                    + (String.IsNullOrEmpty(blocking)
+                                        ? String.Empty
+                                        : " Failed Checks: " + blocking + ".")
+                                    + " Resolve or re-run EVERY failed Check on this voyage before the Judge re-runs; a single unresolved record rejects the PASS.";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;
@@ -1476,7 +1623,7 @@ namespace Armada.Core.Services
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation && !failedForDodGate && !awaitingManualReview)
+            if (!failedForScopeViolation && !failedForDodGate && !failedForIneffectiveRescue && !awaitingManualReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }
@@ -5187,7 +5334,41 @@ namespace Armada.Core.Services
                 .EnumerateAsync(new CheckRunQuery { MissionId = judgeMission.Id }, token).ConfigureAwait(false);
             foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
 
-            return ClassifyJudgeCheckGate(checks.Values.ToList(), judgeMission.AgentOutput);
+            List<CheckRun> collected = checks.Values.ToList();
+            _LastJudgeGateChecks = collected;
+            return ClassifyJudgeCheckGate(collected, judgeMission.AgentOutput);
+        }
+
+        /// <summary>
+        /// The Checks collected by the most recent <see cref="EvaluateJudgeCheckGateAsync"/> call,
+        /// retained so a rejection can name the specific records that blocked the PASS. The gate
+        /// message previously named only the rule, which left an operator with no way to tell WHICH
+        /// Check to inspect - and, when several Checks failed for one environmental cause, no way to
+        /// notice that one had been left unresolved.
+        /// </summary>
+        private List<CheckRun>? _LastJudgeGateChecks = null;
+
+        /// <summary>
+        /// Renders the Checks that block a Judge PASS as a compact, operator-actionable list.
+        /// Canceled Checks are excluded because the gate ignores them. Returns an empty string when
+        /// nothing matches, so callers can append it unconditionally.
+        /// </summary>
+        internal static string DescribeBlockingChecks(List<CheckRun>? checks, CheckRunStatusEnum status)
+        {
+            if (checks == null) return String.Empty;
+            List<CheckRun> matching = checks
+                .Where(c => c != null && c.Status == status)
+                .OrderBy(c => c.Id, StringComparer.Ordinal)
+                .ToList();
+            if (matching.Count == 0) return String.Empty;
+
+            List<string> parts = new List<string>();
+            foreach (CheckRun c in matching)
+            {
+                string label = String.IsNullOrWhiteSpace(c.Label) ? c.Type.ToString() : c.Label!;
+                parts.Add(c.Id + " (" + c.Type + ": " + label + ")");
+            }
+            return String.Join(", ", parts);
         }
 
         /// <summary>

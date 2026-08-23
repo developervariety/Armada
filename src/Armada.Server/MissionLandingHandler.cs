@@ -23,7 +23,8 @@ namespace Armada.Server
         #region Private-Members
 
         private string _Header = "[MissionLanding] ";
-        private const string _AutoRescueMarker = "<!-- ARMADA:AUTO-RESCUE -->";
+        // Aliased to the shared definition so the rule has one source, not two.
+        private const string _AutoRescueMarker = RescueMissionMarker.Marker;
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;

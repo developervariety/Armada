@@ -256,6 +256,11 @@ namespace Armada.Test.Unit
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());
             runner.AddSuite(new SiblingLeaseRegistryTests());
+            runner.AddSuite(new ConsumerVesselResolverTests());
+            runner.AddSuite(new VoyageCheckArmingPlanTests());
+            runner.AddSuite(new CheckRunSummaryViewTests());
+            runner.AddSuite(new RescueEffectivenessTests());
+            runner.AddSuite(new StageBaseVerifierTests());
             runner.AddSuite(new DiskLifecycleTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
             runner.AddSuite(new MergeRefCandidateTests());
