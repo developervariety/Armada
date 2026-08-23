@@ -483,8 +483,7 @@ namespace Armada.Core.Services
 
         private static bool ShouldResolvePendingCommand(CheckRun run)
         {
-            return String.IsNullOrWhiteSpace(run.Command)
-                || String.Equals(run.Command, "echo", StringComparison.Ordinal);
+            return CheckRunGateRules.HasUnresolvedCommand(run);
         }
 
         private static bool IsDeploymentExecutionType(CheckRunTypeEnum type)

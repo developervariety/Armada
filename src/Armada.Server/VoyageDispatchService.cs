@@ -235,12 +235,10 @@ namespace Armada.Server
                 voyage = await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
             }
 
-            // Arm the voyage's own Checks here, in the same action as the dispatch. A Judge PASS is
-            // rejected when no green independent Check is attached, so a voyage dispatched bare is
-            // already condemned - and nothing reports that until the Judge stage, after the whole
-            // pipeline has run. Leaving this to a second operator call made the outcome depend on
-            // remembering it, and cancelling a voyage discards its Checks, so a re-dispatch
-            // silently started bare again.
+            // Arm the voyage's own Checks here, in the same action as the dispatch, so the voyage
+            // carries a standing record of which gates it wants. The records are intent markers:
+            // they are executed once the voyage completes, and they do not stand in for the real
+            // Build and UnitTest signal the Judge gate requires against the mission's own branch.
             await ArmVoyageChecksAsync(voyage, dispatchVessel, token).ConfigureAwait(false);
 
             LogDispatchInfo("dispatch complete voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds);
@@ -255,10 +253,11 @@ namespace Armada.Server
         /// Attach Pending Build and UnitTest Checks to a freshly dispatched voyage.
         /// </summary>
         /// <remarks>
-        /// The Checks are armed Pending, not executed. A Pending Check attached to a voyage is run
-        /// in place when the Judge stage reaches it, so arming costs nothing now and still
-        /// satisfies the real-signal gate; running a full suite at dispatch would instead load the
-        /// host at the moment the first captain starts working.
+        /// The Checks are armed Pending, not executed: at dispatch there is no branch and no commit
+        /// to measure. They are intent markers, executed after the voyage completes, and they carry
+        /// no weight in the real-signal gate -- a Judge PASS still needs Checks that actually ran
+        /// against the work. Arming costs nothing now; running a full suite at dispatch would
+        /// instead load the host at the moment the first captain starts working.
         /// <para>
         /// Arming never fails a dispatch. A voyage that exists without its Checks can still be
         /// armed by hand, whereas refusing to dispatch over a Check record would turn a

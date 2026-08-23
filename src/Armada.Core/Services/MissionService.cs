@@ -1587,7 +1587,14 @@ namespace Armada.Core.Services
                                     mission.Status = MissionStatusEnum.Failed;
                                     mission.CompletedUtc = DateTime.UtcNow;
                                     mission.LastUpdateUtc = DateTime.UtcNow;
-                                    mission.FailureReason = "Judge PASS rejected: independent Checks never resolved after " + _MaxJudgeCheckWaitRetries + " wait attempts (real-signal gate)";
+                                    string unresolved = DescribeUnresolvedChecks(_LastJudgeGateChecks);
+                                    mission.FailureReason =
+                                        "Judge PASS rejected: independent Checks never resolved after "
+                                        + _MaxJudgeCheckWaitRetries + " wait attempts (real-signal gate)."
+                                        + (String.IsNullOrEmpty(unresolved)
+                                            ? String.Empty
+                                            : " Unresolved Checks: " + unresolved + ".")
+                                        + " Inspect those Check records; the Judge captain is not the subject of this rejection.";
                                     mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                     verdict = JudgeVerdict.Fail;
@@ -5400,10 +5407,10 @@ namespace Armada.Core.Services
             }
 
             List<CheckRun> active = checks.Values
-                .Where(c => c.Status != CheckRunStatusEnum.Canceled).ToList();
+                .Where(CheckRunGateRules.ParticipatesInRealSignalGate).ToList();
             if (active.Count == 0) return VoyageCheckGate.NoChecks;
             if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return VoyageCheckGate.HasFailed;
-            if (active.Any(c => c.Status == CheckRunStatusEnum.Pending || c.Status == CheckRunStatusEnum.Running)) return VoyageCheckGate.HasPending;
+            if (active.Any(CheckRunGateRules.IsUnresolved)) return VoyageCheckGate.HasPending;
             return VoyageCheckGate.AllGreen;
         }
 
@@ -5466,15 +5473,42 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Renders the Checks that a Judge PASS is still waiting on as a compact, operator-
+        /// actionable list. Only records that participate in the real-signal gate are named, so the
+        /// message points at exactly the records the gate is blocked by. Returns an empty string
+        /// when nothing is unresolved, so callers can append it unconditionally.
+        /// </summary>
+        /// <param name="checks">The Checks collected by the gate. Null renders as empty.</param>
+        /// <returns>A comma-separated list of id, type and label, or an empty string.</returns>
+        internal static string DescribeUnresolvedChecks(List<CheckRun>? checks)
+        {
+            if (checks == null) return String.Empty;
+            List<CheckRun> matching = checks
+                .Where(CheckRunGateRules.IsUnresolved)
+                .OrderBy(c => c.Id, StringComparer.Ordinal)
+                .ToList();
+            if (matching.Count == 0) return String.Empty;
+
+            List<string> parts = new List<string>();
+            foreach (CheckRun c in matching)
+            {
+                string label = String.IsNullOrWhiteSpace(c.Label) ? c.Type.ToString() : c.Label!;
+                parts.Add(c.Id + " (" + c.Type + ": " + label + ", " + c.Status + ")");
+            }
+            return String.Join(", ", parts);
+        }
+
+        /// <summary>
         /// Pure classification of the Judge check gate from the collected Checks and the Judge's
-        /// review output. Canceled Checks are ignored; a single Failed Check overrides the PASS; a
-        /// Pending or Running Check holds it; no Checks at all requires the documented-exclusion
-        /// marker in the review.
+        /// review output. Canceled Checks are ignored, and so are Checks that were armed but never
+        /// executed: neither carries command output, so neither can decide the PASS. Of what
+        /// remains, a single Failed Check overrides the PASS; a Pending or Running Check holds it;
+        /// no deciding Checks at all requires the documented-exclusion marker in the review.
         /// </summary>
         internal static JudgeCheckGate ClassifyJudgeCheckGate(List<CheckRun> checks, string? agentOutput)
         {
             List<CheckRun> active = (checks ?? new List<CheckRun>())
-                .Where(c => c != null && c.Status != CheckRunStatusEnum.Canceled).ToList();
+                .Where(CheckRunGateRules.ParticipatesInRealSignalGate).ToList();
             if (active.Count == 0)
             {
                 string output = agentOutput ?? String.Empty;
@@ -5483,7 +5517,7 @@ namespace Armada.Core.Services
                     : JudgeCheckGate.NoChecksNoExclusion;
             }
             if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return JudgeCheckGate.HasFailed;
-            if (active.Any(c => c.Status == CheckRunStatusEnum.Pending || c.Status == CheckRunStatusEnum.Running)) return JudgeCheckGate.HasPending;
+            if (active.Any(CheckRunGateRules.IsUnresolved)) return JudgeCheckGate.HasPending;
             return JudgeCheckGate.GreenChecks;
         }
 

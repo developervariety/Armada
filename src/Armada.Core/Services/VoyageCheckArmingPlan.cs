@@ -10,10 +10,16 @@ namespace Armada.Core.Services
     /// Decides which Checks a freshly dispatched voyage should be armed with.
     /// </summary>
     /// <remarks>
-    /// Checks are armed as Pending rather than executed. A Pending Check attached to a voyage is
-    /// run in place when the Judge stage reaches it, so arming costs nothing at dispatch time and
-    /// still satisfies the real-signal gate; executing at dispatch would instead put a full suite
-    /// on the host at the moment the first captain starts working.
+    /// Checks are armed as Pending rather than executed, because at dispatch there is no branch and
+    /// no commit to run against and no work to measure. An armed record is therefore an INTENT
+    /// MARKER: it declares that this voyage wants a Build and a UnitTest gate, and it is executed
+    /// once the voyage completes and its work is on the default branch.
+    /// <para>
+    /// An intent marker does not satisfy the real-signal gate and is not waited on by it. It holds
+    /// no command output, so it can vouch for nothing; and because it carries no branch, running it
+    /// early would measure the default branch rather than the work under review, which is a green
+    /// that means less than no green at all. The gate reads only records that actually ran.
+    /// </para>
     /// <para>
     /// A type already attached to the voyage is never armed again, whatever its state. Adding a
     /// second Build beside a failed one would leave the voyage carrying a green and a red, and a

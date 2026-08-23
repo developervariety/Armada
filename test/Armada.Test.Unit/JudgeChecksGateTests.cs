@@ -70,6 +70,21 @@ namespace Armada.Test.Unit
             return (svc, voyage);
         }
 
+        /// <summary>Creates a Check exactly as dispatch-time arming does: Pending, never started,
+        /// carrying the unresolved placeholder command and no branch or commit.</summary>
+        private async Task<CheckRun> AddArmedIntentMarkerAsync(TestDatabase testDb, string voyageId, CheckRunTypeEnum type)
+        {
+            CheckRun run = new CheckRun
+            {
+                VoyageId = voyageId,
+                Label = type.ToString() + " (armed at dispatch)",
+                Type = type,
+                Source = CheckRunSourceEnum.Armada,
+                Status = CheckRunStatusEnum.Pending
+            };
+            return await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
+        }
+
         private async Task AddCheckAsync(TestDatabase testDb, string voyageId, CheckRunStatusEnum status)
         {
             CheckRun run = new CheckRun
@@ -143,9 +158,12 @@ namespace Armada.Test.Unit
             {
                 CheckRun passed = new CheckRun { Status = CheckRunStatusEnum.Passed };
                 CheckRun failed = new CheckRun { Status = CheckRunStatusEnum.Failed };
-                CheckRun pending = new CheckRun { Status = CheckRunStatusEnum.Pending };
-                CheckRun running = new CheckRun { Status = CheckRunStatusEnum.Running };
+                // These fixtures carry a real command on purpose. A Pending record with no command
+                // is an armed intent marker, which is a different case with its own assertion below.
+                CheckRun pending = new CheckRun { Status = CheckRunStatusEnum.Pending, Command = "dotnet build" };
+                CheckRun running = new CheckRun { Status = CheckRunStatusEnum.Running, Command = "dotnet build" };
                 CheckRun canceled = new CheckRun { Status = CheckRunStatusEnum.Canceled };
+                CheckRun marker = new CheckRun { Status = CheckRunStatusEnum.Pending };
 
                 AssertEqual(
                     MissionService.JudgeCheckGate.GreenChecks,
@@ -175,6 +193,14 @@ namespace Armada.Test.Unit
                     MissionService.JudgeCheckGate.NoChecksWithExclusion,
                     MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { canceled }, "[JUDGE-CHECK-EXCLUSION]"),
                     "Only-Canceled Checks count as no Checks for the exclusion path.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.GreenChecks,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passed, marker }, "review ok"),
+                    "An armed intent marker never ran, so it neither holds nor decides the PASS.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.NoChecksNoExclusion,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { marker }, "review ok"),
+                    "Only-marker Checks count as no Checks, which is reported instead of an unresolvable wait.");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
@@ -316,6 +342,162 @@ namespace Armada.Test.Unit
                 AssertContains("UnitTest", described, "the type stands in for the missing label");
                 AssertFalse(described.Contains("()", StringComparison.Ordinal),
                     "no empty parentheses are emitted for a missing label");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // A Check record is created before it runs, so its existence and its signal are two
+            // different facts. A record armed at dispatch has never executed: it holds no command
+            // output and carries no branch, so it can neither vouch for the work nor be waited on.
+            await RunTest("GateRules_IntentMarkerIsExcluded_RealRecordsAreNot", () =>
+            {
+                CheckRun armed = new CheckRun { Status = CheckRunStatusEnum.Pending };
+                AssertTrue(CheckRunGateRules.IsUnexecutedIntentMarker(armed),
+                    "a Pending record with the placeholder command and no start time is an intent marker");
+                AssertFalse(CheckRunGateRules.ParticipatesInRealSignalGate(armed),
+                    "an intent marker does not decide the gate");
+                AssertFalse(CheckRunGateRules.IsUnresolved(armed),
+                    "an intent marker is not something the gate can wait on");
+
+                CheckRun queued = new CheckRun { Status = CheckRunStatusEnum.Pending, Command = "dotnet build" };
+                AssertFalse(CheckRunGateRules.IsUnexecutedIntentMarker(queued),
+                    "a Pending record with a real command is genuine queued work, not a marker");
+                AssertTrue(CheckRunGateRules.IsUnresolved(queued),
+                    "genuine queued work still holds the gate");
+
+                CheckRun started = new CheckRun
+                {
+                    Status = CheckRunStatusEnum.Pending,
+                    StartedUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertFalse(CheckRunGateRules.IsUnexecutedIntentMarker(started),
+                    "a record that has started is not an intent marker whatever its command");
+                AssertTrue(CheckRunGateRules.IsUnresolved(started),
+                    "a started record still holds the gate");
+
+                CheckRun canceled = new CheckRun { Status = CheckRunStatusEnum.Canceled, Command = "dotnet build" };
+                AssertFalse(CheckRunGateRules.ParticipatesInRealSignalGate(canceled),
+                    "a Canceled record is ruled out by the operator");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // The reported shape: a voyage carrying a dispatch-armed marker beside a genuinely
+            // green Check. The marker can never resolve while the voyage is live -- the only
+            // executor of a voyage-linked Pending Check requires the voyage to be Complete, and
+            // the voyage cannot complete while the Check is unresolved -- so the gate held a
+            // correct PASS until its wait budget ran out and rejected it.
+            await RunTest("JudgeGate_ArmedMarkerBesideGreenCheck_AcceptsPass", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+
+                    Vessel vessel = new Vessel("marker-vessel", "https://github.com/test/repo.git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("marker-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission judge = new Mission("[Judge] Review", "judge description");
+                    judge.VesselId = vessel.Id;
+                    judge.VoyageId = voyage.Id;
+                    judge.Persona = "Judge";
+                    judge.AgentOutput = "review body\n[ARMADA:VERDICT] PASS";
+                    judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+                    // Markers alone are not signal: the PASS is rejected for the honest reason,
+                    // rather than held for a resolution that can never arrive.
+                    await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.Build).ConfigureAwait(false);
+                    await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.UnitTest).ConfigureAwait(false);
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.NoChecksNoExclusion,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "armed markers alone are reported as no Checks, not as an unresolvable wait");
+
+                    // The reported shape: add the genuinely green Check the operator attached.
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Passed).ConfigureAwait(false);
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "a green Check beside armed markers satisfies the gate; the markers no longer hold the PASS");
+
+                    // The exclusion must not be over-broad: real unresolved work still holds.
+                    CheckRun queued = new CheckRun
+                    {
+                        VoyageId = voyage.Id,
+                        Label = "UnitTest",
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Pending,
+                        Command = "dotnet test",
+                        WorkingDirectory = "C:/temp"
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(queued).ConfigureAwait(false);
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasPending,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "a Check with a real command is genuine queued work and still holds the PASS");
+                }
+            }).ConfigureAwait(false);
+
+            // The completion gate carries the same deadlock: a marker held the voyage InProgress
+            // for ever, and the voyage reaching Complete is the only thing that would have run it.
+            await RunTest("VoyageGate_ArmedMarkerDoesNotHoldCompletion", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.Build).ConfigureAwait(false);
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Passed).ConfigureAwait(false);
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status,
+                        "an armed marker beside a green Check must not hold the voyage out of Complete");
+                }
+            }).ConfigureAwait(false);
+
+            // The rejection message forced the operator to guess which record blocked the PASS.
+            // The obvious wrong guess was a degraded captain, which benches healthy Judges and
+            // fixes nothing, so the message must name the records instead.
+            await RunTest("DescribeUnresolvedChecks_NamesTheBlockingRecords", () =>
+            {
+                CheckRun queued = new CheckRun
+                {
+                    Id = "chk_queued",
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Label = "UnitTest",
+                    Status = CheckRunStatusEnum.Pending,
+                    Command = "dotnet test"
+                };
+                CheckRun running = new CheckRun
+                {
+                    Id = "chk_running",
+                    Type = CheckRunTypeEnum.Build,
+                    Label = null,
+                    Status = CheckRunStatusEnum.Running,
+                    Command = "dotnet build"
+                };
+                CheckRun marker = new CheckRun { Id = "chk_marker", Status = CheckRunStatusEnum.Pending };
+                CheckRun green = new CheckRun { Id = "chk_green", Status = CheckRunStatusEnum.Passed, Command = "dotnet build" };
+
+                string described = MissionService.DescribeUnresolvedChecks(
+                    new List<CheckRun> { queued, running, marker, green });
+                AssertContains("chk_queued", described, "the queued record is named");
+                AssertContains("chk_running", described, "the running record is named");
+                AssertContains("Build", described, "the type stands in for a missing label");
+                AssertFalse(described.Contains("chk_marker", StringComparison.Ordinal),
+                    "an intent marker is not something the operator can resolve, so it is not named");
+                AssertFalse(described.Contains("chk_green", StringComparison.Ordinal),
+                    "a resolved record does not block");
+
+                AssertEqual(String.Empty, MissionService.DescribeUnresolvedChecks(null),
+                    "null renders as empty so callers can append unconditionally");
+                AssertEqual(String.Empty, MissionService.DescribeUnresolvedChecks(new List<CheckRun> { marker, green }),
+                    "nothing genuinely unresolved renders as empty");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
         }
