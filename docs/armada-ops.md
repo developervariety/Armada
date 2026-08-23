@@ -214,6 +214,37 @@ ancestry probe answers true, false, or UNKNOWN, and its default for any
 implementation that does not consult a real repository is unknown - so a stub
 can never manufacture a passing verification.
 
+### A quiet-host gate must enumerate TERMINAL states, not guess at active ones
+
+Before any action that interrupts running work - restarting the Admiral,
+rebuilding its image, reclaiming docks - operators check whether the host is
+busy. The obvious query is wrong.
+
+A voyage is not only `InProgress`. It is also `Open`, and a gate written as
+`where status = 'InProgress'` reports a quiet host while `Open` voyages are
+running captains. That is a false quiet, and acting on it destroys work.
+
+Enumerate what is FINISHED and treat everything else as active:
+
+```sql
+select count(*) from voyages
+where status not in ('Complete','Failed','Cancelled');
+```
+
+Written that way, a status added to the vocabulary later reads as active and
+the gate fails safe. Written the other way, a new status is invisible and the
+gate fails silently open.
+
+Voyages alone are not enough either. Check executing missions and captain
+processes too, because a mission can outlive its voyage's terminal status:
+
+```sql
+select count(*) from missions where status in ('InProgress','Assigned','Testing');
+```
+
+The same reasoning applies to any "is it safe to act?" predicate in Armada.
+State the finished set, not the busy set.
+
 ### 4.5 Monitor
 
 Dispatch is the start of the operator loop.
