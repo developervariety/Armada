@@ -254,7 +254,24 @@ Two consequences for an operator:
 
 The interlock covers commands Armada starts. It cannot see a captain running a
 suite by hand inside its own dock, because that is a separate process, so a
-dock-side suite can still overlap a gate. When a wrong-value failure appears
+dock-side suite can still overlap a gate.
+
+It equally cannot see an OPERATOR running commands over SSH, and that matters
+more than it sounds. A vessel whose profile provisions a sibling shares one
+sibling directory across every check: each isolated check sandbox is private,
+but they all reach the same parent path, and each run fetches and resets it.
+The interlock makes that safe between checks, because only one executes at a
+time. It does not make it safe against an operator who runs git against that
+same directory while a check is executing - which re-points the sibling under a
+running build.
+
+The practical consequence is for DIAGNOSIS, not correctness. Reading a shared
+sibling's state after a check has finished does not tell you what that check
+compiled against: any later run has already moved it. To establish what a check
+actually used, read the check's own output - the restored project paths name the
+sibling - rather than inspecting the directory afterwards. And do not run git
+against a shared sibling while checks are in flight; an out-of-band `reset
+--hard` there is indistinguishable, later, from a stale sibling. When a wrong-value failure appears
 under load, an isolated re-run remains the discriminator: a contention flake
 passes alone, a genuine mismatch fails alone every time.
 
