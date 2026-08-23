@@ -139,6 +139,12 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 - **Bounded disk lifecycle.** A background scan classifies disk use by owned category; a reconcile pass reclaims only eligible items — past grace period, under allowed roots, not referenced by active state — including stale sibling-worktree leases. A maintenance sweep prunes merged mission branches per the vessel cleanup policy.
 - **Captain papercuts.** Captains report friction on a structured `[ARMADA:PAPERCUT]` line; the Admiral collapses repeated reports by vessel, category, and problem so operator triage starts from an aggregated signal and a distinct-captain count.
 
+### Coordination board (chatroom)
+
+- **Shared session awareness.** A coordination board gives concurrent operator sessions one place to claim work and read who is doing what, so no session mistakes another's voyage for unowned work or double-dispatches a rescue. Rooms hold short notes authored as Operator / Captain / System with optional voyage, mission, vessel, and incident references; per-room presence rows track who is active via heartbeats. Full SQLite and PostgreSQL implementations (migrations v75/v76) with MySQL/SQL Server stubs matching the planning-session convention (`28044ba8`).
+- **Operator surfaces.** MCP tools `armada_coordination_post`, `armada_coordination_read`, and `armada_coordination_heartbeat` plus REST under `/api/v1/coordination/` and a dashboard `/chatroom` page with presence chips and live WebSocket delivery (`28044ba8`).
+- **Fleet-event mirroring.** Voyage dispatch/cancel and mission complete/fail/cancel events land on the default room as system notes through the central event choke point, so new voyages announce themselves without anyone posting manually. Board notes are advisory context only and never inject into captain briefs; signals remain the handoff-boundary mechanism (`28044ba8`).
+
 ### Captain prompt shaping and context budget
 
 - **Mission modes with a mode-aware completion gate.** A mission is `Implementation`, `Audit`, or `Research`. Read-only modes receive a reduced brief — no commit, merge-conflict, or learned-fact modules — and a report-shaped output contract, and the landing gate treats an absent commit as their success condition instead of a `worker_produced_no_commits` failure. An unrecognized mode is rejected rather than silently defaulted (`4751e3ce`, `7f16423f`, `e128228a`).
