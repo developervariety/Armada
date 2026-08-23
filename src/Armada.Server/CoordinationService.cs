@@ -190,6 +190,10 @@ namespace Armada.Server
             };
             participant = await _Database.CoordinationParticipants.UpsertAsync(participant, token).ConfigureAwait(false);
 
+            // A live session keeps its own reservations alive by heartbeating.
+            await _Database.CoordinationClaims.ExtendActiveForParticipantAsync(
+                room.Id, participant.ParticipantKey, DateTime.UtcNow.AddHours(4), token).ConfigureAwait(false);
+
             DateTime staleCutoff = DateTime.UtcNow.AddMinutes(-60);
             await _Database.CoordinationParticipants.PruneAsync(room.Id, staleCutoff, token).ConfigureAwait(false);
             return participant;
@@ -225,6 +229,160 @@ namespace Armada.Server
             }
 
             return rooms;
+        }
+
+        /// <summary>
+        /// Create a work reservation and announce it on the board.
+        /// </summary>
+        /// <param name="participantKey">Stable participant key of the holder.</param>
+        /// <param name="displayName">Display name of the holder.</param>
+        /// <param name="subjectType">What is being reserved.</param>
+        /// <param name="subjectId">Identifier of the reserved record.</param>
+        /// <param name="note">Free-text note about the intended work.</param>
+        /// <param name="ttlHours">Hours until the claim lapses without a heartbeat.</param>
+        /// <param name="roomKey">Room key; omit for the default fleet room.</param>
+        /// <param name="tenantId">Optional tenant identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The created claim.</returns>
+        public async Task<CoordinationClaim> ClaimAsync(
+            string participantKey,
+            string displayName,
+            CoordinationClaimSubjectEnum subjectType,
+            string subjectId,
+            string? note = null,
+            double ttlHours = 4,
+            string? roomKey = null,
+            string? tenantId = null,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(participantKey)) throw new ArgumentException("Participant key must not be empty.", nameof(participantKey));
+            if (String.IsNullOrWhiteSpace(displayName)) throw new ArgumentException("Display name must not be empty.", nameof(displayName));
+            if (String.IsNullOrWhiteSpace(subjectId)) throw new ArgumentException("Subject id must not be empty.", nameof(subjectId));
+            if (ttlHours < 0.5) ttlHours = 0.5;
+            if (ttlHours > 72) ttlHours = 72;
+
+            string key = String.IsNullOrWhiteSpace(roomKey) ? DefaultRoomKey : roomKey!;
+            CoordinationRoom room = await EnsureRoomAsync(key, DefaultRoomKey == key ? DefaultRoomName : null, DefaultRoomKey == key ? DefaultRoomDescription : null, token).ConfigureAwait(false);
+
+            CoordinationClaim claim = new CoordinationClaim
+            {
+                CoordinationRoomId = room.Id,
+                TenantId = tenantId,
+                ParticipantKey = participantKey,
+                DisplayName = displayName,
+                SubjectType = subjectType,
+                SubjectId = subjectId,
+                Note = note,
+                Status = CoordinationClaimStatusEnum.Active,
+                ExpiresUtc = DateTime.UtcNow.AddHours(ttlHours)
+            };
+            claim = await _Database.CoordinationClaims.CreateAsync(claim, token).ConfigureAwait(false);
+
+            string subjectLabel = subjectType.ToString().ToLowerInvariant() + " " + subjectId;
+            await PostMessageAsync(
+                key,
+                CoordinationAuthorTypeEnum.System,
+                null,
+                "armada",
+                "[claim] " + displayName + " claimed " + subjectLabel +
+                (String.IsNullOrWhiteSpace(note) ? String.Empty : ": " + note) +
+                " (expires in " + ttlHours.ToString("0.#") + "h unless refreshed)",
+                null, null,
+                subjectType == CoordinationClaimSubjectEnum.Vessel ? subjectId : null,
+                null,
+                tenantId,
+                token).ConfigureAwait(false);
+
+            return claim;
+        }
+
+        /// <summary>
+        /// Release a claim by identifier.
+        /// </summary>
+        /// <param name="claimId">Claim identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The released claim, or null when not found.</returns>
+        public async Task<CoordinationClaim?> ReleaseClaimAsync(string claimId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(claimId)) throw new ArgumentException("Claim id must not be empty.", nameof(claimId));
+
+            CoordinationClaim? claim = await _Database.CoordinationClaims.ReadAsync(claimId, token).ConfigureAwait(false);
+            if (claim == null || claim.Status != CoordinationClaimStatusEnum.Active) return claim;
+
+            claim.Status = CoordinationClaimStatusEnum.Released;
+            claim = await _Database.CoordinationClaims.UpdateAsync(claim, token).ConfigureAwait(false);
+
+            try
+            {
+                CoordinationRoom? room = await _Database.CoordinationRooms.ReadAsync(claim.CoordinationRoomId, token).ConfigureAwait(false);
+                await PostMessageAsync(
+                    room?.Key ?? DefaultRoomKey,
+                    CoordinationAuthorTypeEnum.System,
+                    null,
+                    "armada",
+                    "[claim] " + claim.DisplayName + " released the claim on " +
+                    claim.SubjectType.ToString().ToLowerInvariant() + " " + claim.SubjectId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to announce claim release: " + ex.Message);
+            }
+
+            return claim;
+        }
+
+        /// <summary>
+        /// Enumerate active claims, optionally narrowed to one subject.
+        /// </summary>
+        /// <param name="subjectType">Optional subject type filter.</param>
+        /// <param name="subjectId">Optional subject identifier filter.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Active claims oldest first.</returns>
+        public async Task<List<CoordinationClaim>> EnumerateActiveClaimsAsync(
+            CoordinationClaimSubjectEnum? subjectType = null,
+            string? subjectId = null,
+            CancellationToken token = default)
+        {
+            return await _Database.CoordinationClaims.EnumerateActiveAsync(subjectType, subjectId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Find active claims that conflict with an intended dispatch on a vessel
+        /// or objective. Claims held by the requesting participant are excluded.
+        /// </summary>
+        /// <param name="vesselId">Target vessel identifier.</param>
+        /// <param name="objectiveId">Optional target objective identifier.</param>
+        /// <param name="exceptParticipantKey">Optional participant key to exclude, usually the dispatcher.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Conflicting active claims.</returns>
+        public async Task<List<CoordinationClaim>> FindDispatchConflictsAsync(
+            string vesselId,
+            string? objectiveId = null,
+            string? exceptParticipantKey = null,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) return new List<CoordinationClaim>();
+
+            List<CoordinationClaim> conflicts = new List<CoordinationClaim>();
+            List<CoordinationClaim> candidates = await _Database.CoordinationClaims.EnumerateActiveAsync(null, null, token).ConfigureAwait(false);
+            foreach (CoordinationClaim claim in candidates)
+            {
+                if (!String.IsNullOrEmpty(exceptParticipantKey) &&
+                    String.Equals(claim.ParticipantKey, exceptParticipantKey, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                bool vesselConflict = claim.SubjectType == CoordinationClaimSubjectEnum.Vessel &&
+                    String.Equals(claim.SubjectId, vesselId, StringComparison.Ordinal);
+                bool objectiveConflict = !String.IsNullOrEmpty(objectiveId) &&
+                    claim.SubjectType == CoordinationClaimSubjectEnum.Objective &&
+                    String.Equals(claim.SubjectId, objectiveId, StringComparison.Ordinal);
+
+                if (vesselConflict || objectiveConflict) conflicts.Add(claim);
+            }
+
+            return conflicts;
         }
 
         /// <summary>

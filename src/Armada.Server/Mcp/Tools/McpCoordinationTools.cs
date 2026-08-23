@@ -110,7 +110,17 @@ namespace Armada.Server.Mcp.Tools
                     {
                         List<CoordinationMessage> messages = await coordination.ReadMessagesAsync(roomKey, request.AfterUtc, limit).ConfigureAwait(false);
                         List<CoordinationParticipant> participants = await coordination.EnumerateParticipantsAsync(roomKey, activeWithinMinutes).ConfigureAwait(false);
-                        return (object)new { RoomKey = roomKey, Messages = messages, ActiveParticipants = participants };
+                        List<CoordinationClaim> claims;
+                        try
+                        {
+                            claims = await coordination.EnumerateActiveClaimsAsync(null, null).ConfigureAwait(false);
+                        }
+                        catch (NotSupportedException)
+                        {
+                            claims = new List<CoordinationClaim>();
+                        }
+
+                        return (object)new { RoomKey = roomKey, Messages = messages, ActiveParticipants = participants, ActiveClaims = claims };
                     }
                     catch (NotSupportedException ex)
                     {
@@ -150,6 +160,81 @@ namespace Armada.Server.Mcp.Tools
                             request.DisplayName!,
                             ArmadaConstants.DefaultTenantId).ConfigureAwait(false);
                         return (object)participant;
+                    }
+                    catch (NotSupportedException ex)
+                    {
+                        return (object)new { Error = ex.Message };
+                    }
+                });
+
+            register(
+                "armada_coordination_claim",
+                "Reserve work so other operator sessions do not dispatch the same thing. Claims are visible to everyone, expire after a few hours unless your heartbeats keep them alive, and dispatches against a claimed vessel or objective announce the overlap on the board. Actions: claim (subjectType + subjectId required), release (claimId), list (optional subjectType + subjectId).",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        action = new { type = "string", description = "claim | release | list" },
+                        subjectType = new { type = "string", description = "vessel | objective. Required for claim." },
+                        subjectId = new { type = "string", description = "The vsl_ or obj_ identifier to reserve. Required for claim." },
+                        note = new { type = "string", description = "What you intend to do with the subject." },
+                        participantKey = new { type = "string", description = "Stable key for your session. Required for claim." },
+                        displayName = new { type="string", description = "Display name for the board. Required for claim." },
+                        ttlHours = new { type = "number", description = "Hours until expiry without heartbeat. Default 4, clamped 0.5-72." },
+                        claimId = new { type = "string", description = "Claim ID (ccl_ prefix). Required for release." },
+                        roomKey = new { type = "string", description = "Room key. Omit for the default fleet room." }
+                    },
+                    required = new[] { "action" }
+                },
+                async (args) =>
+                {
+                    ClaimArgs request = JsonSerializer.Deserialize<ClaimArgs>(args!.Value, _JsonOptions)!;
+                    string action = String.IsNullOrWhiteSpace(request.Action) ? "list" : request.Action!.Trim().ToLowerInvariant();
+
+                    try
+                    {
+                        if (String.Equals(action, "claim", StringComparison.Ordinal))
+                        {
+                            if (String.IsNullOrWhiteSpace(request.SubjectId) || String.IsNullOrWhiteSpace(request.SubjectType))
+                                return (object)new { Error = "subjectType and subjectId are required for action=claim" };
+                            if (String.IsNullOrWhiteSpace(request.ParticipantKey) || String.IsNullOrWhiteSpace(request.DisplayName))
+                                return (object)new { Error = "participantKey and displayName are required for action=claim - name your session" };
+
+                            CoordinationClaimSubjectEnum subjectType;
+                            if (!Enum.TryParse(request.SubjectType!, true, out subjectType))
+                                return (object)new { Error = "subjectType must be vessel or objective" };
+
+                            CoordinationClaim claim = await coordination.ClaimAsync(
+                                request.ParticipantKey!, request.DisplayName!, subjectType, request.SubjectId!,
+                                request.Note, request.TtlHours ?? 4, request.RoomKey).ConfigureAwait(false);
+                            return (object)claim;
+                        }
+
+                        if (String.Equals(action, "release", StringComparison.Ordinal))
+                        {
+                            if (String.IsNullOrWhiteSpace(request.ClaimId))
+                                return (object)new { Error = "claimId is required for action=release" };
+                            CoordinationClaim? released = await coordination.ReleaseClaimAsync(request.ClaimId!).ConfigureAwait(false);
+                            if (released == null) return (object)new { Status = "not_found", ClaimId = request.ClaimId! };
+                            return (object)released;
+                        }
+
+                        if (String.Equals(action, "list", StringComparison.Ordinal))
+                        {
+                            CoordinationClaimSubjectEnum subjectTypeParsed = CoordinationClaimSubjectEnum.Vessel;
+                            bool hasSubjectType = !String.IsNullOrWhiteSpace(request.SubjectType);
+                            if (hasSubjectType && !Enum.TryParse(request.SubjectType!, true, out subjectTypeParsed))
+                                return (object)new { Error = "subjectType must be vessel or objective" };
+                            CoordinationClaimSubjectEnum? subjectType = hasSubjectType ? subjectTypeParsed : null;
+
+                            List<CoordinationClaim> claims = await coordination.EnumerateActiveClaimsAsync(
+                                String.IsNullOrWhiteSpace(request.SubjectId) ? subjectType : subjectType,
+                                request.SubjectId).ConfigureAwait(false);
+                            return (object)new { Claims = claims };
+                        }
+
+                        return (object)new { Error = "action must be claim, release, or list" };
                     }
                     catch (NotSupportedException ex)
                     {
@@ -225,6 +310,19 @@ namespace Armada.Server.Mcp.Tools
             {
                 // The hold state change already happened; board mirroring is best-effort.
             }
+        }
+
+        private sealed class ClaimArgs
+        {
+            public string? Action { get; set; } = null;
+            public string? SubjectType { get; set; } = null;
+            public string? SubjectId { get; set; } = null;
+            public string? Note { get; set; } = null;
+            public string? ParticipantKey { get; set; } = null;
+            public string? DisplayName { get; set; } = null;
+            public double? TtlHours { get; set; } = null;
+            public string? ClaimId { get; set; } = null;
+            public string? RoomKey { get; set; } = null;
         }
 
         private sealed class DispatchHoldArgs

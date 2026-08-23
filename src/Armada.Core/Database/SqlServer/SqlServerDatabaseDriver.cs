@@ -66,6 +66,7 @@ namespace Armada.Core.Database.SqlServer
             CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
             CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
             CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
+            CoordinationClaims = new CoordinationClaimMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);

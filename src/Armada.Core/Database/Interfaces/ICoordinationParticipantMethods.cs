@@ -32,5 +32,11 @@ namespace Armada.Core.Database.Interfaces
         /// Delete all presence rows for a room.
         /// </summary>
         Task DeleteByRoomAsync(string coordinationRoomId, CancellationToken token = default);
+
+        /// <summary>
+        /// Read the most recent presence row for a participant key across every room,
+        /// or null when the key has never been seen.
+        /// </summary>
+        Task<CoordinationParticipant?> ReadLatestByKeyAsync(string participantKey, CancellationToken token = default);
     }
 }

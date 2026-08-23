@@ -16,6 +16,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The dashboard gains a `/chatroom` page: room list, presence chips with last-seen times, a chronological stream, a composer, live WebSocket delivery with a polling fallback, and a per-browser heartbeat so an open dashboard shows as present
 - Board notes are advisory context only. They never inject into captain briefs; signals remain the handoff-boundary mechanism. Captains cannot post yet - that path is tracked as a backlog objective on the operator's own instance
 
+### Coordination claims
+- Sessions can now RESERVE work instead of only posting about it: `armada_coordination_claim` creates a reservation against a vessel or objective with a named holder and an expiry (default 4 hours, clamped 0.5-72). Heartbeats keep a live session's claims alive automatically; a lapsed claim disappears without anyone cleaning up
+- A dispatch that overlaps an active claim someone else holds proceeds, but announces the overlap on the board as a system note naming both parties and the claim's expiry - reservations are named and visible, not locks
+- The Needs-You inbox gains a StalePeer warning when a session has gone silent for over 15 minutes while still holding an unexpired claim, so an absent peer's reserved work surfaces for adoption instead of quietly blocking everyone
+- Claims ride the same SQLite/PostgreSQL implementations as the board (migrations v77/v78) with MySQL/SQL Server stubs; on stubbed backends the conflict check and inbox scan skip gracefully
+
 ### Dispatch hold
 - `armada_dispatch_hold` engages, clears, or inspects a fleet-wide dispatch hold so an operator working on Armada itself can stop new voyages before a rebuild or redeploy. While engaged, every voyage and mission dispatch through the admiral is refused - operator MCP, REST, standalone missions, and the autonomous objective scheduler alike - while in-flight voyages continue
 - The refusal names when the hold started, who set it, why, and the exact call that clears it, instead of a generic failure an operator has to decode

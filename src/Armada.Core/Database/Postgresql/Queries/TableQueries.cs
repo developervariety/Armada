@@ -890,6 +890,24 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(77, "Add environment_variables_json to workflow_profiles",
                     @"ALTER TABLE workflow_profiles ADD COLUMN IF NOT EXISTS environment_variables_json TEXT;"
+                ),
+                new SchemaMigration(78, "Add coordination claims for cross-session work reservations",
+                    @"CREATE TABLE IF NOT EXISTS coordination_claims (
+                        id TEXT PRIMARY KEY,
+                        coordination_room_id TEXT NOT NULL,
+                        tenant_id TEXT,
+                        participant_key TEXT NOT NULL,
+                        display_name TEXT NOT NULL,
+                        subject_type TEXT NOT NULL,
+                        subject_id TEXT NOT NULL,
+                        note TEXT,
+                        status TEXT NOT NULL DEFAULT 'Active',
+                        expires_utc TEXT NOT NULL,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_claims_status_subject ON coordination_claims(status, subject_type, subject_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_claims_room_participant ON coordination_claims(coordination_room_id, participant_key);"
                 )
             };
         }

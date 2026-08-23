@@ -241,8 +241,59 @@ namespace Armada.Server
             // Build and UnitTest signal the Judge gate requires against the mission's own branch.
             await ArmVoyageChecksAsync(voyage, dispatchVessel, token).ConfigureAwait(false);
 
+            await WarnOnCoordinationClaimConflictsAsync(voyage, dispatchVessel, request.ObjectiveId, token).ConfigureAwait(false);
+
             LogDispatchInfo("dispatch complete voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds);
             return VoyageDispatchResult.Success(voyage);
+        }
+
+        /// <summary>
+        /// When another participant holds an active claim on this vessel or objective,
+        /// announce the overlap on the coordination board. The dispatch proceeds -
+        /// claims are reservations with a named holder, not locks - so both parties
+        /// see the collision while there is still time to cancel one side.
+        /// </summary>
+        private async Task WarnOnCoordinationClaimConflictsAsync(Voyage voyage, Vessel vessel, string? objectiveId, CancellationToken token)
+        {
+            List<CoordinationClaim> conflicts;
+            try
+            {
+                CoordinationService coordination = new CoordinationService(_Logging ?? new LoggingModule(), _Database);
+                conflicts = await coordination.FindDispatchConflictsAsync(vessel.Id, objectiveId, null, token).ConfigureAwait(false);
+                if (conflicts.Count == 0) return;
+
+                List<string> parts = new List<string>();
+                foreach (CoordinationClaim claim in conflicts)
+                {
+                    parts.Add(claim.DisplayName + " holds a claim on " +
+                        claim.SubjectType.ToString().ToLowerInvariant() + " " + claim.SubjectId +
+                        (String.IsNullOrWhiteSpace(claim.Note) ? String.Empty : " (" + claim.Note + ")") +
+                        ", expires " + claim.ExpiresUtc.ToString("u"));
+                }
+
+                string note = "[claims] Voyage " + voyage.Id + " dispatched on vessel " + vessel.Id +
+                    (String.IsNullOrEmpty(objectiveId) ? String.Empty : " for objective " + objectiveId) +
+                    " while " + String.Join("; ", parts) + ". Coordinate before both proceed.";
+                await coordination.PostMessageAsync(
+                    CoordinationService.DefaultRoomKey,
+                    Armada.Core.Enums.CoordinationAuthorTypeEnum.System,
+                    null,
+                    "armada",
+                    note,
+                    voyage.Id, null, vessel.Id).ConfigureAwait(false);
+
+                if (_Logging != null)
+                    _Logging.Warn("[VoyageDispatchService] " + note);
+            }
+            catch (NotSupportedException)
+            {
+                // Claims are SQLite/PostgreSQL-only today; other backends skip the check.
+            }
+            catch (Exception ex)
+            {
+                if (_Logging != null)
+                    _Logging.Warn("[VoyageDispatchService] claim conflict check failed: " + ex.Message);
+            }
         }
 
         #endregion

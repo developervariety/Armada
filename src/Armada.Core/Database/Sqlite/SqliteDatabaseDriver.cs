@@ -68,6 +68,7 @@ namespace Armada.Core.Database.Sqlite
             CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
             CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
             CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
+            CoordinationClaims = new CoordinationClaimMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
@@ -116,6 +117,7 @@ namespace Armada.Core.Database.Sqlite
             CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
             CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
             CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
+            CoordinationClaims = new CoordinationClaimMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
@@ -787,6 +789,27 @@ namespace Armada.Core.Database.Sqlite
             participant.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             participant.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return participant;
+        }
+
+        /// <summary>
+        /// Convert a SqliteDataReader row to a CoordinationClaim model.
+        /// </summary>
+        internal static CoordinationClaim CoordinationClaimFromReader(SqliteDataReader reader)
+        {
+            CoordinationClaim claim = new CoordinationClaim();
+            claim.Id = reader["id"].ToString()!;
+            claim.CoordinationRoomId = reader["coordination_room_id"].ToString()!;
+            claim.TenantId = NullableString(reader["tenant_id"]);
+            claim.ParticipantKey = reader["participant_key"].ToString()!;
+            claim.DisplayName = reader["display_name"].ToString()!;
+            claim.SubjectType = Enum.Parse<CoordinationClaimSubjectEnum>(reader["subject_type"].ToString()!);
+            claim.SubjectId = reader["subject_id"].ToString()!;
+            claim.Note = NullableString(reader["note"]);
+            claim.Status = Enum.Parse<CoordinationClaimStatusEnum>(reader["status"].ToString()!);
+            claim.ExpiresUtc = FromIso8601(reader["expires_utc"].ToString()!);
+            claim.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            claim.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            return claim;
         }
 
         /// <summary>

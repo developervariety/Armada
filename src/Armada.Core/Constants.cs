@@ -182,6 +182,11 @@ namespace Armada.Core
         public static readonly string CoordinationParticipantIdPrefix = "cprs_";
 
         /// <summary>
+        /// Coordination claim ID prefix.
+        /// </summary>
+        public static readonly string CoordinationClaimIdPrefix = "ccl_";
+
+        /// <summary>
         /// Playbook ID prefix.
         /// </summary>
         public static readonly string PlaybookIdPrefix = "pbk_";

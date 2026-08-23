@@ -281,6 +281,7 @@ namespace Armada.Core.Database.Postgresql
             CoordinationRooms = new CoordinationRoomMethods(_DataSource);
             CoordinationMessages = new CoordinationMessageMethods(_DataSource);
             CoordinationParticipants = new CoordinationParticipantMethods(_DataSource);
+            CoordinationClaims = new CoordinationClaimMethods(_DataSource);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);

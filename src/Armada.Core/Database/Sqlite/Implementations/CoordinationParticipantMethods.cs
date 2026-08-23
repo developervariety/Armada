@@ -127,6 +127,29 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<CoordinationParticipant?> ReadLatestByKeyAsync(string participantKey, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(participantKey)) throw new ArgumentNullException(nameof(participantKey));
+
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM coordination_participants WHERE participant_key = @participant_key ORDER BY last_seen_utc DESC LIMIT 1;";
+                    cmd.Parameters.AddWithValue("@participant_key", participantKey);
+                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return SqliteDatabaseDriver.CoordinationParticipantFromReader(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc />
         public async Task PruneAsync(string coordinationRoomId, DateTime olderThanUtc, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(coordinationRoomId)) throw new ArgumentNullException(nameof(coordinationRoomId));

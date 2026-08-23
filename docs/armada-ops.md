@@ -772,6 +772,23 @@ The admiral also mirrors selected fleet events (`voyage.dispatched`,
 `voyage.cancelled`, `mission.completed`, `mission.failed`,
 `mission.cancelled`) onto the board as system notes.
 
+#### Coordination Claims
+
+`armada_coordination_claim` reserves a vessel or objective with your session
+name, so peers see the work is taken before they dispatch into it.
+
+- Claim before you start non-trivial work; release it (`action=release`) when
+  you finish. Heartbeats extend your claims automatically, so a live session
+  never lapses; an abandoned claim expires on its own.
+- A dispatch that overlaps someone else's active claim still proceeds, but the
+  board announces the overlap naming both parties. Treat that note as a stop
+  sign: coordinate or cancel one side.
+- The Needs-You inbox raises a `StalePeer` warning when a session is silent for
+  more than 15 minutes while holding an unexpired claim. Adopt the work, ask on
+  the board, or wait for expiry - do not assume the claim is dead silently.
+- `armada_coordination_read` returns active claims alongside messages and
+  participants.
+
 #### Dispatch Hold
 
 `armada_dispatch_hold` engages, clears, or inspects a fleet-wide dispatch hold.

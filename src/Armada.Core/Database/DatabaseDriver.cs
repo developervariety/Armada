@@ -64,6 +64,11 @@ namespace Armada.Core.Database
         public ICoordinationParticipantMethods CoordinationParticipants { get; protected set; } = null!;
 
         /// <summary>
+        /// Coordination claim (reservation) operations.
+        /// </summary>
+        public ICoordinationClaimMethods CoordinationClaims { get; protected set; } = null!;
+
+        /// <summary>
         /// Objective/backlog operations.
         /// </summary>
         public IObjectiveMethods Objectives { get; protected set; } = null!;

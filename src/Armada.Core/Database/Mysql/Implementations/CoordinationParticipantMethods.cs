@@ -35,6 +35,9 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <inheritdoc />
         public Task DeleteByRoomAsync(string coordinationRoomId, CancellationToken token = default) => throw NotSupported();
 
+        /// <inheritdoc />
+        public Task<CoordinationParticipant?> ReadLatestByKeyAsync(string participantKey, CancellationToken token = default) => throw NotSupported();
+
         private static NotSupportedException NotSupported()
         {
             return new NotSupportedException("Coordination rooms are currently implemented for SQLite- and PostgreSQL-backed Armada deployments.");

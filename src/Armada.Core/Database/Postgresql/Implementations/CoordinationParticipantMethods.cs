@@ -128,6 +128,29 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<CoordinationParticipant?> ReadLatestByKeyAsync(string participantKey, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(participantKey)) throw new ArgumentNullException(nameof(participantKey));
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM coordination_participants WHERE participant_key = @participant_key ORDER BY last_seen_utc DESC LIMIT 1;";
+                    cmd.Parameters.AddWithValue("@participant_key", participantKey);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return ParticipantFromReader(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc />
         public async Task PruneAsync(string coordinationRoomId, DateTime olderThanUtc, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(coordinationRoomId)) throw new ArgumentNullException(nameof(coordinationRoomId));

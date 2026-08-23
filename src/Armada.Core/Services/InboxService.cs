@@ -50,6 +50,68 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
+        private const int _StalePeerMinutes = 15;
+
+        private async Task ScanSilentClaimHoldersAsync(List<InboxItem> items, CancellationToken token)
+        {
+            List<CoordinationClaim> activeClaims;
+            try
+            {
+                activeClaims = await _Database.CoordinationClaims.EnumerateActiveAsync(null, null, token).ConfigureAwait(false);
+            }
+            catch (NotSupportedException)
+            {
+                // Claims are SQLite/PostgreSQL-only today; other backends have no scan.
+                return;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "claim scan failed: " + ex.Message);
+                return;
+            }
+
+            DateTime silenceCutoff = DateTime.UtcNow.AddMinutes(-_StalePeerMinutes);
+            foreach (CoordinationClaim claim in activeClaims)
+            {
+                if (claim.ExpiresUtc <= DateTime.UtcNow) continue;
+
+                CoordinationParticipant? presence;
+                try
+                {
+                    presence = await _Database.CoordinationParticipants.ReadLatestByKeyAsync(claim.ParticipantKey, token).ConfigureAwait(false);
+                }
+                catch (NotSupportedException)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "presence lookup failed for " + claim.ParticipantKey + ": " + ex.Message);
+                    continue;
+                }
+
+                bool silent = presence == null || presence.LastSeenUtc < silenceCutoff;
+                if (!silent) continue;
+
+                string lastSeen = presence == null ? "never" : presence.LastSeenUtc.ToString("u");
+                items.Add(new InboxItem
+                {
+                    Kind = "StalePeer",
+                    Severity = InboxSeverityEnum.Warning,
+                    Title = "Peer session silent while holding a claim",
+                    Detail = claim.DisplayName + " (" + claim.ParticipantKey + ") last seen " + lastSeen +
+                        " but still holds a claim on " + claim.SubjectType.ToString().ToLowerInvariant() + " " +
+                        claim.SubjectId + ", expiring " + claim.ExpiresUtc.ToString("u") +
+                        ". Adopt the work, ask on the coordination board, or wait for expiry" +
+                        (String.IsNullOrWhiteSpace(claim.Note) ? "." : ". Claim note: " + claim.Note),
+                    EntityType = claim.SubjectType.ToString().ToLowerInvariant(),
+                    EntityId = claim.SubjectId,
+                    Href = "/dashboard/chatroom"
+                });
+            }
+        }
+
+
         /// <summary>
         /// Build the inbox: actionable items ordered most-urgent first.
         /// </summary>
@@ -58,6 +120,7 @@ namespace Armada.Core.Services
         public async Task<List<InboxItem>> GetInboxAsync(CancellationToken token = default)
         {
             List<InboxItem> items = new List<InboxItem>();
+            await ScanSilentClaimHoldersAsync(items, token).ConfigureAwait(false);
 
             try
             {
