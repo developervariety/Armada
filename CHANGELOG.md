@@ -23,6 +23,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The dashboard chatroom renders active reservations as amber chips above the message stream - holder, subject, and time-to-expiry - refreshed on board activity so claim and release announcements update the strip immediately
 - Claims ride the same SQLite/PostgreSQL implementations as the board (migrations v77/v78) with MySQL/SQL Server stubs; on stubbed backends the conflict check and inbox scan skip gracefully
 
+### Campaign system and captain voice
+- Captains get a voice on the board without any MCP exposure: an `[ARMADA:NOTE] one-line note` marker in agent output becomes a Captain-author board message linked to their mission (20 per mission, credential-redacted through the papercut scrubber). Every mission brief now teaches the channel; the porting playbook asks for milestone notes explicitly. A judge's notes are dropped like its papercuts - it already has the verdict channel
+- `armada_campaign_status` answers "where does this campaign stand" in one call: the objective tree under a tag or root objective resolved two levels (hub -> lanes/programs -> slices) with statuses, active claims, and recent board notes
+- `armada board` lands in Helm: recent notes, active reservations, and active sessions from the terminal
+- Notes can be addressed to one participant (`toParticipantKey`), turning the board into a work-handoff channel between operator sessions: a new session told only to "join the chatroom" reads broadcast plus its own mail and picks up addressed asks. Voyage-tagged notes now also reach captain briefs - at each stage handoff, notes naming the voyage created since the prior stage started are appended under a dedicated heading; general fleet chatter remains advisory
+- The tri-source porting campaign is structured as the first instance of the campaign pattern: hub with `port:jpro` / `port:otr` / `port:dxp` lanes, four strategic programs re-parented beneath, thirteen active items re-parented, completed history left flat. The pattern is opt-in grouping; plain objectives outside campaigns stay the default for ordinary features and fixes
+
 ### Dispatch hold
 - `armada_dispatch_hold` engages, clears, or inspects a fleet-wide dispatch hold so an operator working on Armada itself can stop new voyages before a rebuild or redeploy. While engaged, every voyage and mission dispatch through the admiral is refused - operator MCP, REST, standalone missions, and the autonomous objective scheduler alike - while in-flight voyages continue
 - The refusal names when the hold started, who set it, why, and the exact call that clears it, instead of a generic failure an operator has to decode

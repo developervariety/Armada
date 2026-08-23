@@ -106,6 +106,11 @@ namespace Armada.Helm
                     .WithExample("inbox")
                     .WithExample("inbox", "--critical");
 
+                config.AddCommand<BoardCommand>("board")
+                    .WithDescription("Show the coordination board: recent notes, claims, active sessions")
+                    .WithExample("board")
+                    .WithExample("board", "--limit", "50");
+
                 config.AddCommand<AskCommand>("ask")
                     .WithDescription("Ask Armada about fleet state in plain language")
                     .WithExample("ask", "\"any failures?\"")

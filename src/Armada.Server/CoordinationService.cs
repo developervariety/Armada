@@ -113,6 +113,7 @@ namespace Armada.Server
             string? vesselId = null,
             string? incidentId = null,
             string? tenantId = null,
+            string? toParticipantKey = null,
             CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(roomKey)) throw new ArgumentException("Room key must not be empty.", nameof(roomKey));
@@ -132,7 +133,8 @@ namespace Armada.Server
                 VoyageId = voyageId,
                 MissionId = missionId,
                 VesselId = vesselId,
-                IncidentId = incidentId
+                IncidentId = incidentId,
+                ToParticipantKey = String.IsNullOrWhiteSpace(toParticipantKey) ? null : toParticipantKey
             };
             message = await _Database.CoordinationMessages.CreateAsync(message, token).ConfigureAwait(false);
 
@@ -156,11 +158,17 @@ namespace Armada.Server
         /// <param name="limit">Maximum number of messages.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Messages oldest first.</returns>
-        public async Task<List<CoordinationMessage>> ReadMessagesAsync(string roomKey, DateTime? afterUtc = null, int limit = 200, CancellationToken token = default)
+        public async Task<List<CoordinationMessage>> ReadMessagesAsync(string roomKey, DateTime? afterUtc = null, int limit = 200, CancellationToken token = default, string? visibleToParticipantKey = null)
         {
             if (String.IsNullOrWhiteSpace(roomKey)) throw new ArgumentException("Room key must not be empty.", nameof(roomKey));
 
             CoordinationRoom? room = await EnsureRoomAsync(roomKey, DefaultRoomKey == roomKey ? DefaultRoomName : null, DefaultRoomKey == roomKey ? DefaultRoomDescription : null, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(visibleToParticipantKey))
+            {
+                return await _Database.CoordinationMessages.EnumerateVisibleToAsync(
+                    room.Id, visibleToParticipantKey, afterUtc, limit, token).ConfigureAwait(false);
+            }
+
             return await _Database.CoordinationMessages.EnumerateByRoomAsync(room.Id, afterUtc, limit, token).ConfigureAwait(false);
         }
 
@@ -291,6 +299,7 @@ namespace Armada.Server
                 subjectType == CoordinationClaimSubjectEnum.Vessel ? subjectId : null,
                 null,
                 tenantId,
+                toParticipantKey: null,
                 token).ConfigureAwait(false);
 
             return claim;

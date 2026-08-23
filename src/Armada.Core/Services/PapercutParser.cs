@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System;
     using System.Text.Json;
     using System.Text.RegularExpressions;
     using Armada.Core.Enums;
@@ -50,6 +51,17 @@ namespace Armada.Core.Services
         #endregion
 
         #region Public-Methods
+
+        /// <summary>
+        /// Redact credential-shaped content from captain free text before it is stored anywhere.
+        /// Same backstop the papercut path applies to its own records.
+        /// </summary>
+        public static string RedactSecrets(string value)
+        {
+            if (String.IsNullOrEmpty(value)) return value;
+            string redacted = _SecretPattern.Replace(value, "[REDACTED]");
+            return _ControlPattern.Replace(redacted, String.Empty);
+        }
 
         /// <summary>
         /// Try to parse a whole output line into a papercut. Returns null when the line is not a

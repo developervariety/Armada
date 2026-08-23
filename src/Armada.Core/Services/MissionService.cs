@@ -2175,6 +2175,7 @@ namespace Armada.Core.Services
             {
                 content += "\n";
                 content += ledger.Track("mission.papercuts", BuildPapercutsSection());
+                content += ledger.Track("mission.notes", BuildProgressNotesSection());
             }
 
             // Model context updates. A read-only mission discovers nothing durable about the repository
@@ -3049,6 +3050,26 @@ namespace Armada.Core.Services
                 "- Your own assigned work is not a papercut. Report what made the work harder than it needed to be.\n" +
                 "- Include no credentials, tokens, or absolute host paths.\n" +
                 "- Ten per mission is the limit. Report the ones that cost you time.\n";
+        }
+
+        /// <summary>
+        /// Builds the progress-note directive. Captains have no MCP surface by policy, so the board
+        /// is reached the same way papercuts are: one marker line in agent output. Twenty per mission.
+        /// </summary>
+        /// <returns>The progress-notes section.</returns>
+        internal static string BuildProgressNotesSection()
+        {
+            return
+                "## Board Notes\n" +
+                "\n" +
+                "Post short progress notes to the shared coordination board so operator sessions know what " +
+                "you are doing. One line each:\n" +
+                "\n" +
+                "`[ARMADA:NOTE] one-line note`\n" +
+                "\n" +
+                "- Use them at milestones: what you claimed, what you found, what landed, what is blocked.\n" +
+                "- Plain text only. No credentials, tokens, or absolute host paths.\n" +
+                "- Twenty per mission is the limit. They are visible to every session and the dashboard.\n";
         }
 
         /// <summary>
@@ -4448,6 +4469,34 @@ namespace Armada.Core.Services
                 foreach (Signal s in applicableSignals) appliedSignalIds.Add(s.Id);
             }
 
+            // Voyage-tagged board notes are the one case where the coordination board reaches a
+            // captain brief: an operator note naming this voyage targets this work. General fleet
+            // chatter stays advisory and never injects.
+            if (!String.IsNullOrEmpty(nextMission.VoyageId))
+            {
+                try
+                {
+                    DateTime noteCutoff = completedMission.StartedUtc ?? completedMission.CreatedUtc;
+                    List<CoordinationMessage> voyageNotes = await _Database.CoordinationMessages
+                        .EnumerateByVoyageAsync(nextMission.VoyageId!, noteCutoff, 10, token).ConfigureAwait(false);
+                    voyageNotes.Reverse();
+                    handoffDescription = RemoveVoyageBoardNotesSection(handoffDescription);
+                    string notesBlock = BuildVoyageBoardNotesBlock(voyageNotes);
+                    if (notesBlock.Length > 0)
+                    {
+                        handoffDescription = handoffDescription + "\n\n" + notesBlock;
+                    }
+                }
+                catch (NotSupportedException)
+                {
+                    // Board notes are SQLite/PostgreSQL-only today; other backends skip injection.
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "voyage board-note injection failed for mission " + nextMission.Id + ": " + ex.Message);
+                }
+            }
+
             if (handoffDescription.Length > _MaxMissionDescriptionChars)
             {
                 _Logging.Warn(_Header + "pipeline handoff: mission " + nextMission.Id + " description of " +
@@ -5255,6 +5304,49 @@ namespace Armada.Core.Services
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Builds the voyage board-notes section appended at the tail of a handoff brief. Notes are
+        /// listed oldest first with author and time. Idempotent across repeated handoffs: any prior
+        /// board-notes section is stripped before the new one is written. Returns an empty string
+        /// when there is nothing to say.
+        /// </summary>
+        internal static string BuildVoyageBoardNotesBlock(List<CoordinationMessage>? notes)
+        {
+            const string headerMarker = "### Board notes on this voyage";
+            if (notes == null || notes.Count == 0) return String.Empty;
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append(headerMarker).Append("\n");
+            sb.Append("An operator or peer posted these on the coordination board while the previous stage ran. ")
+              .Append("Treat them as instructions for this stage when they direct the work; otherwise context.\n");
+            foreach (CoordinationMessage note in notes)
+            {
+                sb.Append("- [").Append(note.AuthorName).Append("] ").Append(note.Content.Replace("\r", " ")).Append('\n');
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Removes any previously injected voyage board-notes section so a repeated handoff
+        /// replaces rather than duplicates it.
+        /// </summary>
+        internal static string RemoveVoyageBoardNotesSection(string description)
+        {
+            const string headerMarker = "### Board notes on this voyage";
+            if (String.IsNullOrEmpty(description)) return description ?? "";
+
+            int markerIndex = description.IndexOf(headerMarker, StringComparison.Ordinal);
+            if (markerIndex < 0) return description;
+
+            // The section runs until the next markdown section header or the end.
+            int searchFrom = markerIndex + headerMarker.Length;
+            int nextHeader = description.IndexOf("\n### ", searchFrom, StringComparison.Ordinal);
+            if (nextHeader < 0) nextHeader = description.IndexOf("\n## ", searchFrom, StringComparison.Ordinal);
+            if (nextHeader < 0) return description.Substring(0, markerIndex).TrimEnd();
+            return (description.Substring(0, markerIndex).TrimEnd() + "\n" + description.Substring(nextHeader + 1)).TrimEnd();
         }
 
         private static string BuildMailboxNotesBlock(List<Signal> signals)

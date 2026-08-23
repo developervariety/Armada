@@ -2,10 +2,12 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
     using Armada.Core.Models;
     using ArmadaConstants = Armada.Core.Constants;
 
@@ -46,7 +48,8 @@ namespace Armada.Server.Mcp.Tools
                         voyageId = new { type = "string", description = "Optional related voyage ID (vyg_ prefix)." },
                         missionId = new { type = "string", description = "Optional related mission ID (msn_ prefix)." },
                         vesselId = new { type = "string", description = "Optional related vessel ID (vsl_ prefix)." },
-                        incidentId = new { type = "string", description = "Optional related incident ID (inc_ prefix)." }
+                        incidentId = new { type = "string", description = "Optional related incident ID (inc_ prefix)." },
+                        toParticipantKey = new { type = "string", description = "Optional participant key to address this note to - marks it as work or an answer directed at one session while staying visible to all." }
                     },
                     required = new[] { "content", "authorName" }
                 },
@@ -73,7 +76,8 @@ namespace Armada.Server.Mcp.Tools
                             request.MissionId,
                             request.VesselId,
                             request.IncidentId,
-                            ArmadaConstants.DefaultTenantId).ConfigureAwait(false);
+                            ArmadaConstants.DefaultTenantId,
+                            request.ToParticipantKey).ConfigureAwait(false);
                         return (object)message;
                     }
                     catch (NotSupportedException ex)
@@ -93,7 +97,8 @@ namespace Armada.Server.Mcp.Tools
                         roomKey = new { type = "string", description = "Room key. Omit for the default fleet room." },
                         limit = new { type = "integer", description = "Maximum number of notes to return (default 50)." },
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
-                        activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." }
+                        activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
+                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it." }
                     }
                 },
                 async (args) =>
@@ -108,7 +113,10 @@ namespace Armada.Server.Mcp.Tools
 
                     try
                     {
-                        List<CoordinationMessage> messages = await coordination.ReadMessagesAsync(roomKey, request.AfterUtc, limit).ConfigureAwait(false);
+                        List<CoordinationMessage> messages = await coordination.ReadMessagesAsync(
+                            roomKey, request.AfterUtc, limit,
+                            token: System.Threading.CancellationToken.None,
+                            visibleToParticipantKey: String.IsNullOrWhiteSpace(request.ParticipantKey) ? null : request.ParticipantKey).ConfigureAwait(false);
                         List<CoordinationParticipant> participants = await coordination.EnumerateParticipantsAsync(roomKey, activeWithinMinutes).ConfigureAwait(false);
                         List<CoordinationClaim> claims;
                         try
@@ -242,6 +250,119 @@ namespace Armada.Server.Mcp.Tools
                     }
                 });
 
+            register(
+                "armada_campaign_status",
+                "One-call status for a campaign: the objective tree under a root (or every root carrying a tag), grouped by parent with statuses, plus active coordination claims and recent board notes. Use this to start a session or answer 'where does this campaign stand' without a pile of enumerations.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        tag = new { type = "string", description = "Campaign tag, for example 'campaign:porting'. Resolves every objective carrying it as a root. Omit when rootObjectiveId is supplied." },
+                        rootObjectiveId = new { type = "string", description = "Campaign root objective ID (obj_ prefix). Omit when tag is supplied." },
+                        noteLimit = new { type = "integer", description = "Recent board notes to include (default 10)." }
+                    }
+                },
+                async (args) =>
+                {
+                    CampaignStatusArgs request = args != null && args.HasValue
+                        ? JsonSerializer.Deserialize<CampaignStatusArgs>(args.Value, _JsonOptions) ?? new CampaignStatusArgs()
+                        : new CampaignStatusArgs();
+
+                    List<CoordinationRoom> rooms = await database.CoordinationRooms.EnumerateAsync().ConfigureAwait(false);
+                    string fleetRoomKey = CoordinationService.DefaultRoomKey;
+
+                    // Resolve roots, then two levels: roots -> lanes/programs -> slices.
+                    List<Objective> allObjectives = await database.Objectives.EnumerateAsync().ConfigureAwait(false);
+                    List<string> rootIds = new List<string>();
+                    if (!String.IsNullOrWhiteSpace(request.RootObjectiveId))
+                    {
+                        rootIds.Add(request.RootObjectiveId!);
+                    }
+                    else if (!String.IsNullOrWhiteSpace(request.Tag))
+                    {
+                        foreach (Objective o in allObjectives)
+                        {
+                            if (o.Tags != null && o.Tags.Contains(request.Tag!, StringComparer.Ordinal)) rootIds.Add(o.Id);
+                        }
+                    }
+
+                    if (rootIds.Count == 0)
+                        return (object)new { Error = "no campaign roots resolved - supply tag or rootObjectiveId" };
+
+                    HashSet<string> rootSet = new HashSet<string>(rootIds);
+                    Dictionary<string, List<CampaignNode>> byParent = new Dictionary<string, List<CampaignNode>>();
+
+                    void AddToParent(string parentId, Objective o)
+                    {
+                        if (!byParent.TryGetValue(parentId, out List<CampaignNode> list))
+                        {
+                            list = new List<CampaignNode>();
+                            byParent[parentId] = list;
+                        }
+
+                        list.Add(CampaignNode.From(o));
+                    }
+
+                    var groupIds = new HashSet<string>();
+                    foreach (Objective o in allObjectives)
+                    {
+                        if (String.IsNullOrEmpty(o.ParentObjectiveId)) continue;
+                        if (!rootSet.Contains(o.ParentObjectiveId!)) continue;
+                        AddToParent(o.ParentObjectiveId!, o);
+                        groupIds.Add(o.Id);
+                    }
+
+                    // Second level: children of the level-one groups (lanes -> slices).
+                    foreach (Objective o in allObjectives)
+                    {
+                        if (String.IsNullOrEmpty(o.ParentObjectiveId)) continue;
+                        if (!groupIds.Contains(o.ParentObjectiveId!)) continue;
+                        AddToParent(o.ParentObjectiveId!, o);
+                    }
+
+                    var tree = new List<object>();
+                    foreach (string rootId in rootIds)
+                    {
+                        Objective? root = allObjectives.FirstOrDefault(o => o.Id == rootId);
+                        var lanes = new List<object>();
+                        if (byParent.TryGetValue(rootId, out List<CampaignNode>? laneNodes))
+                        {
+                            foreach (CampaignNode lane in laneNodes)
+                            {
+                                byParent.TryGetValue(lane.Id, out List<CampaignNode>? slices);
+                                lanes.Add(new { objective = lane, children = slices ?? new List<CampaignNode>() });
+                            }
+                        }
+
+                        tree.Add(new { objective = root, children = lanes });
+                    }
+
+                    List<CoordinationClaim> claims;
+                    try
+                    {
+                        claims = await database.CoordinationClaims.EnumerateActiveAsync(null, null).ConfigureAwait(false);
+                    }
+                    catch (NotSupportedException)
+                    {
+                        claims = new List<CoordinationClaim>();
+                    }
+
+                    int noteLimit = request.NoteLimit.HasValue && request.NoteLimit.Value > 0 ? Math.Min(request.NoteLimit.Value, 50) : 10;
+                    List<CoordinationMessage> notes = new List<CoordinationMessage>();
+                    try
+                    {
+                        CoordinationService coordinationService = new CoordinationService(new SyslogLogging.LoggingModule { Settings = { EnableConsole = false } }, database);
+                        notes = await coordinationService.ReadMessagesAsync(fleetRoomKey, null, noteLimit).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Board notes are best-effort in a status call.
+                    }
+
+                    return (object)new { Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes };
+                });
+
             if (dispatchHold != null)
             {
                 register(
@@ -312,6 +433,61 @@ namespace Armada.Server.Mcp.Tools
             }
         }
 
+        /// <summary>
+        /// Serializable rollup row for one campaign-tree objective.
+        /// </summary>
+        public sealed class CampaignNode
+        {
+            /// <summary>Objective identifier.</summary>
+            public string Id { get; set; } = String.Empty;
+
+            /// <summary>Title.</summary>
+            public string Title { get; set; } = String.Empty;
+
+            /// <summary>Lifecycle status.</summary>
+            public ObjectiveStatusEnum? Status { get; set; }
+
+            /// <summary>Backlog state.</summary>
+            public ObjectiveBacklogStateEnum? BacklogState { get; set; }
+
+            /// <summary>Kind.</summary>
+            public ObjectiveKindEnum? Kind { get; set; }
+
+            /// <summary>Priority.</summary>
+            public ObjectivePriorityEnum? Priority { get; set; }
+
+            /// <summary>Parent identifier.</summary>
+            public string? ParentObjectiveId { get; set; }
+
+            /// <summary>Tags.</summary>
+            public List<string>? Tags { get; set; }
+
+            /// <summary>
+            /// Build a rollup row from an objective.
+            /// </summary>
+            public static CampaignNode From(Objective objective)
+            {
+                return new CampaignNode
+                {
+                    Id = objective.Id,
+                    Title = objective.Title,
+                    Status = objective.Status,
+                    BacklogState = objective.BacklogState,
+                    Kind = objective.Kind,
+                    Priority = objective.Priority,
+                    ParentObjectiveId = objective.ParentObjectiveId,
+                    Tags = objective.Tags
+                };
+            }
+        }
+
+        private sealed class CampaignStatusArgs
+        {
+            public string? Tag { get; set; } = null;
+            public string? RootObjectiveId { get; set; } = null;
+            public int? NoteLimit { get; set; } = null;
+        }
+
         private sealed class ClaimArgs
         {
             public string? Action { get; set; } = null;
@@ -342,6 +518,7 @@ namespace Armada.Server.Mcp.Tools
             public string? MissionId { get; set; } = null;
             public string? VesselId { get; set; } = null;
             public string? IncidentId { get; set; } = null;
+            public string? ToParticipantKey { get; set; } = null;
         }
 
         private sealed class CoordinationReadArgs
@@ -350,6 +527,7 @@ namespace Armada.Server.Mcp.Tools
             public int? Limit { get; set; } = null;
             public DateTime? AfterUtc { get; set; } = null;
             public int? ActiveWithinMinutes { get; set; } = null;
+            public string? ParticipantKey { get; set; } = null;
         }
 
         private sealed class CoordinationHeartbeatArgs

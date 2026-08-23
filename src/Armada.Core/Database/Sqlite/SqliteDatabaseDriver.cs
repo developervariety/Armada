@@ -769,6 +769,7 @@ namespace Armada.Core.Database.Sqlite
             message.MissionId = NullableString(reader["mission_id"]);
             message.VesselId = NullableString(reader["vessel_id"]);
             message.IncidentId = NullableString(reader["incident_id"]);
+            message.ToParticipantKey = NullableString(reader["to_participant_key"]);
             message.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             message.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return message;

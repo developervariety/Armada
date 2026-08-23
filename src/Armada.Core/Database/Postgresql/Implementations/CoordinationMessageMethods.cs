@@ -50,10 +50,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO coordination_messages
                         (id, coordination_room_id, tenant_id, author_type, author_id, author_name, content,
-                         voyage_id, mission_id, vessel_id, incident_id, created_utc, last_update_utc)
+                         voyage_id, mission_id, vessel_id, incident_id, to_participant_key, created_utc, last_update_utc)
                         VALUES
                         (@id, @coordination_room_id, @tenant_id, @author_type, @author_id, @author_name, @content,
-                         @voyage_id, @mission_id, @vessel_id, @incident_id, @created_utc, @last_update_utc);";
+                         @voyage_id, @mission_id, @vessel_id, @incident_id, @to_participant_key, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", message.Id);
                     cmd.Parameters.AddWithValue("@coordination_room_id", message.CoordinationRoomId);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)message.TenantId ?? DBNull.Value);
@@ -65,6 +65,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@mission_id", (object?)message.MissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)message.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@incident_id", (object?)message.IncidentId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@to_participant_key", (object?)message.ToParticipantKey ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", ToIso8601(message.CreatedUtc));
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(message.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -119,6 +120,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         mission_id = @mission_id,
                         vessel_id = @vessel_id,
                         incident_id = @incident_id,
+                        to_participant_key = @to_participant_key,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", message.Id);
@@ -132,12 +134,44 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@mission_id", (object?)message.MissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@vessel_id", (object?)message.VesselId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@incident_id", (object?)message.IncidentId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@to_participant_key", (object?)message.ToParticipantKey ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(message.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
 
             return message;
+        }
+
+        /// <inheritdoc />
+        public async Task<List<CoordinationMessage>> EnumerateByVoyageAsync(string voyageId, DateTime? afterUtc = null, int limit = 20, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(voyageId)) throw new ArgumentNullException(nameof(voyageId));
+            if (limit < 1) limit = 1;
+            if (limit > 100) limit = 100;
+
+            List<CoordinationMessage> results = new List<CoordinationMessage>();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = afterUtc.HasValue
+                        ? "SELECT * FROM coordination_messages WHERE voyage_id = @voyage_id AND created_utc > @after_utc ORDER BY created_utc DESC LIMIT @limit;"
+                        : "SELECT * FROM coordination_messages WHERE voyage_id = @voyage_id ORDER BY created_utc DESC LIMIT @limit;";
+                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    if (afterUtc.HasValue) cmd.Parameters.AddWithValue("@after_utc", ToIso8601(afterUtc.Value));
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(MessageFromReader(reader));
+                    }
+                }
+            }
+
+            return results;
         }
 
         /// <inheritdoc />
@@ -212,6 +246,46 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return results;
         }
 
+        /// <inheritdoc />
+        public async Task<List<CoordinationMessage>> EnumerateVisibleToAsync(string coordinationRoomId, string? participantKey, DateTime? afterUtc = null, int limit = 200, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(coordinationRoomId)) throw new ArgumentNullException(nameof(coordinationRoomId));
+            if (string.IsNullOrEmpty(participantKey)) return await EnumerateByRoomAsync(coordinationRoomId, afterUtc, limit, token).ConfigureAwait(false);
+            if (limit < 1) limit = 1;
+            if (limit > 1000) limit = 1000;
+
+            List<CoordinationMessage> results = new List<CoordinationMessage>();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    if (afterUtc.HasValue)
+                    {
+                        cmd.CommandText = "SELECT * FROM coordination_messages WHERE coordination_room_id = @coordination_room_id AND created_utc > @after_utc AND (to_participant_key IS NULL OR to_participant_key = @participant_key) ORDER BY created_utc ASC LIMIT @limit;";
+                        cmd.Parameters.AddWithValue("@after_utc", ToIso8601(afterUtc.Value));
+                    }
+                    else
+                    {
+                        cmd.CommandText = "SELECT * FROM coordination_messages WHERE coordination_room_id = @coordination_room_id AND (to_participant_key IS NULL OR to_participant_key = @participant_key) ORDER BY created_utc DESC LIMIT @limit;";
+                    }
+
+                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
+                    cmd.Parameters.AddWithValue("@participant_key", participantKey!);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(MessageFromReader(reader));
+                    }
+                }
+            }
+
+            if (!afterUtc.HasValue) results.Reverse();
+            return results;
+        }
+
         #endregion
 
         #region Private-Methods
@@ -247,6 +321,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             message.MissionId = NullableString(reader["mission_id"]);
             message.VesselId = NullableString(reader["vessel_id"]);
             message.IncidentId = NullableString(reader["incident_id"]);
+            message.ToParticipantKey = NullableString(reader["to_participant_key"]);
             message.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             message.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return message;

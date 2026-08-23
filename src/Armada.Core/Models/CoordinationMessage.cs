@@ -75,6 +75,13 @@ namespace Armada.Core.Models
         public string? IncidentId { get; set; } = null;
 
         /// <summary>
+        /// Optional participant key this note is addressed to. Null means broadcast to
+        /// the whole room. Addressed notes are still visible to everyone; the key marks
+        /// them as work directed at one participant.
+        /// </summary>
+        public string? ToParticipantKey { get; set; } = null;
+
+        /// <summary>
         /// Creation timestamp in UTC.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

@@ -335,6 +335,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CoordinationDatabaseTests());
             runner.AddSuite(new CoordinationServiceTests());
             runner.AddSuite(new CoordinationClaimTests());
+            runner.AddSuite(new CoordinationCaptainVoiceTests());
             runner.AddSuite(new DispatchHoldTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);

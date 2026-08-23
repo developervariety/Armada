@@ -40,6 +40,12 @@ namespace Armada.Core.Database.SqlServer.Implementations
         /// <inheritdoc />
         public Task<List<CoordinationMessage>> EnumerateByRoomAsync(string coordinationRoomId, DateTime? afterUtc = null, int limit = 200, CancellationToken token = default) => throw NotSupported();
 
+        /// <inheritdoc />
+        public Task<List<CoordinationMessage>> EnumerateByVoyageAsync(string voyageId, DateTime? afterUtc = null, int limit = 20, CancellationToken token = default) => throw NotSupported();
+
+        /// <inheritdoc />
+        public Task<List<CoordinationMessage>> EnumerateVisibleToAsync(string coordinationRoomId, string? participantKey, DateTime? afterUtc = null, int limit = 200, CancellationToken token = default) => throw NotSupported();
+
         private static NotSupportedException NotSupported()
         {
             return new NotSupportedException("Coordination rooms are currently implemented for SQLite- and PostgreSQL-backed Armada deployments.");

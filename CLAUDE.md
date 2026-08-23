@@ -80,7 +80,7 @@ added.
 Admiral = coordinator process. Captain = worker agent. Fleet = collection of
 repositories. Vessel = single git repository. Mission = atomic work unit.
 Voyage = batch of related missions. Dock = git worktree for a captain.
-Signal = message between admiral and captains.
+Signal = message between admiral and captains. Coordination board = shared chatroom (dashboard `/chatroom`, `armada_coordination_*` tools) where operator sessions claim work and captains post `[ARMADA:NOTE]` lines. Campaign = opt-in parent/lane/program objective tree for one large effort.
 
 ## Coding standards
 

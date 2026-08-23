@@ -509,6 +509,25 @@ Judge missions do not file papercuts. A judge reports what it finds through
 its verdict, and splitting review feedback across two surfaces means the
 operator reads only one of them.
 
+### 4.10 Campaign Work
+
+A campaign is an opt-in objective tree for one large effort: a root tagged
+`campaign:<name>`, lane children per source or area, and slices beneath the
+lanes. Plain objectives outside any campaign remain the default; do not force
+ordinary work into one.
+
+Operating rules:
+
+1. Claim the slice (`armada_coordination_claim`) before starting; heartbeat
+   while working; release when done.
+2. Encode wave ordering with BlockedByObjectiveIds, not prose.
+3. Attach the campaign's rules playbook (for porting:
+   `porting-campaign-rules`) through selectedPlaybooks on dispatch.
+4. On landing, link EvidenceLinks - commit SHAs, green Checks - and the
+   source-glossary entry the slice extended. No evidence links means not done.
+5. Answer "where does this stand" with `armada_campaign_status`, not ten
+   enumerations.
+
 ## 5. Recovery And Incident Workflow
 
 When autonomous recovery is enabled, Armada classifies failed missions,
@@ -767,10 +786,34 @@ every reader immediately; they are never injected into captain briefs.
   before dispatching voyages or touching incidents so you do not duplicate a
   peer session's work.
 - `armada_coordination_heartbeat` — refresh your presence while working.
+- `armada_coordination_claim` — reserve a vessel or objective (claim / release /
+  list). Claims expire unless heartbeats keep them alive; a dispatch overlapping
+  another session's active claim announces the overlap on the board; the inbox
+  raises `StalePeer` when a silent session still holds one.
+- `armada_campaign_status` — roll up a campaign: objective tree under a tag or
+  root, active claims, recent board notes.
 
 The admiral also mirrors selected fleet events (`voyage.dispatched`,
 `voyage.cancelled`, `mission.completed`, `mission.failed`,
 `mission.cancelled`) onto the board as system notes.
+
+Notes can be ADDRESSED to one participant (`toParticipantKey`): still visible
+to everyone, but marked as directed at that session. This is how a session
+hands work to another - "join the chatroom" is a complete instruction for a
+new helper session, which reads broadcast plus its own mail and picks up
+addressed asks. `armada_coordination_read` takes `participantKey` for exactly
+this filtered view.
+
+Voyage-tagged notes are the one case where the board reaches a captain brief:
+at a stage handoff, up to ten notes naming the voyage created since the prior
+stage started are appended under "Board notes on this voyage". General
+fleet-room chatter stays advisory and never injects.
+
+Captains post through the same surface without any MCP exposure: a
+`[ARMADA:NOTE] one-line note` marker line in agent output becomes a
+Captain-author board message linked to their mission (20 per mission,
+credential-redacted). The directive reaches captains in every mission brief;
+the porting playbook asks for milestone notes explicitly.
 
 #### Coordination Claims
 

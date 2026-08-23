@@ -1487,6 +1487,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_coordination_claims_status_subject ON coordination_claims(status, subject_type, subject_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_coordination_claims_room_participant ON coordination_claims(coordination_room_id, participant_key);"
+                ),
+                new SchemaMigration(78, "Add addressed-to-participant column to coordination messages for session work handoffs",
+                    @"ALTER TABLE coordination_messages ADD COLUMN to_participant_key TEXT;",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_messages_to_key ON coordination_messages(to_participant_key);"
                 )
             };
         }
