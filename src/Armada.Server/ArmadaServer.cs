@@ -260,7 +260,10 @@ namespace Armada.Server
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging);
             _ObjectiveService = new ObjectiveService(_Database);
-            _ReleaseService = new ReleaseService(_Database, _WorkflowProfileService, _Logging);
+            ReleaseWebhookDispatcher? releaseWebhookDispatcher = null;
+            if (_Settings.CdWebhook != null && _Settings.CdWebhook.IsConfigured())
+                releaseWebhookDispatcher = new ReleaseWebhookDispatcher(_Settings.CdWebhook, _Logging);
+            _ReleaseService = new ReleaseService(_Database, _WorkflowProfileService, _Logging, releaseWebhookDispatcher);
             _DeploymentService = new DeploymentService(_Database, _WorkflowProfileService, _EnvironmentService, _CheckRunService, _Logging);
             _IncidentService = new IncidentService(_Database);
             _RunbookService = new RunbookService(_Database, _Logging);

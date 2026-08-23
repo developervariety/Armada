@@ -531,11 +531,16 @@ rollout targets.
 1. Create a release and link its objective, voyages, missions, artifacts, and
    Checks.
 2. Move the release through its supported states only when evidence permits.
-3. Create a deployment against a named environment.
-4. Approve it when the environment requires approval.
-5. Run deployment verification.
-6. Use rollback on the same deployment record if verification fails.
-7. Link the related incident and runbook execution.
+3. When a release transitions to Shipped and the `cdWebhook` setting is
+   configured, the admiral POSTs a `release.shipped` evidence payload to the
+   configured endpoint; delivery or failure is recorded as a
+   `release.webhook.*` event on the release. A webhook failure never blocks the
+   release update.
+4. Create a deployment against a named environment.
+5. Approve it when the environment requires approval.
+6. Run deployment verification.
+7. Use rollback on the same deployment record if verification fails.
+8. Link the related incident and runbook execution.
 
 See [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for the detailed procedure.
 

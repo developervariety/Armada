@@ -976,6 +976,13 @@ namespace Armada.Core.Settings
         public RemoteTriggerSettings? RemoteTrigger { get; set; }
 
         /// <summary>
+        /// Optional: configuration for outbound CD webhooks. When a release is approved
+        /// (transitions to Shipped), the admiral POSTs release evidence to the configured endpoint.
+        /// Null or absent means the feature is disabled; admiral runs as today.
+        /// </summary>
+        public CdWebhookSettings? CdWebhook { get; set; }
+
+        /// <summary>
         /// Armada-native mission failure recovery policy.
         /// </summary>
         public AutonomousRecoverySettings AutonomousRecovery
