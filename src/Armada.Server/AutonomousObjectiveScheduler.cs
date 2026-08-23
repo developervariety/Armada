@@ -55,8 +55,16 @@ namespace Armada.Server
         public string? LastResultSummary { get; private set; }
 
         /// <summary>
-        /// Number of objectives with currently active linked voyages, as of the last sweep tick.
+        /// Number of objectives that have an active linked voyage, as of the last sweep tick.
         /// </summary>
+        /// <remarks>
+        /// This counts EVERY active linked voyage, including one an operator dispatched by hand --
+        /// not only voyages this scheduler dispatched. That is deliberate: the number exists to
+        /// apply back-pressure, and a second autonomous voyage against an objective a human is
+        /// already working duplicates the work rather than adding throughput. The consequence is
+        /// that the count can exceed MaxConcurrentVoyages, because the limit gates what the
+        /// SCHEDULER starts and cannot gate what an operator starts.
+        /// </remarks>
         public int ActiveDispatchedCount { get; private set; }
 
         /// <summary>
@@ -266,9 +274,11 @@ namespace Armada.Server
 
                 if (capacity <= 0)
                 {
-                    _Logging.Debug(_Header + "sweep: max concurrent voyages reached (" + activeCount + "/" + MaxConcurrentVoyages + ").");
+                    string concurrencyDetail = activeCount + " objective(s) have an active linked voyage, "
+                        + "including any dispatched by an operator; limit is " + MaxConcurrentVoyages;
+                    _Logging.Debug(_Header + "sweep: concurrency limit reached (" + concurrencyDetail + ").");
                     await EmitSystemEventAsync("objective_scheduler.skipped_max_concurrent",
-                        "Autonomous objective scheduler dispatch skipped: max concurrent voyages reached (" + activeCount + "/" + MaxConcurrentVoyages + ").", token).ConfigureAwait(false);
+                        "Autonomous objective scheduler dispatch skipped: " + concurrencyDetail + ".", token).ConfigureAwait(false);
                     LastSkipReason = "max_concurrent";
                     LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (max_concurrent)";
                     return;

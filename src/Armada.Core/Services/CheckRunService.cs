@@ -153,7 +153,8 @@ namespace Armada.Core.Services
                 // build+test suites never run on one host at once. See HostWideCommandLock.
                 using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
                 {
-                    execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
+                    execution = await ExecuteCommandAsync(
+                        executionCommand, executionDirectory, _DefaultTimeout, token, profile?.EnvironmentVariables).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -576,7 +577,8 @@ namespace Armada.Core.Services
             {
                 using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
                 {
-                    execution = await ExecuteCommandAsync(executionCommand, executionDirectory, _DefaultTimeout, token).ConfigureAwait(false);
+                    execution = await ExecuteCommandAsync(
+                        executionCommand, executionDirectory, _DefaultTimeout, token, profile?.EnvironmentVariables).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
@@ -724,7 +726,12 @@ namespace Armada.Core.Services
             return await _Database.Vessels.ReadAsync(auth.TenantId!, auth.UserId!, vesselId, token).ConfigureAwait(false);
         }
 
-        private async Task<CommandExecutionResult> ExecuteCommandAsync(string command, string workingDirectory, TimeSpan timeout, CancellationToken token)
+        private async Task<CommandExecutionResult> ExecuteCommandAsync(
+            string command,
+            string workingDirectory,
+            TimeSpan timeout,
+            CancellationToken token,
+            IReadOnlyDictionary<string, string>? environmentVariables = null)
         {
             bool isWindows = OperatingSystem.IsWindows();
 
@@ -737,6 +744,18 @@ namespace Armada.Core.Services
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
+
+            // Applied on top of the inherited environment, so a profile adds to the dock's shell
+            // rather than replacing it. A check that needs a variable is otherwise unrunnable in
+            // every dock, whatever the command says.
+            if (environmentVariables != null)
+            {
+                foreach (KeyValuePair<string, string> variable in environmentVariables)
+                {
+                    if (String.IsNullOrWhiteSpace(variable.Key)) continue;
+                    startInfo.Environment[variable.Key] = variable.Value ?? String.Empty;
+                }
+            }
 
             if (isWindows)
             {

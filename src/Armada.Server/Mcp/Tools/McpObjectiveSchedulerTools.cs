@@ -71,7 +71,7 @@ namespace Armada.Server.Mcp.Tools
                         enabled = new { type = "boolean", description = "When true the scheduler dispatches eligible objectives; when false it is fully disabled." },
                         paused = new { type = "boolean", description = "When true the scheduler is suspended without clearing the enabled flag." },
                         intervalMinutes = new { type = "integer", description = "Sweep interval in minutes (clamped to 1-1440)." },
-                        maxConcurrentVoyages = new { type = "integer", description = "Maximum simultaneously active scheduler-dispatched voyages (clamped to 1-50)." }
+                        maxConcurrentVoyages = new { type = "integer", description = "Stop dispatching once this many objectives have an active linked voyage (clamped to 1-50). Operator-dispatched voyages count toward it, so activeDispatchedCount can exceed this value." }
                     }
                 },
                 async (args) =>

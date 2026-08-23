@@ -995,6 +995,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                         is_default INTEGER NOT NULL DEFAULT 0,
                         active INTEGER NOT NULL DEFAULT 1,
                         language_hints_json TEXT NOT NULL DEFAULT '[]',
+                        environment_variables_json TEXT,
                         lint_command TEXT,
                         build_command TEXT,
                         unit_test_command TEXT,
@@ -1465,6 +1466,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                     );",
                     @"CREATE UNIQUE INDEX IF NOT EXISTS idx_coordination_participants_room_key ON coordination_participants(coordination_room_id, participant_key);",
                     @"CREATE INDEX IF NOT EXISTS idx_coordination_participants_room_last_seen ON coordination_participants(coordination_room_id, last_seen_utc DESC);"
+                ),
+                new SchemaMigration(76, "Add environment_variables_json to workflow_profiles",
+                    @"ALTER TABLE workflow_profiles ADD COLUMN environment_variables_json TEXT;"
                 )
             };
         }

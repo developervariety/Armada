@@ -207,6 +207,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ArmedCheckEligibilityTests());
             runner.AddSuite(new LandingStatusTruthTests());
             runner.AddSuite(new DependencyChainCancellationTests());
+            runner.AddSuite(new WorkflowProfileEnvironmentTests());
             runner.AddSuite(new ReflectionAuditDrainTests());
             runner.AddSuite(new ArchitectOutputParserTests());
             runner.AddSuite(new ReflectionOutputParserTests());

@@ -41,7 +41,9 @@ namespace Armada.Core.Models
         public DateTime? LastTickUtc { get; set; } = null;
 
         /// <summary>
-        /// Count of objectives with an active linked voyage as of the last sweep tick.
+        /// Number of objectives that have an active linked voyage, as of the last sweep tick.
+        /// Counts operator-dispatched voyages too, so it can exceed MaxConcurrentVoyages: the
+        /// limit gates what the scheduler starts, not what an operator starts.
         /// </summary>
         public int ActiveDispatchedCount { get; set; } = 0;
 

@@ -375,6 +375,56 @@ namespace Armada.Core.Services
         #region Private-Methods
 
         /// <summary>
+        /// Reports whether the configured checkout holds commits the landing repository does not,
+        /// or null when the two agree.
+        /// </summary>
+        /// <remarks>
+        /// The two are separate clones. Syncing merges the landing repository INTO the checkout, so
+        /// a checkout that carries its own commits gains a merge commit the landing repository never
+        /// learns about, and the gap widens on every landing instead of closing. The next landing
+        /// then fails with "Diverging branches can't be fast-forwarded", where the cause looks like
+        /// a defect in the new work rather than damage left by an earlier one.
+        /// <para>
+        /// This is reported and never repaired here. The obvious repair is a hard reset, and those
+        /// commits exist in exactly one place on disk -- a reset is not a fix, it is the data loss.
+        /// </para>
+        /// </remarks>
+        private async Task<string?> DescribeWorkingDirectoryDivergenceAsync(Vessel vessel, string targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(vessel.LocalPath) || String.IsNullOrEmpty(vessel.WorkingDirectory)) return null;
+
+            try
+            {
+                string? landingTip = await _Git.GetRevisionShaAsync(vessel.LocalPath!, targetBranch, token).ConfigureAwait(false);
+                string? checkoutHead = await _Git.GetRevisionShaAsync(vessel.WorkingDirectory!, "HEAD", token).ConfigureAwait(false);
+
+                if (String.IsNullOrWhiteSpace(landingTip) || String.IsNullOrWhiteSpace(checkoutHead)) return null;
+                if (String.Equals(landingTip, checkoutHead, StringComparison.OrdinalIgnoreCase)) return null;
+
+                // The checkout containing the landing tip while not equalling it means it is AHEAD:
+                // it holds commits that exist nowhere else.
+                bool? checkoutIsAhead = await _Git.TryIsAncestorAsync(
+                    vessel.WorkingDirectory!, landingTip!, "HEAD", token).ConfigureAwait(false);
+                if (checkoutIsAhead != true) return null;
+
+                return "working_directory_diverged: the configured checkout at " + vessel.WorkingDirectory
+                    + " holds commits that are not in the landing repository at " + vessel.LocalPath
+                    + " (checkout HEAD " + checkoutHead + ", landing tip " + landingTip + "). Those commits exist in "
+                    + "one place only. Do NOT reset the checkout: push them to a recover/<name> branch in the "
+                    + "landing repository and land them through the merge queue, then re-sync.";
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not compare the configured checkout against the landing repository: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Confirms from git that the mission's commit is reachable from the target branch.
         /// </summary>
         /// <remarks>
@@ -435,6 +485,16 @@ namespace Armada.Core.Services
                     {
                         await _Git.PullFastForwardOnlyAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
                         _Logging.Info(_Header + "synced user working directory " + vessel.WorkingDirectory + " with fast-forward pull");
+                    }
+
+                    string? divergence = await DescribeWorkingDirectoryDivergenceAsync(vessel, targetBranch, token).ConfigureAwait(false);
+                    if (divergence != null)
+                    {
+                        mission.FailureReason = divergence;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                        _Logging.Warn(_Header + divergence);
+                        return false;
                     }
 
                     return true;

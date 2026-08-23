@@ -250,6 +250,62 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(objective.Id, "Objective fixture should have an id.");
             }).ConfigureAwait(false);
 
+            await RunTest("An operator-dispatched voyage counts toward the concurrency limit", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                    new Vessel("concurrency-vessel", "https://github.com/test/conc.git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+
+                // Armada cannot tell an operator's voyage from its own once both are linked to an
+                // objective, and it should not try: a second autonomous voyage against work a human
+                // is already doing duplicates it rather than adding throughput. The limit therefore
+                // gates what the SCHEDULER starts, and the count can exceed it.
+                Voyage operatorVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("operator-dispatched")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Objective an operator is already working",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { operatorVoyage.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(
+                    1,
+                    scheduler.ActiveDispatchedCount,
+                    "An operator-dispatched voyage must count toward the concurrency number.");
+                AssertEqual(
+                    0,
+                    admiral.DispatchVoyageCallCount,
+                    "The scheduler must not add autonomous work on top of an operator's voyage.");
+            }).ConfigureAwait(false);
+
             await RunTest("Enabling the scheduler survives a restart", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

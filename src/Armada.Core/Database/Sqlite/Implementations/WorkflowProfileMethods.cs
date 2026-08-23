@@ -49,14 +49,14 @@ namespace Armada.Core.Database.Sqlite.Implementations
                  e2e_test_command, package_command, publish_artifact_command, release_versioning_command,
                  changelog_generation_command, migration_command, security_scan_command, performance_command,
                  deployment_verification_command, rollback_verification_command, required_secrets_json,
-                 expected_artifacts_json, environments_json, created_utc, last_update_utc)
+                 expected_artifacts_json, environments_json, environment_variables_json, created_utc, last_update_utc)
                 VALUES
                 (@id, @tenant_id, @user_id, @name, @description, @scope, @fleet_id, @vessel_id, @is_default, @active,
                  @language_hints_json, @lint_command, @build_command, @unit_test_command, @containerless_unit_test_command, @integration_test_command,
                  @e2e_test_command, @package_command, @publish_artifact_command, @release_versioning_command,
                  @changelog_generation_command, @migration_command, @security_scan_command, @performance_command,
                  @deployment_verification_command, @rollback_verification_command, @required_secrets_json,
-                 @expected_artifacts_json, @environments_json, @created_utc, @last_update_utc);";
+                 @expected_artifacts_json, @environments_json, @environment_variables_json, @created_utc, @last_update_utc);";
             AddParameters(cmd, profile);
             await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             return profile;
@@ -121,6 +121,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 required_secrets_json = @required_secrets_json,
                 expected_artifacts_json = @expected_artifacts_json,
                 environments_json = @environments_json,
+                environment_variables_json = @environment_variables_json,
                 last_update_utc = @last_update_utc
                 WHERE id = @id;";
             AddParameters(cmd, profile);
@@ -296,6 +297,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@required_secrets_json", Serialize(profile.RequiredSecrets));
             cmd.Parameters.AddWithValue("@expected_artifacts_json", Serialize(profile.ExpectedArtifacts));
             cmd.Parameters.AddWithValue("@environments_json", Serialize(profile.Environments));
+            cmd.Parameters.AddWithValue("@environment_variables_json", Serialize(profile.EnvironmentVariables));
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(profile.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(profile.LastUpdateUtc));
         }
@@ -339,6 +341,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             profile.RequiredSecrets = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["required_secrets_json"])) ?? new List<string>();
             profile.ExpectedArtifacts = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["expected_artifacts_json"])) ?? new List<string>();
             profile.Environments = Deserialize<List<WorkflowEnvironmentProfile>>(SqliteDatabaseDriver.NullableString(reader["environments_json"])) ?? new List<WorkflowEnvironmentProfile>();
+            profile.EnvironmentVariables = Deserialize<Dictionary<string, string>>(SqliteDatabaseDriver.NullableString(reader["environment_variables_json"])) ?? new Dictionary<string, string>();
             return profile;
         }
 

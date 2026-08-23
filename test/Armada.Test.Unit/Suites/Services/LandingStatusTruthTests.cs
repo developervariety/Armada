@@ -80,6 +80,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A checkout holding commits the landing repository lacks is reported, not reset", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (Vessel vessel, Mission mission) = await SeedAsync(testDb).ConfigureAwait(false);
+
+                    // Clean and on the target branch, so the sync itself runs and succeeds -- but the
+                    // checkout carries its own commits, so the merge leaves it AHEAD of the landing
+                    // repository. Nothing tells anyone until the NEXT landing cannot fast-forward.
+                    StubGitService git = new StubGitService
+                    {
+                        IsWorkingDirectoryCleanResult = true,
+                        CurrentBranchResult = vessel.DefaultBranch,
+                        IsAncestorResult = true
+                    };
+                    git.RevisionShas[vessel.LocalPath + "|" + vessel.DefaultBranch] = "landingtip";
+                    git.RevisionShas[vessel.WorkingDirectory + "|HEAD"] = "checkoutlocalonly";
+
+                    LandingService landing = BuildLandingService(testDb, git);
+
+                    bool result = await landing.MergeInDedicatedWorktreeAsync(
+                        vessel, mission, vessel.DefaultBranch!).ConfigureAwait(false);
+
+                    AssertContains(
+                        "working_directory_diverged",
+                        mission.FailureReason,
+                        "Divergence must be named at the landing that created it, not at the next one");
+                    AssertContains(
+                        "Do NOT reset",
+                        mission.FailureReason,
+                        "Those commits exist in one place only; the obvious repair is the data loss");
+                    AssertTrue(result, "The work still landed, so this is a post-step problem, not a landing failure");
+                }
+            });
+
             await RunTest("Unverifiable ancestry keeps a failed sync as a real landing failure", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

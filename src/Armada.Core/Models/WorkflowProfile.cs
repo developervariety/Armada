@@ -84,6 +84,17 @@ namespace Armada.Core.Models
         /// <summary>
         /// Lint command.
         /// </summary>
+        /// <summary>
+        /// Environment variables applied to every command this profile runs.
+        /// </summary>
+        /// <remarks>
+        /// A command can always export a variable inline, but that puts the value in every command
+        /// string that needs it and leaves a check unrunnable in a dock whose profile forgot one.
+        /// Declaring them once on the profile is what makes a guard that depends on a variable
+        /// runnable in EVERY dock the profile resolves for.
+        /// </remarks>
+        public Dictionary<string, string> EnvironmentVariables { get; set; } = new Dictionary<string, string>();
+
         public string? LintCommand { get; set; } = null;
 
         /// <summary>

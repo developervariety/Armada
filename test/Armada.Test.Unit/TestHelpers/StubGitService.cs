@@ -189,6 +189,20 @@ namespace Armada.Test.Unit.TestHelpers
             => Task.FromResult(IsWorkingDirectoryCleanResult);
 
         /// <summary>
+        /// Revision SHAs keyed by "repoPath|revision", falling back to RevisionShaResult.
+        /// </summary>
+        public Dictionary<string, string?> RevisionShas { get; } = new Dictionary<string, string?>();
+
+        /// <summary>Default answer for GetRevisionShaAsync when no keyed entry matches.</summary>
+        public string? RevisionShaResult { get; set; } = null;
+
+        public Task<string?> GetRevisionShaAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            if (RevisionShas.TryGetValue(repoPath + "|" + revision, out string? keyed)) return Task.FromResult(keyed);
+            return Task.FromResult(RevisionShaResult);
+        }
+
+        /// <summary>
         /// Ancestry answer for TryIsAncestorAsync. Null means UNKNOWN, matching the interface
         /// default: a stub that consults no repository must not be able to answer "yes".
         /// </summary>
