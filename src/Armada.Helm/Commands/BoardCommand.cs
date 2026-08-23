@@ -69,7 +69,7 @@ namespace Armada.Helm.Commands
             notes.AddColumn("Note");
             notes.AddColumn("When");
             foreach (CoordinationMessage m in messages)
-                notes.AddRow(m.AuthorName, m.Content, m.CreatedUtc.ToString("u"));
+                notes.AddRow(Markup.Escape(m.AuthorName), Markup.Escape(m.Content), m.CreatedUtc.ToString("u"));
             AnsiConsole.Write(notes);
             return 0;
         }
