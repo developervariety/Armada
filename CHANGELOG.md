@@ -47,6 +47,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 Focus: upstream v0.9.0 feature ports on top of the fork's delivery-management core.
 
+### Delivery
+- Added CD webhook integration: when a release transitions to Shipped (operator approval), the admiral POSTs a `release.shipped` JSON evidence payload (release identity, version, tag, linked voyages/missions/checks) to a configured external endpoint, so any continuous-delivery system can pick up deployment
+- Configured under the optional `cdWebhook` key in `~/.armada/settings.json` (`enabled`, `url`, optional `bearerToken`, `timeoutSeconds`, `maxRetries`, `retryBackoffSeconds`); absent or disabled means no behavior change
+- Retriable webhook failures (5xx, network, timeout, auth) are retried up to `maxRetries` times with a fixed backoff; non-retriable 4xx responses return immediately
+- Added the MCP `test_release_webhook` tool (registered only when the CD webhook is configured): sends a synthetic payload and returns the delivery outcome, for verifying endpoint reachability and authentication before approving releases
+- Added `GET /api/v1/releases/{id}/webhook-events` and a CD Webhook Delivery card on the release dashboard page showing each delivered/failed attempt with HTTP status, message, and timestamp; the card supports auto-refresh
+- Fixed dashboard tests on hosts where Node's global `localStorage` binding shadows jsdom's (in-memory polyfill in the test setup) and excluded macOS AppleDouble `._*` sidecar files from vitest discovery
+- Dispatch outcomes are recorded as `release.webhook.delivered` / `release.webhook.failed` events on the release; transport failures never block or fail the release update
+
 ### Workspace
 - Added an in-browser dock terminal: `WorkspaceService.ExecAsync` runs a bounded shell command in the vessel working tree (tenant-admins only, killed with its process tree on timeout), exposed as `POST /api/v1/workspace/vessels/{vesselId}/exec` and a dashboard Terminal panel
 - Added an in-app review diff: `WorkspaceService.GetDiffAsync` returns a unified working-tree git diff, exposed as `GET /api/v1/workspace/vessels/{vesselId}/diff` and a dashboard Review Diff panel

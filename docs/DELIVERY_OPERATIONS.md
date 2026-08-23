@@ -67,6 +67,25 @@ notes, version, or state. `armada_update_release` is a compatibility alias.
 
 Do not mark a release as shipped until its required evidence is complete.
 
+### 3.1 CD webhook on approval
+
+When a release transitions to Shipped and the optional `cdWebhook` setting is
+configured (`enabled`, `url`, `bearerToken`, `timeoutSeconds`, `maxRetries`,
+`retryBackoffSeconds` in `~/.armada/settings.json`), the admiral POSTs a
+`release.shipped` JSON payload to the configured endpoint. The payload carries
+the release identity, version, tag, and linked voyages, missions, and check
+runs. An external continuous-delivery system can consume it to pick up
+deployment.
+
+Delivery attempts are recorded as `release.webhook.delivered` or
+`release.webhook.failed` events on the release. Retriable failures (5xx,
+network, timeout, auth) retry up to `maxRetries` times; a failure never blocks
+the release update. Read delivery history with
+`GET /api/v1/releases/{id}/webhook-events`, the CD Webhook Delivery card on the
+dashboard release page, or by enumerating events for the release. Verify
+endpoint reachability and authentication first with the MCP
+`test_release_webhook` tool, which sends a clearly-labeled synthetic payload.
+
 ## 4. Create And Approve A Deployment
 
 Use `create_deployment` with a named environment and a source release or ref.

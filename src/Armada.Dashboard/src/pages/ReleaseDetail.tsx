@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createRelease,
   deleteRelease,
   getRelease,
   getReleaseGitHubPullRequests,
+  getReleaseWebhookEvents,
   listCheckRuns,
   listDeployments,
   listObjectives,
@@ -14,7 +15,9 @@ import {
   refreshRelease,
   updateRelease,
 } from '../api/client';
-import type { CheckRun, Deployment, GitHubPullRequestDetail, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
+import type { ArmadaEvent, CheckRun, Deployment, GitHubPullRequestDetail, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -61,6 +64,7 @@ export default function ReleaseDetail() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [gitHubPullRequests, setGitHubPullRequests] = useState<GitHubPullRequestDetail[]>([]);
+  const [webhookEvents, setWebhookEvents] = useState<ArmadaEvent[]>([]);
   const [vesselId, setVesselId] = useState('');
   const [workflowProfileId, setWorkflowProfileId] = useState('');
   const [title, setTitle] = useState('Draft Release');
@@ -205,6 +209,26 @@ export default function ReleaseDetail() {
 
     return () => { cancelled = true; };
   }, [createMode, id]);
+
+  const loadWebhookEvents = useCallback(async () => {
+    if (createMode || !id) {
+      setWebhookEvents([]);
+      return;
+    }
+
+    try {
+      const result = await getReleaseWebhookEvents(id);
+      setWebhookEvents(result || []);
+    } catch {
+      setWebhookEvents([]);
+    }
+  }, [createMode, id]);
+
+  useEffect(() => {
+    void loadWebhookEvents();
+  }, [loadWebhookEvents]);
+
+  const { seconds: webhookRefreshSeconds, setSeconds: setWebhookRefreshSeconds } = useAutoRefresh('releasedetail_webhook', loadWebhookEvents);
 
   function buildPayload(): ReleaseUpsertRequest {
     return {
@@ -603,6 +627,52 @@ export default function ReleaseDetail() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
+              <h3>{t('CD Webhook Delivery')}</h3>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }} className="text-dim">
+                <span>{webhookEvents.length} {t('delivery events')}</span>
+                <AutoRefreshSelect seconds={webhookRefreshSeconds} onChange={setWebhookRefreshSeconds} />
+              </div>
+            </div>
+
+            {webhookEvents.length === 0 ? (
+              <p className="text-dim">{t('No CD webhook deliveries recorded. Events appear here when the release is approved (Shipped) and the cdWebhook setting is configured.')}</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.6rem' }}>
+                {webhookEvents.map((evt) => {
+                  const delivered = evt.eventType === 'release.webhook.delivered';
+                  let statusCode: number | null = null;
+                  try {
+                    const parsed = evt.payload ? (JSON.parse(evt.payload) as { statusCode?: number | null }) : null;
+                    statusCode = parsed?.statusCode ?? null;
+                  } catch {
+                    statusCode = null;
+                  }
+                  return (
+                    <div key={evt.id} className="card" style={{ padding: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
+                        <div>
+                          <strong>{delivered ? t('Delivered') : t('Failed')}</strong>
+                          {statusCode != null && (
+                            <span className="mono text-dim" style={{ marginLeft: '0.5rem', fontSize: '0.78rem' }}>HTTP {statusCode}</span>
+                          )}
+                        </div>
+                        <StatusBadge status={delivered ? 'passed' : 'failed'} />
+                      </div>
+                      {evt.message && (
+                        <div className="text-dim" style={{ marginTop: '0.35rem' }}>{evt.message}</div>
+                      )}
+                      <div className="text-dim" style={{ marginTop: '0.35rem' }}>
+                        <span title={formatDateTime(evt.createdUtc)}>{formatRelativeTime(evt.createdUtc)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

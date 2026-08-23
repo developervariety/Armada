@@ -92,6 +92,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PapercutTests());
             runner.AddSuite(new SettingsTests());
             runner.AddSuite(new ReleaseVersionTests());
+            runner.AddSuite(new ReleaseServiceTests());
             runner.AddSuite(new StartupScriptTests());
             runner.AddSuite(new GitServiceTests());
             runner.AddSuite(new GitServiceIsPrMergedTests());
@@ -209,6 +210,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerSettingsTests());
             runner.AddSuite(new RemoteTriggerHttpClientTests());
             runner.AddSuite(new RemoteTriggerServiceTests());
+            runner.AddSuite(new CdWebhookSettingsTests());
+            runner.AddSuite(new ReleaseWebhookDispatcherTests());
             runner.AddSuite(new RemoteTriggerEventHookTests());
             runner.AddSuite(new IncidentServiceTests());
             runner.AddSuite(new ObjectiveServiceTests());

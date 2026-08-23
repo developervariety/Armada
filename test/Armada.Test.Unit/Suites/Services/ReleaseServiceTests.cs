@@ -3,9 +3,12 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -239,6 +242,193 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(workingDirectory);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("UpdateAsync Candidate to Shipped dispatches webhook exactly once", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                RecordingWebhookDispatcher webhooks = new RecordingWebhookDispatcher();
+                ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging, webhooks);
+
+                string tenantId = "ten_release_webhook";
+                string userId = "usr_release_webhook";
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-release-webhook-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                    Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+                    Release release = await releases.CreateAsync(auth, new ReleaseUpsertRequest
+                    {
+                        VesselId = vessel.Id,
+                        Title = "Approved Release",
+                        Status = ReleaseStatusEnum.Candidate
+                    }).ConfigureAwait(false);
+                    AssertEqual(0, webhooks.Payloads.Count);
+
+                    Release shipped = await releases.UpdateAsync(auth, release.Id, new ReleaseUpsertRequest
+                    {
+                        Status = ReleaseStatusEnum.Shipped
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(1, webhooks.Payloads.Count);
+                    AssertEqual(release.Id, webhooks.Payloads[0].ReleaseId);
+                    AssertEqual(vessel.Id, webhooks.Payloads[0].VesselId);
+                    AssertEqual("release.shipped", webhooks.Payloads[0].Event);
+                    AssertEqual(ReleaseStatusEnum.Shipped, shipped.Status);
+                    AssertNotNull(shipped.PublishedUtc);
+
+                    Release reshipped = await releases.UpdateAsync(auth, release.Id, new ReleaseUpsertRequest
+                    {
+                        Status = ReleaseStatusEnum.Shipped,
+                        Summary = "Touch while already shipped"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(ReleaseStatusEnum.Shipped, reshipped.Status);
+                    AssertEqual(1, webhooks.Payloads.Count);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("CreateAsync created directly as Shipped dispatches webhook", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                RecordingWebhookDispatcher webhooks = new RecordingWebhookDispatcher();
+                ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging, webhooks);
+
+                string tenantId = "ten_release_whcreate";
+                string userId = "usr_release_whcreate";
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-release-whcreate-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                    Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+                    Release release = await releases.CreateAsync(auth, new ReleaseUpsertRequest
+                    {
+                        VesselId = vessel.Id,
+                        Title = "Direct Shipped",
+                        Status = ReleaseStatusEnum.Shipped
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(1, webhooks.Payloads.Count);
+                    AssertEqual(release.Id, webhooks.Payloads[0].ReleaseId);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateAsync webhook failure does not fail the release update", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                FailingWebhookDispatcher webhooks = new FailingWebhookDispatcher();
+                ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging, webhooks);
+
+                string tenantId = "ten_release_whfail";
+                string userId = "usr_release_whfail";
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-release-whfail-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                    Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+                    Release release = await releases.CreateAsync(auth, new ReleaseUpsertRequest
+                    {
+                        VesselId = vessel.Id,
+                        Title = "Failing Webhook Release",
+                        Status = ReleaseStatusEnum.Candidate
+                    }).ConfigureAwait(false);
+
+                    Release shipped = await releases.UpdateAsync(auth, release.Id, new ReleaseUpsertRequest
+                    {
+                        Status = ReleaseStatusEnum.Shipped
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(ReleaseStatusEnum.Shipped, shipped.Status);
+                    AssertEqual(1, webhooks.Attempts);
+
+                    EnumerationResult<ArmadaEvent> evtResult = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery()).ConfigureAwait(false);
+                    List<ArmadaEvent> events = evtResult.Objects;
+                    AssertTrue(events.Exists(evt => evt.EventType == "release.webhook.failed" && evt.EntityId == release.Id),
+                        "Expected a release.webhook.failed event recorded.");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+            await RunTest("ListWebhookEventsAsync returns delivery events within caller scope", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                RecordingWebhookDispatcher webhooks = new RecordingWebhookDispatcher();
+                ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging, webhooks);
+
+                string tenantId = "ten_release_whlist";
+                string userId = "usr_release_whlist";
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-release-whlist-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                    Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+                    Release release = await releases.CreateAsync(auth, new ReleaseUpsertRequest
+                    {
+                        VesselId = vessel.Id,
+                        Title = "Listed Webhook Release",
+                        Status = ReleaseStatusEnum.Candidate
+                    }).ConfigureAwait(false);
+                    await releases.UpdateAsync(auth, release.Id, new ReleaseUpsertRequest
+                    {
+                        Status = ReleaseStatusEnum.Shipped
+                    }).ConfigureAwait(false);
+
+                    List<ArmadaEvent> events = await releases.ListWebhookEventsAsync(auth, release.Id).ConfigureAwait(false);
+
+                    AssertEqual(1, events.Count);
+                    AssertEqual(release.Id, events[0].EntityId);
+                    AssertEqual("release", events[0].EntityType);
+                    AssertEqual("release.webhook.delivered", events[0].EventType);
+
+                    AssertThrows<InvalidOperationException>(
+                        () => releases.ListWebhookEventsAsync(auth, "rel_does_not_exist").GetAwaiter().GetResult());
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
         }
 
         private static LoggingModule CreateLogging()
@@ -297,6 +487,36 @@ namespace Armada.Test.Unit.Suites.Services
             }
             catch
             {
+            }
+        }
+
+        private sealed class RecordingWebhookDispatcher : IReleaseWebhookDispatcher
+        {
+            public List<ReleaseWebhookPayload> Payloads { get; } = new List<ReleaseWebhookPayload>();
+
+            public Task<WebhookDispatchResult> DispatchAsync(ReleaseWebhookPayload payload, CancellationToken token = default)
+            {
+                Payloads.Add(payload);
+                return Task.FromResult(new WebhookDispatchResult
+                {
+                    Outcome = WebhookDispatchOutcome.Success,
+                    StatusCode = 200
+                });
+            }
+        }
+
+        private sealed class FailingWebhookDispatcher : IReleaseWebhookDispatcher
+        {
+            public int Attempts { get; private set; }
+
+            public Task<WebhookDispatchResult> DispatchAsync(ReleaseWebhookPayload payload, CancellationToken token = default)
+            {
+                Attempts += 1;
+                return Task.FromResult(new WebhookDispatchResult
+                {
+                    Outcome = WebhookDispatchOutcome.RetriableFailure,
+                    ErrorMessage = "simulated network error"
+                });
             }
         }
     }

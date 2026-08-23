@@ -171,6 +171,30 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/releases/{id}/webhook-events", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                try
+                {
+                    return await _Releases.ListWebhookEventsAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Release not found" };
+                }
+            },
+            api => api
+                .WithTag("Releases")
+                .WithSummary("Get CD webhook delivery events for a release")
+                .WithDescription("Returns release.webhook.delivered and release.webhook.failed events recorded when the release was approved (transitioned to Shipped), most recent first.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Release ID (rel_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<List<ArmadaEvent>>("Webhook delivery events"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Put("/api/v1/releases/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

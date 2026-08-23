@@ -4,20 +4,26 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Text;
+    using System.Text.Json;
     using System.Text.RegularExpressions;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
     using SyslogLogging;
 
     /// <summary>
-    /// Creates, updates, refreshes, and reads first-class release records.
+    /// Creates, updates, refreshes, and reads first-class release records. When a release is
+    /// approved (transitions to Shipped) and a CD webhook dispatcher is configured, emits a
+    /// release-shipped evidence payload to the external endpoint.
     /// </summary>
     public class ReleaseService
     {
         private readonly string _Header = "[ReleaseService] ";
+        private const string _WebhookEventType = "release.shipped";
         private readonly DatabaseDriver _Database;
         private readonly WorkflowProfileService _WorkflowProfiles;
+        private readonly IReleaseWebhookDispatcher? _WebhookDispatcher;
         private readonly LoggingModule _Logging;
         private static readonly Regex _SemanticVersionRegex = new Regex(@"(?<!\d)(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z\.-]+)?(?!\d)", RegexOptions.Compiled);
 
@@ -27,11 +33,13 @@ namespace Armada.Core.Services
         public ReleaseService(
             DatabaseDriver database,
             WorkflowProfileService workflowProfiles,
-            LoggingModule logging)
+            LoggingModule logging,
+            IReleaseWebhookDispatcher? webhookDispatcher = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _WorkflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _WebhookDispatcher = webhookDispatcher;
         }
 
         /// <summary>
@@ -98,6 +106,7 @@ namespace Armada.Core.Services
 
             release = await _Database.Releases.CreateAsync(release, token).ConfigureAwait(false);
             _Logging.Info(_Header + "created release " + release.Id + " for vessel " + release.VesselId);
+            await DispatchShippedWebhookIfApprovedAsync(release, previousStatus: null, token).ConfigureAwait(false);
             return release;
         }
 
@@ -117,10 +126,12 @@ namespace Armada.Core.Services
             Release existing = await ReadAsync(auth, id, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Release not found.");
 
+            ReleaseStatusEnum previousStatus = existing.Status;
             ResolvedReleaseDraft draft = await ResolveDraftAsync(auth, existing, request, token).ConfigureAwait(false);
             ApplyDraft(existing, draft, preserveExistingPublishedUtc: true);
             existing = await _Database.Releases.UpdateAsync(existing, token).ConfigureAwait(false);
             _Logging.Info(_Header + "updated release " + existing.Id);
+            await DispatchShippedWebhookIfApprovedAsync(existing, previousStatus, token).ConfigureAwait(false);
             return existing;
         }
 
@@ -177,6 +188,105 @@ namespace Armada.Core.Services
 
             await _Database.Releases.DeleteAsync(id, BuildScopeQuery(auth), token).ConfigureAwait(false);
             _Logging.Info(_Header + "deleted release " + id);
+        }
+
+        /// <summary>
+        /// Dispatches the release-shipped webhook when a release enters Shipped from any other
+        /// status (including creation directly as Shipped). Never throws: transport failures and
+        /// event-recording failures are logged and recorded as events only.
+        /// </summary>
+        private async Task DispatchShippedWebhookIfApprovedAsync(Release release, ReleaseStatusEnum? previousStatus, CancellationToken token)
+        {
+            if (_WebhookDispatcher == null)
+                return;
+            if (release.Status != ReleaseStatusEnum.Shipped || previousStatus == ReleaseStatusEnum.Shipped)
+                return;
+
+            ReleaseWebhookPayload payload = new ReleaseWebhookPayload
+            {
+                Event = _WebhookEventType,
+                ReleaseId = release.Id,
+                VesselId = release.VesselId,
+                Title = release.Title,
+                Version = release.Version,
+                TagName = release.TagName,
+                Summary = release.Summary ?? String.Empty,
+                Status = release.Status.ToString(),
+                VoyageIds = new List<string>(release.VoyageIds),
+                MissionIds = new List<string>(release.MissionIds),
+                CheckRunIds = new List<string>(release.CheckRunIds),
+                PublishedUtc = release.PublishedUtc
+            };
+
+            WebhookDispatchResult result;
+            try
+            {
+                result = await _WebhookDispatcher.DispatchAsync(payload, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "CD webhook dispatcher threw for release " + release.Id + ": " + ex.Message);
+                await EmitWebhookEventAsync(release, "release.webhook.failed", "unexpected dispatcher error: " + ex.Message, null, token).ConfigureAwait(false);
+                return;
+            }
+
+            if (result.Outcome == WebhookDispatchOutcome.Success)
+            {
+                _Logging.Info(_Header + "CD webhook delivered for release " + release.Id + " (" + result.StatusCode + ")");
+                await EmitWebhookEventAsync(release, "release.webhook.delivered", "Delivered to CD endpoint", result.StatusCode, token).ConfigureAwait(false);
+            }
+            else
+            {
+                _Logging.Warn(_Header + "CD webhook failed for release " + release.Id + ": " + result.ErrorMessage);
+                await EmitWebhookEventAsync(release, "release.webhook.failed", result.ErrorMessage ?? "unknown error", result.StatusCode, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task EmitWebhookEventAsync(Release release, string eventType, string message, int? statusCode, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent
+                {
+                    EventType = eventType,
+                    EntityType = "release",
+                    EntityId = release.Id,
+                    VesselId = release.VesselId,
+                    Message = message,
+                    Payload = JsonSerializer.Serialize(new
+                    {
+                        releaseId = release.Id,
+                        vesselId = release.VesselId,
+                        version = release.Version,
+                        tagName = release.TagName,
+                        statusCode
+                    })
+                };
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record release webhook event: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Lists the CD webhook delivery events recorded for one release, most recent first. The
+        /// release must exist within the caller scope; access to it grants access to its delivery
+        /// events.
+        /// </summary>
+        public async Task<List<ArmadaEvent>> ListWebhookEventsAsync(
+            AuthContext auth,
+            string id,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+
+            _ = await ReadAsync(auth, id, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Release not found.");
+
+            return await _Database.Events.EnumerateByEntityAsync("release", id, 50, token).ConfigureAwait(false);
         }
 
         private async Task<ResolvedReleaseDraft> ResolveDraftAsync(
