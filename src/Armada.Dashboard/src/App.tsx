@@ -26,6 +26,8 @@ const Users = lazy(() => import('./pages/admin/Users'));
 const Credentials = lazy(() => import('./pages/admin/Credentials'));
 const Dispatch = lazy(() => import('./pages/Dispatch'));
 const Planning = lazy(() => import('./pages/Planning'));
+// Fork-only: the shared coordination board has no upstream counterpart.
+const Coordination = lazy(() => import('./pages/Coordination'));
 const Objectives = lazy(() => import('./pages/Objectives'));
 const ObjectiveDetail = lazy(() => import('./pages/ObjectiveDetail'));
 const Signals = lazy(() => import('./pages/Signals'));
@@ -107,6 +109,8 @@ export default function App() {
                       <Route path="dashboard" element={<Navigate to="/" replace />} />
                       <Route path="planning" element={<Planning />} />
                       <Route path="planning/:id" element={<Planning />} />
+                      {/* Fork-only: shared coordination board for operator sessions. */}
+                      <Route path="chatroom" element={<Coordination />} />
                       <Route path="dispatch" element={<DispatchHub />} />
                       <Route path="backlog" element={<Navigate to="/dispatch?tab=backlog" replace />} />
                       <Route path="backlog/:id" element={<ObjectiveDetail />} />

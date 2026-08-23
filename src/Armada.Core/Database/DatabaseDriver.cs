@@ -49,6 +49,21 @@ namespace Armada.Core.Database
         public IPlanningSessionMessageMethods PlanningSessionMessages { get; protected set; } = null!;
 
         /// <summary>
+        /// Coordination room operations.
+        /// </summary>
+        public ICoordinationRoomMethods CoordinationRooms { get; protected set; } = null!;
+
+        /// <summary>
+        /// Coordination message operations.
+        /// </summary>
+        public ICoordinationMessageMethods CoordinationMessages { get; protected set; } = null!;
+
+        /// <summary>
+        /// Coordination participant (presence) operations.
+        /// </summary>
+        public ICoordinationParticipantMethods CoordinationParticipants { get; protected set; } = null!;
+
+        /// <summary>
         /// Objective/backlog operations.
         /// </summary>
         public IObjectiveMethods Objectives { get; protected set; } = null!;

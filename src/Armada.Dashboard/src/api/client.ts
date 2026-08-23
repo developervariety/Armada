@@ -125,6 +125,12 @@ import type {
   CaptainChatRequest,
   CaptainChatResponse,
   VesselBuildContextRequest,
+  CoordinationRoom,
+  CoordinationMessage,
+  CoordinationParticipant,
+  CoordinationRoomCreateRequest,
+  CoordinationMessagePostRequest,
+  CoordinationPresenceRequest,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -1047,3 +1053,20 @@ export const chatWithCaptain = (captainId: string, body: CaptainChatRequest, opt
 /** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */
 export const buildVesselContext = (vesselId: string, body: VesselBuildContextRequest) =>
   post<Vessel>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/build-context`, body, { timeout: 1800000 });
+
+// ==================== Coordination Board ====================
+export const listCoordinationRooms = () => get<CoordinationRoom[]>('/api/v1/coordination/rooms');
+export const createCoordinationRoom = (data: CoordinationRoomCreateRequest) => post<CoordinationRoom>('/api/v1/coordination/rooms', data);
+export const listCoordinationMessages = (roomKey: string, params?: { limit?: number; afterUtc?: string }) => {
+  const search = new URLSearchParams();
+  if (params?.limit) search.set('limit', String(params.limit));
+  if (params?.afterUtc) search.set('afterUtc', params.afterUtc);
+  const query = search.toString();
+  return get<CoordinationMessage[]>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/messages${query ? `?${query}` : ''}`);
+};
+export const postCoordinationMessage = (roomKey: string, data: CoordinationMessagePostRequest) =>
+  post<CoordinationMessage>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/messages`, data);
+export const sendCoordinationPresence = (roomKey: string, data: CoordinationPresenceRequest) =>
+  post<CoordinationParticipant>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/presence`, data);
+export const listCoordinationParticipants = (roomKey: string, activeWithinMinutes = 15) =>
+  get<CoordinationParticipant[]>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/participants?activeWithinMinutes=${activeWithinMinutes}`);

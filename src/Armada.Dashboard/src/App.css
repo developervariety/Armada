@@ -6860,3 +6860,98 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .mcp-warning-icon { color: var(--orange, #d98a00); flex-shrink: 0; margin-top: 1px; }
 .mcp-warning-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
 .mcp-warning-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: center; }
+
+/* ==================== Coordination Board (chatroom) ==================== */
+
+.coordination-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.coordination-rooms {
+  width: 220px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.coordination-room-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.coordination-room-item:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+}
+
+.coordination-room-item.is-active {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.coordination-chat {
+  flex: 1;
+  min-width: 0;
+}
+
+.coordination-presence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.coordination-presence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.coordination-presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  display: inline-block;
+}
+
+.coordination-chat-window {
+  max-height: 60vh;
+}
+
+.coordination-chat-message-system {
+  align-self: center;
+  opacity: 0.85;
+  max-width: 90%;
+}
+
+.coordination-message-refs {
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+@media (max-width: 900px) {
+  .coordination-layout {
+    flex-direction: column;
+  }
+
+  .coordination-rooms {
+    width: 100%;
+  }
+}

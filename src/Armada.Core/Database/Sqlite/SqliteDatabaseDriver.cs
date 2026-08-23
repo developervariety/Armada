@@ -65,6 +65,9 @@ namespace Armada.Core.Database.Sqlite
             Voyages = new VoyageMethods(this, _Settings, _Logging);
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
+            CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
+            CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
+            CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
@@ -110,6 +113,9 @@ namespace Armada.Core.Database.Sqlite
             Voyages = new VoyageMethods(this, _Settings, _Logging);
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
+            CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
+            CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
+            CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
@@ -725,6 +731,62 @@ namespace Armada.Core.Database.Sqlite
             message.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             message.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return message;
+        }
+
+        /// <summary>
+        /// Convert a SqliteDataReader row to a CoordinationRoom model.
+        /// </summary>
+        internal static CoordinationRoom CoordinationRoomFromReader(SqliteDataReader reader)
+        {
+            CoordinationRoom room = new CoordinationRoom();
+            room.Id = reader["id"].ToString()!;
+            room.TenantId = NullableString(reader["tenant_id"]);
+            room.UserId = NullableString(reader["user_id"]);
+            room.Key = reader["key"].ToString()!;
+            room.Name = reader["name"].ToString()!;
+            room.Description = NullableString(reader["description"]);
+            room.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            room.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            return room;
+        }
+
+        /// <summary>
+        /// Convert a SqliteDataReader row to a CoordinationMessage model.
+        /// </summary>
+        internal static CoordinationMessage CoordinationMessageFromReader(SqliteDataReader reader)
+        {
+            CoordinationMessage message = new CoordinationMessage();
+            message.Id = reader["id"].ToString()!;
+            message.CoordinationRoomId = reader["coordination_room_id"].ToString()!;
+            message.TenantId = NullableString(reader["tenant_id"]);
+            message.AuthorType = Enum.Parse<CoordinationAuthorTypeEnum>(reader["author_type"].ToString()!);
+            message.AuthorId = NullableString(reader["author_id"]);
+            message.AuthorName = reader["author_name"].ToString()!;
+            message.Content = NullableString(reader["content"]) ?? String.Empty;
+            message.VoyageId = NullableString(reader["voyage_id"]);
+            message.MissionId = NullableString(reader["mission_id"]);
+            message.VesselId = NullableString(reader["vessel_id"]);
+            message.IncidentId = NullableString(reader["incident_id"]);
+            message.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            message.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            return message;
+        }
+
+        /// <summary>
+        /// Convert a SqliteDataReader row to a CoordinationParticipant model.
+        /// </summary>
+        internal static CoordinationParticipant CoordinationParticipantFromReader(SqliteDataReader reader)
+        {
+            CoordinationParticipant participant = new CoordinationParticipant();
+            participant.Id = reader["id"].ToString()!;
+            participant.CoordinationRoomId = reader["coordination_room_id"].ToString()!;
+            participant.TenantId = NullableString(reader["tenant_id"]);
+            participant.ParticipantKey = reader["participant_key"].ToString()!;
+            participant.DisplayName = reader["display_name"].ToString()!;
+            participant.LastSeenUtc = FromIso8601(reader["last_seen_utc"].ToString()!);
+            participant.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            participant.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            return participant;
         }
 
         /// <summary>

@@ -51,9 +51,10 @@ export const navSections: NavSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/inbox', '/dispatch', '/planning', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
+    matchers: ['/inbox', '/dispatch', '/planning', '/chatroom', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
     items: [
       { to: '/inbox', label: 'Needs You', tooltip: 'Reviews, failures, and stalls awaiting your attention', icon: icons.needsYou },
+      { to: '/chatroom', label: 'Chatroom', tooltip: 'Shared board where operator sessions and captains see who is doing what', icon: icons.ask },
       { to: '/planning', label: 'Planning', tooltip: 'Plan with a captain, preserve the transcript, and dispatch directly from the session', icon: icons.planning },
       { to: '/dispatch', label: 'Dispatch', tooltip: 'Send work to vessels; capture and refine backlog on the Backlog tab', icon: icons.dispatch },
       { to: '/missions', label: 'Missions', tooltip: 'Work units, plus Voyages and the full Merge Queue as tabs', icon: icons.missions },

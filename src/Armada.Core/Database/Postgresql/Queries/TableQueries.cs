@@ -843,7 +843,51 @@ namespace Armada.Core.Database.Postgresql.Queries
                           EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s', r.table_name, r.column_name,
                             CASE WHEN r.column_name = 'active' THEN 'TRUE' ELSE 'FALSE' END);
                         END LOOP;
-                      END $$;")
+                      END $$;"),
+                new SchemaMigration(76, "Add coordination rooms, messages, and participant presence for the shared session chatroom",
+                    @"CREATE TABLE IF NOT EXISTS coordination_rooms (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        key TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE UNIQUE INDEX IF NOT EXISTS idx_coordination_rooms_key ON coordination_rooms(key);",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_rooms_last_update ON coordination_rooms(last_update_utc DESC);",
+                    @"CREATE TABLE IF NOT EXISTS coordination_messages (
+                        id TEXT PRIMARY KEY,
+                        coordination_room_id TEXT NOT NULL,
+                        tenant_id TEXT,
+                        author_type TEXT NOT NULL DEFAULT 'Operator',
+                        author_id TEXT,
+                        author_name TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        voyage_id TEXT,
+                        mission_id TEXT,
+                        vessel_id TEXT,
+                        incident_id TEXT,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_messages_room_created ON coordination_messages(coordination_room_id, created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_messages_voyage ON coordination_messages(voyage_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_messages_mission ON coordination_messages(mission_id);",
+                    @"CREATE TABLE IF NOT EXISTS coordination_participants (
+                        id TEXT PRIMARY KEY,
+                        coordination_room_id TEXT NOT NULL,
+                        tenant_id TEXT,
+                        participant_key TEXT NOT NULL,
+                        display_name TEXT NOT NULL,
+                        last_seen_utc TEXT NOT NULL,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE UNIQUE INDEX IF NOT EXISTS idx_coordination_participants_room_key ON coordination_participants(coordination_room_id, participant_key);",
+                    @"CREATE INDEX IF NOT EXISTS idx_coordination_participants_room_last_seen ON coordination_participants(coordination_room_id, last_seen_utc DESC);"
+                )
             };
         }
 

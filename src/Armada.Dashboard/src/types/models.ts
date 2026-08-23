@@ -2300,3 +2300,81 @@ export interface VesselBuildContextRequest {
   captainId: string;
   notes?: string | null;
 }
+
+// ==================== Coordination Board (chatroom) ====================
+
+/** A shared coordination room where operator sessions and captains post notes. */
+export interface CoordinationRoom {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  key: string;
+  name: string;
+  description: string | null;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** The kind of participant that authored a coordination message. */
+export type CoordinationAuthorType = 'Operator' | 'Captain' | 'System';
+
+/** A single note posted in a coordination room. */
+export interface CoordinationMessage {
+  id: string;
+  coordinationRoomId: string;
+  tenantId: string | null;
+  authorType: CoordinationAuthorType;
+  authorId: string | null;
+  authorName: string;
+  content: string;
+  voyageId: string | null;
+  missionId: string | null;
+  vesselId: string | null;
+  incidentId: string | null;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** Presence record for a participant in a coordination room. */
+export interface CoordinationParticipant {
+  id: string;
+  coordinationRoomId: string;
+  tenantId: string | null;
+  participantKey: string;
+  displayName: string;
+  lastSeenUtc: string;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** Result of reading a coordination room. */
+export interface CoordinationRoomReadResult {
+  roomKey: string;
+  messages: CoordinationMessage[];
+  activeParticipants: CoordinationParticipant[];
+}
+
+/** Request to create a coordination room. */
+export interface CoordinationRoomCreateRequest {
+  key: string;
+  name?: string;
+  description?: string;
+}
+
+/** Request to post a note to a coordination room. */
+export interface CoordinationMessagePostRequest {
+  content: string;
+  authorName: string;
+  authorId?: string;
+  authorType?: CoordinationAuthorType;
+  voyageId?: string;
+  missionId?: string;
+  vesselId?: string;
+  incidentId?: string;
+}
+
+/** Request to refresh presence in a coordination room. */
+export interface CoordinationPresenceRequest {
+  participantKey: string;
+  displayName: string;
+}

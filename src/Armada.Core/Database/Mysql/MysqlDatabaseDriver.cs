@@ -57,6 +57,9 @@ namespace Armada.Core.Database.Mysql
             Voyages = new VoyageMethods(_ConnectionString);
             PlanningSessions = new PlanningSessionMethods(_ConnectionString);
             PlanningSessionMessages = new PlanningSessionMessageMethods(_ConnectionString);
+            CoordinationRooms = new CoordinationRoomMethods(_ConnectionString);
+            CoordinationMessages = new CoordinationMessageMethods(_ConnectionString);
+            CoordinationParticipants = new CoordinationParticipantMethods(_ConnectionString);
             Objectives = new ObjectiveMethods(_ConnectionString);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(_ConnectionString);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(_ConnectionString);

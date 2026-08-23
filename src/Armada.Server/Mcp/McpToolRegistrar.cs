@@ -99,7 +99,8 @@ namespace Armada.Server.Mcp
             ICaptainQuarantineService? captainQuarantine = null,
             UnlandedBranchService? unlandedBranches = null,
             Armada.Core.Services.DiskLifecycleService? diskLifecycle = null,
-            LongRunningJobService? longRunningJobs = null)
+            LongRunningJobService? longRunningJobs = null,
+            Armada.Server.CoordinationService? coordinationService = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -116,6 +117,7 @@ namespace Armada.Server.Mcp
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
+            if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
             McpTokenUsageTools.Register(register, database);

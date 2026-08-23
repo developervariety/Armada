@@ -167,6 +167,21 @@ namespace Armada.Core
         public static readonly string PlanningSessionMessageIdPrefix = "psm_";
 
         /// <summary>
+        /// Coordination room ID prefix.
+        /// </summary>
+        public static readonly string CoordinationRoomIdPrefix = "crm_";
+
+        /// <summary>
+        /// Coordination message ID prefix.
+        /// </summary>
+        public static readonly string CoordinationMessageIdPrefix = "cmsg_";
+
+        /// <summary>
+        /// Coordination participant ID prefix.
+        /// </summary>
+        public static readonly string CoordinationParticipantIdPrefix = "cprs_";
+
+        /// <summary>
         /// Playbook ID prefix.
         /// </summary>
         public static readonly string PlaybookIdPrefix = "pbk_";

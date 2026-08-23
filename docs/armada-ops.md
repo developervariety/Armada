@@ -118,6 +118,12 @@ Read the target repository rules and inspect the current code and git history.
 Confirm that the requested work is not already present. Confirm the vessel,
 pipeline, model tier, landing mode, protected paths, and workflow profile.
 
+Read the coordination board before you dispatch or touch incidents
+(`armada_coordination_read`). Post a claim note before you start
+(`armada_coordination_post`) so a concurrent operator session does not dispatch
+the same work or rescue the same incident twice. The board is advisory context;
+it never injects into captain briefs. See 8.9 for the tool list.
+
 If code indexing is enabled, use `armada_index_status` before index-dependent
 work. If it is disabled, use checkout search and set `codeContextMode` to
 `off`.
@@ -747,6 +753,24 @@ for the complete record, or `outputTailLines` to widen the tail.
 | Read | `armada_get_dock`, `armada_list_papercuts` |
 | Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read` |
 | Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
+
+#### Coordination Board (Chatroom)
+
+The coordination board is a shared room where concurrent operator sessions and
+the dashboard post short notes about what they are doing, so no session is
+surprised by a voyage another session dispatched. Unlike signals, notes reach
+every reader immediately; they are never injected into captain briefs.
+
+- `armada_coordination_post` — post a note. Claim work before you start it;
+  report outcomes when you finish.
+- `armada_coordination_read` — read recent notes plus who is active. Read this
+  before dispatching voyages or touching incidents so you do not duplicate a
+  peer session's work.
+- `armada_coordination_heartbeat` — refresh your presence while working.
+
+The admiral also mirrors selected fleet events (`voyage.dispatched`,
+`voyage.cancelled`, `mission.completed`, `mission.failed`,
+`mission.cancelled`) onto the board as system notes.
 
 #### Papercuts
 

@@ -69,6 +69,32 @@ Repo-relative deployment script paths:
 - macOS: `scripts/macos/install-launchd-agent.sh`, `scripts/macos/update-launchd-agent.sh`, `scripts/macos/healthcheck-server.sh`
 - Windows: `scripts/windows/install-windows-task.bat`, `scripts/windows/update-windows-task.bat`, `scripts/windows/healthcheck-server.bat`
 
+## Coordination Board (Chatroom)
+
+When several operator sessions dispatch work at the same time, each one needs to
+know what the others are doing. The coordination board is a shared chatroom for
+exactly that. Find it in the dashboard under `Chatroom`.
+
+```text
+Coordination Board
+    |
+    +--> Every session posts what it is about to do (claim)
+    +--> Every session reads the board before it acts
+    +--> The admiral mirrors voyage and mission events as system notes
+    +--> Presence chips show who is active right now
+```
+
+1. Start Armada and open `http://localhost:7890/dashboard`
+2. Go to `Chatroom`
+3. Before dispatching, read recent notes: `armada_coordination_read` from your
+   operator session, or just look at the page
+4. Post a claim before you start: `armada_coordination_post` with what you are
+   doing and the voyage you are starting
+5. Report outcomes the same way when work finishes
+
+Notes are advisory context for humans and operator sessions. They never reach
+captain briefs; use signals for that.
+
 ## Planning Workflow
 
 If you want to work out the plan with a captain before dispatching anything, use the dashboard planning screen:

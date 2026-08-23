@@ -86,6 +86,7 @@ namespace Armada.Server
         private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
+        private CoordinationService _CoordinationService = null!;
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
@@ -506,6 +507,8 @@ namespace Armada.Server
                 EmitEventAsync,
                 _WebSocketHub);
 
+            _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
+
             _CaptainTools = new CaptainToolService(
                 _Logging,
                 _Database);
@@ -856,6 +859,10 @@ namespace Armada.Server
 
             // Signals
             new SignalRoutes(_Database, EmitEventAsync, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Coordination board (chatroom)
+            new CoordinationRoutes(_Database, _CoordinationService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Events
@@ -1306,7 +1313,8 @@ namespace Armada.Server
                 captainQuarantine: _CaptainQuarantine,
                 unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging),
                 diskLifecycle: _DiskLifecycle,
-                longRunningJobs: _LongRunningJobs);
+                longRunningJobs: _LongRunningJobs,
+                coordinationService: _CoordinationService);
         }
 
         private async Task EmitEventAsync(string eventType, string message,
@@ -1337,6 +1345,32 @@ namespace Armada.Server
                         vesselId = vesselId,
                         voyageId = voyageId
                     });
+                }
+
+                // Mirror selected fleet events onto the coordination board so concurrent
+                // operator sessions see fleet activity in the chatroom.
+                try
+                {
+                    string? note = CoordinationService.BuildSystemNoteContent(
+                        eventType, message, entityType, entityId, voyageId, missionId, vesselId);
+                    if (note != null)
+                    {
+                        await _CoordinationService.PostMessageAsync(
+                            CoordinationService.DefaultRoomKey,
+                            Armada.Core.Enums.CoordinationAuthorTypeEnum.System,
+                            null,
+                            "armada",
+                            note,
+                            voyageId,
+                            missionId,
+                            vesselId,
+                            null,
+                            null).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "failed to mirror event to coordination board: " + ex.Message);
                 }
 
                 await _RemoteTunnel.PublishEventAsync(eventType, new
