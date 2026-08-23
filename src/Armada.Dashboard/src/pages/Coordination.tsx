@@ -3,13 +3,14 @@ import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import CoordinationChatCard from '../components/coordination/CoordinationChatCard';
 import {
+  listCoordinationClaims,
   listCoordinationMessages,
   listCoordinationParticipants,
   listCoordinationRooms,
   postCoordinationMessage,
   sendCoordinationPresence,
 } from '../api/client';
-import type { CoordinationMessage, CoordinationParticipant, CoordinationRoom } from '../types/models';
+import type { CoordinationClaim, CoordinationMessage, CoordinationParticipant, CoordinationRoom } from '../types/models';
 import { getDashboardParticipantKey, sortMessages, upsertMessage } from './coordination/coordinationUtils';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -28,6 +29,7 @@ export default function Coordination() {
   const [selectedRoomKey, setSelectedRoomKey] = useState<string>('');
   const [messages, setMessages] = useState<CoordinationMessage[]>([]);
   const [participants, setParticipants] = useState<CoordinationParticipant[]>([]);
+  const [claims, setClaims] = useState<CoordinationClaim[]>([]);
   const [composer, setComposer] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -76,6 +78,15 @@ export default function Coordination() {
     }
   }, [roomKey]);
 
+  const loadClaims = useCallback(async () => {
+    try {
+      const result = await listCoordinationClaims();
+      setClaims(result.filter((c) => c.status === 'Active' && new Date(c.expiresUtc) > new Date()));
+    } catch {
+      // claims are best-effort
+    }
+  }, []);
+
   useEffect(() => {
     loadRooms();
   }, [loadRooms]);
@@ -83,7 +94,8 @@ export default function Coordination() {
   useEffect(() => {
     loadMessages();
     loadParticipants();
-  }, [loadMessages, loadParticipants]);
+    loadClaims();
+  }, [loadMessages, loadParticipants, loadClaims]);
 
   // Heartbeat while the page is open so other sessions see the dashboard as present.
   useEffect(() => {
@@ -108,10 +120,11 @@ export default function Coordination() {
         if (!payload?.message) return;
         if (payload.roomKey && payload.roomKey !== roomKey) return;
         setMessages((current) => upsertMessage(current, payload.message!));
+        loadClaims();
       }
     });
     return unsubscribe;
-  }, [roomKey, subscribe]);
+  }, [roomKey, subscribe, loadClaims]);
 
   useEffect(() => {
     const timer = window.setInterval(loadMessages, POLL_FALLBACK_INTERVAL_MS);
@@ -154,7 +167,7 @@ export default function Coordination() {
             One shared board for operator sessions and captains. Read before you act; write when you act.
           </p>
         </div>
-        <button type="button" className="btn" onClick={() => { loadMessages(); loadParticipants(); }}>
+        <button type="button" className="btn" onClick={() => { loadMessages(); loadParticipants(); loadClaims(); }}>
           Refresh
         </button>
       </div>
@@ -186,6 +199,7 @@ export default function Coordination() {
             roomName={currentRoom?.name || 'Fleet'}
             messages={messages}
             participants={participants}
+            claims={claims}
             composer={composer}
             sending={sending}
             canSend={canSend}

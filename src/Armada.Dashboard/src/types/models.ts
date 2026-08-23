@@ -2335,6 +2335,22 @@ export interface CoordinationMessage {
   lastUpdateUtc: string;
 }
 
+/** A work reservation held by a participant against a vessel or objective. */
+export interface CoordinationClaim {
+  id: string;
+  coordinationRoomId: string;
+  tenantId: string | null;
+  participantKey: string;
+  displayName: string;
+  subjectType: 'Vessel' | 'Objective';
+  subjectId: string;
+  note: string | null;
+  status: 'Active' | 'Released';
+  expiresUtc: string;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
 /** Presence record for a participant in a coordination room. */
 export interface CoordinationParticipant {
   id: string;
@@ -2352,6 +2368,7 @@ export interface CoordinationRoomReadResult {
   roomKey: string;
   messages: CoordinationMessage[];
   activeParticipants: CoordinationParticipant[];
+  activeClaims?: CoordinationClaim[];
 }
 
 /** Request to create a coordination room. */

@@ -248,6 +248,38 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<CoordinationParticipant>("Coordination participant"))
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/coordination/claims", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse
+                    {
+                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
+                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
+                    };
+                }
+
+                CoordinationClaimSubjectEnum? subjectType = null;
+                string? rawSubjectType = req.Query.GetValueOrDefault("subjectType");
+                if (!String.IsNullOrEmpty(rawSubjectType) &&
+                    Enum.TryParse(rawSubjectType!, true, out CoordinationClaimSubjectEnum parsed))
+                {
+                    subjectType = parsed;
+                }
+                string? subjectId = req.Query.GetValueOrDefault("subjectId");
+
+                List<CoordinationClaim> claims = await _coordination.EnumerateActiveClaimsAsync(subjectType, subjectId).ConfigureAwait(false);
+                return claims;
+            },
+            api => api
+                .WithTag("Coordination")
+                .WithSummary("List active coordination claims")
+                .WithDescription("Returns unexpired work reservations, optionally narrowed by subjectType and subjectId.")
+                .WithResponse(200, OpenApiJson.For<List<CoordinationClaim>>("Coordination claims"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/coordination/rooms/{key}/participants", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

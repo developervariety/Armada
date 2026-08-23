@@ -1,11 +1,12 @@
 import { type RefObject } from 'react';
-import type { CoordinationMessage, CoordinationParticipant } from '../../types/models';
+import type { CoordinationClaim, CoordinationMessage, CoordinationParticipant } from '../../types/models';
 
 interface CoordinationChatCardProps {
   transcriptRef: RefObject<HTMLDivElement | null>;
   roomName: string;
   messages: CoordinationMessage[];
   participants: CoordinationParticipant[];
+  claims: CoordinationClaim[];
   composer: string;
   sending: boolean;
   canSend: boolean;
@@ -24,6 +25,7 @@ export default function CoordinationChatCard({
   roomName,
   messages,
   participants,
+  claims,
   composer,
   sending,
   canSend,
@@ -53,6 +55,27 @@ export default function CoordinationChatCard({
           ))
         )}
       </div>
+
+      {claims.length > 0 && (
+        <div className="coordination-claims">
+          <span className="text-dim">Reservations:</span>
+          {claims.map((claim) => {
+            const hoursLeft = (new Date(claim.expiresUtc).getTime() - Date.now()) / 3_600_000;
+            return (
+              <span
+                key={claim.id}
+                className="coordination-presence-chip coordination-claim-chip"
+                title={`${claim.subjectType} ${claim.subjectId} - held by ${claim.displayName}, expires ${formatDateTime(claim.expiresUtc)}`}
+              >
+                <span className="coordination-claim-dot" />
+                <strong>{claim.displayName}</strong>
+                {claim.subjectType.toLowerCase()} {claim.subjectId}
+                <span className="text-dim">{hoursLeft >= 1 ? `${Math.floor(hoursLeft)}h left` : `${Math.max(1, Math.round(hoursLeft * 60))}m left`}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <div ref={transcriptRef} className="planning-chat-window coordination-chat-window">
         {messages.length === 0 ? (

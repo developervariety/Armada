@@ -131,6 +131,7 @@ import type {
   CoordinationRoomCreateRequest,
   CoordinationMessagePostRequest,
   CoordinationPresenceRequest,
+  CoordinationClaim,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -1070,3 +1071,10 @@ export const sendCoordinationPresence = (roomKey: string, data: CoordinationPres
   post<CoordinationParticipant>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/presence`, data);
 export const listCoordinationParticipants = (roomKey: string, activeWithinMinutes = 15) =>
   get<CoordinationParticipant[]>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/participants?activeWithinMinutes=${activeWithinMinutes}`);
+export const listCoordinationClaims = (subjectType?: string, subjectId?: string) => {
+  const search = new URLSearchParams();
+  if (subjectType) search.set('subjectType', subjectType);
+  if (subjectId) search.set('subjectId', subjectId);
+  const query = search.toString();
+  return get<CoordinationClaim[]>(`/api/v1/coordination/claims${query ? `?${query}` : ''}`);
+};

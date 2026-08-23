@@ -6955,3 +6955,23 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     width: 100%;
   }
 }
+
+.coordination-claims {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.coordination-claim-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  display: inline-block;
+}
+
+.coordination-claim-chip strong {
+  font-weight: 600;
+}
