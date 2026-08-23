@@ -141,9 +141,9 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 
 ### Coordination board (chatroom)
 
-- **Shared session awareness.** A coordination board gives concurrent operator sessions one place to claim work and read who is doing what, so no session mistakes another's voyage for unowned work or double-dispatches a rescue. Rooms hold short notes authored as Operator / Captain / System with optional voyage, mission, vessel, and incident references; per-room presence rows track who is active via heartbeats. Full SQLite and PostgreSQL implementations (migrations v75/v76) with MySQL/SQL Server stubs matching the planning-session convention (`28044ba8`).
-- **Operator surfaces.** MCP tools `armada_coordination_post`, `armada_coordination_read`, and `armada_coordination_heartbeat` plus REST under `/api/v1/coordination/` and a dashboard `/chatroom` page with presence chips and live WebSocket delivery (`28044ba8`).
-- **Fleet-event mirroring.** Voyage dispatch/cancel and mission complete/fail/cancel events land on the default room as system notes through the central event choke point, so new voyages announce themselves without anyone posting manually. Board notes are advisory context only and never inject into captain briefs; signals remain the handoff-boundary mechanism (`28044ba8`).
+- **Shared session awareness.** A coordination board gives concurrent operator sessions one place to claim work and read who is doing what, so no session mistakes another's voyage for unowned work or double-dispatches a rescue. Rooms hold short notes authored as Operator / Captain / System with optional voyage, mission, vessel, and incident references; per-room presence rows track who is active via heartbeats. Full SQLite and PostgreSQL implementations (migrations v75/v76) with MySQL/SQL Server stubs matching the planning-session convention (`8f520cf7`).
+- **Operator surfaces.** MCP tools `armada_coordination_post`, `armada_coordination_read`, and `armada_coordination_heartbeat` plus REST under `/api/v1/coordination/` and a dashboard `/chatroom` page with presence chips and live WebSocket delivery (`8f520cf7`).
+- **Fleet-event mirroring.** Voyage dispatch/cancel and mission complete/fail/cancel events land on the default room as system notes through the central event choke point, so new voyages announce themselves without anyone posting manually. Board notes are advisory context only and never inject into captain briefs; signals remain the handoff-boundary mechanism (`8f520cf7`).
 
 ### Captain prompt shaping and context budget
 
