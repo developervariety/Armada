@@ -188,6 +188,16 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default)
             => Task.FromResult(IsWorkingDirectoryCleanResult);
 
+        /// <summary>
+        /// Ancestry answer for TryIsAncestorAsync. Null means UNKNOWN, matching the interface
+        /// default: a stub that consults no repository must not be able to answer "yes".
+        /// </summary>
+        public bool? IsAncestorResult { get; set; } = null;
+
+        public Task<bool?> TryIsAncestorAsync(
+            string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
+            => Task.FromResult(IsAncestorResult);
+
         public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {
             if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated diff failure");

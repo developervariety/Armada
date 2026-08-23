@@ -158,7 +158,31 @@ namespace Armada.Core.Services
 
                 if (succeeded)
                 {
-                    return await SyncUserWorkingDirectoryAfterLandingAsync(vessel, mission, targetBranch, token).ConfigureAwait(false);
+                    // Ask git where the work ACTUALLY is before deciding what to report. The merge
+                    // above and the sync below are separate steps, and only the first one decides
+                    // whether the work landed.
+                    bool landed = await VerifyWorkLandedAsync(vessel, mission, targetBranch, token).ConfigureAwait(false);
+
+                    if (await SyncUserWorkingDirectoryAfterLandingAsync(vessel, mission, targetBranch, token).ConfigureAwait(false))
+                        return true;
+
+                    // The sync failed. If the work did not land, that is a real landing failure.
+                    if (!landed) return false;
+
+                    // The work landed and only the post-step failed. Reporting that as a landing
+                    // failure is not a cosmetic error: it sends the retry loop back over work that
+                    // is already on the target branch, and re-merging an already-landed branch is
+                    // how the working checkout and the bare repo diverge in the first place.
+                    // "Work landed, post-step failed" and "work lost" are opposite problems, and an
+                    // operator must not have to run git to tell them apart.
+                    mission.FailureReason = "work_landed_post_step_failed: "
+                        + (mission.FailureReason ?? "the working directory was not synced")
+                        + " -- the work IS on " + targetBranch + " (verified by ancestry); no landing "
+                        + "retry is needed. Sync the configured checkout by hand.";
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + mission.FailureReason);
+                    return true;
                 }
 
                 if (failure == null || !IsTargetBranchDrift(failure))
@@ -349,6 +373,39 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Confirms from git that the mission's commit is reachable from the target branch.
+        /// </summary>
+        /// <remarks>
+        /// A merge step that returned without throwing is a claim about a COMMAND, not about where
+        /// the code ended up. Only ancestry answers the second question, and an unverifiable answer
+        /// is treated as "not landed" so a post-step failure is never excused by a check that never
+        /// ran.
+        /// </remarks>
+        private async Task<bool> VerifyWorkLandedAsync(Vessel vessel, Mission mission, string targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(vessel.LocalPath)) return false;
+            if (String.IsNullOrWhiteSpace(mission.CommitHash)) return false;
+            if (String.IsNullOrWhiteSpace(targetBranch)) return false;
+
+            try
+            {
+                bool? landed = await _Git.TryIsAncestorAsync(
+                    vessel.LocalPath, mission.CommitHash!, targetBranch, token).ConfigureAwait(false);
+                return landed == true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not verify whether mission " + mission.Id
+                    + " landed on " + targetBranch + ": " + ex.Message);
+                return false;
+            }
+        }
 
         private async Task<bool> SyncUserWorkingDirectoryAfterLandingAsync(Vessel vessel, Mission mission, string targetBranch, CancellationToken token)
         {
