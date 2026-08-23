@@ -86,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "A short Research mission with a 522-character brief restatement and no diff is a false-complete.");
             }).ConfigureAwait(false);
 
-            await RunTest("DetectNoOpCompletion_AuditLongRuntimeTinyOutput_NotDetected", () =>
+            await RunTest("DetectNoOpCompletion_AuditLongRuntimeTinyOutput_Detects", () =>
             {
                 Mission mission = new Mission
                 {
@@ -95,11 +95,13 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 TimeSpan runtime = TimeSpan.FromSeconds(240);
                 bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 100, true);
-                AssertFalse(detected,
-                    "An Audit mission that ran 4 minutes, even with a short summary, is not the false-complete pattern.");
+                AssertTrue(detected,
+                    "The report IS the deliverable of a read-only mission, so a 100-character report is a no-op however long the captain ran. " +
+                    "A run that spends minutes reading and then delivers nothing is the shape of a stream that died before the report was written, " +
+                    "and treating the elapsed time as proof of work is what let one through.");
             }).ConfigureAwait(false);
 
-            await RunTest("DetectNoOpCompletion_LongRuntime_ReturnsFalse", () =>
+            await RunTest("DetectNoOpCompletion_LongRuntimeNoMarker_Detects", () =>
             {
                 Mission mission = new Mission
                 {
@@ -108,8 +110,24 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 TimeSpan runtime = TimeSpan.FromSeconds(120);
                 bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 113, true);
+                AssertTrue(detected,
+                    "A 120-second run that committed nothing and never claimed completion is a no-op. The elapsed time cannot exonerate it, " +
+                    "and the DoD gate cannot judge it either: the gate's build and test commands measure the base commit when the diff is empty.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_LongRuntimeWithMarker_ReturnsFalse", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_long_claimed",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\nThe premise did not hold: the construct named in the brief is already absent from the target tip.",
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(120);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 113, true);
                 AssertFalse(detected,
-                    "A 120-second runtime with no diff is suspicious but no longer the false-complete pattern; let it pass to DoD gate for judgment.");
+                    "A captain that ran two minutes and explicitly claimed completion is making a claim a reviewer can judge -- a stale premise " +
+                    "leaves nothing to commit. Only the unclaimed run is decided here.");
             }).ConfigureAwait(false);
 
             await RunTest("DetectNoOpCompletion_NonEmptyDiff_ReturnsFalse", () =>
@@ -150,11 +168,13 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Id = "msn_test_summary",
                     Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\n" + new String('s', 1500),
                 };
                 TimeSpan runtime = TimeSpan.FromSeconds(8);
                 bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 1500, true);
                 AssertFalse(detected,
-                    "An AgentOutput >= 200 chars holds a real summary; the captain wrote something. Let it pass.");
+                    "A claimed completion carrying a real summary of >= 200 chars passes. The summary alone is not the signal -- " +
+                    "output length measures narration, not committed work -- so the claim has to be present with it.");
             }).ConfigureAwait(false);
 
             await RunTest("DetectNoOpCompletion_NullMission_ReturnsFalse", () =>
@@ -204,6 +224,93 @@ namespace Armada.Test.Unit.Suites.Services
                 bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 137, true);
                 AssertTrue(detected,
                     "A captain that exits 0 with a brief acknowledgment and NO [ARMADA:RESULT] COMPLETE marker is the DeepSeek V4 Pro false-complete flavor; it must be detected too.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_StreamDiedMidRunAfterRealReading_Detects", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_stream_death",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "All five source files exist in ground truth. Reading them plus the ported reference and landed seams:\n"
+                        + "The reference shows the projection pattern. Now let me examine the other landed seams:\n"
+                        + "Landed seams identified. Now let me find the port-coverage ledger:",
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(185);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 474, true, false);
+                AssertTrue(detected,
+                    "This is the shape a dead provider stream leaves: minutes of genuine repository reading, a long narration cut off " +
+                    "mid-sentence, no commit, and no completion claim. Runtime and output length both read as real work here, so the " +
+                    "absent claim is the only thing that separates it from a finished mission.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_ReadOnlyStreamDiedMidRun_Detects", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_stream_death_readonly",
+                    Mode = MissionModeEnum.Research,
+                    AgentOutput = "Memory loaded. Now let me locate the source siblings and the relevant files.",
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(98);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 97, true, false);
+                AssertTrue(detected,
+                    "A read-only mission that ran 98 seconds and delivered 97 characters produced no report. The runtime check must not " +
+                    "short-circuit the report-size check, or every read-only no-op that outlives it is accepted as Complete.");
+            }).ConfigureAwait(false);
+
+            await RunTest("HasCompletionMarker_DistinguishesClaimedFromUnclaimed", () =>
+            {
+                AssertTrue(MissionService.HasCompletionMarker("work done\n[ARMADA:RESULT] COMPLETE\nsummary"),
+                    "Output carrying the worker marker claims completion.");
+                AssertTrue(MissionService.HasCompletionMarker("review body\n[ARMADA:VERDICT] PASS"),
+                    "A Judge delivers a verdict instead of a commit, so its verdict IS its completion claim. " +
+                    "Omitting it here fails every Judge as a no-op, because a Judge never writes a diff.");
+                AssertFalse(MissionService.HasCompletionMarker("Now let me find the port-coverage ledger:"),
+                    "Output cut off mid-sentence claims nothing.");
+                AssertFalse(MissionService.HasCompletionMarker(null),
+                    "Absent output claims nothing and must not throw.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_JudgeVerdictWithoutDiff_ReturnsFalse", () =>
+            {
+                // A full review body, so the outcome turns on the verdict marker alone and not on
+                // the short-output threshold that applies to a claimed completion.
+                string review = "Completeness: every item in the brief is addressed. " + new String('r', 400)
+                    + "\nCorrectness: the decode matches the source.\nTests: the added cases fail without the fix."
+                    + "\nFailure Modes: none reachable from the catalogue.\n[ARMADA:VERDICT] PASS";
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_judge",
+                    Persona = "Judge",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = review,
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(20);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, review.Length, true, false);
+                AssertFalse(detected,
+                    "A Judge produces a verdict and no commit by design, so an empty diff is its normal outcome. " +
+                    "Reading only the worker marker here fails every Judge in every pipeline.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_JudgeWithoutVerdict_Detects", () =>
+            {
+                // The same review body with the verdict line cut off, which is what a stream that
+                // dies before the concluding turn leaves behind.
+                string review = "Completeness: every item in the brief is addressed. " + new String('r', 400)
+                    + "\nCorrectness: the decode matches the source.\nTests: the added cases fail without the fix.";
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_judge_cut",
+                    Persona = "Judge",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = review,
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(20);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, review.Length, true, false);
+                AssertTrue(detected,
+                    "The verdict line is the only difference from the passing case above, which is what makes it the signal. " +
+                    "A Judge whose output ends before its verdict decided nothing, however much review text preceded it.");
             }).ConfigureAwait(false);
 
             await RunTest("BuildNoOpCompletionFailureReason_ContainsRuntimeAndOutputLength", () =>

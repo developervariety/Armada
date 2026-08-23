@@ -1133,6 +1133,36 @@ namespace Armada.Core.Services
             return changedPaths.Count + " file(s): " + joined + ".";
         }
 
+        /// <summary>
+        /// The line a Worker or TestEngineer writes to claim it finished its mission.
+        /// </summary>
+        internal const string CompletionMarker = "[ARMADA:RESULT] COMPLETE";
+
+        /// <summary>
+        /// The line a Judge writes instead. A Judge delivers a verdict rather than a commit,
+        /// so its verdict IS its completion claim.
+        /// </summary>
+        internal const string VerdictMarker = "[ARMADA:VERDICT]";
+
+        /// <summary>
+        /// Report whether captain output claims the mission finished, by whichever marker the
+        /// persona uses. Its ABSENCE is the signal, and it is the only one the platform has:
+        /// a captain whose provider stream dies mid-run leaves no other trace, because the
+        /// runtime wrapper still exits 0.
+        /// </summary>
+        /// <remarks>
+        /// Every persona that claims completion must be represented here. A persona whose
+        /// marker is missing from this check reads as a captain that never finished, and its
+        /// missions fail as no-ops however well they ran. Architect is exempt one level up:
+        /// it claims completion with [ARMADA:MISSION] blocks that the handoff parses itself.
+        /// </remarks>
+        internal static bool HasCompletionMarker(string? agentOutput)
+        {
+            if (String.IsNullOrEmpty(agentOutput)) return false;
+            return agentOutput.Contains(CompletionMarker, StringComparison.Ordinal)
+                || agentOutput.Contains(VerdictMarker, StringComparison.Ordinal);
+        }
+
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
             return DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, diffLineCount > 0);
@@ -1151,6 +1181,34 @@ namespace Armada.Core.Services
             bool hasAgentOutput,
             bool hasChangesSinceDockStart)
         {
+            return DetectNoOpCompletion(
+                mission,
+                runtime,
+                diffLineCount,
+                agentOutputLength,
+                hasAgentOutput,
+                hasChangesSinceDockStart,
+                HasCompletionMarker(mission?.AgentOutput));
+        }
+
+        /// <summary>
+        /// Detect a false completion using changes made during this dock assignment and
+        /// whether the captain claimed completion at all.
+        /// </summary>
+        /// <remarks>
+        /// Runtime alone cannot discriminate. A captain can work for minutes, read the whole
+        /// repository, and still deliver nothing when its provider stream dies mid-run -- the
+        /// runtime wrapper exits 0 either way, so a long run is not evidence of a result.
+        /// </remarks>
+        internal static bool DetectNoOpCompletion(
+            Mission mission,
+            TimeSpan runtime,
+            int diffLineCount,
+            int agentOutputLength,
+            bool hasAgentOutput,
+            bool hasChangesSinceDockStart,
+            bool hasCompletionMarker)
+        {
             if (mission == null) return false;
 
             // Architect decomposition missions legitimately produce no code diff while
@@ -1163,16 +1221,11 @@ namespace Armada.Core.Services
             // cannot distinguish a stub from a false-complete.
             if (!hasAgentOutput) return false;
 
-            // A false-complete completes within seconds (typical 8-30s). Real work --
-            // reading the repository, writing a diff, or composing a report -- takes
-            // longer.
-            const int noOpMaxSeconds = 60;
-            if (runtime.TotalSeconds >= noOpMaxSeconds) return false;
-
             // The branch may contain changes from an earlier rescue or pipeline stage.
             // Only changes made since this dock was provisioned prove that this captain
             // did work. Keep diffLineCount in the signature for diagnostics and callers
             // that do not have dock metadata, but do not treat a stale branch diff as proof.
+            // This is the one condition that exonerates a captain outright.
             if (hasChangesSinceDockStart) return false;
 
             if (mission.IsReadOnlyMode)
@@ -1182,15 +1235,24 @@ namespace Armada.Core.Services
                 // AgentOutput. A false-complete can restate a long brief and exceed a
                 // small acknowledgment threshold, so require a substantive report before
                 // accepting the mission. Real multi-item audit reports should be larger.
+                // Do not exempt a long run: minutes spent reading and no report delivered
+                // is the exact shape of a stream that died before the report was written.
                 const int readOnlyMinReportChars = 1000;
                 return agentOutputLength < readOnlyMinReportChars;
             }
 
-            // Implementation missions must produce a commit. A no-op carries an empty diff
-            // and a near-empty AgentOutput whether or not the explicit COMPLETE marker was
-            // emitted: GLM 5.2 emits the marker and DeepSeek V4 Pro exits after a brief
-            // acknowledgment without it. Gating on the marker alone missed the no-marker
-            // flavor, so the length and runtime checks are the signal, not the marker.
+            // An Implementation mission must produce a commit, and this one produced none.
+            // A captain that never wrote its completion marker never claimed to have
+            // finished, so no reading of the run makes the empty diff the intended outcome.
+            // Neither runtime nor output length can discriminate here, because a stream that
+            // dies mid-run leaves a long runtime and a long truncated narration behind.
+            if (!hasCompletionMarker) return true;
+
+            // The captain claims it finished with nothing committed. That flavor of
+            // false-complete ends within seconds and writes only an acknowledgment.
+            const int noOpMaxSeconds = 60;
+            if (runtime.TotalSeconds >= noOpMaxSeconds) return false;
+
             const int implementationMaxNoOpChars = 200;
             return agentOutputLength < implementationMaxNoOpChars;
         }
@@ -1198,15 +1260,19 @@ namespace Armada.Core.Services
         internal static string BuildNoOpCompletionFailureReason(Mission mission, TimeSpan runtime, int agentOutputLength)
         {
             string modeLabel = mission == null ? "mission" : mission.Mode.ToString() + " mission";
-            bool hasMarker = mission?.AgentOutput?.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal) == true;
+            bool hasMarker = HasCompletionMarker(mission?.AgentOutput);
             string signal = hasMarker
-                ? "exited with [ARMADA:RESULT] COMPLETE"
-                : "exited 0 with no [ARMADA:RESULT] COMPLETE marker";
+                ? "exited with a completion marker"
+                : "exited 0 with no completion marker (" + CompletionMarker + " or " + VerdictMarker + ")";
+            string cause = hasMarker
+                ? "The captain claimed completion without producing work."
+                : "The captain never claimed completion, so its run ended before it finished -- either it read the brief and exited, or its provider stream died mid-run and the runtime wrapper still exited 0.";
             return "no_op_completion_detected: captain " + signal + " after "
                 + Math.Round(runtime.TotalSeconds, 1)
                 + "s with an empty diff and "
                 + agentOutputLength
-                + " chars of AgentOutput on a " + modeLabel + ". This is the false-complete pattern (typical for GLM 5.2 / DeepSeek V4 Pro when the captain reads the brief and exits without working). The mission is re-queued rather than marked WorkProduced so the rescue path can retry with a different captain.";
+                + " chars of AgentOutput on a " + modeLabel + ". " + cause
+                + " The mission is re-queued rather than marked WorkProduced so the rescue path can retry with a different captain.";
         }
 
         /// <summary>
@@ -1327,6 +1393,7 @@ namespace Armada.Core.Services
             // that reaches WorkProduced corrupts the downstream pipeline with empty progress
             // and breaks rescue judgment.
             bool failedForNoOpCompletion = false;
+            bool? dockProducedChanges = null;
             if (!failedForScopeViolation && mission.StartedUtc.HasValue)
             {
                 TimeSpan runtime = (mission.CompletedUtc ?? DateTime.UtcNow) - mission.StartedUtc.Value;
@@ -1336,7 +1403,9 @@ namespace Armada.Core.Services
                 int agentOutputLength = mission.AgentOutput?.Length ?? 0;
                 bool hasAgentOutput = !String.IsNullOrEmpty(mission.AgentOutput);
                 bool hasChangesSinceDockStart = await HasChangesSinceDockStartAsync(dock, diffLineCount, token).ConfigureAwait(false);
-                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart))
+                dockProducedChanges = hasChangesSinceDockStart;
+                bool hasCompletionMarker = HasCompletionMarker(mission.AgentOutput);
+                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart, hasCompletionMarker))
                 {
                     failedForNoOpCompletion = true;
                     mission.Status = MissionStatusEnum.Failed;
@@ -1383,9 +1452,31 @@ namespace Armada.Core.Services
                 }
             }
 
+            // The gate runs the vessel's build and unit-test command inside the dock. When the
+            // captain changed nothing, those commands measure the BASE COMMIT, so a pass reports
+            // that the base was green and reports nothing at all about this mission. Recording
+            // that as "validation passed" is worse than recording nothing: it reads later as a
+            // verification that happened, which is how an empty result comes to look like
+            // accepted work. Read-only missions are exempt -- an unchanged branch is their
+            // intended outcome, and their own report gate judges them.
+            bool dodGateHasWorkToVerify = !(dockProducedChanges == false && !mission.IsReadOnlyMode);
+
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null
+                && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
+            {
+                await AppendMissionActivityAsync(
+                    mission.Id,
+                    "validation skipped: definition-of-done gate cannot verify a mission that changed nothing; "
+                    + "its commands would measure the base commit, not this captain's work",
+                    token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "mission " + mission.Id
+                    + " reached the DoD gate having changed nothing since dock start; gate skipped rather than passed");
+            }
+
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
             bool failedForDodGate = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null && _DefinitionOfDoneGate != null)
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null
+                && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify)
             {
                 try
                 {
