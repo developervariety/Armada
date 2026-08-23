@@ -42,7 +42,7 @@ namespace Armada.Helm.Commands
                 presence.AddColumn("Participant");
                 presence.AddColumn("Last Seen");
                 foreach (CoordinationParticipant p in participants)
-                    presence.AddRow(p.DisplayName, p.LastSeenUtc.ToString("u"));
+                    presence.AddRow(Markup.Escape(p.DisplayName), p.LastSeenUtc.ToString("u"));
                 AnsiConsole.Write(presence);
                 AnsiConsole.WriteLine();
             }
@@ -55,7 +55,11 @@ namespace Armada.Helm.Commands
                 claimTable.AddColumn("Expires");
                 claimTable.AddColumn("Note");
                 foreach (CoordinationClaim c in claims)
-                    claimTable.AddRow(c.DisplayName, c.SubjectType.ToString().ToLowerInvariant() + " " + c.SubjectId, c.ExpiresUtc.ToString("u"), c.Note ?? "");
+                    claimTable.AddRow(
+                        Markup.Escape(c.DisplayName),
+                        Markup.Escape(c.SubjectType.ToString().ToLowerInvariant() + " " + c.SubjectId),
+                        c.ExpiresUtc.ToString("u"),
+                        Markup.Escape(c.Note ?? ""));
                 AnsiConsole.Write(claimTable);
                 AnsiConsole.WriteLine();
             }
