@@ -382,6 +382,53 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(workingDirectory);
                 }
             }).ConfigureAwait(false);
+            await RunTest("ListWebhookEventsAsync returns delivery events within caller scope", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                RecordingWebhookDispatcher webhooks = new RecordingWebhookDispatcher();
+                ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging, webhooks);
+
+                string tenantId = "ten_release_whlist";
+                string userId = "usr_release_whlist";
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-release-whlist-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                    Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+                    Release release = await releases.CreateAsync(auth, new ReleaseUpsertRequest
+                    {
+                        VesselId = vessel.Id,
+                        Title = "Listed Webhook Release",
+                        Status = ReleaseStatusEnum.Candidate
+                    }).ConfigureAwait(false);
+                    await releases.UpdateAsync(auth, release.Id, new ReleaseUpsertRequest
+                    {
+                        Status = ReleaseStatusEnum.Shipped
+                    }).ConfigureAwait(false);
+
+                    List<ArmadaEvent> events = await releases.ListWebhookEventsAsync(auth, release.Id).ConfigureAwait(false);
+
+                    AssertEqual(1, events.Count);
+                    AssertEqual(release.Id, events[0].EntityId);
+                    AssertEqual("release", events[0].EntityType);
+                    AssertEqual("release.webhook.delivered", events[0].EventType);
+
+                    AssertThrows<InvalidOperationException>(
+                        () => releases.ListWebhookEventsAsync(auth, "rel_does_not_exist").GetAwaiter().GetResult());
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
         }
 
         private static LoggingModule CreateLogging()

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createRelease,
@@ -16,6 +16,8 @@ import {
   updateRelease,
 } from '../api/client';
 import type { ArmadaEvent, CheckRun, Deployment, GitHubPullRequestDetail, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -208,22 +210,25 @@ export default function ReleaseDetail() {
     return () => { cancelled = true; };
   }, [createMode, id]);
 
-  useEffect(() => {
+  const loadWebhookEvents = useCallback(async () => {
     if (createMode || !id) {
       setWebhookEvents([]);
       return;
     }
 
-    let cancelled = false;
-
-    void getReleaseWebhookEvents(id).then((result) => {
-      if (!cancelled) setWebhookEvents(result || []);
-    }).catch(() => {
-      if (!cancelled) setWebhookEvents([]);
-    });
-
-    return () => { cancelled = true; };
+    try {
+      const result = await getReleaseWebhookEvents(id);
+      setWebhookEvents(result || []);
+    } catch {
+      setWebhookEvents([]);
+    }
   }, [createMode, id]);
+
+  useEffect(() => {
+    void loadWebhookEvents();
+  }, [loadWebhookEvents]);
+
+  const { seconds: webhookRefreshSeconds, setSeconds: setWebhookRefreshSeconds } = useAutoRefresh('releasedetail_webhook', loadWebhookEvents);
 
   function buildPayload(): ReleaseUpsertRequest {
     return {
@@ -629,8 +634,9 @@ export default function ReleaseDetail() {
           <div className="card" style={{ marginBottom: '1rem' }}>
             <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
               <h3>{t('CD Webhook Delivery')}</h3>
-              <div className="text-dim">
-                {webhookEvents.length} {t('delivery events')}
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }} className="text-dim">
+                <span>{webhookEvents.length} {t('delivery events')}</span>
+                <AutoRefreshSelect seconds={webhookRefreshSeconds} onChange={setWebhookRefreshSeconds} />
               </div>
             </div>
 
