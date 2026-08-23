@@ -747,9 +747,14 @@ objective when the category is `BriefContradiction` or `PlatformBug`.
 | Risk | Tools |
 | --- | --- |
 | Read | `get_release` |
-| Write | `create_release`, `update_release`, `armada_update_release` |
+| Write | `create_release`, `update_release`, `armada_update_release`, `test_release_webhook` |
 
 `armada_update_release` is a compatibility alias for `update_release`.
+
+`test_release_webhook` is registered only when the `cdWebhook` setting is
+configured. It POSTs a synthetic `release.shipped` payload to the configured
+endpoint and returns the delivery outcome, so you can verify reachability and
+authentication before approving a real release.
 
 ### 8.12 Deployments
 

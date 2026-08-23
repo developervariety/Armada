@@ -77,5 +77,8 @@ namespace Armada.Core.Models
 
         /// <summary>Human-readable error description; populated on failure outcomes.</summary>
         public string? ErrorMessage { get; set; }
+
+        /// <summary>Total attempts made, including the initial attempt and any retries.</summary>
+        public int Attempts { get; set; } = 1;
     }
 }

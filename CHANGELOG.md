@@ -49,7 +49,9 @@ Focus: upstream v0.9.0 feature ports on top of the fork's delivery-management co
 
 ### Delivery
 - Added CD webhook integration: when a release transitions to Shipped (operator approval), the admiral POSTs a `release.shipped` JSON evidence payload (release identity, version, tag, linked voyages/missions/checks) to a configured external endpoint, so any continuous-delivery system can pick up deployment
-- Configured under the optional `cdWebhook` key in `~/.armada/settings.json` (`enabled`, `url`, optional `bearerToken`, `timeoutSeconds`); absent or disabled means no behavior change
+- Configured under the optional `cdWebhook` key in `~/.armada/settings.json` (`enabled`, `url`, optional `bearerToken`, `timeoutSeconds`, `maxRetries`, `retryBackoffSeconds`); absent or disabled means no behavior change
+- Retriable webhook failures (5xx, network, timeout, auth) are retried up to `maxRetries` times with a fixed backoff; non-retriable 4xx responses return immediately
+- Added the MCP `test_release_webhook` tool (registered only when the CD webhook is configured): sends a synthetic payload and returns the delivery outcome, for verifying endpoint reachability and authentication before approving releases
 - Dispatch outcomes are recorded as `release.webhook.delivered` / `release.webhook.failed` events on the release; transport failures never block or fail the release update
 
 ### Workspace

@@ -91,6 +91,7 @@ namespace Armada.Server.Mcp
             PlanningSessionCoordinator? planningSessionCoordinator = null,
             ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null,
             ReleaseService? releaseService = null,
+            IReleaseWebhookDispatcher? cdWebhookDispatcher = null,
             DeploymentService? deploymentService = null,
             RunbookService? runbookService = null,
             IncidentService? incidentService = null,
@@ -126,6 +127,7 @@ namespace Armada.Server.Mcp
             if (checkRunService != null) McpCheckRunTools.Register(register, database, checkRunService);
             if (objectiveService != null) McpObjectiveTools.Register(register, database, objectiveService, planningSessionCoordinator, objectiveRefinementCoordinator);
             if (releaseService != null) McpReleaseTools.Register(register, releaseService);
+            if (cdWebhookDispatcher != null) McpCdWebhookTools.Register(register, cdWebhookDispatcher);
             if (deploymentService != null) McpDeploymentTools.Register(register, deploymentService);
             if (runbookService != null) McpRunbookTools.Register(register, runbookService);
             if (logging != null)
@@ -171,6 +173,7 @@ namespace Armada.Server.Mcp
             PlanningSessionCoordinator? planningSessionCoordinator = null,
             ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null,
             ReleaseService? releaseService = null,
+            IReleaseWebhookDispatcher? cdWebhookDispatcher = null,
             DeploymentService? deploymentService = null,
             RunbookService? runbookService = null,
             IncidentService? incidentService = null,
@@ -217,6 +220,7 @@ namespace Armada.Server.Mcp
                 planningSessionCoordinator,
                 objectiveRefinementCoordinator,
                 releaseService,
+                cdWebhookDispatcher,
                 deploymentService,
                 runbookService,
                 incidentService);

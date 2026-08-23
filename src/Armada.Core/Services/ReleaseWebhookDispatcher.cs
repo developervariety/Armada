@@ -15,8 +15,9 @@ namespace Armada.Core.Services
     /// <summary>
     /// Posts a release-shipped JSON payload to the CD webhook endpoint configured in
     /// CdWebhookSettings. Categorizes outcomes: 2xx -> Success; 5xx, network, timeout, and auth
-    /// (401/403) -> RetriableFailure; other 4xx -> NonRetriableFailure. Transport failures are
-    /// returned in the result and never thrown.
+    /// (401/403) -> RetriableFailure; other 4xx -> NonRetriableFailure. Retriable failures are
+    /// retried up to CdWebhookSettings.MaxRetries times with a fixed backoff. Transport failures
+    /// are returned in the result and never thrown.
     /// </summary>
     public sealed class ReleaseWebhookDispatcher : IReleaseWebhookDispatcher, IDisposable
     {
@@ -32,6 +33,8 @@ namespace Armada.Core.Services
 
         private readonly string _Url;
         private readonly string? _BearerToken;
+        private readonly int _MaxRetries;
+        private readonly TimeSpan _RetryBackoff;
         private readonly HttpClient _Http;
         private readonly LoggingModule _Logging;
 
@@ -52,6 +55,10 @@ namespace Armada.Core.Services
 
             _Url = settings.Url!;
             _BearerToken = settings.BearerToken;
+            _MaxRetries = Math.Clamp(settings.MaxRetries, 0, 5);
+
+            int backoffSeconds = settings.RetryBackoffSeconds > 0 ? settings.RetryBackoffSeconds : 2;
+            _RetryBackoff = TimeSpan.FromSeconds(backoffSeconds);
 
             int timeoutSeconds = settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : _DefaultTimeoutSeconds;
             TimeSpan timeout = TimeSpan.FromSeconds(timeoutSeconds);
@@ -64,10 +71,30 @@ namespace Armada.Core.Services
         {
             if (payload == null) throw new ArgumentNullException(nameof(payload));
 
+            int totalAttempts = _MaxRetries + 1;
+            WebhookDispatchResult result = new WebhookDispatchResult();
+            for (int attempt = 1; attempt <= totalAttempts; attempt++)
+            {
+                result = await SendOnceAsync(payload, token).ConfigureAwait(false);
+                result.Attempts = attempt;
+
+                if (result.Outcome != WebhookDispatchOutcome.RetriableFailure || attempt == totalAttempts)
+                    return result;
+
+                _Logging.Warn(_Header + "retriable failure (attempt " + attempt + "/" + totalAttempts + "); retrying in " + _RetryBackoff.TotalSeconds + "s");
+                await Task.Delay(_RetryBackoff, token).ConfigureAwait(false);
+            }
+
+            return result;
+        }
+
+        private async Task<WebhookDispatchResult> SendOnceAsync(ReleaseWebhookPayload payload, CancellationToken token)
+        {
+            if (payload == null) throw new ArgumentNullException(nameof(payload));
+
             WebhookDispatchResult result = new WebhookDispatchResult();
             try
-            {
-                using HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Post, _Url);
+            {                using HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Post, _Url);
                 if (!String.IsNullOrEmpty(_BearerToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _BearerToken);
 

@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Net;
     using System.Net.Http;
     using System.Text;
@@ -113,6 +114,88 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertThrows<ArgumentException>(() => new ReleaseWebhookDispatcher(settings, logging));
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            await RunTest("DispatchAsync_RetriableThenSuccess_RetriesAndReturnsSuccess", async () =>
+            {
+                SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(new List<(HttpStatusCode, string)>
+                {
+                    (HttpStatusCode.InternalServerError, "first attempt fails"),
+                    (HttpStatusCode.OK, "{}")
+                });
+                using HttpClient http = new HttpClient(handler);
+                CdWebhookSettings settings = new CdWebhookSettings
+                {
+                    Enabled = true,
+                    Url = "https://cd.example.test/hook",
+                    MaxRetries = 2,
+                    RetryBackoffSeconds = 1
+                };
+                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http);
+
+                WebhookDispatchResult result = await dispatcher.DispatchAsync(MakePayload()).ConfigureAwait(false);
+
+                AssertEqual(WebhookDispatchOutcome.Success, result.Outcome);
+                AssertEqual(2, result.Attempts);
+                AssertEqual(2, handler.RequestCount);
+            }).ConfigureAwait(false);
+
+            await RunTest("DispatchAsync_NonRetriableFailure_DoesNotRetry", async () =>
+            {
+                SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(new List<(HttpStatusCode, string)>
+                {
+                    (HttpStatusCode.BadRequest, "bad request")
+                });
+                using HttpClient http = new HttpClient(handler);
+                CdWebhookSettings settings = new CdWebhookSettings
+                {
+                    Enabled = true,
+                    Url = "https://cd.example.test/hook",
+                    MaxRetries = 3,
+                    RetryBackoffSeconds = 1
+                };
+                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http);
+
+                WebhookDispatchResult result = await dispatcher.DispatchAsync(MakePayload()).ConfigureAwait(false);
+
+                AssertEqual(WebhookDispatchOutcome.NonRetriableFailure, result.Outcome);
+                AssertEqual(1, result.Attempts);
+                AssertEqual(1, handler.RequestCount);
+            }).ConfigureAwait(false);
+
+            await RunTest("DispatchAsync_AllRetriable_ExhaustsRetries", async () =>
+            {
+                SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(new List<(HttpStatusCode, string)>
+                {
+                    (HttpStatusCode.ServiceUnavailable, "down"),
+                    (HttpStatusCode.ServiceUnavailable, "down"),
+                    (HttpStatusCode.ServiceUnavailable, "down")
+                });
+                using HttpClient http = new HttpClient(handler);
+                CdWebhookSettings settings = new CdWebhookSettings
+                {
+                    Enabled = true,
+                    Url = "https://cd.example.test/hook",
+                    MaxRetries = 2,
+                    RetryBackoffSeconds = 1
+                };
+                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http);
+
+                WebhookDispatchResult result = await dispatcher.DispatchAsync(MakePayload()).ConfigureAwait(false);
+
+                AssertEqual(WebhookDispatchOutcome.RetriableFailure, result.Outcome);
+                AssertEqual(3, result.Attempts);
+                AssertEqual(3, handler.RequestCount);
+            }).ConfigureAwait(false);
+
+            await RunTest("Settings_MaxRetries_ClampedToValidRange", () =>
+            {
+                CdWebhookSettings tooLow = new CdWebhookSettings { MaxRetries = -4 };
+                CdWebhookSettings tooHigh = new CdWebhookSettings { MaxRetries = 99 };
+
+                AssertEqual(0, tooLow.MaxRetries);
+                AssertEqual(5, tooHigh.MaxRetries);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
 
         private static ReleaseWebhookDispatcher CreateDispatcher(HttpClient http)
@@ -142,6 +225,31 @@ namespace Armada.Test.Unit.Suites.Services
                 MissionIds = new System.Collections.Generic.List<string> { "msn_test1" },
                 PublishedUtc = DateTime.UtcNow
             };
+        }
+
+        private sealed class SequenceHttpMessageHandler : HttpMessageHandler
+        {
+            private readonly List<(HttpStatusCode StatusCode, string Body)> _Responses;
+            private int _Index;
+
+            public int RequestCount { get; private set; }
+
+            public SequenceHttpMessageHandler(List<(HttpStatusCode, string)> responses)
+            {
+                _Responses = responses;
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                RequestCount += 1;
+                (HttpStatusCode statusCode, string body) = _Responses[Math.Min(_Index, _Responses.Count - 1)];
+                _Index += 1;
+                HttpResponseMessage response = new HttpResponseMessage(statusCode)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json"),
+                };
+                return Task.FromResult(response);
+            }
         }
 
         private sealed class RecordingHttpMessageHandler : HttpMessageHandler
