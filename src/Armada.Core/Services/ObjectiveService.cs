@@ -601,7 +601,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Link an incident and its related delivery context to an objective.
+        /// Link an incident and its related delivery context (release, deployment, vessel) to an
+        /// objective. The incident's voyage and mission are NOT copied: those lists are the
+        /// objective's own dispatch lineage, and a linked voyage removes the objective from
+        /// autonomous dispatch.
         /// </summary>
         public async Task<Objective> LinkIncidentAsync(
             AuthContext auth,
@@ -619,12 +622,15 @@ namespace Armada.Core.Services
             if (incident == null)
                 throw new InvalidOperationException("Incident not found or not accessible: " + incidentId);
 
+            // An incident link is an annotation. The incident already records its own voyage and
+            // mission, and the objective's VoyageIds/MissionIds are its DISPATCH lineage: the
+            // autonomous selector refuses any objective with a linked voyage, so copying the
+            // incident's voyage here would silently make a never-dispatched objective
+            // undispatchable. Delivery context (release, deployment, vessel) is still carried.
             AddIfMissing(objective.IncidentIds, incident.Id);
             AddIfMissing(objective.DeploymentIds, incident.DeploymentId);
             AddIfMissing(objective.DeploymentIds, incident.RollbackDeploymentId);
             AddIfMissing(objective.ReleaseIds, incident.ReleaseId);
-            AddIfMissing(objective.MissionIds, incident.MissionId);
-            AddIfMissing(objective.VoyageIds, incident.VoyageId);
             AddIfMissing(objective.VesselIds, incident.VesselId);
             await AppendFleetForVesselAsync(auth, objective, incident.VesselId, token).ConfigureAwait(false);
             return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);

@@ -229,6 +229,85 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("LinkIncidentAsync is an annotation: a never-dispatched objective stays auto-dispatch eligible", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                string tenantId = "ten_incident_link";
+                string userId = "usr_incident_link";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+
+                Vessel vessel = new Vessel
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Name = "Incident Link Vessel",
+                    RepoUrl = "file:///tmp/incident-link.git",
+                    LocalPath = Path.GetTempPath(),
+                    WorkingDirectory = Path.GetTempPath(),
+                    DefaultBranch = "main"
+                };
+                await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                // The voyage belongs to some OTHER objective's failed run; this incident merely records it.
+                Voyage otherVoyage = new Voyage("Another objective's failed voyage")
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Status = VoyageStatusEnum.Failed
+                };
+                await testDb.Driver.Voyages.CreateAsync(otherVoyage).ConfigureAwait(false);
+                Mission otherMission = new Mission("Failed stage of the other voyage")
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    VesselId = vessel.Id,
+                    VoyageId = otherVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                };
+                await testDb.Driver.Missions.CreateAsync(otherMission).ConfigureAwait(false);
+
+                Objective never = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Owns the fix, was never dispatched",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                never = await objectives.UpdateAsync(auth, never.Id, new ObjectiveUpsertRequest
+                {
+                    AutoDispatchEnabled = true
+                }).ConfigureAwait(false);
+                AssertTrue(never.AutoDispatchEnabled, "Precondition: the objective is auto-dispatch enabled.");
+                AssertEqual(1, AutonomousObjectiveSelector.SelectEligible(new List<Objective> { never }).Count,
+                    "Precondition: a Scoped, auto-enabled, never-dispatched objective is eligible.");
+
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Mission failed in the other voyage",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium,
+                    VesselId = vessel.Id,
+                    MissionId = otherMission.Id,
+                    VoyageId = otherVoyage.Id
+                }).ConfigureAwait(false);
+
+                Objective linked = await objectives.LinkIncidentAsync(auth, never.Id, incident.Id).ConfigureAwait(false);
+
+                AssertTrue(linked.IncidentIds.Contains(incident.Id), "The incident link itself is recorded.");
+                AssertTrue(linked.VesselIds.Contains(vessel.Id), "Delivery context (vessel) is still carried.");
+                AssertEqual(0, linked.VoyageIds.Count, "The incident's voyage must not become the objective's dispatch lineage.");
+                AssertEqual(0, linked.MissionIds.Count, "The incident's mission must not become the objective's dispatch lineage.");
+
+                Objective? reloaded = await objectives.ReadAsync(auth, never.Id).ConfigureAwait(false);
+                reloaded = NotNull(reloaded);
+                AssertEqual(0, reloaded.VoyageIds.Count, "Persisted objective carries no voyage from the incident link.");
+                AssertEqual(1, AutonomousObjectiveSelector.SelectEligible(new List<Objective> { reloaded }).Count,
+                    "Annotating the objective with an incident must leave it auto-dispatch eligible.");
+            }).ConfigureAwait(false);
+
             await RunTest("EnumerateAsync backfills latest snapshot into normalized objective storage", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
