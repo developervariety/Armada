@@ -55,6 +55,8 @@ namespace Armada.Server.Routes
                 ApplyScope(ctx, query);
 
                 List<TokenUsageRecord> records = await _database.TokenUsage.EnumerateForSummaryAsync(query).ConfigureAwait(false);
+                List<ArmadaEvent> legacyEvents = await EnumerateLegacyEventsAsync(ctx, query).ConfigureAwait(false);
+                records = TokenUsageCompatibility.MergeLegacyEvents(records, legacyEvents, _jsonOptions);
                 return TokenUsageSummaryBuilder.Build(records, query);
             },
             api => api
@@ -187,6 +189,34 @@ namespace Armada.Server.Routes
             {
                 query.UserId = ctx.UserId;
             }
+        }
+
+        private async Task<List<ArmadaEvent>> EnumerateLegacyEventsAsync(AuthContext ctx, TokenUsageQuery query)
+        {
+            EnumerationQuery eventQuery = new EnumerationQuery
+            {
+                PageNumber = 1,
+                PageSize = 1000,
+                CreatedAfter = query.FromUtc!.Value.AddTicks(-1),
+                CreatedBefore = query.ToUtc!.Value,
+                EventType = "mission.token_usage"
+            };
+
+            List<ArmadaEvent> events = new List<ArmadaEvent>();
+            int totalPages = 1;
+            for (int page = 1; page <= totalPages; page++)
+            {
+                eventQuery.PageNumber = page;
+                EnumerationResult<ArmadaEvent> eventPage = ctx.IsAdmin
+                    ? await _database.Events.EnumerateAsync(eventQuery).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Events.EnumerateAsync(ctx.TenantId!, eventQuery).ConfigureAwait(false)
+                        : await _database.Events.EnumerateAsync(ctx.TenantId!, ctx.UserId!, eventQuery).ConfigureAwait(false);
+                events.AddRange(eventPage.Objects);
+                totalPages = eventPage.TotalPages;
+            }
+
+            return events;
         }
 
         private static string? NormalizeEmpty(string? value)
