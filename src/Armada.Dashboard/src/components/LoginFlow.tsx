@@ -161,9 +161,9 @@ export default function LoginFlow() {
         )}
 
         {mode === 'email' && step === 'email' && (
-          <form onSubmit={handleEmailSubmit}>
+          <form onSubmit={handleEmailSubmit} autoComplete="off">
             <label htmlFor="email">{t('Email')}</label>
-            <input id="email" name="username" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder={t('you@company.com')} required autoFocus />
+            <input id="email" name="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t('you@company.com')} required autoFocus />
             <button type="submit" disabled={busy}>{busy ? t('Looking up...') : t('Continue')}</button>
           </form>
         )}
