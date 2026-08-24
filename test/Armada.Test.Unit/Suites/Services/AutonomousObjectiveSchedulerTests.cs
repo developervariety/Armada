@@ -345,7 +345,121 @@ namespace Armada.Test.Unit.Suites.Services
                 await scheduler.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchVoyageCallCount, "One vessel must consume only one scheduler lane.");
-                AssertContains("vessel_skips=1", scheduler.LastResultSummary ?? String.Empty, "Summary should name the vessel-limited objective.");
+                AssertContains("vessel_concurrency=1", scheduler.LastResultSummary ?? String.Empty, "Summary should name the vessel-limited objective.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A sweep that dispatches nothing says why", async () =>
+            {
+                // A multi-vessel objective is eligible by every rule the selector checks,
+                // then fails the one-vessel requirement inside dispatch. That skip used to
+                // be swallowed: dispatched=0, LastSkipReason=null, no event. Two objectives
+                // sat permanently undispatchable and the sweep reported an idle fleet.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel first = await testDb.Driver.Vessels.CreateAsync(new Vessel("multi-a", "https://github.com/test/multi-a.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Vessel second = await testDb.Driver.Vessels.CreateAsync(new Vessel("multi-b", "https://github.com/test/multi-b.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Census vein spanning several vessels",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { first.Id, second.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "A multi-vessel objective must not auto-dispatch.");
+                AssertContains("multi_vessel", scheduler.LastSkipReason ?? String.Empty,
+                    "The sweep must name the reason it dispatched nothing.");
+                AssertContains("multi_vessel", scheduler.LastResultSummary ?? String.Empty,
+                    "The summary must carry the skip breakdown.");
+            }).ConfigureAwait(false);
+
+            await RunTest("An empty backlog reports no_eligible_objectives, not silence", async () =>
+            {
+                // "Nothing to do" and "everything is blocked" are different states. A null
+                // skip reason must mean work was dispatched, never that the sweep cannot say.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchVoyageCallCount);
+                AssertEqual("no_eligible_objectives", scheduler.LastSkipReason,
+                    "An idle fleet must be reported as idle, not as an unexplained no-op.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A sweep that dispatches clears the skip reason", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("single-lane", "https://github.com/test/single-lane.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Ordinary single-vessel objective",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount);
+                AssertNull(scheduler.LastSkipReason, "Work was dispatched, so there is nothing to explain.");
             }).ConfigureAwait(false);
 
             await RunTest("Per-vessel limit still dispatches independent vessels in parallel", async () =>

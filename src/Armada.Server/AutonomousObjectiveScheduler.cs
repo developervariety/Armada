@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Text;
     using System.Threading;
@@ -302,6 +303,10 @@ namespace Armada.Server
 
                 int dispatched = 0;
                 int vesselConcurrencySkips = 0;
+                // Every skip is counted by reason. A sweep that dispatches nothing must be
+                // able to say why; reporting dispatched=0 with no reason reads as an idle
+                // fleet, and hid two permanently undispatchable objectives for days.
+                Dictionary<string, int> skipReasons = new Dictionary<string, int>(StringComparer.Ordinal);
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
 
                 foreach (Objective objective in eligible)
@@ -316,6 +321,7 @@ namespace Armada.Server
                         if (activeOnVessel >= MaxConcurrentVoyagesPerVessel)
                         {
                             vesselConcurrencySkips++;
+                            RecordSkip(skipReasons, "vessel_concurrency");
                             await EmitObjectiveEventAsync(
                                 "objective_scheduler.skipped_vessel_concurrency",
                                 "Autonomous scheduler skipped objective " + objective.Id + ": vessel "
@@ -340,21 +346,29 @@ namespace Armada.Server
                             active.ByVessel[dispatchedVesselId] = activeOnVessel + 1;
                         }
                     }
-                    catch (ObjectiveSkippedException)
+                    catch (ObjectiveSkippedException skipped)
                     {
+                        RecordSkip(skipReasons, skipped.Reason);
                     }
                     catch (Exception ex)
                     {
+                        RecordSkip(skipReasons, "dispatch_error");
                         _Logging.Warn(_Header + "dispatch failed for objective " + objective.Id + ": " + ex.Message);
                     }
                 }
 
-                LastSkipReason = dispatched == 0 && vesselConcurrencySkips > 0
-                    ? "vessel_concurrency"
-                    : null;
+                // A null skip reason must mean "work was dispatched", never "nothing
+                // happened and I cannot say why". An empty eligible set is itself a
+                // reportable state: it separates an idle fleet from a blocked one.
+                LastSkipReason = dispatched > 0
+                    ? null
+                    : (skipReasons.Count > 0 ? DescribeSkips(skipReasons) : "no_eligible_objectives");
+
                 LastResultSummary = "reconciled=" + reconciledCount + " dispatched=" + dispatched
-                    + (vesselConcurrencySkips > 0 ? " vessel_skips=" + vesselConcurrencySkips : String.Empty);
-                _Logging.Info(_Header + "sweep complete: reconciled=" + reconciledCount + " dispatched=" + dispatched + " capacity=" + capacity + ".");
+                    + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty);
+                _Logging.Info(_Header + "sweep complete: reconciled=" + reconciledCount
+                    + " dispatched=" + dispatched + " capacity=" + capacity
+                    + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty) + ".");
             }
             finally
             {
@@ -445,7 +459,7 @@ namespace Armada.Server
                 await EmitObjectiveEventAsync("objective_scheduler.skipped_terminal_status",
                     "Autonomous scheduler skipped objective " + objective.Id + ": status is " + objective.Status + ".",
                     objective, null, token).ConfigureAwait(false);
-                throw new ObjectiveSkippedException();
+                throw new ObjectiveSkippedException("terminal_status");
             }
 
             if (objective.VoyageIds.Count > 0)
@@ -456,20 +470,25 @@ namespace Armada.Server
                     await EmitObjectiveEventAsync("objective_scheduler.skipped_active_voyage",
                         "Autonomous scheduler skipped objective " + objective.Id + ": an active linked voyage already exists.",
                         objective, null, token).ConfigureAwait(false);
-                    throw new ObjectiveSkippedException();
+                    throw new ObjectiveSkippedException("active_voyage");
                 }
 
                 _Logging.Debug(_Header + "objective " + objective.Id + " skipped: linked voyages exist but reconcile has not completed.");
                 await EmitObjectiveEventAsync("objective_scheduler.skipped_pending_reconcile",
                     "Autonomous scheduler skipped objective " + objective.Id + ": linked voyages exist; waiting for reconcile.",
                     objective, null, token).ConfigureAwait(false);
-                throw new ObjectiveSkippedException();
+                throw new ObjectiveSkippedException("pending_reconcile");
             }
 
             if (objective.VesselIds.Count != 1)
             {
-                _Logging.Warn(_Header + "objective " + objective.Id + " skipped: must have exactly one vessel for v1 auto-dispatch (has " + objective.VesselIds.Count + ").");
-                throw new ObjectiveSkippedException();
+                string vesselDetail = "autonomous dispatch requires exactly one vessel; this objective has "
+                    + objective.VesselIds.Count + ". Split it per vessel, or dispatch it by hand.";
+                _Logging.Warn(_Header + "objective " + objective.Id + " skipped: " + vesselDetail);
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_multi_vessel",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": " + vesselDetail,
+                    objective, null, token).ConfigureAwait(false);
+                throw new ObjectiveSkippedException("multi_vessel");
             }
 
             string vesselId = objective.VesselIds[0];
@@ -484,7 +503,7 @@ namespace Armada.Server
                 await EmitObjectiveEventAsync("objective_scheduler.skipped_backpressure",
                     "Autonomous scheduler skipped objective " + objective.Id + ": merge queue back-pressure for vessel " + vesselId + ".",
                     objective, vesselId, token).ConfigureAwait(false);
-                throw new ObjectiveSkippedException();
+                throw new ObjectiveSkippedException("backpressure");
             }
 
             if (_Settings.CodeIndex.Enabled && _CodeIndex != null)
@@ -498,7 +517,7 @@ namespace Armada.Server
                         await EmitObjectiveEventAsync("objective_scheduler.skipped_index_update",
                             "Autonomous scheduler skipped objective " + objective.Id + ": code index update in progress for vessel " + vesselId + ".",
                             objective, vesselId, token).ConfigureAwait(false);
-                        throw new ObjectiveSkippedException();
+                        throw new ObjectiveSkippedException("index_update");
                     }
                 }
                 catch (ObjectiveSkippedException)
@@ -685,12 +704,52 @@ namespace Armada.Server
                 principalDisplay: "Armada Autonomous Objective Scheduler");
         }
 
+        private static void RecordSkip(Dictionary<string, int> skipReasons, string reason)
+        {
+            string key = String.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+            skipReasons.TryGetValue(key, out int count);
+            skipReasons[key] = count + 1;
+        }
+
+        /// <summary>
+        /// Render skip counts as a stable, readable summary, for example
+        /// "multi_vessel=2,backpressure=1". Ordered by count then name so the same sweep
+        /// always produces the same string.
+        /// </summary>
+        private static string DescribeSkips(Dictionary<string, int> skipReasons)
+        {
+            List<KeyValuePair<string, int>> ordered = skipReasons.ToList();
+            ordered.Sort((left, right) =>
+            {
+                int byCount = right.Value.CompareTo(left.Value);
+                return byCount != 0 ? byCount : String.Compare(left.Key, right.Key, StringComparison.Ordinal);
+            });
+
+            List<string> parts = new List<string>(ordered.Count);
+            foreach (KeyValuePair<string, int> entry in ordered)
+                parts.Add(entry.Key + "=" + entry.Value.ToString(CultureInfo.InvariantCulture));
+            return String.Join(",", parts);
+        }
+
+        /// <summary>
+        /// Thrown when one objective cannot be dispatched on this sweep. The reason
+        /// travels WITH the exception: it was previously discarded at the catch, so a
+        /// sweep that skipped every eligible objective reported dispatched=0 with a null
+        /// skip reason and no event, and the cause was invisible to the operator.
+        /// </summary>
         private sealed class ObjectiveSkippedException : Exception
         {
+            /// <summary>Short machine-readable skip reason, for example "multi_vessel".</summary>
+            public string Reason { get; }
+
             /// <summary>
             /// Instantiate.
             /// </summary>
-            public ObjectiveSkippedException() : base("objective skipped") { }
+            /// <param name="reason">Short machine-readable skip reason.</param>
+            public ObjectiveSkippedException(string reason) : base("objective skipped: " + reason)
+            {
+                Reason = String.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+            }
         }
 
         private sealed class ActiveVoyageSummary
