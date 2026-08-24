@@ -2440,6 +2440,7 @@ a:hover { text-decoration: underline; }
         z-index: 200;
     }
     .sidebar.sidebar-collapsed { width: 180px; }
+    .app-layout:not(.sidebar-is-collapsed) .sidebar { left: 0; }
     .sidebar.sidebar-open { left: 0; }
     .sidebar-overlay {
         display: none;
@@ -2465,6 +2466,21 @@ a:hover { text-decoration: underline; }
     .diff-file-nav { width: 100%; max-width: 100%; max-height: 30vh; border-right: none; border-bottom: 1px solid var(--border); }
     .diff-modal-header { flex-wrap: wrap; }
     .settings-grid { grid-template-columns: 1fr; }
+
+    .top-bar {
+        justify-content: flex-start;
+        gap: 0.5rem;
+        padding: 0 0.5rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .top-bar::-webkit-scrollbar { display: none; }
+    .top-bar .auth-badge,
+    .top-bar-health .top-bar-status-label,
+    .top-bar-status .top-bar-status-label { display: none; }
+    .top-bar-health,
+    .top-bar-status { flex: 0 0 auto; }
+    .topbar-language-select .locale-select { min-width: 108px; }
 }
 
 /* Settings Page */
