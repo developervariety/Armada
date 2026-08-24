@@ -2440,7 +2440,7 @@ a:hover { text-decoration: underline; }
         z-index: 200;
     }
     .sidebar.sidebar-collapsed { width: 180px; }
-    .app-layout:not(.sidebar-is-collapsed) .sidebar { left: 0; }
+    .app-layout:not(.sidebar-is-collapsed) .sidebar { left: 0 !important; }
     .sidebar.sidebar-open { left: 0; }
     .sidebar-overlay {
         display: none;
