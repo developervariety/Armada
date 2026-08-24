@@ -2046,21 +2046,6 @@ export interface TokenUsageModelBreakdown {
   totalTokens: number;
 }
 
-export interface TokenUsageSummary {
-  fromUtc: string;
-  toUtc: string;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  totalTokens: number;
-  sampleCount: number;
-  reportedMissionCount: number;
-  coverageNote: string;
-  models: TokenUsageModelBreakdown[];
-}
-
 export interface BatchDeleteRequest {
   ids: string[];
 }
@@ -2240,8 +2225,7 @@ export interface TokenUsageBucket {
   models: TokenUsageModelBreakdown[];
 }
 
-/** Bucketed token usage over a window, from GET /api/v1/token-usage/summary. Distinct from
- *  TokenUsageSummary, which is the flat per-model rollup served by the events route.
+/** Bucketed token usage over a window, from GET /api/v1/token-usage/summary.
  *  estimatedCount reports how many aggregated records were estimated rather than reported by the
  *  runtime, so a window mixing runtimes mixes measured and inferred numbers in one total. */
 export interface TokenUsageSummaryResult {

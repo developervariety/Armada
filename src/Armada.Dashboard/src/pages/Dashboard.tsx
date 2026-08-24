@@ -22,7 +22,6 @@ import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import JsonViewer from '../components/shared/JsonViewer';
 import FilterBar from '../components/shared/FilterBar';
 import MissionHistoryChart from '../components/MissionHistoryChart';
-import TokenUsageChart from '../components/TokenUsageChart';
 import { useLocale } from '../context/LocaleContext';
 
 interface VoyageProgress {
@@ -389,7 +388,6 @@ export default function Dashboard() {
 
       {/* Mission History Chart */}
       <MissionHistoryChart vessels={vessels} fleets={fleets} onRefresh={loadAll} />
-      <TokenUsageChart />
 
       {/* Voyage Progress */}
       {status?.voyages && status.voyages.length > 0 && (

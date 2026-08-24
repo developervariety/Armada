@@ -12,7 +12,7 @@ function panel(node: ReactNode): ReactNode {
 }
 
 /**
- * Activity log. Unifies the four "what happened" surfaces behind one source
+ * Activity log. Unifies the activity surfaces behind one source
  * selector so an operator stops guessing which of History, Requests, Events, or
  * Signals to open. "All activity" is the cross-entity History superset; the
  * Requests source keeps its KPIs, activity chart, and request inspector modal;

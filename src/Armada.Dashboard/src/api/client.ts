@@ -113,7 +113,6 @@ import type {
   RunbookExecutionUpdateRequest,
   RunbookQuery,
   RunbookUpsertRequest,
-  TokenUsageSummary,
   ProjectProfile,
   ProjectProfileValidationResult,
   ProjectProfileResolutionResult,
@@ -781,8 +780,6 @@ export const deletePlanningSession = (id: string) => del<void>(`/api/v1/planning
 // ==================== Events ====================
 export const listEvents = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<ArmadaEvent>>(`/api/v1/events${buildQuery(params)}`);
-export const getTokenUsage = (days = 30) =>
-  get<TokenUsageSummary>(`/api/v1/events/token-usage?days=${encodeURIComponent(String(days))}`);
 export const getEvent = (id: string) => get<ArmadaEvent>(`/api/v1/events/${id}`);
 export const deleteEventsBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/events/delete/multiple', { Ids: ids });
 
@@ -1046,8 +1043,7 @@ export const listJobs = () => get<EnumerationResult<Job>>('/api/v1/jobs');
 export const getJob = (id: string) => get<Job>(`/api/v1/jobs/${encodeURIComponent(id)}`);
 export const cancelJob = (id: string) => post<Job>(`/api/v1/jobs/${encodeURIComponent(id)}/cancel`, {});
 
-/** Bucketed token-usage summary. Distinct from getTokenUsage, which returns the flat per-model
- *  rollup from the events route; this one carries time buckets and powers the usage charts. */
+/** Bucketed token-usage summary used by the Activity token-usage view. */
 export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery) => {
   const search = new URLSearchParams();
   if (params) {
