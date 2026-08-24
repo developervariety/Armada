@@ -88,7 +88,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_read",
-                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read.",
+                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read. Long BROADCAST notes come back previewed, each carrying ContentLength and Truncated, with TruncatedMessageCount on the response; notes addressed to you and every UnreadWake are always whole. Pass includeFullContent=true, ideally with a smaller limit or an afterUtc, to read a previewed note in full.",
                 new
                 {
                     type = "object",
@@ -98,7 +98,8 @@ namespace Armada.Server.Mcp.Tools
                         limit = new { type = "integer", description = "Maximum number of notes to return (default 50)." },
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
                         activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
-                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it." }
+                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it." },
+                        includeFullContent = new { type = "boolean", description = "Return every note whole instead of previewing long broadcast notes (default false). Notes addressed to you and UnreadWakes are always whole either way." }
                     }
                 },
                 async (args) =>
@@ -135,7 +136,19 @@ namespace Armada.Server.Mcp.Tools
                             claims = new List<CoordinationClaim>();
                         }
 
-                        return (object)new { RoomKey = roomKey, Messages = messages, ActiveParticipants = participants, ActiveClaims = claims, UnreadWakes = unreadWakes };
+                        List<CoordinationMessageView> views = BuildMessageViews(
+                            messages, request.ParticipantKey, request.IncludeFullContent == true);
+                        int truncatedCount = views.Count(view => view.Truncated);
+
+                        return (object)new
+                        {
+                            RoomKey = roomKey,
+                            Messages = views,
+                            TruncatedMessageCount = truncatedCount,
+                            ActiveParticipants = participants,
+                            ActiveClaims = claims,
+                            UnreadWakes = unreadWakes
+                        };
                     }
                     catch (NotSupportedException ex)
                     {
@@ -535,6 +548,50 @@ namespace Armada.Server.Mcp.Tools
             public string? ToParticipantKey { get; set; } = null;
         }
 
+        /// <summary>Characters of a broadcast note kept when previewing.</summary>
+        private const int _BOARD_PREVIEW_CHARS = 600;
+
+        /// <summary>
+        /// Project board notes for the read tool. A note addressed to
+        /// <paramref name="participantKey"/> is never previewed, whatever
+        /// <paramref name="includeFullContent"/> says; broadcast notes are previewed
+        /// unless the caller asked for everything.
+        /// </summary>
+        private static List<CoordinationMessageView> BuildMessageViews(
+            List<CoordinationMessage> messages,
+            string? participantKey,
+            bool includeFullContent)
+        {
+            List<CoordinationMessageView> views = new List<CoordinationMessageView>(messages.Count);
+            foreach (CoordinationMessage message in messages)
+            {
+                string content = message.Content ?? String.Empty;
+                bool addressedToCaller = !String.IsNullOrWhiteSpace(participantKey)
+                    && String.Equals(message.ToParticipantKey, participantKey, StringComparison.Ordinal);
+                bool keepWhole = includeFullContent
+                    || addressedToCaller
+                    || content.Length <= _BOARD_PREVIEW_CHARS;
+
+                views.Add(new CoordinationMessageView
+                {
+                    Id = message.Id,
+                    AuthorType = message.AuthorType.ToString(),
+                    AuthorName = message.AuthorName,
+                    ToParticipantKey = message.ToParticipantKey,
+                    Content = keepWhole ? content : content.Substring(0, _BOARD_PREVIEW_CHARS),
+                    ContentLength = content.Length,
+                    Truncated = !keepWhole,
+                    VoyageId = message.VoyageId,
+                    MissionId = message.MissionId,
+                    VesselId = message.VesselId,
+                    IncidentId = message.IncidentId,
+                    CreatedUtc = message.CreatedUtc
+                });
+            }
+
+            return views;
+        }
+
         private sealed class CoordinationReadArgs
         {
             public string? RoomKey { get; set; } = null;
@@ -542,6 +599,47 @@ namespace Armada.Server.Mcp.Tools
             public DateTime? AfterUtc { get; set; } = null;
             public int? ActiveWithinMinutes { get; set; } = null;
             public string? ParticipantKey { get; set; } = null;
+            public bool? IncludeFullContent { get; set; } = null;
+        }
+
+        /// <summary>
+        /// One board note as the read tool returns it. Content is the whale: a full room
+        /// read returned 57,501 characters and blew the caller's tool output limit, which
+        /// cost every autonomous cycle several turns spilling the payload to a file and
+        /// parsing it back.
+        /// <para>
+        /// Broadcast chatter is previewed. A note ADDRESSED to the caller, and every
+        /// unread wake, is always returned whole -- a truncated board preview has already
+        /// hidden five complete reports once, and directed mail is exactly what must not
+        /// be lost.
+        /// </para>
+        /// </summary>
+        private sealed class CoordinationMessageView
+        {
+            /// <summary>Message identifier.</summary>
+            public string Id { get; set; } = "";
+            /// <summary>Author kind.</summary>
+            public string AuthorType { get; set; } = "";
+            /// <summary>Author display name.</summary>
+            public string AuthorName { get; set; } = "";
+            /// <summary>Participant this note is addressed to, or null for broadcast.</summary>
+            public string? ToParticipantKey { get; set; }
+            /// <summary>Note text, whole or previewed. See <see cref="Truncated"/>.</summary>
+            public string Content { get; set; } = "";
+            /// <summary>Length of the full note, whatever <see cref="Content"/> carries.</summary>
+            public int ContentLength { get; set; }
+            /// <summary>True when <see cref="Content"/> is a preview of a longer note.</summary>
+            public bool Truncated { get; set; }
+            /// <summary>Related voyage identifier, when present.</summary>
+            public string? VoyageId { get; set; }
+            /// <summary>Related mission identifier, when present.</summary>
+            public string? MissionId { get; set; }
+            /// <summary>Related vessel identifier, when present.</summary>
+            public string? VesselId { get; set; }
+            /// <summary>Related incident identifier, when present.</summary>
+            public string? IncidentId { get; set; }
+            /// <summary>Creation time.</summary>
+            public DateTime CreatedUtc { get; set; }
         }
 
         private sealed class CoordinationHeartbeatArgs
