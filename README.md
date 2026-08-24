@@ -86,6 +86,10 @@ upstream equivalent.
 
 Recent fork delta:
 
+- `ab4ac0fa` completes the autonomous wake and parallel-lane loop: persistent
+  lead ownership across restarts, bounded helper offers with explicit Claude
+  MCP delivery, local MCP configuration for supported mission captains, and a
+  per-vessel scheduler ceiling that permits safe fleet-wide concurrency.
 - `45f5a0a1` finishes bounded autonomous lead operations: a reusable fresh-cycle
   prompt, a capped and timed read-only helper launcher, an executable lifecycle
   contract test, and aligned setup/operator guidance for AgentWake and the
