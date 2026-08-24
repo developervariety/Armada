@@ -40,12 +40,18 @@ for c in ${configs[@]+"${configs[@]}"}; do
     [ -f "$c" ] || { echo "Error: MCP config file not found: $c" >&2; exit 1; }
 done
 [ "${#configs[@]}" -gt 0 ] && printf '%s\n' "${configs[0]}" > "$LEAD_TEST_CONFIG_PATH"
+for i in "${!args[@]}"; do
+    if [ "${args[$i]}" = "--settings" ]; then
+        printf '%s\n' "${args[$((i+1))]}" > "${LEAD_TEST_SETTINGS_PATH:-/dev/null}"
+    fi
+done
 cat > "$LEAD_TEST_PROMPT"
 EOF
 chmod +x "$TEST_ROOT/bin/claude"
 
 export LEAD_TEST_PROMPT="$TEST_ROOT/prompt.txt"
 export LEAD_TEST_CONFIG_PATH="$TEST_ROOT/config-path.txt"
+export LEAD_TEST_SETTINGS_PATH="$TEST_ROOT/settings-path.txt"
 
 run_lead() {
     PATH="$TEST_ROOT/bin:$PATH" \
@@ -89,8 +95,32 @@ python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$CONFIG" \
     || fail "the MCP config is not valid JSON"
 grep -Fq '"X-Armada-Participant": "probe-lead"' "$CONFIG" \
     || fail "the MCP config did not carry the participant header"
+[ -s "$TEST_ROOT/settings-path.txt" ] || fail "--settings was not passed to the runtime"
 
 grep -Fq " ok " "$WORKDIR/run/last-result" || fail "a successful cycle was not recorded"
+
+# An unattended run has nobody to answer a permission prompt, so the policy must
+# be written and passed. Deny must cover the actions that stay owner-only.
+SETTINGS="$WORKDIR/lead-settings.json"
+[ -f "$SETTINGS" ] || fail "the permission policy was not written"
+python3 - "$SETTINGS" <<'PYEOF' || fail "the permission policy is wrong"
+import json, sys
+policy = json.load(open(sys.argv[1]))["permissions"]
+allow, deny = policy["allow"], policy["deny"]
+assert "mcp__armada" in allow, "the Armada tool surface must be allowed"
+for tool in [
+    "mcp__armada__armada_stop_server",
+    "mcp__armada__armada_stop_all",
+    "mcp__armada__armada_dispatch_hold",
+    "mcp__armada__armada_resolve_check",
+    "mcp__armada__armada_register_agentwake_session",
+    "mcp__armada__approve_deployment",
+    "mcp__armada__rollback_deployment",
+    "mcp__armada__armada_purge_voyage",
+]:
+    assert tool in deny, f"{tool} must stay denied"
+assert any(d.startswith("Bash(git push --force") for d in deny), "force push must stay denied"
+PYEOF
 [ ! -e "$WORKDIR/run/cycle.pid" ] || fail "the pidfile outlived the cycle"
 
 # --- single flight --------------------------------------------------------

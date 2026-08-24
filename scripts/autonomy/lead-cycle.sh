@@ -90,6 +90,85 @@ prepare_mcp_config() {
     printf '%s\n' "$path"
 }
 
+prepare_settings() {
+    local path="$WORKDIR/lead-settings.json"
+    # An unattended run has nobody to answer a permission prompt, so the policy
+    # has to be stated up front. Allow the Armada surface and ordinary file and
+    # shell work; deny what must stay an owner action even when the lead judges
+    # it useful. Deny wins over allow, so the list below is the real boundary.
+    #
+    # The denials are not arbitrary. Fleet-destructive and purge tools cannot be
+    # undone; deployment and release tools reach outside the repository;
+    # armada_resolve_check could manufacture a green gate; armada_dispatch_hold
+    # is fleet-wide and would freeze every peer session; and the AgentWake
+    # registration tool would let a cycle re-point the autonomy at itself.
+    cat > "$path" <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "mcp__armada",
+      "Read", "Grep", "Glob", "Write", "Edit", "TodoWrite", "Task",
+      "Bash"
+    ],
+    "deny": [
+      "mcp__armada__armada_stop_server",
+      "mcp__armada__armada_stop_all",
+      "mcp__armada__armada_restore",
+      "mcp__armada__armada_backup",
+      "mcp__armada__armada_dispatch_hold",
+      "mcp__armada__armada_resolve_check",
+      "mcp__armada__armada_register_agentwake_session",
+      "mcp__armada__armada_objective_scheduler_set",
+      "mcp__armada__armada_delete_captain",
+      "mcp__armada__armada_delete_captains",
+      "mcp__armada__armada_delete_dock",
+      "mcp__armada__armada_delete_docks",
+      "mcp__armada__armada_delete_event",
+      "mcp__armada__armada_delete_events",
+      "mcp__armada__armada_delete_fleet",
+      "mcp__armada__armada_delete_fleets",
+      "mcp__armada__armada_delete_incident",
+      "mcp__armada__armada_delete_merge",
+      "mcp__armada__armada_delete_missions",
+      "mcp__armada__armada_delete_signals",
+      "mcp__armada__armada_delete_vessel",
+      "mcp__armada__armada_delete_vessels",
+      "mcp__armada__armada_delete_voyages",
+      "mcp__armada__armada_purge_dock",
+      "mcp__armada__armada_purge_merge_entries",
+      "mcp__armada__armada_purge_merge_entry",
+      "mcp__armada__armada_purge_merge_queue",
+      "mcp__armada__armada_purge_mission",
+      "mcp__armada__armada_purge_voyage",
+      "mcp__armada__delete_objective",
+      "mcp__armada__delete_backlog_item",
+      "mcp__armada__delete_playbook",
+      "mcp__armada__delete_runbook",
+      "mcp__armada__delete_runbook_execution",
+      "mcp__armada__delete_environment",
+      "mcp__armada__delete_persona",
+      "mcp__armada__delete_pipeline",
+      "mcp__armada__delete_workflow_profile",
+      "mcp__armada__create_deployment",
+      "mcp__armada__update_deployment",
+      "mcp__armada__approve_deployment",
+      "mcp__armada__rollback_deployment",
+      "mcp__armada__verify_deployment",
+      "mcp__armada__create_release",
+      "mcp__armada__update_release",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(docker compose:*)",
+      "Bash(systemctl:*)",
+      "Bash(rm -rf /:*)"
+    ]
+  }
+}
+JSON
+    chmod 600 "$path"
+    printf '%s\n' "$path"
+}
+
 build_prompt() {
     # The bootstrap doc is the contract. Everything below it is the only
     # per-cycle state: which key to use, and that this is an unattended run.
@@ -169,11 +248,12 @@ cmd_run() {
     else echo "warning: no timeout binary; running this cycle UNCAPPED" >&2
     fi
 
-    local stamp log prompt_file mcp_config runtime status
+    local stamp log prompt_file mcp_config settings_file runtime status
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     log="$LOG_DIR/cycle-$stamp.log"
     prompt_file="$RUN_DIR/prompt-$stamp.md"
     mcp_config=$(prepare_mcp_config)
+    settings_file=$(prepare_settings)
     runtime=$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')
 
     build_prompt > "$prompt_file"
@@ -194,6 +274,8 @@ cmd_run() {
             # stdin also sidesteps the argv length limit for a long brief.
             ${cap[@]+"${cap[@]}"} claude --print --setting-sources project,local \
                 --strict-mcp-config --mcp-config "$mcp_config" \
+                --settings "$settings_file" \
+                --add-dir "$WORKDIR" \
                 < "$prompt_file" > "$log" 2>&1
             ;;
         codex)
