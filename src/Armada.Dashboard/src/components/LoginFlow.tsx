@@ -130,7 +130,9 @@ export default function LoginFlow() {
             <div className="login-secret-field">
               <input
                 id="apikey"
+                name="apikey"
                 type={revealedField === 'apikey' ? 'text' : 'password'}
+                autoComplete="new-password"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
                 placeholder={t('Paste your API key')}
@@ -161,7 +163,7 @@ export default function LoginFlow() {
         {mode === 'email' && step === 'email' && (
           <form onSubmit={handleEmailSubmit}>
             <label htmlFor="email">{t('Email')}</label>
-            <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t('you@company.com')} required autoFocus />
+            <input id="email" name="username" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder={t('you@company.com')} required autoFocus />
             <button type="submit" disabled={busy}>{busy ? t('Looking up...') : t('Continue')}</button>
           </form>
         )}
