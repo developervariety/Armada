@@ -4895,20 +4895,24 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     color: var(--text-dim);
     padding: 1rem 0;
 }
-.workspace-page {
+@media (max-width: 900px) {
+    .workspace-page {
         height: auto;
         overflow: visible;
     }
-.workspace-shell,
+
+    .workspace-shell,
     .workspace-shell.has-selection-pane {
         grid-template-columns: 1fr;
         overflow: visible;
     }
-.workspace-pane,
+
+    .workspace-pane,
     .workspace-tree,
     .workspace-action-rail {
         min-height: 0;
     }
+}
 .detail-panel {
     display: flex;
     flex-direction: column;
@@ -5135,6 +5139,29 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 }
 .readiness-issue.error {
     border-color: rgba(191, 68, 68, 0.3);
+}
+
+/* Readiness cards use a translucent white surface in the light theme. Keep the
+   surface and semantic text readable when the dashboard uses its dark theme. */
+[data-theme="dark"] .readiness-info-card,
+[data-theme="dark"] .readiness-checklist-item,
+[data-theme="dark"] .readiness-issue {
+    background: color-mix(in srgb, var(--bg-card) 92%, var(--bg-hover));
+}
+
+[data-theme="dark"] .readiness-pill.ready,
+[data-theme="dark"] .readiness-type-pill.warning {
+    color: #86efac;
+}
+
+[data-theme="dark"] .readiness-pill.warning,
+[data-theme="dark"] .readiness-issue-severity.warning {
+    color: #fcd34d;
+}
+
+[data-theme="dark"] .readiness-pill.error,
+[data-theme="dark"] .readiness-issue-severity.error {
+    color: #fca5a5;
 }
 .readiness-issue-title-row {
     display: flex;
