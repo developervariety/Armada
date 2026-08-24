@@ -7,9 +7,14 @@ bounded read-only research, and leaves a handoff. Armada does not start lead
 cycles on a timer by itself. Start one manually, with an external scheduler, or
 through an AgentWake registration with process delivery.
 
-Use one stable participant key for the lead. Store it in
-`remoteTrigger.agentWake.participantKey` when the lead must survive Admiral
-restarts. A transient registration with its own key overrides the configured
+Normally this prompt is delivered by `scripts/autonomy/lead-cycle.sh`, which
+appends the per-cycle contract, writes the MCP and permission configuration, caps
+the wall clock, and keeps the run single-flight. Read it by hand only to
+understand the contract; run it through the launcher.
+
+Use one stable participant key for the lead, and never an interactive operator's.
+Store it in `remoteTrigger.agentWake.participantKey` when the lead must survive
+Admiral restarts. A transient registration with its own key overrides the configured
 key until the next restart. If AgentWake starts OpenCode, it starts a fresh
 session by design. The addressed Wake text must therefore carry the task, and
 this prompt makes the session reconstruct its state from Armada and durable
@@ -36,6 +41,14 @@ state is in Armada and workspace memory, not in this conversation.
 4. Call `armada_status`. Record the dispatch hold, scheduler state, active
    voyages, and active incidents. If another session holds dispatch, do only
    safe read-only triage, post a handoff, and exit.
+
+## How to wait
+
+Do not wait by running a blocking poll. A shell loop inside one tool call emits
+nothing, blocks you from seeing directed mail while it runs, and has ended turns
+mid-work. To watch a voyage, start `scripts/autonomy/watch-armada.mjs` and read
+its lines; each mission line is a stage boundary, which is the only window where
+a correction still reaches the next brief. Between events, do other work.
 
 ## Run one bounded pass
 

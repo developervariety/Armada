@@ -84,16 +84,17 @@ controls, and the broader operator workflow around these features. The fork
 also keeps its own implementations where they are more complete than the
 upstream equivalent.
 
-Recent fork delta:
+The fork's autonomy layer is the largest current delta. It adds bounded lead
+cycles with timer and wake triggers, single-flight execution, an explicit
+permission policy for unattended runs, full-stream cycle logging, capped helper
+launchers with lifecycle contract tests, persistent lead ownership across
+restarts, per-vessel scheduler ceilings for safe fleet-wide concurrency, and a
+live event stream for operator sessions.
 
-- `ab4ac0fa` completes the autonomous wake and parallel-lane loop: persistent
-  lead ownership across restarts, bounded helper offers with explicit Claude
-  MCP delivery, local MCP configuration for supported mission captains, and a
-  per-vessel scheduler ceiling that permits safe fleet-wide concurrency.
-- `45f5a0a1` finishes bounded autonomous lead operations: a reusable fresh-cycle
-  prompt, a capped and timed read-only helper launcher, an executable lifecycle
-  contract test, and aligned setup/operator guidance for AgentWake and the
-  objective scheduler.
+Directed wakes reach a live session on any tool result: a client that sends its
+participant key as a request header receives pending board mail appended to
+whatever tool it calls next. MCP has no channel that can interrupt a running
+agent, so a tool result is the delivery mechanism.
 
 ---
 
@@ -112,18 +113,39 @@ Armada models work explicitly so a human or orchestrator can inspect every layer
 
 ### Autonomous Scheduling And Operator Cycles
 
-The built-in objective scheduler dispatches eligible objectives without an
-operator poll loop. Its settings persist across Admiral restarts, its voyages
-use the normal Build and UnitTest Check-arming path, and the fleet-wide dispatch
-hold stops new operator and scheduler dispatches together.
+Three layers cover different work. The **objective scheduler** selects eligible
+objectives and dispatches captains; its settings persist across Admiral restarts
+and its voyages use the normal Build and UnitTest Check-arming path. The
+**captains** do the code. The **lead cycle** is the operator layer that neither
+covers: landing, incidents, campaign refill, and answering helpers.
 
-Optional host-side lead cycles are a separate layer. Use
-[`docs/autonomy/lead-bootstrap-prompt.md`](docs/autonomy/lead-bootstrap-prompt.md)
-for one bounded fresh cycle and `scripts/autonomy/spawn-helper.sh` for capped,
-timed, read-only helpers. Addressed board notes always retain Wake signals and
-can also start a registered AgentWake process. OpenCode wakes start fresh and
-reconstruct state from the addressed task, board, and durable memory. Do not
-give one participant key to both a resident helper and AgentWake.
+`scripts/autonomy/lead-cycle.sh` runs one bounded pass and exits. Two triggers
+start it: a systemd timer (`scripts/autonomy/systemd/`) for work that arrives
+quietly, and AgentWake for a mission outcome or a note addressed to the lead's
+key. The runner is single-flight, so a tick arriving during a wake-started cycle
+is refused rather than queued and one participant key never gets two process
+owners. Give the lead its own key, never an interactive operator's.
+
+An unattended cycle cannot ask a question, so it posts owner decisions to the
+coordination board and continues. Its permission policy is passed explicitly and
+is the real boundary: the Armada surface plus ordinary file and shell work is
+allowed; fleet-destructive and purge tools, deployment and release, check
+resolution, the dispatch hold, AgentWake registration, force push and host
+service control are denied.
+
+Each cycle records its whole event stream plus a rendered digest of every tool
+call and result, so a run that misbehaves can be read afterwards rather than
+inferred. A stream that ends without a result is reported as incomplete.
+
+`scripts/autonomy/spawn-helper.sh` provides capped, timed helpers for narrow
+delegated work. `scripts/autonomy/watch-armada.mjs` subscribes to the WebSocket
+hub and emits one line per voyage, mission, incident or directed note, so an
+operator session watches by subscribing instead of blocking on a poll.
+
+A sweep that dispatches nothing says why. `LastSkipReason` is null only when work
+was dispatched, and otherwise names the constraint with counts. Note that an
+objective must name exactly one vessel to auto-dispatch: set `VesselIds` to the
+vessel whose repository receives the commit.
 
 ### Pipelines and Personas
 
@@ -368,7 +390,13 @@ Common MCP tool groups:
 - Objective/backlog CRUD, refinement, planning, dispatch linkage, and the autonomous objective scheduler.
 - Check run, release, deployment, incident, and runbook operations.
 - Playbook management, mission playbook snapshots, and reflection memory.
-- Captain diagnostics, quarantine controls, AgentWake registration, long-running-job status, and wake notifications.
+- Captain diagnostics, quarantine controls, AgentWake registration, long-running-job status, and directed wake delivery.
+
+Send `X-Armada-Participant: <participantKey>` on MCP requests to receive pending
+board mail appended to any tool result. A session that sends no header is
+anonymous and receives none, so one session cannot read another's mail. Long
+broadcast notes on a board read come back previewed; notes addressed to the
+caller and unread wakes are always whole.
 
 Discover live tool descriptions and input schemas with `tools/list`. Follow
 `nextCursor` until it is absent. The complete operator workflow and current
