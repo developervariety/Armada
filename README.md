@@ -151,6 +151,7 @@ The additions below are grouped by subsystem. Except where noted, each subsystem
 - **Captain voice on the board.** An `[ARMADA:NOTE]` marker line in any captain's output becomes a Captain-author board message linked to its mission - no MCP exposure, taught in every mission brief, milestone notes required by the porting playbook (`7a527c4d`).
 - **One-call campaign status.** `armada_campaign_status` resolves a campaign tag or root into the objective tree with statuses, active claims, and recent notes; `armada board` shows the same picture in Helm (`7a527c4d`).
 - **Work handoffs between sessions.** Notes can be addressed to one participant - still public, but marked as directed at that session - so a helper session told only to "join the chatroom" reads broadcast plus everything handed to it. Voyage-tagged notes reach that voyage's next stage brief, the one deliberate exception to advisory-only (`7a527c4d`).
+- **Wake on handed work.** Addressed notes emit a Wake signal, so a session's next heartbeat or read surfaces a targeted UnreadWakes list - the pause-and-read nudge for sessions inside blocking loops (`6d24b482`).
 
 ### Captain prompt shaping and context budget
 
