@@ -367,9 +367,12 @@ namespace Armada.Test.Unit
                 AssertFalse(CheckRunGateRules.IsStale(passedAtA, "   "),
                     "a blank reviewed commit means nothing to compare against");
 
-                CheckRun passedUnstamped = new CheckRun { Status = CheckRunStatusEnum.Passed, Command = "dotnet build" };
-                AssertFalse(CheckRunGateRules.IsStale(passedUnstamped, "bbbbbbbb2222222222222222222222222222bbbb"),
-                    "a record with no commit of its own cannot be compared, so the rule does not call it stale");
+                CheckRun passedUnstampedOnVoyage = new CheckRun { Status = CheckRunStatusEnum.Passed, Command = "dotnet build", VoyageId = "vyg_example" };
+                AssertTrue(CheckRunGateRules.IsStale(passedUnstampedOnVoyage, "bbbbbbbb2222222222222222222222222222bbbb"),
+                    "a voyage green with no commit measured the default branch, not the work, so it is stale");
+                CheckRun passedUnstampedNoVoyage = new CheckRun { Status = CheckRunStatusEnum.Passed, Command = "dotnet build" };
+                AssertFalse(CheckRunGateRules.IsStale(passedUnstampedNoVoyage, "bbbbbbbb2222222222222222222222222222bbbb"),
+                    "a record attached to no voyage is left alone, because nothing re-arms it");
 
                 CheckRun failedAtA = new CheckRun { Status = CheckRunStatusEnum.Failed, Command = "dotnet build", CommitHash = "aaaaaaaa1111" };
                 AssertFalse(CheckRunGateRules.IsStale(failedAtA, "bbbbbbbb2222"),

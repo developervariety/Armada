@@ -1210,6 +1210,66 @@ namespace Armada.Server
             return await DispatchRescueReviewLoopAsync(failedMission, rescue, attemptNumber, token).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Link a rescue voyage to every objective that owns the voyage it rescues.
+        /// </summary>
+        /// <remarks>
+        /// A rescue continues the objective's own work, so the objective must own it. The
+        /// objective scheduler counts running voyages through <see cref="Objective.VoyageIds"/>,
+        /// for the fleet ceiling and per vessel alike, so an unlinked rescue is invisible to both:
+        /// the fleet ran one voyage more than its stated ceiling, on a vessel the scheduler believed
+        /// idle, exactly while that vessel was already failing. Linking also stops the scheduler
+        /// re-dispatching the objective beside its own rescue. The link is best-effort: a rescue
+        /// must never be refused because a record could not be updated.
+        /// </remarks>
+        /// <param name="failedMission">The mission being rescued; its voyage is the parent.</param>
+        /// <param name="rescueVoyage">The voyage the rescue runs in.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of objectives the rescue voyage was linked to.</returns>
+        internal async Task<int> LinkRescueVoyageToObjectivesAsync(Mission failedMission, Voyage rescueVoyage, CancellationToken token)
+        {
+            if (failedMission == null || rescueVoyage == null) return 0;
+            if (String.IsNullOrWhiteSpace(failedMission.VoyageId)) return 0;
+
+            int linked = 0;
+            try
+            {
+                List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+                ObjectiveService objectiveService = new ObjectiveService(_Database, _Logging);
+
+                foreach (Objective objective in objectives)
+                {
+                    if (objective == null || objective.VoyageIds == null) continue;
+                    if (!objective.VoyageIds.Contains(failedMission.VoyageId, StringComparer.Ordinal)) continue;
+                    if (objective.VoyageIds.Contains(rescueVoyage.Id, StringComparer.Ordinal)) continue;
+
+                    AuthContext auth = AuthContext.Authenticated(
+                        objective.TenantId ?? Constants.DefaultTenantId,
+                        objective.UserId ?? Constants.DefaultUserId,
+                        false,
+                        true,
+                        "AutonomousRecoveryOrchestrator",
+                        principalDisplay: "Armada Autonomous Recovery");
+
+                    await objectiveService.LinkVoyageAsync(auth, objective.Id, rescueVoyage.Id, token).ConfigureAwait(false);
+                    linked++;
+                    _Logging.Info(_Header + "rescue voyage " + rescueVoyage.Id + " linked to objective " + objective.Id
+                        + " (rescues voyage " + failedMission.VoyageId + ")");
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not link rescue voyage " + rescueVoyage.Id + " to the objectives of voyage "
+                    + failedMission.VoyageId + ": " + ex.Message);
+            }
+
+            return linked;
+        }
+
         // Dispatch the Worker revision rescue as the root of a dedicated rescue voyage, then chain
         // the verification stages onto it via DependsOnMissionId. The standard pipeline handoff
         // (MissionService) stamps each downstream stage with the revision branch and assigns it
@@ -1241,6 +1301,8 @@ namespace Armada.Server
                 Status = VoyageStatusEnum.InProgress
             }, token).ConfigureAwait(false);
 
+            await LinkRescueVoyageToObjectivesAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
+
             workerRescue.VoyageId = rescueVoyage.Id;
             Mission dispatchedWorker = await _Admiral.DispatchMissionQueuedAsync(workerRescue, token).ConfigureAwait(false);
 
@@ -1261,53 +1323,50 @@ namespace Armada.Server
             // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
             // Build/UnitTest Checks, and a rescue voyage has none unless something creates them
             // (a recovery judge with no Checks was rejected at the gate and misreported as a judge
-            // FAIL - the 231e760e incident). Attach and run the checks now, exactly as an operator
-            // would with armada_run_check after dispatch. They run sequentially (never two full
-            // suites at once on this host), and a failure here must not break the rescue dispatch.
-            await RunRescueChecksAsync(failedMission, rescueVoyage.Id, token).ConfigureAwait(false);
+            // FAIL). The checks are ARMED here, never run: at this moment the rescue Worker has not
+            // started, so a check run now measures the vessel's default branch and hands the Judge
+            // a green that says nothing about the revision. An armed record is stamped with the
+            // rescue's branch and commit by the check executor once a stage has committed, and
+            // runs against that. A failure here must not break the rescue dispatch.
+            await ArmRescueChecksAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
 
             return dispatchedWorker;
         }
 
         /// <summary>
-        /// Create and run Build then UnitTest checks for a rescue voyage so the rescue Judge's
-        /// real-signal gate finds independent green Checks when it evaluates the PASS. Runs
-        /// sequentially and swallows failures: the rescue must proceed even if a check cannot be
-        /// created or executed (the gate then reports the specific rejection reason).
+        /// Arm Build and UnitTest checks for a rescue voyage so the rescue Judge's real-signal gate
+        /// finds independent Checks that measured the revision. The records are created Pending
+        /// through the same seam dispatch uses; the check executor stamps each with the rescue's
+        /// branch and commit once a stage has committed and runs it then. Running them here
+        /// instead would measure the vessel's default branch before the rescue Worker has started.
+        /// Failures are swallowed: the rescue must proceed even if a record cannot be created (the
+        /// gate then reports the specific rejection reason).
         /// </summary>
         /// <param name="failedMission">The failed mission being rescued; supplies vessel context.</param>
-        /// <param name="voyageId">The rescue voyage the checks are linked to.</param>
+        /// <param name="rescueVoyage">The rescue voyage the checks are linked to.</param>
         /// <param name="token">Cancellation token.</param>
-        private async Task RunRescueChecksAsync(Mission failedMission, string voyageId, CancellationToken token)
+        /// <returns>The number of Check records armed.</returns>
+        internal async Task<int> ArmRescueChecksAsync(Mission failedMission, Voyage rescueVoyage, CancellationToken token)
         {
-            if (_CheckRuns == null) return;
-            if (String.IsNullOrWhiteSpace(failedMission.VesselId)) return;
+            if (failedMission == null || rescueVoyage == null) return 0;
+            if (String.IsNullOrWhiteSpace(failedMission.VesselId)) return 0;
 
-            AuthContext auth = AuthContext.Authenticated(
-                Constants.DefaultTenantId,
-                Constants.DefaultUserId,
-                isAdmin: true,
-                isTenantAdmin: true,
-                authMethod: "System",
-                principalDisplay: "Autonomous recovery checks");
-
-            foreach (CheckRunTypeEnum type in new CheckRunTypeEnum[] { CheckRunTypeEnum.Build, CheckRunTypeEnum.UnitTest })
+            try
             {
-                try
-                {
-                    await _CheckRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
-                    {
-                        VesselId = failedMission.VesselId,
-                        VoyageId = voyageId,
-                        MissionId = failedMission.Id,
-                        Type = type,
-                        Label = "Rescue " + type
-                    }, allowDeploymentExecution: false, token: token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "could not run rescue " + type + " check for voyage " + voyageId + ": " + ex.Message);
-                }
+                Vessel? vessel = await _Database.Vessels.ReadAsync(failedMission.VesselId, token).ConfigureAwait(false);
+                if (vessel == null) return 0;
+
+                VoyageCheckArmingService arming = new VoyageCheckArmingService(_Database, _Settings, _Logging);
+                return await arming.ArmAsync(rescueVoyage, vessel, "autonomous_rescue", token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not arm rescue checks for voyage " + rescueVoyage.Id + ": " + ex.Message);
+                return 0;
             }
         }
 

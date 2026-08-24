@@ -1508,6 +1508,84 @@ namespace Armada.Test.Unit.Suites.Services
                 SanitizeOriginalDescriptionForRescue_LongDescriptionWithDiagnostics_TruncatesAndSplits).ConfigureAwait(false);
             await RunTest("SanitizeOriginalDescriptionForRescue truncates a scope-only description",
                 SanitizeOriginalDescriptionForRescue_LongDescriptionWithoutDiagnostics_TruncatesScope).ConfigureAwait(false);
+            // The objective scheduler counts running voyages through Objective.VoyageIds, for the
+            // fleet ceiling and per vessel alike. A rescue voyage that is linked to nothing is
+            // invisible to both, so the fleet runs one voyage more than its ceiling while the
+            // rescued vessel reads idle.
+            await RunTest("A rescue voyage is linked to every objective that owns the voyage it rescues", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_link", "usr_rescue_link").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_link", "usr_rescue_link").ConfigureAwait(false);
+                Voyage parent = await testDb.Driver.Voyages.CreateAsync(new Voyage("parent voyage", "the voyage that failed")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Voyage unrelated = await testDb.Driver.Voyages.CreateAsync(new Voyage("other voyage", "someone else's work")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
+                Objective owner = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "the objective whose voyage failed",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { parent.Id }
+                }).ConfigureAwait(false);
+                Objective bystander = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "an objective on another voyage",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { unrelated.Id }
+                }).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.VoyageId = parent.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                Voyage rescue = await testDb.Driver.Voyages.CreateAsync(new Voyage("Rescue 1: the failed mission", "rescue")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                int linked = await orchestrator.LinkRescueVoyageToObjectivesAsync(failed, rescue, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(1, linked, "exactly the objective that owns the rescued voyage is linked");
+
+                Objective? ownerAfter = await testDb.Driver.Objectives.ReadAsync(owner.Id).ConfigureAwait(false);
+                AssertTrue(ownerAfter!.VoyageIds.Contains(rescue.Id), "the owner now carries the rescue voyage, so the scheduler counts it");
+                AssertTrue(ownerAfter.VoyageIds.Contains(parent.Id), "the failed parent voyage stays linked as history");
+
+                Objective? bystanderAfter = await testDb.Driver.Objectives.ReadAsync(bystander.Id).ConfigureAwait(false);
+                AssertFalse(bystanderAfter!.VoyageIds.Contains(rescue.Id), "an objective on another voyage is untouched");
+
+                int again = await orchestrator.LinkRescueVoyageToObjectivesAsync(failed, rescue, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(0, again, "linking is idempotent");
+
+                Mission orphan = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                orphan.VoyageId = null;
+                await testDb.Driver.Missions.UpdateAsync(orphan).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.LinkRescueVoyageToObjectivesAsync(orphan, rescue, CancellationToken.None).ConfigureAwait(false),
+                    "a standalone mission with no voyage links nothing");
+            }).ConfigureAwait(false);
+
             await RunTest("BuildRescueDescription keeps a large embedded failure log under the cap",
                 BuildRescueDescription_LargeEmbeddedFailureLog_StaysUnderCap).ConfigureAwait(false);
             await RunTest("BuildRescueDescription reduces older handoff blocks so the newest survives",

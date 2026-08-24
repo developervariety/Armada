@@ -101,18 +101,24 @@ namespace Armada.Core.Services
         /// that follow keep committing on top. A Judge then reviews the tip while the only green
         /// record measured a commit several stages back -- in the worst case a planner commit that
         /// never landed. A gate that reads Status alone cannot see that; comparing the record's
-        /// commit to the reviewed one can. A record with no commit of its own cannot be compared and
-        /// is not reported stale by this rule.
+        /// commit to the reviewed one can.
+        /// <para>
+        /// A voyage-attached green that carries NO commit is stale too. Build and UnitTest run in a
+        /// checkout resolved from the record, so a record executed without a branch measured the
+        /// vessel's default branch, never the work under review; the rescue path once ran its
+        /// checks that way, seconds after dispatch and before the rescue Worker had started. A
+        /// record attached to no voyage is left alone, because nothing re-arms it.
+        /// </para>
         /// </remarks>
         /// <param name="run">The Check to test. Null returns false.</param>
         /// <param name="reviewedCommit">The commit under review. Null or empty returns false.</param>
-        /// <returns>True when the record is a green for a different commit.</returns>
+        /// <returns>True when the record is a green for a different commit, or for no commit at all.</returns>
         public static bool IsStale(CheckRun? run, string? reviewedCommit)
         {
             if (!ParticipatesInRealSignalGate(run)) return false;
             if (run!.Status != CheckRunStatusEnum.Passed) return false;
             if (String.IsNullOrWhiteSpace(reviewedCommit)) return false;
-            if (String.IsNullOrWhiteSpace(run.CommitHash)) return false;
+            if (String.IsNullOrWhiteSpace(run.CommitHash)) return !String.IsNullOrWhiteSpace(run.VoyageId);
             return !SameCommit(run.CommitHash, reviewedCommit);
         }
 
