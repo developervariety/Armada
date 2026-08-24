@@ -837,10 +837,27 @@ shows only critical items).
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_objective_scheduler_status` |
-| Write | `armada_objective_scheduler_set`, `armada_mark_objective_auto_dispatchable` |
+| Write | `armada_objective_scheduler_set`, `armada_mark_objective_auto_dispatchable`, `armada_objective_scheduler_clear_stale_pause` |
 
 Scheduler state changed through MCP is persisted to the loaded settings file
-and survives an Admiral restart. Scheduler dispatches use the same Build and
+and survives an Admiral restart. A pause set through `paused=true` should carry
+`pausedBy` (your participant key) and `pauseReason`; both are persisted and
+shown by `armada_objective_scheduler_status`. A pause outlives the session that
+set it, so without an owner nobody can tell a live deploy window from a
+departed peer's leftover.
+
+`armada_objective_scheduler_clear_stale_pause` is the autonomy layer's one
+permitted write to the pause: clear only, never engage. It succeeds only when
+the pause names its owner, the owner is absent from the coordination presence
+window, and the absence exceeds
+`autonomousObjectiveScheduler.stalePauseAbsenceMinutes` (floor 30, twice the
+presence default; a deploy with verification finishes well inside that). It
+wakes every active session and posts a board note naming the stale owner, the
+recorded reason, the set time and the measured absence, then clears once and
+persists. An unattributed pause is refused and stays an operator's to clear.
+The dispatch hold is never touched: it clears itself on a successful redeploy,
+so a hold that survives is a deploy that stopped halfway and needs a human.
+Pass `dryRun=true` to read the decision and evidence without acting. Scheduler dispatches use the same Build and
 UnitTest Check arming path as operator dispatches. A dispatch hold blocks both.
 See `docs/SCHEDULING.md` for eligibility and ordering, and section 4.11 for the
 separate optional lead-cycle layer.

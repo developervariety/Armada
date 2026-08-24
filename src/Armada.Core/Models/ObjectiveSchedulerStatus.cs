@@ -20,6 +20,21 @@ namespace Armada.Core.Models
         public bool Paused { get; set; } = false;
 
         /// <summary>
+        /// Participant key of the session that set the pause, or null when unattributed.
+        /// </summary>
+        public string? PausedBy { get; set; } = null;
+
+        /// <summary>
+        /// UTC time the pause was set, or null when unattributed.
+        /// </summary>
+        public DateTime? PausedUtc { get; set; } = null;
+
+        /// <summary>
+        /// Why the pause was set, or null.
+        /// </summary>
+        public string? PauseReason { get; set; } = null;
+
+        /// <summary>
         /// True when the current state was written to the settings file and will survive a restart.
         /// Null when the status was read rather than set.
         /// </summary>

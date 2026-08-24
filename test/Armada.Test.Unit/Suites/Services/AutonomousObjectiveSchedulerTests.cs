@@ -61,6 +61,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(dispatchCountAfterFirst, admiral.DispatchVoyageCallCount, "Second sweep within interval must not dispatch voyages.");
             }).ConfigureAwait(false);
 
+            await RunTest("Pause records who, when and why; Resume drops all three; both are mirrored for persistence", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ArmadaSettings settings = new ArmadaSettings();
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new RecordingAdmiralService(testDb.Driver), settings);
+
+                DateTime before = DateTime.UtcNow;
+                scheduler.Pause("  deploy-session  ", " protecting a rebuild ");
+                AssertTrue(scheduler.Paused);
+                AssertEqual("deploy-session", scheduler.PausedBy);
+                AssertEqual("protecting a rebuild", scheduler.PauseReason);
+                AssertTrue(scheduler.PausedUtc.HasValue && scheduler.PausedUtc.Value >= before, "PausedUtc is stamped at pause time.");
+
+                await scheduler.TryPersistAsync().ConfigureAwait(false);
+                AssertEqual("deploy-session", settings.AutonomousObjectiveScheduler.PausedBy, "Attribution is mirrored into settings before the write.");
+                AssertEqual(scheduler.PausedUtc, settings.AutonomousObjectiveScheduler.PausedUtc);
+                AssertEqual("protecting a rebuild", settings.AutonomousObjectiveScheduler.PauseReason);
+
+                scheduler.Resume();
+                AssertFalse(scheduler.Paused);
+                AssertTrue(scheduler.PausedBy == null && scheduler.PausedUtc == null && scheduler.PauseReason == null, "Resume drops the attribution.");
+                await scheduler.TryPersistAsync().ConfigureAwait(false);
+                AssertTrue(settings.AutonomousObjectiveScheduler.PausedBy == null && settings.AutonomousObjectiveScheduler.PausedUtc == null, "Cleared attribution is mirrored too.");
+
+                scheduler.Pause();
+                AssertTrue(scheduler.Paused && scheduler.PausedBy == null, "An unattributed pause is still a pause; it is the rule that refuses to clear it.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Pause attribution loads from settings at construction, and the absence threshold has a floor of 30", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.AutonomousObjectiveScheduler.Paused = true;
+                settings.AutonomousObjectiveScheduler.PausedBy = "peer";
+                settings.AutonomousObjectiveScheduler.PausedUtc = new DateTime(2026, 8, 24, 18, 4, 0, DateTimeKind.Utc);
+                settings.AutonomousObjectiveScheduler.PauseReason = "deploy";
+                settings.AutonomousObjectiveScheduler.StalePauseAbsenceMinutes = 5;
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new RecordingAdmiralService(testDb.Driver), settings);
+
+                AssertTrue(scheduler.Paused);
+                AssertEqual("peer", scheduler.PausedBy);
+                AssertEqual(settings.AutonomousObjectiveScheduler.PausedUtc, scheduler.PausedUtc);
+                AssertEqual("deploy", scheduler.PauseReason);
+                AssertEqual(30, scheduler.StalePauseAbsenceMinutes, "The owner-decided floor is 30 minutes; a smaller setting is clamped up.");
+                settings.AutonomousObjectiveScheduler.StalePauseAbsenceMinutes = 2000;
+                AssertEqual(1440, scheduler.StalePauseAbsenceMinutes, "Clamped to one day at the top.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_Disabled_EmitsSkippedDisabledEvent", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

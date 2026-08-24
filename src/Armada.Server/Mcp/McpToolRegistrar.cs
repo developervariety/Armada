@@ -143,7 +143,7 @@ namespace Armada.Server.Mcp
                     McpOperationalAssetTools.Register(register, database, workflowProfiles, environments, runbookService);
             }
             if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
-            if (objectiveScheduler != null && objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService);
+            if (objectiveScheduler != null && objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService, coordinationService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(
                 register,

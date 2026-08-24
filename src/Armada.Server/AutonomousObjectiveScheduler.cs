@@ -36,9 +36,30 @@ namespace Armada.Server
         public bool Paused { get; private set; }
 
         /// <summary>
+        /// Participant key of the session that set the pause, or null when unattributed.
+        /// </summary>
+        public string? PausedBy { get; private set; }
+
+        /// <summary>
+        /// UTC time the pause was set, or null when unattributed.
+        /// </summary>
+        public DateTime? PausedUtc { get; private set; }
+
+        /// <summary>
+        /// Why the pause was set, or null.
+        /// </summary>
+        public string? PauseReason { get; private set; }
+
+        /// <summary>
         /// Minutes between scheduled sweep ticks.
         /// </summary>
         public int IntervalMinutes { get; private set; }
+
+        /// <summary>
+        /// Minutes the pausing session must be absent before its pause may be cleared as stale.
+        /// Read from settings on each call so a settings edit takes effect without a restart.
+        /// </summary>
+        public int StalePauseAbsenceMinutes => _Settings.AutonomousObjectiveScheduler.StalePauseAbsenceMinutes;
 
         /// <summary>
         /// Maximum number of objectives with simultaneously active linked voyages.
@@ -126,6 +147,9 @@ namespace Armada.Server
 
             Enabled = settings.AutonomousObjectiveScheduler.Enabled;
             Paused = settings.AutonomousObjectiveScheduler.Paused;
+            PausedBy = settings.AutonomousObjectiveScheduler.PausedBy;
+            PausedUtc = settings.AutonomousObjectiveScheduler.PausedUtc;
+            PauseReason = settings.AutonomousObjectiveScheduler.PauseReason;
             IntervalMinutes = settings.AutonomousObjectiveScheduler.IntervalMinutes;
             MaxConcurrentVoyages = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages;
             MaxConcurrentVoyagesPerVessel = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel;
@@ -152,6 +176,9 @@ namespace Armada.Server
             {
                 _Settings.AutonomousObjectiveScheduler.Enabled = Enabled;
                 _Settings.AutonomousObjectiveScheduler.Paused = Paused;
+                _Settings.AutonomousObjectiveScheduler.PausedBy = PausedBy;
+                _Settings.AutonomousObjectiveScheduler.PausedUtc = PausedUtc;
+                _Settings.AutonomousObjectiveScheduler.PauseReason = PauseReason;
                 _Settings.AutonomousObjectiveScheduler.IntervalMinutes = IntervalMinutes;
                 _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = MaxConcurrentVoyages;
                 _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = MaxConcurrentVoyagesPerVessel;
@@ -176,14 +203,30 @@ namespace Armada.Server
         public void Disable() => Enabled = false;
 
         /// <summary>
-        /// Temporarily suspend dispatch without clearing the Enabled flag.
+        /// Temporarily suspend dispatch without clearing the Enabled flag. Record who set the
+        /// pause, when and why: a pause outlives the session that set it, and without an owner
+        /// nobody can tell a live deploy window from a departed peer's leftover.
         /// </summary>
-        public void Pause() => Paused = true;
+        /// <param name="pausedBy">Participant key of the pausing session, or null.</param>
+        /// <param name="reason">Why the pause is set, or null.</param>
+        public void Pause(string? pausedBy = null, string? reason = null)
+        {
+            Paused = true;
+            PausedBy = String.IsNullOrWhiteSpace(pausedBy) ? null : pausedBy.Trim();
+            PausedUtc = DateTime.UtcNow;
+            PauseReason = String.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        }
 
         /// <summary>
-        /// Resume from a paused state.
+        /// Resume from a paused state and drop the pause attribution.
         /// </summary>
-        public void Resume() => Paused = false;
+        public void Resume()
+        {
+            Paused = false;
+            PausedBy = null;
+            PausedUtc = null;
+            PauseReason = null;
+        }
 
         /// <summary>
         /// Set the sweep interval, clamped to 1-1440 minutes.

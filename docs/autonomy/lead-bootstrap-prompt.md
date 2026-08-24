@@ -66,6 +66,15 @@ a correction still reaches the next brief. Between events, do other work.
 2. DISPATCH. Let the built-in scheduler dispatch normal writable objectives.
    Use operator dispatch only for work that captains cannot reach and only when
    no peer claim or dispatch hold conflicts.
+   If `armada_status` shows the scheduler paused, read `PausedBy`, `PausedUtc`
+   and `PauseReason` from `armada_objective_scheduler_status`. Call
+   `armada_objective_scheduler_clear_stale_pause` with your participant key,
+   `dryRun=true` first. It clears the pause only when the pausing session has
+   been absent from the presence window longer than the configured threshold,
+   and it announces every clear. A refusal names why: the owner is still
+   present, or the pause has no owner and an operator must clear it. Post an
+   OWNER DECISION on a refusal you cannot resolve. Never engage a pause and
+   never touch the dispatch hold; raise a stale hold loudly instead.
 3. DELEGATE. Use host helpers only for narrow, read-only, single-task research:
 
    `scripts/autonomy/spawn-helper.sh spawn <name> <prompt-file> <working-dir>`
