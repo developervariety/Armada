@@ -1,0 +1,30 @@
+[Unit]
+# One bounded autonomous lead cycle. The objective scheduler dispatches eligible
+# objectives by itself; this is the operator layer that lands work, closes
+# incidents, refills campaign lanes, and answers helpers.
+#
+# The timer is the heartbeat, not the only trigger. AgentWake also starts a cycle
+# on a mission outcome or a directed board note. lead-cycle.sh is single-flight,
+# so the two triggers cannot produce two leads on one participant key.
+Description=Armada autonomous lead cycle (one bounded pass)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=armada
+Group=armada
+WorkingDirectory=__ARMADA_CHECKOUT__
+Environment=AUTONOMY_LEAD_KEY=armada-lead
+Environment=AUTONOMY_LEAD_RUNTIME=claude
+Environment=AUTONOMY_LEAD_TIMEOUT_MIN=45
+ExecStart=__ARMADA_CHECKOUT__/scripts/autonomy/lead-cycle.sh run
+# The cap belongs to lead-cycle.sh so a wake-started cycle gets it too. This is
+# the outer backstop for a runner that wedges before reaching its own timeout.
+TimeoutStartSec=3600
+# A refused cycle (one already running) exits 0, so a failure here is real.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

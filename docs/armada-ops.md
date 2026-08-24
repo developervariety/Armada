@@ -946,112 +946,81 @@ the session calls `armada_mark_signal_read`; a wake that stopped appearing
 before it was read would be a lost wake. The two coordination tools above are
 excluded, because they already return the same wakes in their own payload.
 
-#### Watch the board in real time
+#### Do not wait by polling. Subscribe.
 
 The banner is reliable but not immediate: a session that calls no tool sees
-nothing until it does. The Admiral's WebSocket hub already broadcasts every
-board message, so `scripts/autonomy/watch-board-wakes.mjs` listens there and
-reports a directed note the moment it is posted:
+nothing until it does. The instinct is to close that gap with a blocking poll --
+a shell `while` loop inside one `ssh_exec` call. Do not. That shape was measured
+on one operator session (2026-08-23 23:19Z to 01:50Z) and it costs more than it
+looks:
+
+- 68 assistant messages, of which only FIVE carried visible text. The operator
+  saw nothing for seven minutes at a stretch, and fourteen minutes before the
+  final handoff.
+- Three of five turns ended `state=interrupted, stopReason=tool_use`, each within
+  four seconds of a failed `ssh_exec`. Two of those restarted the underlying
+  session, which is why the run finished one item and wrote a handoff.
+- While the loop runs the session makes no MCP calls, so a directed board note
+  cannot reach it either. A helper waiting on an answer times out against a lead
+  that is technically alive.
+
+The Admiral's WebSocket hub already broadcasts every voyage, mission, incident
+and board change. Subscribe to it instead, and let each change arrive as an
+event:
 
 ```sh
-ARMADA_PARTICIPANT_KEY=lead-session \
-ARMADA_WS_URL=ws://127.0.0.1:7890/ws \
-node scripts/autonomy/watch-board-wakes.mjs
+ssh <server> 'node <armada-checkout>/scripts/autonomy/watch-armada.mjs \
+    --voyage <voyage-id> --participant <your-key> --exit-on-terminal'
 ```
 
-Each matching note prints one line. Set `ARMADA_WAKE_COMMAND` to run a notifier
-instead; the note JSON arrives on that command's stdin. Pass `--all` to watch
-every note rather than one key, and `--once` to exit after the first match.
+Drive it with the harness's Monitor tool, so every line becomes a notification.
+Each mission line is a stage boundary, which is the only window where a
+correction still reaches the next brief. `--exit-on-terminal` ends the watch when
+the voyage finishes. `--all-notes` widens it to the whole board; `--quiet-captains`
+drops the stall lines.
 
-The watcher notifies and nothing more. It never reads, acknowledges, or
-consumes a wake, so the banner and `armada_mark_signal_read` remain the
-delivery and acknowledgement path.
-- `armada_coordination_claim` — reserve a vessel or objective (claim / release /
-  list). Claims expire unless heartbeats keep them alive; a dispatch overlapping
-  another session's active claim announces the overlap on the board; the inbox
-  raises `StalePeer` when a silent session still holds one.
-- `armada_campaign_status` — roll up a campaign: objective tree under a tag or
-  root, active claims, recent board notes.
+The watcher notifies and nothing more. It never reads, acknowledges, or consumes
+a wake, so the banner and `armada_mark_signal_read` remain the delivery and
+acknowledgement path.
 
-The admiral also mirrors selected fleet events (`voyage.dispatched`,
-`voyage.cancelled`, `mission.completed`, `mission.failed`,
-`mission.cancelled`) onto the board as system notes.
+### 4.11 Autonomous lead cycles
 
-Notes can be ADDRESSED to one participant (`toParticipantKey`): still visible
-to everyone, but marked as directed at that session. This is how a session
-hands work to another - "join the chatroom" is a complete instruction for a
-new helper session, which reads broadcast plus its own mail and picks up
-addressed asks. `armada_coordination_read` takes `participantKey` for exactly
-this filtered view.
+The objective scheduler dispatches eligible objectives on its own. It does not
+land work, close incidents, refill campaign lanes, or answer a helper. That
+operator layer is `scripts/autonomy/lead-cycle.sh`, which runs ONE bounded pass
+and exits.
 
-When an addressed note targets the `participantKey` of the registered
-AgentWake session, the admiral also starts that session when AgentWake delivery
-is `SpawnProcess` or `Both`. The Wake signal row is always written, including
-when no registered session matches or process delivery cannot start. An
-OpenCode wake always starts a fresh session. It does not resume an earlier
-session, so the wake text must contain the task and the new session must
-reconstruct its state from the coordination board and durable memory.
+```sh
+scripts/autonomy/lead-cycle.sh run      # one cycle now; refuses if one is running
+scripts/autonomy/lead-cycle.sh status   # running? and the last result
+scripts/autonomy/lead-cycle.sh kill     # stop the running cycle
+```
 
-Voyage-tagged notes are the one case where the board reaches a captain brief:
-at a stage handoff, up to ten notes naming the voyage created since the prior
-stage started are appended under "Board notes on this voyage". General
-fleet-room chatter stays advisory and never injects.
+Two things start a cycle, and they are complementary:
 
-Captains post through the same surface without any MCP exposure: a
-`[ARMADA:NOTE] one-line note` marker line in agent output becomes a
-Captain-author board message linked to their mission (20 per mission,
-credential-redacted). The directive reaches captains in every mission brief;
-the porting playbook asks for milestone notes explicitly.
+- **The timer**, `scripts/autonomy/systemd/armada-lead-cycle.timer`, every hour.
+  This catches work that arrives quietly, such as new objectives added while the
+  fleet was idle and no event fired.
+- **AgentWake**, when a mission outcome or a note addressed to the lead's key
+  arrives. Set `remoteTrigger.agentWake.command` to
+  `scripts/autonomy/lead-wake.sh`. That shim exists because Armada starts the
+  configured command with the runtime's own flags in argv, including
+  `--strict-mcp-config` with no `--mcp-config` -- which would give the woken
+  process zero Armada tools -- and `--continue`, which resumes an unrelated
+  session. The shim ignores argv, keeps only the wake text from stdin, and hands
+  it to `lead-cycle.sh`.
 
-#### Coordination Claims
+`lead-cycle.sh` is single-flight. A timer tick arriving while a wake-started
+cycle is running is refused, not queued, so one participant key never gets two
+process owners.
 
-`armada_coordination_claim` reserves a vessel or objective with your session
-name, so peers see the work is taken before they dispatch into it.
+**Give the lead its own participant key.** `armada-lead` by default, and never an
+interactive operator's key. Two process owners on one key duplicate dispatch and
+cannot be told apart on the board.
 
-- Claim before you start non-trivial work; release it (`action=release`) when
-  you finish. Heartbeats extend your claims automatically, so a live session
-  never lapses; an abandoned claim expires on its own.
-- A dispatch that overlaps someone else's active claim still proceeds, but the
-  board announces the overlap naming both parties. Treat that note as a stop
-  sign: coordinate or cancel one side.
-- The Needs-You inbox raises a `StalePeer` warning when a session is silent for
-  more than 15 minutes while holding an unexpired claim. Adopt the work, ask on
-  the board, or wait for expiry - do not assume the claim is dead silently.
-- `armada_coordination_read` returns active claims alongside messages and
-  participants.
-
-#### Dispatch Hold
-
-`armada_dispatch_hold` engages, clears, or inspects a fleet-wide dispatch hold.
-While engaged, every voyage and mission dispatch through the admiral is refused,
-including the autonomous objective scheduler; in-flight voyages continue. Use it
-BEFORE rebuilding or redeploying the admiral so peers cannot start work against
-a binary about to change:
-
-1. Engage with your session name and a reason. A system note announces the hold
-   on the coordination board.
-2. Rebuild and redeploy.
-3. Clear after the new admiral is up. Another system note resumes the board.
-
-The hold is runtime state: an admiral restart clears it, which fails open on
-purpose - a redeploy that succeeds should resume dispatching by itself.
-
-#### Papercuts
-
-Captains report friction they meet during a mission on an `[ARMADA:PAPERCUT]`
-line: a stale document, a dead link, a brief that contradicts itself, a missing
-sibling repository. Without this they work around the problem and say nothing,
-so the next captain on the same vessel pays the same cost again.
-
-The admiral stores each report as a `papercut` event with the reporting mission,
-captain, vessel, and voyage. Judge missions are excluded, because a judge already
-reports what it finds through its verdict.
-
-`armada_list_papercuts` collapses repeats of the same vessel, category, and
-problem into one row with a count and a distinct-captain count. One captain
-reporting a problem is an anecdote. Nine captains reporting it is a defect with
-evidence. Promote a group to a backlog item on the vessel, or to an Armada
-objective when the category is `BriefContradiction` or `PlatformBug`.
+An unattended cycle cannot ask a question. The prompt tells it to post an owner
+decision to the board as a named item and carry on, rather than block. Read those
+on your next session; they are the cycle's questions to you.
 
 ### 8.10 Incidents
 

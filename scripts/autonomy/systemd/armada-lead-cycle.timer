@@ -1,0 +1,16 @@
+[Unit]
+Description=Start an Armada autonomous lead cycle periodically
+Documentation=file://__ARMADA_CHECKOUT__/docs/armada-ops.md
+
+[Timer]
+# Far enough apart that a 45-minute cycle finishes first, and a skipped tick
+# costs one interval rather than stacking cycles. AgentWake covers the reactive
+# case between ticks, so this only has to catch work that arrives quietly --
+# new objectives added while the fleet was idle.
+OnBootSec=10min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
