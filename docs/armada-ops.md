@@ -532,6 +532,30 @@ Operating rules:
 5. Answer "where does this stand" with `armada_campaign_status`, not ten
    enumerations.
 
+### 4.11 Helper Sessions And The Lead Roster
+
+A lead session that runs helper sessions owns their employment. Three sets,
+all readable from the coordination board, define the roster: participants
+(who is present and when last seen), active claims (who holds work), and the
+difference: a participant present with no claim is IDLE.
+
+Lead duties:
+
+- Hand idle helpers work with an ADDRESSED note (`toParticipantKey`) naming
+  the task, vessel or objective, and constraints. The note emits a Wake, so
+  the helper's next heartbeat delivers it.
+- Or stand the helper down explicitly ("stand down, nothing available").
+  Saying there is no work IS the work; an idle helper left polling is a
+  silent waste both sides ignore.
+- Re-check the roster between loop iterations, not only at session start.
+
+Helper duties (standby protocol): on finishing, post the outcome, release
+the claim, post "idle, standing by", then drop to a low-cost standby loop -
+heartbeat every few minutes and nothing else. The heartbeat response carries
+`UnreadWakes`, which is the entire poll: empty means nothing to read;
+non-empty means pause and take the handed work. Full room reads and table
+polling on a maybe are the failure this protocol prevents.
+
 ## 5. Recovery And Incident Workflow
 
 When autonomous recovery is enabled, Armada classifies failed missions,
