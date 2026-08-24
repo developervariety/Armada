@@ -37,7 +37,6 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver? _Database;
         private readonly LoggingModule _Logging;
         private readonly TimeSpan _RetryDelay;
-        private readonly int _ThrottleCap;
         private const string _Header = "[RemoteTriggerService] ";
 
         private readonly Dictionary<string, DateTime> _PerVesselLastFire = new Dictionary<string, DateTime>(StringComparer.Ordinal);
@@ -94,10 +93,6 @@ namespace Armada.Core.Services
             _Database = database;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _RetryDelay = retryDelay;
-            int throttleCap = _Settings.ThrottleCapPerHour;
-            if (throttleCap <= 0)
-                throttleCap = DefaultThrottleCapPerHour;
-            _ThrottleCap = throttleCap;
         }
 
         #endregion
@@ -165,7 +160,7 @@ namespace Armada.Core.Services
                 while (_RecentWakes.Count > 0 && (now - _RecentWakes.Peek()).TotalMinutes > 60)
                     _RecentWakes.Dequeue();
 
-                if (_RecentWakes.Count >= _ThrottleCap)
+                if (_RecentWakes.Count >= GetThrottleCap())
                 {
                     _Logging.Warn(_Header + "throttle hit (" + _RecentWakes.Count + " wakes/hour); suppressing wake for vessel " + vesselId);
                     MaybeFireThrottleNotification(now, vesselId);
@@ -407,7 +402,7 @@ namespace Armada.Core.Services
                 while (_RecentWakes.Count > 0 && (now - _RecentWakes.Peek()).TotalMinutes > 60)
                     _RecentWakes.Dequeue();
 
-                if (_RecentWakes.Count >= _ThrottleCap)
+                if (_RecentWakes.Count >= GetThrottleCap())
                 {
                     _Logging.Warn(_Header + "throttle hit (" + _RecentWakes.Count + " wakes/hour); suppressing AgentWake for vessel " + vesselId);
                     MaybeFireThrottleNotification(now, vesselId);
@@ -671,7 +666,14 @@ namespace Armada.Core.Services
                 return;
             }
             _LastThrottleNotification = now;
-            _Logging.Warn(_Header + "throttle notification: " + _ThrottleCap + " wakes in last hour exceeded for vessel " + vesselId + "; manual drain recommended");
+            _Logging.Warn(_Header + "throttle notification: " + GetThrottleCap() + " wakes in last hour exceeded for vessel " + vesselId + "; manual drain recommended");
+        }
+
+        private int GetThrottleCap()
+        {
+            return _Settings.ThrottleCapPerHour > 0
+                ? _Settings.ThrottleCapPerHour
+                : DefaultThrottleCapPerHour;
         }
 
         #endregion

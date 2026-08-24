@@ -1351,6 +1351,12 @@ namespace Armada.Core.Settings
             VoyageCheckArming = source.VoyageCheckArming;
             DiskLifecycle = source.DiskLifecycle;
             Architect = source.Architect;
+
+            // RemoteTriggerService captures this section at startup. Preserve the
+            // object and mutate it so AgentWake can be armed or disarmed from the
+            // watched settings file without an Admiral restart.
+            RemoteTrigger ??= new RemoteTriggerSettings();
+            RemoteTrigger.CopyFrom(source.RemoteTrigger);
         }
 
         /// <summary>

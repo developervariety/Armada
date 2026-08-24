@@ -62,6 +62,25 @@ namespace Armada.Core.Settings
         /// </summary>
         public AgentWakeSettings? AgentWake { get; set; }
 
+        /// <summary>
+        /// Apply a settings-file reload while preserving this instance for services that
+        /// captured it during startup. A null source disables remote triggers.
+        /// </summary>
+        public void CopyFrom(RemoteTriggerSettings? source)
+        {
+            source ??= new RemoteTriggerSettings();
+            Enabled = source.Enabled;
+            Mode = source.Mode;
+            DrainerFireUrl = source.DrainerFireUrl;
+            DrainerBearerToken = source.DrainerBearerToken;
+            CriticalFireUrl = source.CriticalFireUrl;
+            CriticalBearerToken = source.CriticalBearerToken;
+            BetaHeader = source.BetaHeader;
+            AnthropicVersion = source.AnthropicVersion;
+            ThrottleCapPerHour = source.ThrottleCapPerHour;
+            AgentWake = source.AgentWake;
+        }
+
         /// <summary>Returns true if the section is configured for AgentWake mode (Enabled=true and Mode=AgentWake). AgentWake works with default settings.</summary>
         public bool IsAgentWakeConfigured()
         {

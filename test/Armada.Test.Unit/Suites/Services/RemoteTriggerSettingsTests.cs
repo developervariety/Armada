@@ -315,6 +315,44 @@ namespace Armada.Test.Unit.Suites.Services
                     if (File.Exists(tempFile)) File.Delete(tempFile);
                 }
             });
+
+            await RunTest("ApplyHotReloadableFrom_UpdatesCapturedRemoteTriggerAndCanDisableIt", () =>
+            {
+                ArmadaSettings live = new ArmadaSettings
+                {
+                    RemoteTrigger = new RemoteTriggerSettings()
+                };
+                RemoteTriggerSettings captured = live.RemoteTrigger;
+                ArmadaSettings enabled = new ArmadaSettings
+                {
+                    RemoteTrigger = new RemoteTriggerSettings
+                    {
+                        Enabled = true,
+                        Mode = RemoteTriggerMode.AgentWake,
+                        ThrottleCapPerHour = 7,
+                        AgentWake = new AgentWakeSettings
+                        {
+                            Runtime = AgentWakeRuntime.OpenCode,
+                            ParticipantKey = "probe-lead",
+                            DeliveryMode = AgentWakeDeliveryMode.Both
+                        }
+                    }
+                };
+
+                live.ApplyHotReloadableFrom(enabled);
+
+                AssertTrue(ReferenceEquals(captured, live.RemoteTrigger), "hot reload must preserve the captured settings instance");
+                AssertTrue(captured.IsAgentWakeConfigured(), "hot reload should enable AgentWake");
+                AssertEqual(7, captured.ThrottleCapPerHour);
+                AssertEqual(AgentWakeRuntime.OpenCode, captured.AgentWake!.Runtime);
+                AssertEqual("probe-lead", captured.AgentWake.ParticipantKey);
+
+                live.ApplyHotReloadableFrom(new ArmadaSettings { RemoteTrigger = null });
+                AssertTrue(ReferenceEquals(captured, live.RemoteTrigger), "disabling must preserve the captured settings instance");
+                AssertFalse(captured.Enabled, "removing the section should disable remote triggers");
+                AssertNull(captured.AgentWake, "removing the section should clear AgentWake settings");
+                return Task.CompletedTask;
+            });
         }
     }
 }
