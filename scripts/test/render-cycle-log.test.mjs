@@ -7,7 +7,7 @@ const lines = (...events) => events.map((e) => JSON.stringify(e));
 
 test("renders the shape a real cycle produces", () => {
   const out = renderStream(lines(
-    { type: "system", subtype: "init", session_id: "abc", cwd: "/srv/x", tools: ["Bash", "Read"] },
+    { type: "system", subtype: "init", session_id: "abc", model: "claude-opus-5[1m]", cwd: "/srv/x", tools: ["Bash", "Read"] },
     { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Reading the board." }] } },
     {
       type: "assistant",
@@ -20,7 +20,8 @@ test("renders the shape a real cycle produces", () => {
     { type: "result", subtype: "success", num_turns: 4, duration_ms: 8400 },
   ));
 
-  assert.match(out, /^\[init\] {3}session=abc cwd=\/srv\/x tools=2$/m);
+  // The model is not pinned by the launcher, so each cycle must record which one ran.
+  assert.match(out, /^\[init\] {3}session=abc model=claude-opus-5\[1m\] cwd=\/srv\/x tools=2$/m);
   assert.match(out, /^\[say] {4}Reading the board\.$/m);
   assert.match(out, /^\[tool] {3}Bash: git status$/m);
   assert.match(out, /^\[ok] {5}Bash: clean$/m);

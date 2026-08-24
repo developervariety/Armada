@@ -71,6 +71,7 @@ run_lead() {
     AUTONOMY_LEAD_REPO="$REPO_ROOT" \
     AUTONOMY_LEAD_KEY="${LEAD_KEY_OVERRIDE:-probe-lead}" \
     AUTONOMY_LEAD_TIMEOUT_MIN=5 \
+    AUTONOMY_SKIP_PREFLIGHT="${PREFLIGHT_OVERRIDE:-1}" \
     "$LEAD_CYCLE" "$@"
 }
 
@@ -194,9 +195,22 @@ WAKE_OUT=$(printf 'woken by a mission failure' | \
     AUTONOMY_LEAD_REPO="$REPO_ROOT" \
     AUTONOMY_LEAD_KEY=probe-lead \
     AUTONOMY_LEAD_TIMEOUT_MIN=5 \
+    AUTONOMY_SKIP_PREFLIGHT=1 \
     "$SCRIPT_DIR/lead-wake.sh" --print --continue --setting-sources project,local --strict-mcp-config 2>&1)
 printf '%s' "$WAKE_OUT" | grep -Fq "REFUSED" && fail "the wake shim tried to parse runtime flags: $WAKE_OUT"
 grep -Fq "woken by a mission failure" "$LEAD_TEST_PROMPT" || fail "the wake shim did not pass stdin through"
+
+# --- preflight --------------------------------------------------------------
+# A tick landing during a redeploy must skip cleanly rather than burn a cycle.
+# This is what lets the timer be left running across a deploy, which is the step
+# that was missed and left the lead idle for an hour.
+: > "$LEAD_TEST_PROMPT"
+PREFLIGHT_OUT=$(PREFLIGHT_OVERRIDE=0 AUTONOMY_ARMADA_MCP_URL=http://127.0.0.1:9/mcp run_lead run)
+printf '%s' "$PREFLIGHT_OUT" | grep -Fq "skipped: the Admiral is not answering" \
+    || fail "a cycle started while the Admiral was unreachable: $PREFLIGHT_OUT"
+[ ! -s "$LEAD_TEST_PROMPT" ] || fail "the runtime was started despite a failed preflight"
+grep -Fq "admiral-unreachable" "$WORKDIR/run/last-result" \
+    || fail "the skipped cycle was not recorded"
 
 # --- status ---------------------------------------------------------------
 # Capture first: `grep -q` closes the pipe on its first match, the upstream takes

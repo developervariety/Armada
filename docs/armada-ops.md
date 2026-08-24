@@ -1039,6 +1039,25 @@ An unattended cycle cannot ask a question. The prompt tells it to post an owner
 decision to the board as a named item and carry on, rather than block. Read those
 on your next session; they are the cycle's questions to you.
 
+**Leave the timer running across a redeploy.** A tick that lands while the Admiral
+is rebuilding preflights the MCP endpoint, records `admiral-unreachable`, and
+exits without starting a cycle. Stopping the timer for a deploy needs somebody to
+start it again afterwards, and that step gets missed: the lead sat idle for an
+hour because a redeploy left it stopped. The skip is what makes the manual step
+unnecessary. Stop it deliberately with `lead-cycle.sh kill`, or by disabling the
+timer, and say so on the board because nothing else will notice.
+
+**The timer is wall-clock and persistent.** `OnCalendar=hourly` with
+`Persistent=true`, so the next run does not depend on the unit's activation
+history, and a tick missed while the host was down runs at the next start. An
+earlier monotonic schedule carried `Persistent=true` where it has no effect, so a
+missed run was silently never caught up.
+
+**The model is not pinned.** The cycle runs the Claude Code CLI headless and takes
+whatever model that CLI is configured to use, so a change to its default silently
+changes what runs unattended. Each cycle records the model on the `[init]` line of
+its digest; read it there rather than asking the CLI afterwards.
+
 **Each cycle leaves two files** under the lead's log directory:
 `cycle-<stamp>.jsonl`, the whole event stream, and `cycle-<stamp>.log`, a rendered
 digest of it. Read the digest; it lists what the cycle said, every tool it called,

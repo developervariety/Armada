@@ -21,6 +21,7 @@
 #   AUTONOMY_LEAD_REPO        Armada checkout holding the bootstrap prompt
 #                             (default: derived from this script's location)
 #   AUTONOMY_ARMADA_MCP_URL   Armada MCP URL (default http://127.0.0.1:7891/mcp)
+#   AUTONOMY_SKIP_PREFLIGHT   set to 1 to run even when the Admiral looks down
 #
 # Usage:
 #   lead-cycle.sh run          run one cycle now (refuses if one is running)
@@ -215,6 +216,28 @@ EOF
 cmd_run() {
     validate
     mkdir -p "$LOG_DIR" "$RUN_DIR"
+
+    # A tick that lands while the Admiral is rebuilding has nothing to talk to. It
+    # would burn a cycle failing at its first tool call, and its log would read as
+    # a broken lead rather than a redeploy in progress.
+    #
+    # This matters more than it looks: the alternative was to STOP the timer for
+    # every deploy and start it again afterwards. That is a manual step, and it was
+    # missed -- the lead sat idle for an hour because whoever redeployed did not
+    # restart it. Skipping cleanly here is what lets the timer be left alone.
+    if [ "${AUTONOMY_SKIP_PREFLIGHT:-0}" != "1" ]; then
+        if ! curl -s -o /dev/null -m 10 \
+            -X POST "$MCP_URL" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            --data-binary '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' 2>/dev/null
+        then
+            echo "skipped: the Admiral is not answering at $MCP_URL (redeploy or outage)"
+            mkdir -p "$RUN_DIR"
+            printf '%s skipped admiral-unreachable\n' "$(date -u +%Y%m%dT%H%M%SZ)" > "$LAST_FILE"
+            exit 0
+        fi
+    fi
 
     if [ -e "$PID_FILE" ]; then
         local existing

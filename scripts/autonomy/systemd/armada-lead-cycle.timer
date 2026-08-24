@@ -3,12 +3,22 @@ Description=Start an Armada autonomous lead cycle periodically
 Documentation=file://__ARMADA_CHECKOUT__/docs/armada-ops.md
 
 [Timer]
-# Far enough apart that a 45-minute cycle finishes first, and a skipped tick
-# costs one interval rather than stacking cycles. AgentWake covers the reactive
-# case between ticks, so this only has to catch work that arrives quietly --
-# new objectives added while the fleet was idle.
-OnBootSec=10min
-OnUnitActiveSec=1h
+# Wall-clock, not monotonic. OnUnitActiveSec= schedules relative to the last
+# activation, so the next run depends on the unit's history: stopping and
+# starting the timer moves the schedule, and `systemctl list-timers` shows no
+# NEXT at all while a cycle is running. OnCalendar= always answers "when is the
+# next one" the same way.
+#
+# Persistent= only has an effect on an OnCalendar= timer. It was set here with a
+# monotonic schedule, where it does nothing, so a run missed while the host was
+# down was silently never caught up. With OnCalendar= it does what it says: the
+# first start after downtime runs the tick that was missed.
+#
+# Hourly is far enough apart that a 30-minute cycle finishes first, and the
+# runner is single-flight, so an overlapping tick is refused rather than stacked.
+# AgentWake covers the reactive case between ticks; this only has to catch work
+# that arrives quietly, such as new objectives added while the fleet was idle.
+OnCalendar=hourly
 AccuracySec=1min
 Persistent=true
 

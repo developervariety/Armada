@@ -61,7 +61,14 @@ export function renderStream(lines) {
 
     if (event.type === "system" && event.subtype === "init") {
       const toolCount = Array.isArray(event.tools) ? event.tools.length : 0;
-      out.push(`[init]   session=${event.session_id ?? "?"} cwd=${event.cwd ?? "?"} tools=${toolCount}`);
+      // The model is NOT pinned by the launcher: it follows the CLI's configured
+      // default, so a change to that default would silently change which model
+      // runs unattended. Recording it per cycle makes that visible in the log
+      // rather than something to go and ask the CLI about afterwards.
+      out.push(
+        `[init]   session=${event.session_id ?? "?"} model=${event.model ?? "?"} ` +
+        `cwd=${event.cwd ?? "?"} tools=${toolCount}`,
+      );
       continue;
     }
 
