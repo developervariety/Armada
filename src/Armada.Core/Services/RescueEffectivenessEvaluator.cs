@@ -39,6 +39,33 @@ namespace Armada.Core.Services
             IEnumerable<string>? changedPaths,
             bool requiresCodeChange)
         {
+            return AssessCore(changedPaths, requiresCodeChange);
+        }
+
+        /// <summary>
+        /// Decide whether a rescue owes a code change. This is the one definition of that rule;
+        /// every gate that judges a rescue by its diff must call it rather than restate it.
+        /// </summary>
+        /// <param name="mode">The rescue mission's mode.</param>
+        /// <param name="linkedObjectiveKind">
+        /// The kind of the objective the rescued voyage belongs to, or null when the voyage links
+        /// no objective. A Research objective delivers findings - a census, a survey, a ledger -
+        /// and its vessel may hold nothing but documents, so a rescue under it that commits only
+        /// documentation is doing exactly its job. Only an Implementation mission under a
+        /// non-Research objective owes a change that can carry behavior.
+        /// </param>
+        /// <returns>True when a documentation-only or empty rescue is evidence of no fix.</returns>
+        public static bool RequiresCodeChange(MissionModeEnum mode, ObjectiveKindEnum? linkedObjectiveKind)
+        {
+            if (mode != MissionModeEnum.Implementation) return false;
+            if (linkedObjectiveKind == ObjectiveKindEnum.Research) return false;
+            return true;
+        }
+
+        private static RescueEffectivenessAssessment AssessCore(
+            IEnumerable<string>? changedPaths,
+            bool requiresCodeChange)
+        {
             ChangeSubstanceEnum substance = ChangeSubstanceClassifier.Classify(changedPaths);
 
             if (!requiresCodeChange)

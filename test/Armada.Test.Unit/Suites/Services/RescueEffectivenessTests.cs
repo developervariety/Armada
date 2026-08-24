@@ -65,6 +65,31 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("A rescue owes a code change only in Implementation mode under a non-Research objective", () =>
+            {
+                // A Research objective delivers findings, and its vessel may hold nothing but
+                // documents. A documentation-only rescue under one is the job done, not a defect
+                // described. Cover every mode x kind pair, not the one case that prompted this.
+                foreach (MissionModeEnum mode in System.Enum.GetValues<MissionModeEnum>())
+                {
+                    bool implementation = mode == MissionModeEnum.Implementation;
+                    AssertEqual(implementation, RescueEffectivenessEvaluator.RequiresCodeChange(mode, null),
+                        "no linked objective, mode " + mode);
+                    foreach (ObjectiveKindEnum kind in System.Enum.GetValues<ObjectiveKindEnum>())
+                    {
+                        bool expected = implementation && kind != ObjectiveKindEnum.Research;
+                        AssertEqual(expected, RescueEffectivenessEvaluator.RequiresCodeChange(mode, kind),
+                            "mode " + mode + ", objective kind " + kind);
+                    }
+                }
+
+                RescueEffectivenessAssessment census = RescueEffectivenessEvaluator.Assess(
+                    new List<string> { "discoveries.d/decrypted-db-census.md" },
+                    RescueEffectivenessEvaluator.RequiresCodeChange(MissionModeEnum.Implementation, ObjectiveKindEnum.Research));
+                AssertFalse(census.IsIneffective, "A census delivered as a document under a Research objective is the work.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("Documentation is recognized by extension, directory, and bare name", () =>
             {
                 AssertTrue(ChangeSubstanceClassifier.IsDocumentation("README.md"));

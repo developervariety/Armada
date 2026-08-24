@@ -1435,9 +1435,10 @@ namespace Armada.Core.Services
             if (!failedForScopeViolation && !failedForNoOpCompletion && RescueMissionMarker.IsAutoRescue(mission))
             {
                 IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
+                Objective? rescuedObjective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
                 RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
                     changedPaths,
-                    mission.Mode == MissionModeEnum.Implementation);
+                    RescueEffectivenessEvaluator.RequiresCodeChange(mission.Mode, rescuedObjective?.Kind));
 
                 if (assessment.IsIneffective)
                 {
@@ -2360,6 +2361,36 @@ namespace Armada.Core.Services
         /// <param name="mission">Mission being briefed.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The Objective Scope section, or an empty string.</returns>
+        /// <summary>
+        /// Find the objective whose voyage list contains the mission's voyage. This is the one
+        /// mission-to-objective lookup; the brief builder and the rescue gate both use it. Returns
+        /// null when the mission has no voyage, the voyage links no objective, or the lookup fails.
+        /// </summary>
+        /// <param name="mission">Mission to resolve.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The linked objective, or null.</returns>
+        private async Task<Objective?> FindLinkedObjectiveAsync(Mission? mission, CancellationToken token)
+        {
+            if (mission == null || String.IsNullOrEmpty(mission.VoyageId))
+            {
+                return null;
+            }
+
+            try
+            {
+                List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+                return objectives.FirstOrDefault(o =>
+                    o != null
+                    && o.VoyageIds != null
+                    && o.VoyageIds.Contains(mission.VoyageId));
+            }
+            catch (Exception e)
+            {
+                _Logging.Warn(_Header + "linked objective lookup failed for mission " + mission.Id + ": " + e.Message);
+                return null;
+            }
+        }
+
         private async Task<string> BuildObjectiveScopeSectionAsync(Mission mission, CancellationToken token)
         {
             if (mission == null || String.IsNullOrEmpty(mission.VoyageId))
@@ -2369,11 +2400,7 @@ namespace Armada.Core.Services
 
             try
             {
-                List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
-                Objective? linked = objectives.FirstOrDefault(o =>
-                    o != null
-                    && o.VoyageIds != null
-                    && o.VoyageIds.Contains(mission.VoyageId));
+                Objective? linked = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
                 if (linked == null)
                 {
                     return String.Empty;
