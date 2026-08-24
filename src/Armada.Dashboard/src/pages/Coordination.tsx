@@ -37,6 +37,8 @@ export default function Coordination() {
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const participantKeyRef = useRef<string>(getDashboardParticipantKey());
+  const transcriptNearBottomRef = useRef(true);
+  const initialTranscriptScrollRef = useRef(true);
 
   const roomKey = selectedRoomKey || 'fleet';
   const currentRoom = useMemo(
@@ -132,8 +134,30 @@ export default function Coordination() {
   }, [loadMessages]);
 
   useEffect(() => {
+    transcriptNearBottomRef.current = true;
+    initialTranscriptScrollRef.current = true;
+  }, [roomKey]);
+
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    const updateScrollState = () => {
+      transcriptNearBottomRef.current = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight <= 64;
+    };
+    updateScrollState();
+    transcript.addEventListener('scroll', updateScrollState, { passive: true });
+    return () => transcript.removeEventListener('scroll', updateScrollState);
+  }, [roomKey]);
+
+  useEffect(() => {
     if (!transcriptRef.current) return;
-    transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    if (!messages.length || (!initialTranscriptScrollRef.current && !transcriptNearBottomRef.current)) return;
+    const transcript = transcriptRef.current;
+    requestAnimationFrame(() => {
+      transcript.scrollTop = transcript.scrollHeight;
+      transcriptNearBottomRef.current = true;
+      initialTranscriptScrollRef.current = false;
+    });
   }, [messages]);
 
   async function handleSend() {

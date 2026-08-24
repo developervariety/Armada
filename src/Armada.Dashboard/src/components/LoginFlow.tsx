@@ -243,9 +243,6 @@ export default function LoginFlow() {
           </button>
         </div>
       </div>
-      <p className="login-default-creds">
-        {t('Default credentials')}: <code>admin@armada</code> / <code>password</code>
-      </p>
     </div>
   );
 }
