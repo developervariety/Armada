@@ -42,7 +42,7 @@ Check these settings before you depend on the related workflow:
 | --- | --- |
 | `codeIndex.enabled` | Enables code search, graph search, and context packs. |
 | `learnedFactsEnabled` | Enables learned-playbook injection and reflection workflows. |
-| `seedDockRuntimeMcpConfig` | Gives compatible captains dock-local Armada MCP configuration. |
+| `seedDockRuntimeMcpConfig` | Gives supported captains the local Armada MCP URL through runtime-appropriate dock or launch configuration. Default: enabled. |
 | `autonomousRecovery.enabled` | Enables bounded server-side mission recovery. |
 | `incidentLifecycle.enabled` | Enables evidence-driven incident transitions. |
 | `remoteTrigger.enabled`, mode, and `agentWake.deliveryMode` | Enables AgentWake process and/or signal delivery. |
@@ -80,10 +80,14 @@ normal built-in catalog fits on one 500-tool page. Pagination remains active
 for larger extension catalogs. A client that ignores `nextCursor` can hide
 valid tools.
 
-The Armada MCP catalog is an operator surface. Do not deliver it to captains.
-It contains dispatch, administration, deployment, restore, purge, and server
-control actions. Captains work inside their dock with the runtime tools that
-their mission needs. An operator uses MCP to create and control that work.
+Supported captains receive the local MCP URL through runtime-appropriate dock
+and launch configuration. Claude strict mode and Codex receive explicit launch
+arguments because a project file alone is not sufficient for those paths. The
+catalog also contains dispatch,
+administration, deployment, restore, purge, and server-control actions. Those
+tools stay outside normal captain scope; the operator owns them unless the
+mission explicitly assigns the action. Set `seedDockRuntimeMcpConfig=false`
+only when the deployment intentionally removes all Armada tools from captains.
 
 `armada_enumerate` supports these entity types:
 
@@ -170,6 +174,33 @@ left Accepted or Running past the stale threshold (a worker that hung or died)
 is failed automatically so it reaches a terminal status instead of reading as
 in-flight forever. Poll a job past its expected runtime; if it was reaped, the
 status is `Failed` with a reason naming the stale window.
+
+#### Controlled parallel dispatch
+
+Armada can run several voyages at once. The scheduler's
+`maxConcurrentVoyages` is a fleet-wide ceiling, not a requirement to dispatch
+one voyage at a time. For normal autonomous work, keep two or three independent
+writable lanes ready when the fleet has enough safe work. Keep
+`maxConcurrentVoyagesPerVessel=1` unless one vessel is proven safe for parallel
+docks and suites.
+
+Before a lead auto-enables a lane, confirm:
+
+- a different active voyage does not own the same files or objective;
+- no other active voyage uses the same vessel unless its suite and worktree
+  policy are proven safe for concurrent docks;
+- captains will not run conflicting dock-side suites or move a shared sibling;
+- the objective is not hardware-dependent or operator-only;
+- the brief premise is true at the target tip; and
+- required ordering is in `BlockedByObjectiveIds`.
+
+Prefer parallel voyages on different vessels. Treat repositories as one lane
+when either suite builds or tests the other through a sibling-project reference.
+Armada-owned Checks serialize on the host interlock, but a captain can still run
+a suite directly in its dock.
+Use bounded read-only helpers to prepare future lanes; use captains and voyages
+for repository writes. When throughput looks low, inspect both the scheduler
+ceiling and how many objectives have `AutoDispatchEnabled=true`.
 
 #### Model pinning
 
@@ -547,6 +578,7 @@ Use `scripts/autonomy/spawn-helper.sh` for bounded host-side helpers:
 
 ```bash
 scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
+scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md armada-lead /path/to/repo
 scripts/autonomy/spawn-helper.sh list
 scripts/autonomy/spawn-helper.sh kill census
 scripts/autonomy/spawn-helper.sh cull
@@ -560,6 +592,25 @@ test adapter. Every prompt receives a fixed contract: use the generated
 participant key, drain and acknowledge addressed wakes, stay read-only, post
 one outcome, release claims, and exit. Run
 `scripts/autonomy/test-spawn-helper.sh` after launcher changes.
+
+`offer` mode posts availability to the named lead and gives it a bounded
+four-minute reassignment window. The helper checks for directed Wakes at most
+every 25 seconds during that window. It then runs the fallback, accepts the
+lead's replacement task, or stands down. `list` shows each helper's mode and
+lead key. See `docs/autonomy/helper-offer-prompt.md` for the manual-session
+equivalent.
+
+Claude helpers run with strict MCP isolation. The launcher therefore writes a
+private Armada-only MCP file and passes it with `--mcp-config`. The default URL
+is `http://127.0.0.1:7891/mcp`; override it with
+`AUTONOMY_ARMADA_MCP_URL`, or supply an existing file through
+`AUTONOMY_CLAUDE_MCP_CONFIG`. Strict mode without the explicit file gives the
+helper zero Armada tools and makes the board contract impossible.
+
+The helper's working directory is also its file-sandbox boundary. Give it the
+narrowest directory that contains all required evidence. Use a common ancestor
+when one task must inspect a checkout, a bare repository, or a sibling. Do not
+disable the sandbox to repair a bad working-directory choice.
 
 Three sets from the coordination board define the roster: participants (who is
 present and when last seen), active claims (who holds work), and their
@@ -579,8 +630,10 @@ owners for one participant key and can duplicate work. Use one model:
 
 - A bounded script-managed helper handles its initial task and any wake already
   waiting at a tool boundary, reports, and exits.
-- A registered AgentWake session has no resident process. An addressed note can
-  start a fresh process when delivery mode is `SpawnProcess` or `Both`.
+- An AgentWake process owner has no resident process. Put its stable key in
+  `remoteTrigger.agentWake.participantKey` when addressed wakes must survive an
+  Admiral restart. A transient registration can override that key for a
+  controlled probe until the next restart.
 
 One process owns one participant key. OpenCode AgentWake sessions are always
 fresh, so the addressed note must contain the complete task and the bootstrap
@@ -1024,11 +1077,15 @@ authentication before approving a real release.
 | Write | `armada_register_agentwake_session` |
 
 AgentWake is a process-delivery transport, not the work queue or the source of
-truth. Register one session with its runtime and, when addressed-note delivery
-is required, its exact `participantKey`. An addressed board note always creates
-a Wake signal. With delivery mode `SpawnProcess` or `Both`, a matching
-registration also starts the runtime process. With `McpNotification`, or when no
-registration matches, the signal remains for the next heartbeat or read.
+truth. Put the stable lead key in `remoteTrigger.agentWake.participantKey` when
+addressed process wakes must work after an Admiral restart. A registration with
+its own `participantKey` temporarily overrides the configured key and remains
+useful for a controlled probe or a resumable Claude or Codex session. An
+addressed board note always creates a Wake signal. With delivery mode
+`SpawnProcess` or `Both`, a note for the effective participant key also starts
+the runtime process. With `McpNotification`, or when no key matches, the signal
+remains for the next heartbeat or read. `armada_agentwake_status` reports the
+configured key, effective key, delivery mode, runtime, and transient session.
 
 OpenCode does not resume an earlier conversation for AgentWake. It starts a
 fresh session by design. Put the complete task in the addressed note and make

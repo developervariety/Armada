@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System;
     using System.Collections.Generic;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -63,7 +64,28 @@ namespace Armada.Core.Services
         /// <returns>The serialized <c>opencode.json</c> content as a JSON string.</returns>
         public static string Build(IReadOnlyList<string> grantedRoots)
         {
+            return Build(grantedRoots, null);
+        }
+
+        /// <summary>
+        /// Builds the permission document and, when supplied, registers the local Armada MCP server.
+        /// </summary>
+        /// <param name="grantedRoots">Retained for call-site compatibility.</param>
+        /// <param name="mcpPort">Local Armada MCP port, or null to omit the server.</param>
+        /// <returns>The serialized <c>opencode.json</c> content.</returns>
+        public static string Build(IReadOnlyList<string> grantedRoots, int? mcpPort)
+        {
             OpenCodeConfigDocument document = new OpenCodeConfigDocument();
+            if (mcpPort.HasValue && mcpPort.Value > 0 && mcpPort.Value <= 65535)
+            {
+                document.Mcp = new Dictionary<string, OpenCodeMcpServer>
+                {
+                    ["armada"] = new OpenCodeMcpServer
+                    {
+                        Url = ArmadaMcpConfigBuilder.GetMcpUrl(mcpPort.Value)
+                    }
+                };
+            }
 
             JsonSerializerOptions options = new JsonSerializerOptions
             {
@@ -93,6 +115,20 @@ namespace Armada.Core.Services
             /// <summary>Permission section carrying the external-directory grant.</summary>
             [JsonPropertyName("permission")]
             public OpenCodePermissionSection Permission { get; set; } = new OpenCodePermissionSection();
+
+            /// <summary>Optional local MCP servers supplied to the captain.</summary>
+            [JsonPropertyName("mcp")]
+            [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+            public Dictionary<string, OpenCodeMcpServer>? Mcp { get; set; }
+        }
+
+        private sealed class OpenCodeMcpServer
+        {
+            [JsonPropertyName("type")]
+            public string Type { get; set; } = "remote";
+
+            [JsonPropertyName("url")]
+            public string Url { get; set; } = String.Empty;
         }
 
         /// <summary>

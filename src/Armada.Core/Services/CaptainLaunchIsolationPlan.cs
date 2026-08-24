@@ -20,7 +20,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Environment variable overrides to apply to the launched process (e.g. a scoped HOME or
-        /// CODEX_HOME) so the agent physically cannot read the host user's configuration.
+        /// a scoped HOME) so the agent physically cannot read the host user's configuration.
         /// </summary>
         public Dictionary<string, string> EnvironmentOverrides { get; } = new Dictionary<string, string>();
 

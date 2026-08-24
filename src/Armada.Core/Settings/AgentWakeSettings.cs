@@ -93,6 +93,14 @@ namespace Armada.Core.Settings
         public string? WorkingDirectory { get; set; }
 
         /// <summary>
+        /// Optional persistent coordination-board participant key. Addressed notes for this key
+        /// can start the configured process after an Admiral restart without requiring a new
+        /// in-memory session registration. A registration with its own participant key overrides
+        /// this value until the next restart.
+        /// </summary>
+        public string? ParticipantKey { get; set; }
+
+        /// <summary>
         /// Delivery mode for AgentWake events. Defaults to
         /// <see cref="AgentWakeDeliveryMode.SpawnProcess"/> for backward
         /// compatibility; interactive orchestrators should set this to

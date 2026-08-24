@@ -380,6 +380,62 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("mcp-workdir", req.WorkingDirectory, "MCP-registered working directory should be used");
             });
 
+            await RunTest("FireBoardWake_AgentWake_ConfiguredParticipantStartsAfterRestart", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings
+                {
+                    Runtime = AgentWakeRuntime.OpenCode,
+                    DeliveryMode = AgentWakeDeliveryMode.SpawnProcess,
+                    ParticipantKey = "persistent-lead",
+                    WorkingDirectory = "lead-workdir"
+                };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                AgentWakeStatusSnapshot status = service.GetAgentWakeStatus();
+                AssertTrue(status.Configured, "AgentWake status should report the enabled configuration");
+                AssertFalse(status.Session != null, "a fresh service should not require a transient registration");
+                AssertEqual("persistent-lead", status.EffectiveParticipantKey, "the settings key should own addressed wakes after restart");
+
+                await service.FireBoardWakeAsync("persistent-lead", "review the board").ConfigureAwait(false);
+
+                AssertEqual(1, host.StartCallCount, "the persistent participant should start one process without registration");
+                AssertEqual("opencode", host.LastRequest!.Command, "the configured runtime should start");
+                AssertEqual("lead-workdir", host.LastRequest.WorkingDirectory, "the configured working directory should be retained");
+                AssertContains("review the board", string.Join(" ", host.LastRequest.ArgumentList), "the addressed task should seed the fresh process");
+            });
+
+            await RunTest("FireBoardWake_AgentWake_TransientParticipantOverridesConfiguredParticipant", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings
+                {
+                    Runtime = AgentWakeRuntime.OpenCode,
+                    DeliveryMode = AgentWakeDeliveryMode.SpawnProcess,
+                    ParticipantKey = "persistent-lead"
+                };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+                service.RegisterAgentWakeSession(new AgentWakeSessionRegistration
+                {
+                    Runtime = AgentWakeRuntime.OpenCode,
+                    ParticipantKey = "controlled-probe"
+                });
+
+                AgentWakeStatusSnapshot status = service.GetAgentWakeStatus();
+                AssertEqual("persistent-lead", status.ConfiguredParticipantKey, "status should retain the restart-safe key");
+                AssertEqual("controlled-probe", status.EffectiveParticipantKey, "a transient probe should temporarily own addressed wakes");
+
+                await service.FireBoardWakeAsync("persistent-lead", "must stay signal-only").ConfigureAwait(false);
+                AssertEqual(0, host.StartCallCount, "the configured key should not race a transient process owner");
+
+                await service.FireBoardWakeAsync("controlled-probe", "start the controlled probe").ConfigureAwait(false);
+                AssertEqual(1, host.StartCallCount, "the transient participant should start one process");
+            });
+
             await RunTest("FireDrainer_AgentWake_CustomSettings_PropagatesRequestOptions", async () =>
             {
                 RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();

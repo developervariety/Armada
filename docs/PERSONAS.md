@@ -40,9 +40,10 @@ Persona prompts describe behavior. They must not contain fixed provider model
 names. Use a pipeline stage model tier of `low`, `mid`, or `high` when a stage
 needs a preference.
 
-Armada MCP is an operator surface. Do not give its tool catalog to a captain.
-A captain uses only its dock runtime, repository files, and mission-specific
-tools. The operator performs Armada reads and writes and records the evidence.
+Supported captains receive the local Armada MCP connection. A persona must use
+it only for mission-scoped coordination and evidence. The operator owns fleet
+control, dispatch, deployment, restore, purge, and server actions unless the
+mission explicitly assigns such an action.
 
 ## Operator API
 
@@ -82,5 +83,6 @@ Before release, confirm:
 2. Each active persona refers to an active prompt template.
 3. Every pipeline stage refers to an active persona.
 4. Default playbook references exist and are active.
-5. Captain prompts do not advertise Armada MCP tools.
+5. Captain prompts do not advertise operator-control MCP tools unless the
+   mission explicitly assigns that action.
 6. The built-in persona and pipeline seed tests pass.

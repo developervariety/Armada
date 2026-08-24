@@ -13,7 +13,8 @@ namespace Armada.Core.Services
     /// Strategy per runtime:
     /// - Claude Code: --strict-mcp-config + an injected --mcp-config file (strict ignores host servers, so
     ///   the Armada server must be supplied explicitly) plus --setting-sources project,local.
-    /// - Codex: a scoped CODEX_HOME containing a config.toml that registers the Armada server.
+    /// - Codex: a per-process config override registers the Armada server without hiding the
+    ///   captain's existing authentication and provider profiles behind a replacement CODEX_HOME.
     /// - Gemini / Cursor: a scoped HOME/USERPROFILE containing the client's settings file, so they
     ///   physically cannot read the host user's configuration.
     /// - Mux: a scoped MUX_CONFIG_DIR containing mcp-servers.json.
@@ -54,8 +55,8 @@ namespace Armada.Core.Services
                     }
                 case AgentRuntimeEnum.Codex:
                     {
-                        plan.FilesToWrite.Add(new IsolationConfigFile("config.toml", ArmadaMcpConfigBuilder.BuildCodexConfigToml(mcpPort)));
-                        plan.EnvironmentOverrides["CODEX_HOME"] = scopedConfigDirectory;
+                        plan.ExtraArguments.Add("-c");
+                        plan.ExtraArguments.Add("mcp_servers.armada.url=\"" + ArmadaMcpConfigBuilder.GetMcpUrl(mcpPort) + "\"");
                         break;
                     }
                 case AgentRuntimeEnum.Gemini:

@@ -161,8 +161,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Failure reason for a Judge PASS rejected because no green independent Checks are
         /// attached and no exclusion was documented. It must not instruct the captain to run
-        /// armada_run_check: that tool is operator-only and captains do not receive it, so the
-        /// instruction was a closed loop the captain could not exit (six High papercuts).
+        /// armada_run_check: captains receive the local MCP connection, but Check ownership stays
+        /// with the operator unless the mission explicitly delegates it (six High papercuts).
         /// </summary>
         internal static readonly string JudgeNoChecksFailureReason =
             "Judge PASS rejected: no green independent Checks attached. Independent Checks are attached by the operator, not by captains. " +
@@ -3053,8 +3053,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Builds the progress-note directive. Captains have no MCP surface by policy, so the board
-        /// is reached the same way papercuts are: one marker line in agent output. Twenty per mission.
+        /// Builds the progress-note directive. The output marker is the bounded, runtime-neutral
+        /// reporting path even when the captain also receives the local MCP connection.
         /// </summary>
         /// <returns>The progress-notes section.</returns>
         internal static string BuildProgressNotesSection()
@@ -3073,10 +3073,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Builds the code-retrieval guidance. It names no MCP tool: captains do not receive the Armada
-        /// MCP server, so an instruction to call one is an instruction the captain cannot follow. The
-        /// staged context pack is a plain file in the dock and needs no tooling to read; when it is
-        /// absent or incomplete, ordinary file search is the fallback.
+        /// Builds the code-retrieval guidance. The staged context pack is a plain file in the dock and
+        /// needs no tooling to read; when it is absent or incomplete, ordinary file search is the
+        /// fallback. The guidance stays useful when a deployment explicitly disables captain MCP.
         /// </summary>
         /// <param name="worktreePath">Dock worktree path.</param>
         /// <param name="mission">Mission the pack was generated for.</param>

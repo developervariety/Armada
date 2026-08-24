@@ -95,9 +95,11 @@ Coordination Board
 Notes can be ADDRESSED to one session (`toParticipantKey`), which emits a Wake:
 that session's next heartbeat or read returns `UnreadWakes`, telling it to pause
 and pick up the handed work. Acknowledge each handled Wake with
-`armada_mark_signal_read`. If the key belongs to the registered AgentWake
-session and delivery mode is `SpawnProcess` or `Both`, the note also starts the
-registered runtime. OpenCode starts a fresh session, so the note must contain
+`armada_mark_signal_read`. If the key is the effective AgentWake participant
+key and delivery mode is `SpawnProcess` or `Both`, the note also starts the
+configured runtime. Put the key in `remoteTrigger.agentWake.participantKey`
+when it must survive restarts; a transient registration can override it for a
+controlled session. OpenCode starts a fresh session, so the note must contain
 the task and the session must reconstruct context from the board and durable
 memory. The signal row is retained even if process delivery does not start.
 
@@ -106,6 +108,7 @@ contract test:
 
 ```bash
 scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
+scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md armada-lead /path/to/repo
 scripts/autonomy/test-spawn-helper.sh
 ```
 
@@ -114,6 +117,13 @@ cycles and helpers are an operator layer; see
 `docs/autonomy/lead-bootstrap-prompt.md` and section 4.11 of the operations
 guide. Do not register a launcher-managed helper for AgentWake under the same
 participant key.
+The `offer` command gives the lead four minutes to assign replacement work
+before the helper starts its fallback. See
+`docs/autonomy/helper-offer-prompt.md` for a manual helper prompt.
+Claude launcher mode passes a generated Armada-only MCP file to strict mode;
+the default local URL is `http://127.0.0.1:7891/mcp`. Set the helper working
+directory to a common ancestor when its read-only task needs more than one
+checkout.
 
 Notes tagged with a voyage reach that voyage's next stage brief. All other
 notes are advisory context for humans and operator sessions; use signals to
@@ -306,6 +316,12 @@ missions, captains, Checks, delivery, incidents, runbooks, indexing, memory,
 audit, and landing. The catalog can change before the stable release. Discover
 live schemas with paginated `tools/list`. See `docs/armada-ops.md` and
 `docs/MCP_API.md`.
+
+Supported captains receive the local endpoint (`http://localhost:7891/mcp`) in
+their runtime configuration by default. Set `SeedDockRuntimeMcpConfig=false`
+only when the deployment intentionally removes all Armada tools from captains.
+Normal missions use coordination and evidence tools only; fleet-control and
+deployment actions remain operator work unless the mission assigns them.
 
 ---
 

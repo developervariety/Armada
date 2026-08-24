@@ -78,13 +78,16 @@ See [`armada-ops.md`](armada-ops.md) for the current operator playbook.
 Use one stable coordination participant key. Read and heartbeat before work,
 drain full `UnreadWakes` payloads between monitor iterations, and acknowledge
 each processed Wake. Addressed notes always retain a signal and can also start
-the registered AgentWake runtime in `SpawnProcess` or `Both` mode. OpenCode
+the effective AgentWake process owner in `SpawnProcess` or `Both` mode. A
+persistent settings key survives restarts; a transient registration can
+override it. OpenCode
 wakes are fresh sessions, so the note carries the task and the session rebuilds
 state from the board and durable memory.
 
 The objective scheduler is the built-in unattended dispatcher. Optional lead
 cycles use [`autonomy/lead-bootstrap-prompt.md`](autonomy/lead-bootstrap-prompt.md);
-bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`. Do not assign
+bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`; `offer` mode
+allows a bounded lead reassignment window before fallback work. Do not assign
 one participant key to both a resident helper and AgentWake.
 
 ## Project-Scoped Orchestration

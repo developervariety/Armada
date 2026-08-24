@@ -116,6 +116,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("AUTONOMY_HELPER_TIMEOUT_MIN", helperContents, "helper launcher should enforce a timeout");
                 AssertContains("armada_mark_signal_read", helperContents, "helper contract should acknowledge addressed wakes");
                 AssertContains("Do not start a polling loop", helperContents, "helper contract should require a bounded exit");
+                AssertContains("--mcp-config", helperContents, "Claude helpers in strict mode must receive an explicit MCP config");
+                AssertContains("AUTONOMY_ARMADA_MCP_URL", helperContents, "helper launcher should expose the local Armada MCP endpoint setting");
+                AssertContains("helper working directory", helperContents, "helper contract should state the file-sandbox boundary");
                 AssertContains("fresh session", promptContents, "lead prompt should document fresh-session reconstruction");
 
                 if (OperatingSystem.IsWindows())

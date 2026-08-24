@@ -34,7 +34,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "list_workflow_profiles",
-                "List workflow profiles. This operator-only tool does not expose Armada MCP to captains.",
+                "List workflow profiles. This is operator-owned state; a captain may use it only when its mission explicitly assigns that operator action.",
                 QuerySchema(),
                 async args =>
                 {

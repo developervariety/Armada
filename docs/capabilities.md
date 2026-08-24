@@ -15,15 +15,19 @@ persisted and survives an Admiral restart.
 
 The coordination board provides claims, presence, addressed notes, and full
 `UnreadWakes` payloads. Addressed notes always retain a Wake signal. A matching
-AgentWake registration can also start Claude, Codex, or OpenCode when delivery
-is `SpawnProcess` or `Both`; OpenCode starts a fresh session and reconstructs
+AgentWake's persistent participant key can also start Claude, Codex, or OpenCode
+when delivery is `SpawnProcess` or `Both`; a transient registration can override
+that key for a controlled session. OpenCode starts a fresh session and reconstructs
 state from the note, board, and durable memory.
 
 Optional operator-side lead cycles are separate from the built-in scheduler.
 Use `docs/autonomy/lead-bootstrap-prompt.md` for one bounded fresh cycle and
 `scripts/autonomy/spawn-helper.sh` for capped, timed, read-only helper
-processes. One process owns one participant key; do not combine a resident
-helper with an AgentWake registration for the same key.
+processes. Its `offer` mode gives a lead a bounded reassignment window before
+fallback work starts. One process owns one participant key; do not combine a
+resident helper with an AgentWake process owner for the same key. A lead keeps
+several safe writable lanes auto-enabled when the configured scheduler ceiling
+is greater than one.
 
 ---
 

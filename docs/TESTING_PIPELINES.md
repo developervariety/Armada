@@ -36,7 +36,9 @@ Verify:
 
 - one Worker mission is created;
 - the captain receives the expected prompt and active playbooks;
-- the captain does not receive the Armada MCP catalog;
+- the captain receives the local Armada MCP connection;
+- the captain does not use fleet-control or deployment tools unless the mission
+  explicitly assigns that operator action;
 - `armada_mission_status` reports the correct persona and terminal state;
 - `armada_voyage_status` reports the correct aggregate state.
 

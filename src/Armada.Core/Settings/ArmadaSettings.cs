@@ -470,18 +470,11 @@ namespace Armada.Core.Settings
         /// Whether to seed runtime MCP client configuration into every dock, pointing captains at the
         /// Armada MCP server.
         ///
-        /// Default false. Measurement across runtimes found that captains either never received the
-        /// tools (the client config was ignored, or the runtime was launched with flags that exclude
-        /// project-level MCP config) or would have received the entire tool catalog, which is far
-        /// larger than the mission brief itself and dominated by orchestration tools a captain must
-        /// never call: dispatch, vessel administration, backup and restore, deployment rollback.
-        /// Captains completed their work without those tools, so the cost bought nothing.
-        ///
-        /// Enable only alongside a scoped tool profile, so a dock receives the few tools its mission
-        /// mode actually needs rather than the whole catalog. When enabling, verify by having a
-        /// captain list the tools it received; do not infer delivery from the config file existing.
+        /// Default true. Each supported runtime receives runtime-appropriate dock or launch
+        /// configuration; strict runtime isolation can ignore a project file that merely exists in
+        /// the dock. Disable only when the deployment intentionally gives captains no Armada tools.
         /// </summary>
-        public bool SeedDockRuntimeMcpConfig { get; set; } = false;
+        public bool SeedDockRuntimeMcpConfig { get; set; } = true;
 
         /// <summary>
         /// Default test command for merge queue verification.

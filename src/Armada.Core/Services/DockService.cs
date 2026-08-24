@@ -1166,9 +1166,7 @@ namespace Armada.Core.Services
                 "}\n";
 
             string codexConfig = "[mcp_servers.armada]\n" +
-                "command = \"armada\"\n" +
-                "args = [\"mcp\", \"stdio\"]\n" +
-                "startup_timeout_sec = 120\n";
+                "url = \"" + mcpUrl + "\"\n";
 
             string geminiConfig = "{\n" +
                 "  \"mcpServers\": {\n" +
@@ -1180,12 +1178,9 @@ namespace Armada.Core.Services
 
             try
             {
-                // The Armada MCP client configs are opt-in and off by default: captains are not given
-                // the MCP server. Delivery is all-or-nothing across runtimes -- exposing tools to one
-                // runtime and not another produces briefs whose instructions are valid for some
-                // captains and impossible for others -- and the full catalog costs more than the
-                // mission brief while being dominated by orchestration tools a captain must never
-                // call. Re-enable only together with a scoped per-mission tool profile.
+                // Runtime MCP delivery is all-or-nothing. When enabled, every supported captain
+                // receives the same local Armada endpoint. The launch path also injects scoped
+                // runtime configuration because strict clients can ignore a dock file by itself.
                 //
                 // The OpenCode permission document below is NOT MCP and is always written: it grants
                 // reads outside the dock, which captains need for playbooks, sibling repositories,
@@ -1230,7 +1225,9 @@ namespace Armada.Core.Services
                 // opencode.json, so this is inert for them. No-clobber: a pre-existing
                 // opencode.json (operator- or captain-authored) is never overwritten.
                 List<string> openCodeRoots = BuildOpenCodeGrantedRoots(vessel, worktreePath, missionId);
-                string openCodeConfig = OpenCodePermissionConfigBuilder.Build(openCodeRoots);
+                string openCodeConfig = OpenCodePermissionConfigBuilder.Build(
+                    openCodeRoots,
+                    _Settings.SeedDockRuntimeMcpConfig ? _Settings.McpPort : null);
                 string openCodePath = Path.Combine(worktreePath, "opencode.json");
                 if (!File.Exists(openCodePath))
                 {

@@ -140,8 +140,10 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (string requiredName in requiredNames)
                     AssertContains("`" + requiredName + "`", guide, "Operational asset guide should name " + requiredName);
 
-                AssertContains("Do not expose its catalog to captains", guide,
-                    "Operational asset guide should state the captain MCP boundary");
+                AssertContains("gives supported captains an explicit launch-scoped connection", guide,
+                    "Operational asset guide should state captain MCP delivery");
+                AssertContains("must not dispatch, administer the fleet, deploy, restore, purge, or", guide,
+                    "Operational asset guide should retain the operator-control boundary");
                 return Task.CompletedTask;
             });
 

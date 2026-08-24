@@ -306,6 +306,88 @@ namespace Armada.Test.Unit.Suites.Services
                     "The scheduler must not add autonomous work on top of an operator's voyage.");
             }).ConfigureAwait(false);
 
+            await RunTest("Per-vessel limit dispatches only one objective on a shared vessel", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("shared-lane-vessel", "https://github.com/test/shared-lane.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                for (int i = 0; i < 2; i++)
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Shared lane objective " + i,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "One vessel must consume only one scheduler lane.");
+                AssertContains("vessel_skips=1", scheduler.LastResultSummary ?? String.Empty, "Summary should name the vessel-limited objective.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Per-vessel limit still dispatches independent vessels in parallel", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                for (int i = 0; i < 2; i++)
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("independent-vessel-" + i, "https://github.com/test/independent-" + i + ".git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Independent objective " + i,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(2, admiral.DispatchVoyageCallCount, "Independent vessels should use separate scheduler lanes.");
+            }).ConfigureAwait(false);
+
             await RunTest("Enabling the scheduler survives a restart", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -328,6 +410,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 scheduler.Enable();
                 scheduler.SetMaxConcurrentVoyages(4);
+                scheduler.SetMaxConcurrentVoyagesPerVessel(1);
                 bool persisted = await scheduler.TryPersistAsync().ConfigureAwait(false);
                 AssertTrue(persisted, "Persisting the scheduler state should report success.");
 
@@ -341,6 +424,10 @@ namespace Armada.Test.Unit.Suites.Services
                     4,
                     reloaded.AutonomousObjectiveScheduler.MaxConcurrentVoyages,
                     "Concurrency set over MCP must survive a restart too.");
+                AssertEqual(
+                    1,
+                    reloaded.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel,
+                    "Per-vessel concurrency must survive a restart too.");
             }).ConfigureAwait(false);
 
             await RunTest("A scheduler-dispatched voyage arms the vessel's Build and UnitTest Checks", async () =>

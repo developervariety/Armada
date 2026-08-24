@@ -86,6 +86,8 @@ review. Workflow profiles and Checks provide command evidence.
 
 ## Captain Boundary
 
-Pipeline captains do not need Armada MCP access. Give each captain its mission,
-dock, repository context, selected playbooks, and runtime tools. The operator
-uses MCP to dispatch, monitor, interrupt, land, recover, and close records.
+Pipeline captains receive Armada's local MCP configuration at launch so they
+can use coordination and evidence tools consistently. Give each captain its
+mission, dock, repository context, selected playbooks, and runtime tools. The
+operator still owns dispatch, monitoring, landing, recovery, and closure unless
+the mission explicitly delegates one of those actions.

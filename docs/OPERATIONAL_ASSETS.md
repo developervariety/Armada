@@ -11,10 +11,11 @@ deployment records.
 
 ## 1. Operator Boundary
 
-Armada MCP is an operator surface. Do not expose its catalog to captains.
-Captains do not need dispatch, fleet administration, deployment, restore,
-purge, or server-control tools. Give a captain only the runtime tools and
-files required by its mission.
+Armada gives supported captains an explicit launch-scoped connection to the
+local MCP URL. This makes coordination and evidence tools available even when
+the runtime ignores project configuration. Mission scope remains authoritative:
+captains must not dispatch, administer the fleet, deploy, restore, purge, or
+control the server unless the mission explicitly assigns that operator action.
 
 An operator uses MCP to:
 
@@ -280,4 +281,5 @@ REST, or the dashboard so validation and events remain intact.
 - Build and unit-test commands match the execution host.
 - A named deployment environment does not imply an unconfigured deployment.
 - Runbook executions contain step evidence and a justified terminal status.
-- The Armada MCP catalog remains operator-only.
+- Captains receive the local Armada MCP connection; operator-control tools stay
+  outside normal mission scope.

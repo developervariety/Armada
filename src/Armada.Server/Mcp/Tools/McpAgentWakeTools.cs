@@ -72,7 +72,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_agentwake_status",
-                "Return the last registered orchestrator session used by AgentWake Auto mode.",
+                "Return the effective AgentWake configuration, persistent participant key, and last transient session registration.",
                 new
                 {
                     type = "object",
@@ -81,11 +81,17 @@ namespace Armada.Server.Mcp.Tools
                 (args) =>
                 {
                     if (remoteTriggerService == null) return Task.FromResult((object)new { Error = "Remote trigger service not configured" });
-                    AgentWakeSessionRegistration? session = remoteTriggerService.GetAgentWakeSession();
+                    AgentWakeStatusSnapshot status = remoteTriggerService.GetAgentWakeStatus();
                     return Task.FromResult((object)new
                     {
-                        HasSession = session != null,
-                        Session = session
+                        status.Configured,
+                        status.DeliveryMode,
+                        status.Runtime,
+                        status.ProcessDeliveryEnabled,
+                        status.ConfiguredParticipantKey,
+                        status.EffectiveParticipantKey,
+                        HasSession = status.Session != null,
+                        status.Session
                     });
                 });
         }

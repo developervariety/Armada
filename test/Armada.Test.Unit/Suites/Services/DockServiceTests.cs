@@ -130,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("By default a dock gets no MCP client config but keeps OpenCode permissions", async () =>
+            await RunTest("An explicit opt-out removes MCP client config but keeps OpenCode permissions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -141,6 +141,7 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
                     settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    settings.SeedDockRuntimeMcpConfig = false;
 
                     LockingGitService git = new LockingGitService();
                     DockService service = new DockService(logging, testDb.Driver, settings, git);
@@ -156,13 +157,10 @@ namespace Armada.Test.Unit.Suites.Services
                     Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/no-mcp/msn_one", "msn_one").ConfigureAwait(false);
                     AssertNotNull(dock, "Dock should be provisioned");
 
-                    // No runtime may be given MCP tools while the others are not: a brief whose
-                    // instructions are valid for one captain and impossible for another is the defect
-                    // this default removes. So all four client configs are absent together.
-                    AssertFalse(File.Exists(Path.Combine(dock!.WorktreePath!, ".mcp.json")), "project MCP config must not be seeded by default");
-                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".cursor", "mcp.json")), "Cursor MCP config must not be seeded by default");
-                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".codex", "config.toml")), "Codex MCP config must not be seeded by default");
-                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".gemini", "settings.json")), "Gemini MCP config must not be seeded by default");
+                    AssertFalse(File.Exists(Path.Combine(dock!.WorktreePath!, ".mcp.json")), "project MCP config must honor the opt-out");
+                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".cursor", "mcp.json")), "Cursor MCP config must honor the opt-out");
+                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".codex", "config.toml")), "Codex MCP config must honor the opt-out");
+                    AssertFalse(File.Exists(Path.Combine(dock.WorktreePath!, ".gemini", "settings.json")), "Gemini MCP config must honor the opt-out");
 
                     // The OpenCode permission document is not MCP. It grants reads outside the dock,
                     // which captains need for playbooks, sibling repositories, and shared memory.
@@ -185,10 +183,7 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
                     settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
-                    // Captains do not receive the Armada MCP server by default. This case covers the
-                    // opt-in seeding path, so it enables the setting explicitly; the default-off
-                    // behaviour is asserted separately below.
-                    settings.SeedDockRuntimeMcpConfig = true;
+                    // The default path gives every supported captain the local Armada MCP endpoint.
 
                     LockingGitService git = new LockingGitService();
                     DockService service = new DockService(logging, testDb.Driver, settings, git);
@@ -216,13 +211,14 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("localhost:" + settings.McpPort, projectMcp, "Project MCP config should point at Armada MCP");
                     AssertContains("\"armada\"", projectMcp, "Project MCP config should name the Armada server");
                     string codexMcp = await File.ReadAllTextAsync(codexMcpPath).ConfigureAwait(false);
-                    AssertContains("command = \"armada\"", codexMcp, "Codex MCP config should launch Armada over stdio");
-                    AssertContains("args = [\"mcp\", \"stdio\"]", codexMcp, "Codex MCP config should use the stdio MCP command");
-                    AssertContains("startup_timeout_sec = 120", codexMcp, "Codex MCP config should allow Armada MCP to start");
+                    AssertContains("localhost:" + settings.McpPort, codexMcp, "Codex MCP config should point at Armada MCP");
                     AssertContains("mcp_servers.armada", codexMcp, "Codex MCP config should name the Armada server");
                     string geminiMcp = await File.ReadAllTextAsync(geminiMcpPath).ConfigureAwait(false);
                     AssertContains("localhost:" + settings.McpPort, geminiMcp, "Gemini MCP config should point at Armada MCP");
                     AssertContains("\"armada\"", geminiMcp, "Gemini MCP config should name the Armada server");
+                    string openCodeMcp = await File.ReadAllTextAsync(Path.Combine(dock.WorktreePath!, "opencode.json")).ConfigureAwait(false);
+                    AssertContains("localhost:" + settings.McpPort, openCodeMcp, "OpenCode config should point at Armada MCP");
+                    AssertContains("\"armada\"", openCodeMcp, "OpenCode config should name the Armada server");
 
                     string metadataPath = Path.Combine(settings.LogDirectory, "docks", dock!.Id + ".start");
                     AssertTrue(File.Exists(metadataPath), "Dock provisioning should persist the start commit metadata");

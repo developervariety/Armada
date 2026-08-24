@@ -76,6 +76,11 @@ The dashboard container serves the React SPA and proxies nothing — the browser
 
 That dashboard includes the planning workflow as well as direct dispatch: you can chat with a captain inside the UI, keep the transcript, and hand the selected reply directly into dispatch without leaving the browser.
 
+Captain processes run with the Admiral and receive
+`http://localhost:7891/mcp` through their runtime configuration by default.
+Keep port 7891 on a trusted interface: the MCP endpoint does not provide
+per-captain authorization.
+
 ---
 
 ## Docker Compose Configuration
@@ -195,17 +200,21 @@ loaded (bind-mount that file so the change survives a container replacement):
     "mode": "AgentWake",
     "agentWake": {
       "runtime": "OpenCode",
-      "deliveryMode": "Both"
+      "deliveryMode": "Both",
+      "participantKey": "armada-lead",
+      "workingDirectory": "/workspace"
     }
   }
 }
 ```
 
-Settings hot-reload, but `armada_register_agentwake_session` is runtime state
-and must be called again after an Admiral restart. Supply the stable
-coordination `participantKey` when addressed notes should start the session.
-OpenCode starts fresh for every wake, so the note must carry the complete task
-and the session must read the board and durable memory.
+The configured `participantKey` survives an Admiral restart. A transient
+`armada_register_agentwake_session` registration does not; when it supplies its
+own participant key, it overrides the configured key until the next restart.
+Use a transient registration for a controlled probe or for Claude and Codex
+resume state. OpenCode starts fresh for every wake, so the note must carry the
+complete task and the session must read the board and durable memory. Confirm
+the effective owner with `armada_agentwake_status`.
 
 Use `McpNotification` when a resident operator only needs Wake rows. Use
 `SpawnProcess` or `Both` only after a controlled spawn test. Do not run a host

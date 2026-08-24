@@ -126,8 +126,7 @@ namespace Armada.Runtimes
             if (resolved == null) return;
 
             string profileName = ProviderProfileName(resolved);
-            string codexHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string codexDir = Path.Combine(codexHome, ".codex");
+            string codexDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
             Directory.CreateDirectory(codexDir);
 
             string path = Path.Combine(codexDir, profileName + ".config.toml");
@@ -204,7 +203,8 @@ namespace Armada.Runtimes
             string? model = null,
             Captain? captain = null,
             bool showThinking = false,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            CaptainLaunchIsolationPlan? isolationPlan = null)
         {
             ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, captain?.Model ?? model, _ModelProviders);
             if (resolved != null)
@@ -221,7 +221,8 @@ namespace Armada.Runtimes
                 model,
                 captain,
                 showThinking,
-                token).ConfigureAwait(false);
+                token,
+                isolationPlan).ConfigureAwait(false);
         }
 
         /// <summary>

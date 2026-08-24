@@ -289,6 +289,26 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc/>
+        public AgentWakeStatusSnapshot GetAgentWakeStatus()
+        {
+            AgentWakeSettings settings = _Settings.AgentWake ?? new AgentWakeSettings();
+            AgentWakeSessionRegistration? session = GetAgentWakeSession();
+            AgentWakeDeliveryMode deliveryMode = settings.DeliveryMode;
+            bool configured = _Settings.IsAgentWakeConfigured();
+            string? configuredParticipantKey = NormalizeOptional(settings.ParticipantKey);
+            return new AgentWakeStatusSnapshot
+            {
+                Configured = configured,
+                DeliveryMode = deliveryMode,
+                Runtime = settings.Runtime,
+                ConfiguredParticipantKey = configuredParticipantKey,
+                EffectiveParticipantKey = NormalizeOptional(session?.ParticipantKey) ?? configuredParticipantKey,
+                ProcessDeliveryEnabled = configured && (deliveryMode == AgentWakeDeliveryMode.SpawnProcess || deliveryMode == AgentWakeDeliveryMode.Both),
+                Session = session,
+            };
+        }
+
         #endregion
 
         #region Private-Methods
@@ -355,10 +375,10 @@ namespace Armada.Core.Services
                     return;
                 }
 
-                AgentWakeSessionRegistration? session = GetAgentWakeSession();
-                if (session == null || !string.Equals(session.ParticipantKey, participantKey, StringComparison.Ordinal))
+                AgentWakeStatusSnapshot status = GetAgentWakeStatus();
+                if (!string.Equals(status.EffectiveParticipantKey, participantKey, StringComparison.Ordinal))
                 {
-                    _Logging.Info(_Header + "board wake: no registered session for participant " + participantKey + "; signal row only");
+                    _Logging.Info(_Header + "board wake: no effective process owner for participant " + participantKey + "; signal row only");
                     return;
                 }
 

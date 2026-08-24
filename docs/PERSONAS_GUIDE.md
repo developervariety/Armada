@@ -52,9 +52,10 @@ Give the mission:
 - stop conditions;
 - the required result-marker format.
 
-Do not give the captain Armada MCP tools. The captain works in the assigned
-dock. The operator performs Armada status, Check, landing, release, deployment,
-incident, and recovery operations.
+Armada injects its local MCP configuration into supported captain launches.
+The captain works in the assigned dock and may use mission-scoped coordination
+and evidence tools. The operator performs status, Check, landing, release,
+deployment, incident, and recovery operations unless the mission says otherwise.
 
 ## Review Results
 

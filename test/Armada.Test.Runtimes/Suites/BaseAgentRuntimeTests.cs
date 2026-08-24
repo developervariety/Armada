@@ -1,6 +1,7 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.Diagnostics;
+    using Armada.Core.Services;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -98,6 +99,24 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("0", startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"]);
                 AssertEqual("caller-preserved", startInfo.Environment["ARMADA_TEST_CALLER_ENVIRONMENT"]);
                 AssertEqual("1", startInfo.Environment["TEST_AGENT_RUNTIME_ENVIRONMENT_APPLIED"]);
+            });
+
+            await RunTest("StartAsync_AppliesCaptainLaunchIsolationPlan", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CaptureStartInfoAndThrow = true;
+                CaptainLaunchIsolationPlan plan = new CaptainLaunchIsolationPlan();
+                plan.ExtraArguments.Add("--mcp-config");
+                plan.ExtraArguments.Add(Path.Combine(Path.GetTempPath(), "armada-mcp.json"));
+                plan.EnvironmentOverrides["ARMADA_TEST_SCOPED_CONFIG"] = "enabled";
+
+                await AssertThrowsAsync<InvalidOperationException>(() =>
+                    runtime.StartAsync(Path.GetTempPath(), "test prompt", isolationPlan: plan));
+
+                AssertTrue(runtime.CapturedStartInfo != null, "Expected StartAsync to expose ProcessStartInfo before launch");
+                ProcessStartInfo startInfo = runtime.CapturedStartInfo!;
+                AssertTrue(startInfo.ArgumentList.Contains("--mcp-config"), "Expected launch-scoped MCP argument");
+                AssertEqual("enabled", startInfo.Environment["ARMADA_TEST_SCOPED_CONFIG"]);
             });
 
             await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>

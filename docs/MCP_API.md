@@ -124,19 +124,21 @@ Heartbeat or read with that key between monitor-loop iterations. Both responses
 can contain full `UnreadWakes` payloads from addressed notes; process the work
 first and acknowledge each signal with `armada_mark_signal_read`.
 
-`armada_register_agentwake_session` registers one in-memory process target with
-a concrete `runtime` (`Claude`, `Codex`, or `OpenCode`) and an optional
-`participantKey`, session ID, command, working directory, and client name. The
-registration must be repeated after an Admiral restart. The settings file
-controls delivery under `remoteTrigger.agentWake`: `SpawnProcess`,
-`McpNotification`, or `Both`.
+Set `remoteTrigger.agentWake.participantKey` for a stable addressed process
+owner that survives an Admiral restart. `armada_register_agentwake_session`
+registers one in-memory process target with a concrete `runtime` (`Claude`,
+`Codex`, or `OpenCode`) and an optional `participantKey`, session ID, command,
+working directory, and client name. A registration key overrides the configured
+key until restart. The settings file controls delivery:
+`SpawnProcess`, `McpNotification`, or `Both`.
 
 An addressed board note always retains a Wake signal. When its key matches the
-registration and delivery is `SpawnProcess` or `Both`, Armada also starts the
-registered runtime. OpenCode always starts a fresh session; it does not use
+effective participant key and delivery is `SpawnProcess` or `Both`, Armada also
+starts the effective runtime. `armada_agentwake_status` shows both the
+configured and transient state. OpenCode always starts a fresh session; it does not use
 resume state. Put the complete task in the note and reconstruct context from
 the board and durable memory. Do not give one participant key to both a
-resident helper process and an AgentWake registration.
+resident helper process and an AgentWake process owner.
 
 ## Long Operations
 
@@ -177,9 +179,11 @@ It operates with the configured default administrative tenant context. Bind
 the service to a trusted interface and use a protected transport. Do not expose
 the MCP port to an untrusted network.
 
-Armada MCP is an operator surface. Do not include the catalog or its
-credentials in captain prompts. Captains use mission-scoped dock tools. The
-operator uses MCP to manage Armada records and control workflows.
+Supported captains receive a local MCP client configuration, but the URL is not
+a credential and the endpoint has no per-captain authorization. Keep the port
+on a trusted interface. Captain prompts must keep dispatch, administration,
+deployment, restore, purge, and server-control actions outside mission scope.
+The operator normally owns those actions.
 
 ## Catalog Availability
 

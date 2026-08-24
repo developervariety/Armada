@@ -45,6 +45,11 @@ namespace Armada.Server
         public int MaxConcurrentVoyages { get; private set; }
 
         /// <summary>
+        /// Maximum number of active objective voyages allowed on one vessel.
+        /// </summary>
+        public int MaxConcurrentVoyagesPerVessel { get; private set; }
+
+        /// <summary>
         /// UTC timestamp of the last completed sweep tick, or null if no tick has run.
         /// </summary>
         public DateTime? LastTickUtc { get; private set; }
@@ -122,6 +127,7 @@ namespace Armada.Server
             Paused = settings.AutonomousObjectiveScheduler.Paused;
             IntervalMinutes = settings.AutonomousObjectiveScheduler.IntervalMinutes;
             MaxConcurrentVoyages = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages;
+            MaxConcurrentVoyagesPerVessel = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel;
         }
 
         #endregion
@@ -147,6 +153,7 @@ namespace Armada.Server
                 _Settings.AutonomousObjectiveScheduler.Paused = Paused;
                 _Settings.AutonomousObjectiveScheduler.IntervalMinutes = IntervalMinutes;
                 _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = MaxConcurrentVoyages;
+                _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = MaxConcurrentVoyagesPerVessel;
                 await _Settings.SaveAsync().ConfigureAwait(false);
                 return true;
             }
@@ -193,6 +200,15 @@ namespace Armada.Server
         public void SetMaxConcurrentVoyages(int max)
         {
             MaxConcurrentVoyages = Math.Max(1, Math.Min(50, max));
+        }
+
+        /// <summary>
+        /// Set the maximum active objective voyages on one vessel, clamped to 1-50.
+        /// </summary>
+        /// <param name="max">New per-vessel concurrency cap.</param>
+        public void SetMaxConcurrentVoyagesPerVessel(int max)
+        {
+            MaxConcurrentVoyagesPerVessel = Math.Max(1, Math.Min(50, max));
         }
 
         /// <summary>
@@ -268,13 +284,13 @@ namespace Armada.Server
                 snapshot = await ReadAllObjectivesAsync(systemAuth, token).ConfigureAwait(false);
                 List<Objective> eligible = AutonomousObjectiveSelector.SelectEligible(snapshot);
 
-                int activeCount = await CountActiveDispatchedAsync(snapshot, token).ConfigureAwait(false);
-                ActiveDispatchedCount = activeCount;
-                int capacity = MaxConcurrentVoyages - activeCount;
+                ActiveVoyageSummary active = await CountActiveDispatchedAsync(snapshot, token).ConfigureAwait(false);
+                ActiveDispatchedCount = active.Total;
+                int capacity = MaxConcurrentVoyages - active.Total;
 
                 if (capacity <= 0)
                 {
-                    string concurrencyDetail = activeCount + " objective(s) have an active linked voyage, "
+                    string concurrencyDetail = active.Total + " objective(s) have an active linked voyage, "
                         + "including any dispatched by an operator; limit is " + MaxConcurrentVoyages;
                     _Logging.Debug(_Header + "sweep: concurrency limit reached (" + concurrencyDetail + ").");
                     await EmitSystemEventAsync("objective_scheduler.skipped_max_concurrent",
@@ -285,6 +301,7 @@ namespace Armada.Server
                 }
 
                 int dispatched = 0;
+                int vesselConcurrencySkips = 0;
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
 
                 foreach (Objective objective in eligible)
@@ -292,10 +309,36 @@ namespace Armada.Server
                     if (dispatched >= capacity) break;
                     token.ThrowIfCancellationRequested();
 
+                    if (objective.VesselIds.Count == 1)
+                    {
+                        string candidateVesselId = objective.VesselIds[0];
+                        active.ByVessel.TryGetValue(candidateVesselId, out int activeOnVessel);
+                        if (activeOnVessel >= MaxConcurrentVoyagesPerVessel)
+                        {
+                            vesselConcurrencySkips++;
+                            await EmitObjectiveEventAsync(
+                                "objective_scheduler.skipped_vessel_concurrency",
+                                "Autonomous scheduler skipped objective " + objective.Id + ": vessel "
+                                    + candidateVesselId + " already has " + activeOnVessel
+                                    + " active objective voyage(s); per-vessel limit is "
+                                    + MaxConcurrentVoyagesPerVessel + ".",
+                                objective,
+                                candidateVesselId,
+                                token).ConfigureAwait(false);
+                            continue;
+                        }
+                    }
+
                     try
                     {
                         await DispatchObjectiveAsync(objective, mergeQueue, token).ConfigureAwait(false);
                         dispatched++;
+                        if (objective.VesselIds.Count == 1)
+                        {
+                            string dispatchedVesselId = objective.VesselIds[0];
+                            active.ByVessel.TryGetValue(dispatchedVesselId, out int activeOnVessel);
+                            active.ByVessel[dispatchedVesselId] = activeOnVessel + 1;
+                        }
                     }
                     catch (ObjectiveSkippedException)
                     {
@@ -306,8 +349,11 @@ namespace Armada.Server
                     }
                 }
 
-                LastSkipReason = null;
-                LastResultSummary = "reconciled=" + reconciledCount + " dispatched=" + dispatched;
+                LastSkipReason = dispatched == 0 && vesselConcurrencySkips > 0
+                    ? "vessel_concurrency"
+                    : null;
+                LastResultSummary = "reconciled=" + reconciledCount + " dispatched=" + dispatched
+                    + (vesselConcurrencySkips > 0 ? " vessel_skips=" + vesselConcurrencySkips : String.Empty);
                 _Logging.Info(_Header + "sweep complete: reconciled=" + reconciledCount + " dispatched=" + dispatched + " capacity=" + capacity + ".");
             }
             finally
@@ -369,16 +415,23 @@ namespace Armada.Server
             return true;
         }
 
-        private async Task<int> CountActiveDispatchedAsync(List<Objective> snapshot, CancellationToken token)
+        private async Task<ActiveVoyageSummary> CountActiveDispatchedAsync(List<Objective> snapshot, CancellationToken token)
         {
-            int count = 0;
+            ActiveVoyageSummary summary = new ActiveVoyageSummary();
             foreach (Objective objective in snapshot)
             {
-                if (await HasActiveLinkedVoyageAsync(objective, token).ConfigureAwait(false))
-                    count++;
+                if (!await HasActiveLinkedVoyageAsync(objective, token).ConfigureAwait(false)) continue;
+
+                summary.Total++;
+                if (objective.VesselIds.Count == 1)
+                {
+                    string vesselId = objective.VesselIds[0];
+                    summary.ByVessel.TryGetValue(vesselId, out int activeOnVessel);
+                    summary.ByVessel[vesselId] = activeOnVessel + 1;
+                }
             }
 
-            return count;
+            return summary;
         }
 
         private async Task DispatchObjectiveAsync(
@@ -638,6 +691,14 @@ namespace Armada.Server
             /// Instantiate.
             /// </summary>
             public ObjectiveSkippedException() : base("objective skipped") { }
+        }
+
+        private sealed class ActiveVoyageSummary
+        {
+            public int Total { get; set; }
+
+            public Dictionary<string, int> ByVessel { get; } =
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         }
 
         #endregion

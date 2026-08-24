@@ -65,7 +65,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Enabled = true,
                         Paused = false,
                         IntervalMinutes = 10,
-                        MaxConcurrentVoyages = 3
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 1
                     }
                 });
 
@@ -75,6 +76,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(status.Paused, "Paused should match settings.");
                 AssertEqual(10, status.IntervalMinutes, "IntervalMinutes should match settings.");
                 AssertEqual(3, status.MaxConcurrentVoyages, "MaxConcurrentVoyages should match settings.");
+                AssertEqual(1, status.MaxConcurrentVoyagesPerVessel, "Per-vessel concurrency should match settings.");
                 AssertNull(status.LastTickUtc, "LastTickUtc should be null before first sweep.");
             }).ConfigureAwait(false);
 
@@ -89,7 +91,8 @@ namespace Armada.Test.Unit.Suites.Services
                     enabled = true,
                     paused = true,
                     intervalMinutes = 15,
-                    maxConcurrentVoyages = 5
+                    maxConcurrentVoyages = 5,
+                    maxConcurrentVoyagesPerVessel = 2
                 });
 
                 object result = await handlers["armada_objective_scheduler_set"](args).ConfigureAwait(false);
@@ -99,11 +102,13 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"paused\":true", json);
                 AssertContains("\"intervalMinutes\":15", json);
                 AssertContains("\"maxConcurrentVoyages\":5", json);
+                AssertContains("\"maxConcurrentVoyagesPerVessel\":2", json);
 
                 AssertTrue(scheduler.Enabled, "Scheduler.Enabled should be true.");
                 AssertTrue(scheduler.Paused, "Scheduler.Paused should be true.");
                 AssertEqual(15, scheduler.IntervalMinutes, "Scheduler.IntervalMinutes should be 15.");
                 AssertEqual(5, scheduler.MaxConcurrentVoyages, "Scheduler.MaxConcurrentVoyages should be 5.");
+                AssertEqual(2, scheduler.MaxConcurrentVoyagesPerVessel, "Per-vessel concurrency should be 2.");
             }).ConfigureAwait(false);
 
             await RunTest("ArmadaObjectiveSchedulerSet_WithNoArgs_ReturnsCurrentStatus", async () =>

@@ -71,7 +71,8 @@ namespace Armada.Server.Mcp.Tools
                         enabled = new { type = "boolean", description = "When true the scheduler dispatches eligible objectives; when false it is fully disabled." },
                         paused = new { type = "boolean", description = "When true the scheduler is suspended without clearing the enabled flag." },
                         intervalMinutes = new { type = "integer", description = "Sweep interval in minutes (clamped to 1-1440)." },
-                        maxConcurrentVoyages = new { type = "integer", description = "Stop dispatching once this many objectives have an active linked voyage (clamped to 1-50). Operator-dispatched voyages count toward it, so activeDispatchedCount can exceed this value." }
+                        maxConcurrentVoyages = new { type = "integer", description = "Fleet-wide active objective voyage ceiling (clamped to 1-50). Operator-dispatched linked voyages count toward it." },
+                        maxConcurrentVoyagesPerVessel = new { type = "integer", description = "Per-vessel active objective voyage ceiling (clamped to 1-50, default 1). This prevents one vessel from consuming the fleet-wide capacity." }
                     }
                 },
                 async (args) =>
@@ -99,6 +100,9 @@ namespace Armada.Server.Mcp.Tools
 
                         if (request.MaxConcurrentVoyages.HasValue)
                             scheduler.SetMaxConcurrentVoyages(request.MaxConcurrentVoyages.Value);
+
+                        if (request.MaxConcurrentVoyagesPerVessel.HasValue)
+                            scheduler.SetMaxConcurrentVoyagesPerVessel(request.MaxConcurrentVoyagesPerVessel.Value);
                     }
 
                     bool persisted = await scheduler.TryPersistAsync().ConfigureAwait(false);
@@ -173,6 +177,7 @@ namespace Armada.Server.Mcp.Tools
                 Paused = scheduler.Paused,
                 IntervalMinutes = scheduler.IntervalMinutes,
                 MaxConcurrentVoyages = scheduler.MaxConcurrentVoyages,
+                MaxConcurrentVoyagesPerVessel = scheduler.MaxConcurrentVoyagesPerVessel,
                 LastTickUtc = scheduler.LastTickUtc,
                 ActiveDispatchedCount = scheduler.ActiveDispatchedCount,
                 LastSkipReason = scheduler.LastSkipReason
@@ -211,6 +216,11 @@ namespace Armada.Server.Mcp.Tools
             /// Optional max concurrent voyages override.
             /// </summary>
             public int? MaxConcurrentVoyages { get; set; }
+
+            /// <summary>
+            /// Optional per-vessel concurrent voyage override.
+            /// </summary>
+            public int? MaxConcurrentVoyagesPerVessel { get; set; }
         }
 
         /// <summary>

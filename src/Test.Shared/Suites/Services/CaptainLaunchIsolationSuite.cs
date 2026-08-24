@@ -72,14 +72,15 @@ namespace Test.Shared.Suites.Services
             }));
 
             // ---- Planner: Codex ----
-            cases.Add(Case("plan_codex_scopes_codex_home", "Codex plan scopes CODEX_HOME with a config.toml", TestTags.Positive, () =>
+            cases.Add(Case("plan_codex_injects_http_override", "Codex plan injects the local MCP URL without replacing CODEX_HOME", TestTags.Positive, () =>
             {
                 CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Codex, 7891, scoped);
                 AssertFalse(plan.IsEmpty, "expected a non-empty plan");
-                AssertEqual(0, plan.ExtraArguments.Count);
-                AssertTrue(plan.EnvironmentOverrides.ContainsKey("CODEX_HOME"), "expected CODEX_HOME override");
-                AssertEqual(scoped, plan.EnvironmentOverrides["CODEX_HOME"]);
-                AssertEqual("config.toml", plan.FilesToWrite[0].RelativePath);
+                AssertEqual(2, plan.ExtraArguments.Count);
+                AssertEqual("-c", plan.ExtraArguments[0]);
+                AssertTrue(plan.ExtraArguments[1].Contains("http://localhost:7891/mcp"), "expected local MCP URL override");
+                AssertFalse(plan.EnvironmentOverrides.ContainsKey("CODEX_HOME"), "must preserve captain authentication and provider profiles");
+                AssertEqual(0, plan.FilesToWrite.Count);
             }));
 
             // ---- Planner: Gemini / Cursor (HOME override) ----

@@ -468,13 +468,17 @@ namespace Armada.Server
             int processId;
             try
             {
+                CaptainLaunchIsolationPlan? launchIsolation = await PrepareCaptainLaunchIsolationAsync(
+                    captain,
+                    mission).ConfigureAwait(false);
                 processId = await runtime.StartAsync(
                     dock.WorktreePath ?? throw new InvalidOperationException("Dock worktree path is null"),
                     prompt,
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
-                    captain: captain).ConfigureAwait(false);
+                    captain: captain,
+                    isolationPlan: launchIsolation).ConfigureAwait(false);
             }
             catch
             {
@@ -506,6 +510,45 @@ namespace Armada.Server
             }
 
             return processId;
+        }
+
+        private async Task<CaptainLaunchIsolationPlan?> PrepareCaptainLaunchIsolationAsync(
+            Captain captain,
+            Mission mission)
+        {
+            if (!_Settings.SeedDockRuntimeMcpConfig) return null;
+            if (captain.Runtime != AgentRuntimeEnum.ClaudeCode &&
+                captain.Runtime != AgentRuntimeEnum.Codex &&
+                captain.Runtime != AgentRuntimeEnum.Mux)
+            {
+                return null;
+            }
+
+            string scopedDirectory = Path.Combine(
+                _Settings.LogDirectory,
+                "runtime-config",
+                mission.Id,
+                captain.Id);
+            CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(
+                captain.Runtime,
+                _Settings.McpPort,
+                scopedDirectory);
+            if (plan.IsEmpty) return null;
+
+            Directory.CreateDirectory(scopedDirectory);
+            string scopedRoot = Path.GetFullPath(scopedDirectory) + Path.DirectorySeparatorChar;
+            foreach (IsolationConfigFile file in plan.FilesToWrite)
+            {
+                string destination = Path.GetFullPath(Path.Combine(scopedDirectory, file.RelativePath));
+                if (!destination.StartsWith(scopedRoot, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Captain runtime configuration escaped its scoped directory.");
+
+                string? parent = Path.GetDirectoryName(destination);
+                if (!String.IsNullOrWhiteSpace(parent)) Directory.CreateDirectory(parent);
+                await File.WriteAllTextAsync(destination, file.Contents).ConfigureAwait(false);
+            }
+
+            return plan;
         }
 
         /// <summary>

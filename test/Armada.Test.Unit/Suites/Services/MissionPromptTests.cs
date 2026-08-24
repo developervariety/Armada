@@ -341,9 +341,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertContains("## Code Index Context", brief, "the code-index section must still be present");
-                        AssertFalse(brief.Contains("armada_code_search", StringComparison.Ordinal), "captains have no MCP tools to call");
-                        AssertFalse(brief.Contains("armada_context_pack", StringComparison.Ordinal), "captains have no MCP tools to call");
-                        AssertFalse(brief.Contains("MCP", StringComparison.Ordinal), "no MCP capability may be implied");
+                        AssertFalse(brief.Contains("armada_code_search", StringComparison.Ordinal), "code-index guidance must not direct captains to an operator tool");
+                        AssertFalse(brief.Contains("armada_context_pack", StringComparison.Ordinal), "code-index guidance must not direct captains to an operator tool");
+                        AssertFalse(brief.Contains("MCP", StringComparison.Ordinal), "code-index guidance stays runtime-neutral");
                     }
                     finally
                     {

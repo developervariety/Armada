@@ -164,15 +164,15 @@ curl http://localhost:7890/api/v1/status/health
 
 Or check the main log file at `~/.armada/logs/admiral.log`.
 
-### Re-register AgentWake after startup
+### Verify AgentWake after startup
 
-AgentWake settings persist in the loaded settings file, but the registered
-orchestrator session is in memory. After any service or container restart, call
-`armada_register_agentwake_session` again with the concrete runtime and the
-stable coordination `participantKey`, then confirm it with
-`armada_agentwake_status`. OpenCode wakes start fresh; the addressed note must
-contain the task and the session must rebuild context from the board and
-durable memory.
+AgentWake settings persist in the loaded settings file. Put the stable lead key
+in `remoteTrigger.agentWake.participantKey`, then confirm the configured and
+effective keys with `armada_agentwake_status` after startup. A transient
+registration is still in memory only; repeat it after restart only when a
+controlled probe or Claude/Codex resume target must override the configured
+owner. OpenCode wakes start fresh; the addressed note must contain the task and
+the session must rebuild context from the board and durable memory.
 
 Run only one Admiral service graph. If Docker owns the active Admiral, keep the
 platform startup service stopped. If the platform service owns it, do not also

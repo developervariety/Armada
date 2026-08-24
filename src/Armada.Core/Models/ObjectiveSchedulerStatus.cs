@@ -36,6 +36,11 @@ namespace Armada.Core.Models
         public int MaxConcurrentVoyages { get; set; } = 1;
 
         /// <summary>
+        /// Maximum active objective voyages allowed on one vessel.
+        /// </summary>
+        public int MaxConcurrentVoyagesPerVessel { get; set; } = 1;
+
+        /// <summary>
         /// UTC timestamp of the last completed sweep tick, or null if no tick has run yet.
         /// </summary>
         public DateTime? LastTickUtc { get; set; } = null;

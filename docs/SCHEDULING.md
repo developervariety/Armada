@@ -149,13 +149,30 @@ Everything above governs **mission-level** scheduling (which pending mission an 
 
 | Tool | Purpose |
 |------|---------|
-| `armada_objective_scheduler_status` | Return the scheduler's runtime state: `enabled`, `paused`, `intervalMinutes`, `maxConcurrentVoyages`, `lastTickUtc`, `activeDispatchedCount`, `lastSkipReason`. No arguments. |
-| `armada_objective_scheduler_set` | Enable/disable/pause or adjust the sweep. All fields optional; omitted fields are left unchanged. `enabled` (bool), `paused` (bool -- suspend without clearing `enabled`), `intervalMinutes` (int, clamped 1-1440), `maxConcurrentVoyages` (int, clamped 1-50). Returns the same status snapshot. |
+| `armada_objective_scheduler_status` | Return the scheduler's runtime state: `enabled`, `paused`, `intervalMinutes`, `maxConcurrentVoyages`, `maxConcurrentVoyagesPerVessel`, `lastTickUtc`, `activeDispatchedCount`, `lastSkipReason`. No arguments. |
+| `armada_objective_scheduler_set` | Enable/disable/pause or adjust the sweep. All fields optional; omitted fields are left unchanged. `enabled` (bool), `paused` (bool -- suspend without clearing `enabled`), `intervalMinutes` (int, clamped 1-1440), `maxConcurrentVoyages` (fleet-wide, clamped 1-50), `maxConcurrentVoyagesPerVessel` (default 1, clamped 1-50). Returns the same status snapshot. |
 | `armada_mark_objective_auto_dispatchable` | Per-objective opt-in. `objectiveId` (required), `enabled` (required bool -- sets the objective's `AutoDispatchEnabled` flag), `blockedByObjectiveIds` (optional array -- objectives that must reach `Completed` before this one is eligible; omit to leave existing blockers unchanged). |
 
 ### Eligibility and ordering
 
-The sweep dispatches an objective only when it is `AutoDispatchEnabled` **and** every objective in its `BlockedByObjectiveIds` has reached `Completed`. `blockedByObjectiveIds` is the declarative, objective-level equivalent of wiring `dependsOnMissionId` by hand at dispatch time -- prefer it when you want an unattended objective graph to unblock and dispatch itself in dependency order. The scheduler will not exceed `maxConcurrentVoyages` simultaneously-active scheduler-dispatched voyages; when it is saturated or nothing is eligible, `lastSkipReason` records why the last tick dispatched nothing.
+The sweep dispatches an objective only when it is `AutoDispatchEnabled` **and** every objective in its `BlockedByObjectiveIds` has reached `Completed`. `blockedByObjectiveIds` is the declarative, objective-level equivalent of wiring `dependsOnMissionId` by hand at dispatch time -- prefer it when you want an unattended objective graph to unblock and dispatch itself in dependency order. The scheduler will not exceed the fleet-wide `maxConcurrentVoyages` ceiling or the per-vessel `maxConcurrentVoyagesPerVessel` ceiling. Operator-dispatched linked voyages count toward both limits.
+
+`maxConcurrentVoyages` is a safety ceiling, not a throughput target. A lead must
+keep enough verified objectives auto-enabled to use the ceiling. Prefer
+independent vessels and lanes. Keep `maxConcurrentVoyagesPerVessel=1` unless
+the vessel's suite and worktree policy are proven safe for concurrency.
+Treat two repositories as one lane when either suite builds or tests the other
+through a sibling-project reference. Do not auto-enable hardware-dependent work,
+operator-only cleanup, two changes that overlap the same files, or work whose
+captains would run unsafe concurrent dock-side suites. The host interlock
+serializes Armada-owned Checks, but it cannot serialize a suite that a captain
+runs directly in its dock.
+
+A normal autonomous fleet can use two or three concurrent voyages when it has
+that many independent writable lanes. One global voyage is a deliberate
+throttle, not Armada's required operating model. Inspect both
+`maxConcurrentVoyages` and the count of eligible auto-enabled objectives when
+the fleet appears idle.
 
 ### Relationship to the manual loop
 
@@ -178,6 +195,8 @@ and delegate bounded read-only helpers; see
 `docs/autonomy/lead-bootstrap-prompt.md` and section 4.11 of
 `docs/armada-ops.md`. That cycle must be started manually, by an external
 scheduler, or through AgentWake. It is not a second server-side scheduler.
+The lead should refill several safe lanes, not only the lane that just became
+empty.
 
 Once a voyage exists, mission-level priority, voyage association, and FIFO
 (above) still decide which mission a captain picks up next.

@@ -117,7 +117,9 @@ namespace Armada.Runtimes
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
         /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
+        /// <param name="showThinking">Whether runtime thinking output should be shown.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="isolationPlan">Optional per-launch arguments and environment overrides.</param>
         public virtual async Task<int> StartAsync(
             string workingDirectory,
             string prompt,
@@ -127,7 +129,8 @@ namespace Armada.Runtimes
             string? model = null,
             Captain? captain = null,
             bool showThinking = false,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            CaptainLaunchIsolationPlan? isolationPlan = null)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
@@ -140,6 +143,7 @@ namespace Armada.Runtimes
 
             string command = GetCommand();
             List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
+            AppendIsolationArguments(args, isolationPlan);
 
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
@@ -164,6 +168,14 @@ namespace Armada.Runtimes
             if (environment != null)
             {
                 foreach (KeyValuePair<string, string> kvp in environment)
+                {
+                    startInfo.Environment[kvp.Key] = kvp.Value;
+                }
+            }
+
+            if (isolationPlan != null)
+            {
+                foreach (KeyValuePair<string, string> kvp in isolationPlan.EnvironmentOverrides)
                 {
                     startInfo.Environment[kvp.Key] = kvp.Value;
                 }
@@ -667,6 +679,30 @@ namespace Armada.Runtimes
         {
             startInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
             startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+        }
+
+        private static void AppendIsolationArguments(List<string> arguments, CaptainLaunchIsolationPlan? plan)
+        {
+            if (plan == null) return;
+
+            for (int i = 0; i < plan.ExtraArguments.Count; i++)
+            {
+                string argument = plan.ExtraArguments[i];
+                if (String.Equals(argument, "--strict-mcp-config", StringComparison.Ordinal) &&
+                    arguments.Contains(argument))
+                {
+                    continue;
+                }
+
+                if (String.Equals(argument, "--setting-sources", StringComparison.Ordinal) &&
+                    arguments.Contains(argument))
+                {
+                    if (i + 1 < plan.ExtraArguments.Count) i++;
+                    continue;
+                }
+
+                arguments.Add(argument);
+            }
         }
 
         /// <summary>

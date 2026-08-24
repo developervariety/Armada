@@ -56,7 +56,8 @@ namespace Armada.Runtimes
             string? model = null,
             Captain? captain = null,
             bool showThinking = false,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            CaptainLaunchIsolationPlan? isolationPlan = null)
         {
             Dictionary<string, string>? launchEnvironment = environment == null
                 ? null
@@ -82,7 +83,8 @@ namespace Armada.Runtimes
                 model,
                 captain,
                 showThinking,
-                token).ConfigureAwait(false);
+                token,
+                isolationPlan).ConfigureAwait(false);
         }
 
         #endregion

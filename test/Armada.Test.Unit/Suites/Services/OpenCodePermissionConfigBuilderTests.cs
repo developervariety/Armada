@@ -153,6 +153,17 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("https://opencode.ai/config.json", document.Schema, "$schema must point at the OpenCode config schema");
                 return Task.CompletedTask;
             });
+
+            await RunTest("Build_WithMcpPort_RegistersLocalArmadaEndpoint", () =>
+            {
+                string json = OpenCodePermissionConfigBuilder.Build(new List<string> { "/work/repo" }, 7891);
+
+                AssertContains("\"mcp\"", json, "MCP-enabled output should carry the mcp section");
+                AssertContains("\"armada\"", json, "MCP-enabled output should name the Armada server");
+                AssertContains("http://localhost:7891/mcp", json, "MCP-enabled output should use the local Armada URL");
+                AssertContains("\"type\": \"remote\"", json, "OpenCode should use its remote MCP transport");
+                return Task.CompletedTask;
+            });
         }
 
         private static OpenCodeDocument Deserialize(string json)

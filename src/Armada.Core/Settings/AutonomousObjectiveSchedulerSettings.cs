@@ -29,11 +29,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum active objective voyages allowed on one vessel. Clamped to [1, 50].
+        /// Defaults to one so fleet-wide concurrency cannot start conflicting suites on one vessel.
+        /// </summary>
+        public int MaxConcurrentVoyagesPerVessel
+        {
+            get => _MaxConcurrentVoyagesPerVessel;
+            set => _MaxConcurrentVoyagesPerVessel = Math.Max(1, Math.Min(50, value));
+        }
+
+        /// <summary>
         /// When true, the scheduler is paused and will not dispatch new voyages until resumed.
         /// </summary>
         public bool Paused { get; set; } = false;
 
         private int _IntervalMinutes = 25;
         private int _MaxConcurrentVoyages = 1;
+        private int _MaxConcurrentVoyagesPerVessel = 1;
     }
 }

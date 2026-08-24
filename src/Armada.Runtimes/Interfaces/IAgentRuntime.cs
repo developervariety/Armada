@@ -1,6 +1,7 @@
 namespace Armada.Runtimes.Interfaces
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Interface for agent runtime adapters.
@@ -83,6 +84,7 @@ namespace Armada.Runtimes.Interfaces
         /// run. Honored by the Mux runtime (--show-thinking); other runtimes have no headless equivalent
         /// and ignore it.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="isolationPlan">Optional launch-scoped MCP configuration and environment.</param>
         /// <returns>Process ID of the started agent.</returns>
         Task<int> StartAsync(
             string workingDirectory,
@@ -93,7 +95,8 @@ namespace Armada.Runtimes.Interfaces
             string? model = null,
             Captain? captain = null,
             bool showThinking = false,
-            CancellationToken token = default);
+            CancellationToken token = default,
+            CaptainLaunchIsolationPlan? isolationPlan = null);
 
         /// <summary>
         /// Stop an agent process gracefully.

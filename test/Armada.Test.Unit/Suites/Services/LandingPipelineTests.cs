@@ -896,6 +896,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task FireCriticalAsync(string text, CancellationToken token = default) => Task.CompletedTask;
             public AgentWakeSessionRegistration RegisterAgentWakeSession(AgentWakeSessionRegistration registration) => registration;
             public AgentWakeSessionRegistration? GetAgentWakeSession() => null;
+            public AgentWakeStatusSnapshot GetAgentWakeStatus() => new AgentWakeStatusSnapshot();
             public Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default) => Task.CompletedTask;
         }
 

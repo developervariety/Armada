@@ -26,7 +26,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "list_runbooks",
-                "List playbook-backed runbooks. This operator-only tool does not expose Armada MCP to captains.",
+                "List playbook-backed runbooks. This is operator-owned state; a captain may use it only when its mission explicitly assigns that operator action.",
                 new
                 {
                     type = "object",
