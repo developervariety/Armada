@@ -17,11 +17,11 @@ Group=armada
 WorkingDirectory=__ARMADA_CHECKOUT__
 Environment=AUTONOMY_LEAD_KEY=armada-lead
 Environment=AUTONOMY_LEAD_RUNTIME=claude
-Environment=AUTONOMY_LEAD_TIMEOUT_MIN=45
+Environment=AUTONOMY_LEAD_TIMEOUT_MIN=30
 ExecStart=__ARMADA_CHECKOUT__/scripts/autonomy/lead-cycle.sh run
 # The cap belongs to lead-cycle.sh so a wake-started cycle gets it too. This is
 # the outer backstop for a runner that wedges before reaching its own timeout.
-TimeoutStartSec=3600
+TimeoutStartSec=2400
 # A refused cycle (one already running) exits 0, so a failure here is real.
 StandardOutput=journal
 StandardError=journal

@@ -1022,6 +1022,18 @@ An unattended cycle cannot ask a question. The prompt tells it to post an owner
 decision to the board as a named item and carry on, rather than block. Read those
 on your next session; they are the cycle's questions to you.
 
+**Each cycle leaves two files** under the lead's log directory:
+`cycle-<stamp>.jsonl`, the whole event stream, and `cycle-<stamp>.log`, a rendered
+digest of it. Read the digest; it lists what the cycle said, every tool it called,
+whether each call worked, and how the run ended. A stream with no result event is
+reported as `INCOMPLETE`, which is what a timeout looks like. `--print` alone emits
+only the closing paragraph, which is how one eight-minute cycle left a 73-byte log
+claiming it had nothing to report.
+
+**The default cap is 30 minutes.** The prompt tells the cycle to reserve the last
+three for its handoff and cleanup. Raise it with `AUTONOMY_LEAD_TIMEOUT_MIN`, and
+keep the systemd unit's `TimeoutStartSec` above it as the outer backstop.
+
 **The permission policy is the real boundary.** A headless run has nobody to
 answer a permission prompt, so `lead-cycle.sh` writes a settings file and passes
 it with `--settings`. It allows the Armada tool surface plus ordinary file and

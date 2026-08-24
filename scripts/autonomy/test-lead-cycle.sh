@@ -40,12 +40,22 @@ for c in ${configs[@]+"${configs[@]}"}; do
     [ -f "$c" ] || { echo "Error: MCP config file not found: $c" >&2; exit 1; }
 done
 [ "${#configs[@]}" -gt 0 ] && printf '%s\n' "${configs[0]}" > "$LEAD_TEST_CONFIG_PATH"
+printf '%s\n' '--output-format stream-json' | grep -q . # keep shellcheck quiet
+emit_stream=0
+for a in "${args[@]}"; do [ "$a" = "stream-json" ] && emit_stream=1; done
 for i in "${!args[@]}"; do
     if [ "${args[$i]}" = "--settings" ]; then
         printf '%s\n' "${args[$((i+1))]}" > "${LEAD_TEST_SETTINGS_PATH:-/dev/null}"
     fi
 done
 cat > "$LEAD_TEST_PROMPT"
+if [ "$emit_stream" = "1" ]; then
+    echo '{"type":"system","subtype":"init","session_id":"probe","cwd":"/tmp","tools":["Bash"]}'
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"checking the board"}]}}'
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}'
+    echo '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"clean"}]}}'
+    echo '{"type":"result","subtype":"success","num_turns":3,"duration_ms":4200}'
+fi
 EOF
 chmod +x "$TEST_ROOT/bin/claude"
 
@@ -98,6 +108,18 @@ grep -Fq '"X-Armada-Participant": "probe-lead"' "$CONFIG" \
 [ -s "$TEST_ROOT/settings-path.txt" ] || fail "--settings was not passed to the runtime"
 
 grep -Fq " ok " "$WORKDIR/run/last-result" || fail "a successful cycle was not recorded"
+
+# A cycle must leave a readable transcript, not only its closing paragraph. An
+# eight-minute run once left 73 bytes, so the raw stream and the digest are both kept.
+RAW=$(ls "$WORKDIR"/logs/cycle-*.jsonl 2>/dev/null | tail -1)
+DIGEST=$(ls "$WORKDIR"/logs/cycle-*.log 2>/dev/null | tail -1)
+[ -s "$RAW" ] || fail "the raw event stream was not captured"
+[ -s "$DIGEST" ] || fail "the cycle digest was not rendered"
+grep -Fq "stream-json" "$WORKDIR"/run/prompt-*.md 2>/dev/null && fail "stream flags leaked into the prompt"
+grep -q "^\\[init\\]" "$DIGEST" || fail "the digest is missing the session line"
+grep -q "^\\[tool\\] *Bash: git status" "$DIGEST" || fail "the digest did not record the tool call"
+grep -q "^\\[ok\\] *Bash: clean" "$DIGEST" || fail "the digest did not record the tool result"
+grep -q "^\\[result\\] success turns=3" "$DIGEST" || fail "the digest did not record the outcome"
 
 # An unattended run has nobody to answer a permission prompt, so the policy must
 # be written and passed. Deny must cover the actions that stay owner-only.

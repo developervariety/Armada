@@ -16,7 +16,7 @@
 #   AUTONOMY_LEAD_KEY         participant key (default armada-lead). MUST differ
 #                             from any interactive operator's key.
 #   AUTONOMY_LEAD_RUNTIME     claude, codex, or opencode (default claude)
-#   AUTONOMY_LEAD_TIMEOUT_MIN wall-clock cap per cycle (default 45)
+#   AUTONOMY_LEAD_TIMEOUT_MIN wall-clock cap per cycle (default 30)
 #   AUTONOMY_LEAD_WORKDIR     state root (default $HOME/autonomy-lead)
 #   AUTONOMY_LEAD_REPO        Armada checkout holding the bootstrap prompt
 #                             (default: derived from this script's location)
@@ -32,7 +32,7 @@ umask 077
 
 LEAD_KEY="${AUTONOMY_LEAD_KEY:-armada-lead}"
 RUNTIME="${AUTONOMY_LEAD_RUNTIME:-claude}"
-TIMEOUT_MIN="${AUTONOMY_LEAD_TIMEOUT_MIN:-45}"
+TIMEOUT_MIN="${AUTONOMY_LEAD_TIMEOUT_MIN:-30}"
 WORKDIR="${AUTONOMY_LEAD_WORKDIR:-$HOME/autonomy-lead}"
 # This script lives in the checkout, so the checkout is two levels up. Deriving
 # it beats a hard-coded path: it works on any host and in any clone.
@@ -188,7 +188,7 @@ Nobody is watching this cycle. That changes three things:
 - Prefer work that is reversible and provable. Do not enable AgentWake process
   delivery, do not force-push, do not deploy, and do not merge a PR.
 
-You have about $TIMEOUT_MIN minutes of wall clock. Reserve the last five for the
+You have about $TIMEOUT_MIN minutes of wall clock. Reserve the last three for the
 handoff note and cleanup. If a voyage is still running when your time is nearly
 gone, say so plainly in the handoff and leave it for the next cycle rather than
 waiting on it.
@@ -248,9 +248,10 @@ cmd_run() {
     else echo "warning: no timeout binary; running this cycle UNCAPPED" >&2
     fi
 
-    local stamp log prompt_file mcp_config settings_file runtime status
+    local stamp log raw prompt_file mcp_config settings_file runtime status
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     log="$LOG_DIR/cycle-$stamp.log"
+    raw="$LOG_DIR/cycle-$stamp.jsonl"
     prompt_file="$RUN_DIR/prompt-$stamp.md"
     mcp_config=$(prepare_mcp_config)
     settings_file=$(prepare_settings)
@@ -272,11 +273,19 @@ cmd_run() {
             # positional prompt after it is swallowed as a second config path and
             # the run dies with "MCP config file not found: <the whole prompt>".
             # stdin also sidesteps the argv length limit for a long brief.
-            ${cap[@]+"${cap[@]}"} claude --print --setting-sources project,local \
+            #
+            # Capture the whole event stream, not just the final message. `--print`
+            # alone emits one closing paragraph: an eight-minute cycle that did real
+            # work once left a 73-byte log claiming it had nothing to report. The raw
+            # .jsonl is written incrementally, so it survives a killed run and the
+            # digest below can still be rendered from a partial stream.
+            ${cap[@]+"${cap[@]}"} claude --print \
+                --output-format stream-json --verbose \
+                --setting-sources project,local \
                 --strict-mcp-config --mcp-config "$mcp_config" \
                 --settings "$settings_file" \
                 --add-dir "$WORKDIR" \
-                < "$prompt_file" > "$log" 2>&1
+                < "$prompt_file" > "$raw" 2>&1
             ;;
         codex)
             ${cap[@]+"${cap[@]}"} codex exec - < "$prompt_file" > "$log" 2>&1
@@ -288,16 +297,27 @@ cmd_run() {
     status=$?
     set -e
 
+    if [ -s "$raw" ]; then
+        if node "$SCRIPT_DIR/render-cycle-log.mjs" "$raw" > "$log" 2>/dev/null; then
+            :
+        else
+            # Never lose the run because the renderer failed. The raw stream is the
+            # source of truth; fall back to it verbatim.
+            echo "(render failed; raw stream follows)" > "$log"
+            cat "$raw" >> "$log"
+        fi
+    fi
+
     # 124 is timeout's own code. It means the cap was reached, which is a bounded
     # outcome and not a crash; say which it was so a reader does not guess.
     if [ "$status" -eq 124 ]; then
-        printf '%s timeout after %sm log=%s\n' "$stamp" "$TIMEOUT_MIN" "$log" > "$LAST_FILE"
+        printf '%s timeout after %sm log=%s raw=%s\n' "$stamp" "$TIMEOUT_MIN" "$log" "$raw" > "$LAST_FILE"
         echo "lead cycle $stamp hit its ${TIMEOUT_MIN}m cap; log=$log"
     elif [ "$status" -ne 0 ]; then
-        printf '%s failed exit=%s log=%s\n' "$stamp" "$status" "$log" > "$LAST_FILE"
+        printf '%s failed exit=%s log=%s raw=%s\n' "$stamp" "$status" "$log" "$raw" > "$LAST_FILE"
         echo "lead cycle $stamp failed with exit $status; log=$log"
     else
-        printf '%s ok log=%s\n' "$stamp" "$log" > "$LAST_FILE"
+        printf '%s ok log=%s raw=%s\n' "$stamp" "$log" "$raw" > "$LAST_FILE"
         echo "lead cycle $stamp completed; log=$log"
     fi
 
