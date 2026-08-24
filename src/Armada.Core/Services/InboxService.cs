@@ -16,8 +16,11 @@ namespace Armada.Core.Services
     ///
     /// - Awaiting your decision (human-in-the-loop): a mission in Review, or a deployment pending approval.
     /// - Failed and needs intervention (autonomous work that could not finish on its own): a failed
-    ///   mission, a mission whose work could not land, a failed merge, a failed or verification-failed
-    ///   deployment, or a stalled captain.
+    ///   mission or a mission whose work could not land (while its voyage is still live), an open
+    ///   incident, a failed merge, a failed or verification-failed deployment, or a stalled captain.
+    ///
+    /// A failed mission whose voyage has already halted is not listed on its own: it cannot be restarted
+    /// in place, and the incident Armada opened for it is the record that carries the remaining action.
     ///
     /// Purely informational state changes (completions, normal progress) are deliberately excluded --
     /// the inbox answers "is there anything waiting on me / that needs my attention?", not "what happened?".
@@ -139,7 +142,12 @@ namespace Armada.Core.Services
                     });
                 }
 
-                List<Mission> landingFailed = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false);
+                HashSet<string> liveVoyageIds = await ReadLiveVoyageIdsAsync(token).ConfigureAwait(false);
+                Dictionary<string, Mission?> missionCache = new Dictionary<string, Mission?>(StringComparer.OrdinalIgnoreCase);
+
+                List<Mission> landingFailed = await FilterActionableAsync(
+                    await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false),
+                    liveVoyageIds, missionCache, token).ConfigureAwait(false);
                 foreach (Mission mission in landingFailed.Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
@@ -154,7 +162,9 @@ namespace Armada.Core.Services
                     });
                 }
 
-                List<Mission> failed = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false);
+                List<Mission> failed = await FilterActionableAsync(
+                    await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false),
+                    liveVoyageIds, missionCache, token).ConfigureAwait(false);
                 foreach (Mission mission in failed.Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
@@ -199,6 +209,33 @@ namespace Armada.Core.Services
                     });
                 }
 
+                IncidentService incidentService = new IncidentService(_Database);
+                AuthContext incidentAuth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "inbox");
+                EnumerationResult<Incident> incidentPage = await incidentService.EnumerateAsync(
+                    incidentAuth, new IncidentQuery { PageNumber = 1, PageSize = 500 }, token).ConfigureAwait(false);
+                foreach (Incident incident in incidentPage.Objects
+                    .Where(i => i.Status == IncidentStatusEnum.Open || i.Status == IncidentStatusEnum.Monitoring)
+                    .Take(_MaxPerCategory))
+                {
+                    string detail = !String.IsNullOrWhiteSpace(incident.RecoveryNotes) ? incident.RecoveryNotes!
+                        : !String.IsNullOrWhiteSpace(incident.Summary) ? incident.Summary!
+                        : "The incident is open and needs a verdict.";
+                    if (detail.Length > 400) detail = detail.Substring(0, 400) + "...";
+
+                    items.Add(new InboxItem
+                    {
+                        Kind = "open_incident",
+                        Severity = incident.Severity == IncidentSeverityEnum.Critical || incident.Severity == IncidentSeverityEnum.High
+                            ? InboxSeverityEnum.Critical
+                            : InboxSeverityEnum.Warning,
+                        Title = "Incident " + incident.Status + ": " + incident.Title,
+                        Detail = detail,
+                        EntityType = "incident",
+                        EntityId = incident.Id,
+                        Href = "/incidents/" + incident.Id
+                    });
+                }
+
                 List<Deployment> deployments = await _Database.Deployments.EnumerateAllAsync(new DeploymentQuery(), token).ConfigureAwait(false);
 
                 foreach (Deployment deployment in deployments.Where(d => d.Status == DeploymentStatusEnum.PendingApproval).Take(_MaxPerCategory))
@@ -240,6 +277,67 @@ namespace Armada.Core.Services
                 .OrderByDescending(item => (int)item.Severity)
                 .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+                #endregion
+
+        #region Private-Methods
+
+        /// <summary>
+        /// A failed or landing-failed mission is actionable only while the voyage it belongs to is still
+        /// live. Once the voyage is terminal the mission cannot be restarted in place; the record that
+        /// carries any remaining action is the incident Armada opened for it, and the inbox lists open
+        /// incidents on their own. A rescue mission carries no voyage of its own, so it follows the voyage
+        /// of the mission it rescues. A mission with no voyage anywhere in its chain stays visible, because
+        /// nothing proves it was handled.
+        /// </summary>
+        private async Task<List<Mission>> FilterActionableAsync(
+            List<Mission> missions,
+            HashSet<string> liveVoyageIds,
+            Dictionary<string, Mission?> missionCache,
+            CancellationToken token)
+        {
+            List<Mission> actionable = new List<Mission>();
+            foreach (Mission mission in missions)
+            {
+                string? voyageId = await ResolveEffectiveVoyageIdAsync(mission, missionCache, token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(voyageId) || liveVoyageIds.Contains(voyageId))
+                    actionable.Add(mission);
+            }
+            return actionable;
+        }
+
+        private async Task<string?> ResolveEffectiveVoyageIdAsync(
+            Mission mission,
+            Dictionary<string, Mission?> missionCache,
+            CancellationToken token)
+        {
+            Mission? current = mission;
+            HashSet<string> visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (current != null && visited.Add(current.Id))
+            {
+                if (!String.IsNullOrWhiteSpace(current.VoyageId)) return current.VoyageId;
+                if (String.IsNullOrWhiteSpace(current.ParentMissionId)) return null;
+
+                if (!missionCache.TryGetValue(current.ParentMissionId, out Mission? parent))
+                {
+                    parent = await _Database.Missions.ReadAsync(current.ParentMissionId, token).ConfigureAwait(false);
+                    missionCache[current.ParentMissionId] = parent;
+                }
+                current = parent;
+            }
+            return null;
+        }
+
+        private async Task<HashSet<string>> ReadLiveVoyageIdsAsync(CancellationToken token)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (VoyageStatusEnum status in new[] { VoyageStatusEnum.Open, VoyageStatusEnum.InProgress })
+            {
+                List<Voyage> voyages = await _Database.Voyages.EnumerateByStatusAsync(status, token).ConfigureAwait(false);
+                foreach (Voyage voyage in voyages) ids.Add(voyage.Id);
+            }
+            return ids;
         }
 
         #endregion

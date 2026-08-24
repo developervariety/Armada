@@ -482,13 +482,14 @@ namespace Armada.Server
 
             if (objective.VesselIds.Count != 1)
             {
-                string vesselDetail = "autonomous dispatch requires exactly one vessel; this objective has "
-                    + objective.VesselIds.Count + ". Split it per vessel, or dispatch it by hand.";
+                string vesselDetail = "auto-dispatch needs exactly one vessel, it has "
+                    + objective.VesselIds.Count
+                    + ". Set VesselIds to the vessel whose repository receives the commit.";
                 _Logging.Warn(_Header + "objective " + objective.Id + " skipped: " + vesselDetail);
-                await EmitObjectiveEventAsync("objective_scheduler.skipped_multi_vessel",
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_vessel_count",
                     "Autonomous scheduler skipped objective " + objective.Id + ": " + vesselDetail,
                     objective, null, token).ConfigureAwait(false);
-                throw new ObjectiveSkippedException("multi_vessel");
+                throw new ObjectiveSkippedException("vessel_count");
             }
 
             string vesselId = objective.VesselIds[0];
