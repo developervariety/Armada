@@ -223,6 +223,7 @@ export default function Layout() {
 
   const layoutClassName = [
     'app-layout',
+    collapsed ? 'sidebar-is-collapsed' : '',
     showWizard ? 'wizard-active' : '',
     showWizard && wizardHighlights.length > 0 ? 'wizard-spotlight-active' : '',
   ].filter(Boolean).join(' ');
@@ -261,7 +262,7 @@ export default function Layout() {
         </div>
       )}
 
-      <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '220px 1fr' }}>
+      <div className={layoutClassName}>
         <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="sidebar-brand">
           <img
