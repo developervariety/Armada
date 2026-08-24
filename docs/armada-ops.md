@@ -1083,15 +1083,6 @@ missed run was silently never caught up.
 judge captains. Claude Code and the provider control prompt caching for this
 route.
 
-Do not use OpenCode as the primary harness for the Vilao subscription route.
-Tests on 24 August 2026 showed that Vilao returned empty responses with
-`finish=unknown`. OpenCode treated each response as a reason to continue and
-created 501 zero-token turns before the test cap stopped it. This is unsafe for
-a provider that charges per request. The optional OpenCode overlay stays
-process-specific for compatibility work, but it is not the production lead
-runtime. Do not put that overlay in the global OpenCode config. Captains also
-read the global config and must not get the lead key or permission policy.
-
 Before you install the service, create the provider key file:
 
 ```sh
