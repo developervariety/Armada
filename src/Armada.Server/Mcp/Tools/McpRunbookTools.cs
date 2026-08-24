@@ -97,14 +97,19 @@ namespace Armada.Server.Mcp.Tools
                         status = new { type = "string" },
                         search = new { type = "string" },
                         pageNumber = new { type = "integer" },
-                        pageSize = new { type = "integer" }
+                        pageSize = new { type = "integer" },
+                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." }
                     }
                 },
                 async args =>
                 {
                     RunbookExecutionQuery query = Deserialize<RunbookExecutionQuery>(args) ?? new RunbookExecutionQuery();
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await runbookService.EnumerateExecutionsAsync(auth, query).ConfigureAwait(false);
+                    object result = await runbookService.EnumerateExecutionsAsync(auth, query).ConfigureAwait(false);
+                    bool wantsFull = args.HasValue
+                        && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
+                        && _full.ValueKind == JsonValueKind.True;
+                    return McpResultPreview.Apply(result, wantsFull);
                 });
 
             register(

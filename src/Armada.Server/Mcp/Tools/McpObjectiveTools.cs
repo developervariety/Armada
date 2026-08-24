@@ -54,14 +54,19 @@ namespace Armada.Server.Mcp.Tools
                         targetVersion = new { type = "string", description = "Optional target-version filter" },
                         search = new { type = "string", description = "Optional free-text search" },
                         pageNumber = new { type = "integer", description = "Optional page number" },
-                        pageSize = new { type = "integer", description = "Optional page size" }
+                        pageSize = new { type = "integer", description = "Optional page size" },
+                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." }
                     }
                 },
                 async (args) =>
                 {
                     ObjectiveQuery query = JsonSerializer.Deserialize<ObjectiveQuery>(args!.Value, _JsonOptions) ?? new ObjectiveQuery();
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await objectiveService.EnumerateAsync(auth, query).ConfigureAwait(false);
+                    object result = await objectiveService.EnumerateAsync(auth, query).ConfigureAwait(false);
+                    bool wantsFull = args.HasValue
+                        && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
+                        && _full.ValueKind == JsonValueKind.True;
+                    return McpResultPreview.Apply(result, wantsFull);
                 });
 
             register(
@@ -85,14 +90,19 @@ namespace Armada.Server.Mcp.Tools
                         targetVersion = new { type = "string", description = "Optional target-version filter" },
                         search = new { type = "string", description = "Optional free-text search" },
                         pageNumber = new { type = "integer", description = "Optional page number" },
-                        pageSize = new { type = "integer", description = "Optional page size" }
+                        pageSize = new { type = "integer", description = "Optional page size" },
+                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." }
                     }
                 },
                 async (args) =>
                 {
                     ObjectiveQuery query = JsonSerializer.Deserialize<ObjectiveQuery>(args!.Value, _JsonOptions) ?? new ObjectiveQuery();
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await objectiveService.EnumerateAsync(auth, query).ConfigureAwait(false);
+                    object result = await objectiveService.EnumerateAsync(auth, query).ConfigureAwait(false);
+                    bool wantsFull = args.HasValue
+                        && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
+                        && _full.ValueKind == JsonValueKind.True;
+                    return McpResultPreview.Apply(result, wantsFull);
                 });
 
             register(

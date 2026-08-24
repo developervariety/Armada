@@ -1,0 +1,155 @@
+namespace Armada.Server.Mcp.Tools
+{
+    using System;
+    using System.Text.Json;
+    using System.Text.Json.Nodes;
+
+    /// <summary>
+    /// Shrinks an MCP tool result by previewing its long free-text fields.
+    /// <para>
+    /// A tool that returns a collection returns its members whole, and one long field
+    /// on each member is almost always the whole payload: a Description, an
+    /// AcceptanceCriteria block, a captured Output. Measured on one live fleet,
+    /// <c>list_objectives</c> returned 388,594 characters and
+    /// <c>armada_campaign_status</c> 245,233, both far past the caller's tool output
+    /// limit. An agent then spends turns spilling the payload to a file and parsing it
+    /// back, which is visible in the autonomous cycle transcripts.
+    /// </para>
+    /// <para>
+    /// This is deliberately OPT-IN per tool rather than applied to every result. Some
+    /// results must never be trimmed -- a mission log, a diff, a note addressed to the
+    /// caller -- and a blanket truncation would hide exactly the payload someone asked
+    /// for. Truncating the board once hid five complete reports; the lesson is that the
+    /// decision belongs to the tool, not to the transport.
+    /// </para>
+    /// </summary>
+    public static class McpResultPreview
+    {
+        #region Public-Members
+
+        /// <summary>
+        /// Characters of a long field kept when previewing.
+        /// <para>
+        /// This bounds the result, so it is chosen against the page size rather than by
+        /// taste. These tools page at 50 records, and a record carries two or three long
+        /// fields, so 250 characters holds a full page near 40 KB. Raising it to 400 put
+        /// the same page back over the caller's limit. The record's Id and Title are
+        /// separate short fields and are never trimmed, so a preview only has to say
+        /// enough to decide whether to fetch the rest.
+        /// </para>
+        /// </summary>
+        public const int DefaultPreviewChars = 250;
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Return <paramref name="payload"/> with every string longer than
+        /// <paramref name="previewChars"/> replaced by a preview, each gaining a
+        /// companion <c>&lt;name&gt;Length</c> property carrying the original length,
+        /// plus a top-level <c>TruncatedFieldCount</c> so a reader can see at a glance
+        /// whether anything was trimmed.
+        /// </summary>
+        /// <param name="payload">Result object to shrink.</param>
+        /// <param name="includeFullContent">When true, the payload is returned unchanged.</param>
+        /// <param name="previewChars">Characters to keep. Defaults to <see cref="DefaultPreviewChars"/>.</param>
+        /// <returns>The shrunk payload, or the original when nothing needed trimming.</returns>
+        public static object Apply(object payload, bool includeFullContent, int previewChars = DefaultPreviewChars)
+        {
+            if (payload == null) return payload!;
+            if (includeFullContent) return payload;
+            if (previewChars < 1) previewChars = DefaultPreviewChars;
+
+            JsonNode? root;
+            try
+            {
+                root = JsonSerializer.SerializeToNode(payload);
+            }
+            catch (NotSupportedException)
+            {
+                // A payload the serializer refuses is returned untouched rather than
+                // lost. Shrinking is a courtesy; the caller's result is not.
+                return payload;
+            }
+
+            if (root == null) return payload;
+
+            int truncated = Shrink(root, previewChars);
+            if (truncated == 0) return payload;
+
+            if (root is JsonObject rootObject)
+            {
+                rootObject["TruncatedFieldCount"] = truncated;
+                return rootObject;
+            }
+
+            // A bare array has nowhere to carry the count, so it is wrapped once. The
+            // count matters more than the shape: a reader who cannot see that fields
+            // were trimmed will read a preview as the whole record.
+            return new JsonObject
+            {
+                ["Items"] = root,
+                ["TruncatedFieldCount"] = truncated
+            };
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static int Shrink(JsonNode node, int previewChars)
+        {
+            int truncated = 0;
+
+            if (node is JsonArray array)
+            {
+                foreach (JsonNode? item in array)
+                {
+                    if (item != null) truncated += Shrink(item, previewChars);
+                }
+
+                return truncated;
+            }
+
+            if (node is not JsonObject obj) return 0;
+
+            // Collected first: the companion length properties are added to the same
+            // object being enumerated, and mutating during enumeration would throw.
+            System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, string>> longFields =
+                new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, string>>();
+            System.Collections.Generic.List<JsonNode> children =
+                new System.Collections.Generic.List<JsonNode>();
+
+            foreach (System.Collections.Generic.KeyValuePair<string, JsonNode?> property in obj)
+            {
+                if (property.Value == null) continue;
+
+                if (property.Value is JsonValue value
+                    && value.TryGetValue(out string? text)
+                    && text != null
+                    && text.Length > previewChars)
+                {
+                    longFields.Add(new System.Collections.Generic.KeyValuePair<string, string>(property.Key, text));
+                }
+                else if (property.Value is JsonObject || property.Value is JsonArray)
+                {
+                    children.Add(property.Value);
+                }
+            }
+
+            foreach (System.Collections.Generic.KeyValuePair<string, string> field in longFields)
+            {
+                obj[field.Key] = field.Value.Substring(0, previewChars);
+                obj[field.Key + "Length"] = field.Value.Length;
+                truncated++;
+            }
+
+            foreach (JsonNode child in children) truncated += Shrink(child, previewChars);
+
+            return truncated;
+        }
+
+        #endregion
+    }
+}

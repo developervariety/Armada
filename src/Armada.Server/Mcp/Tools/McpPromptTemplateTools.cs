@@ -35,7 +35,8 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        category = new { type = "string", description = "Optional category filter (for example 'persona' or 'mission')" }
+                        category = new { type = "string", description = "Optional category filter (for example 'persona' or 'mission')" },
+                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." }
                     }
                 },
                 async (args) =>
@@ -44,7 +45,10 @@ namespace Armada.Server.Mcp.Tools
                         ? JsonSerializer.Deserialize<PromptTemplateArgs>(args.Value, _JsonOptions) ?? new PromptTemplateArgs()
                         : new PromptTemplateArgs();
                     List<PromptTemplate> templates = await templateService.ListAsync(request.Category).ConfigureAwait(false);
-                    return (object)templates;
+                    bool wantsFull = args.HasValue
+                        && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
+                        && _full.ValueKind == JsonValueKind.True;
+                    return McpResultPreview.Apply(templates, wantsFull);
                 });
 
             register(

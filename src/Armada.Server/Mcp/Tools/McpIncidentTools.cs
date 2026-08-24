@@ -51,7 +51,8 @@ namespace Armada.Server.Mcp.Tools
                         severity = new { type = "string", description = "Optional severity: Critical, High, Medium, or Low" },
                         search = new { type = "string", description = "Optional free-text search" },
                         pageNumber = new { type = "integer", description = "Optional page number" },
-                        pageSize = new { type = "integer", description = "Optional page size" }
+                        pageSize = new { type = "integer", description = "Optional page size" },
+                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." }
                     }
                 },
                 async (args) =>
@@ -60,7 +61,11 @@ namespace Armada.Server.Mcp.Tools
                         ? JsonSerializer.Deserialize<IncidentQuery>(args.Value, _JsonOptions) ?? new IncidentQuery()
                         : new IncidentQuery();
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await incidentService.EnumerateAsync(auth, query).ConfigureAwait(false);
+                    object result = await incidentService.EnumerateAsync(auth, query).ConfigureAwait(false);
+                    bool wantsFull = args.HasValue
+                        && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
+                        && _full.ValueKind == JsonValueKind.True;
+                    return McpResultPreview.Apply(result, wantsFull);
                 });
 
             register(

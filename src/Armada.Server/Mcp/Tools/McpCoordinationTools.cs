@@ -285,7 +285,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         tag = new { type = "string", description = "Campaign tag, for example 'campaign:porting'. Resolves every objective carrying it as a root. Omit when rootObjectiveId is supplied." },
                         rootObjectiveId = new { type = "string", description = "Campaign root objective ID (obj_ prefix). Omit when tag is supplied." },
-                        noteLimit = new { type = "integer", description = "Recent board notes to include (default 10)." }
+                        noteLimit = new { type = "integer", description = "Recent board notes to include (default 10)." },
+                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." }
                     }
                 },
                 async (args) =>
@@ -385,7 +386,12 @@ namespace Armada.Server.Mcp.Tools
                         // Board notes are best-effort in a status call.
                     }
 
-                    return (object)new { Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes };
+                    bool wantsFull = args.HasValue
+                        && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
+                        && _full.ValueKind == JsonValueKind.True;
+                    return McpResultPreview.Apply(
+                        new { Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes },
+                        wantsFull);
                 });
 
             if (dispatchHold != null)
