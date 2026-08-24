@@ -15,6 +15,10 @@
 #   AUTONOMY_WORKDIR              process-state root
 #                                 (default $HOME/autonomy-helpers)
 #   AUTONOMY_PARTICIPANT_PREFIX   participant-key prefix (default helper)
+#   AUTONOMY_HELPER_CLASS         research (default) or delegate.
+#                                 research: reads and reports, writes nothing.
+#                                 delegate: may also dispatch voyages and write
+#                                 objectives, backlog items and board notes.
 #   AUTONOMY_HELPER_OFFER_SECONDS bounded reassignment window for offer mode
 #                                 (default 240)
 #   AUTONOMY_ARMADA_MCP_URL        Armada MCP URL for Claude helpers
@@ -37,6 +41,7 @@ HELPER_TIMEOUT_MIN="${AUTONOMY_HELPER_TIMEOUT_MIN:-90}"
 RUNTIME="${AUTONOMY_RUNTIME:-opencode}"
 WORKDIR="${AUTONOMY_WORKDIR:-$HOME/autonomy-helpers}"
 PARTICIPANT_PREFIX="${AUTONOMY_PARTICIPANT_PREFIX:-helper}"
+HELPER_CLASS="${AUTONOMY_HELPER_CLASS:-research}"
 HELPER_OFFER_SECONDS="${AUTONOMY_HELPER_OFFER_SECONDS:-240}"
 RUN_DIR="$WORKDIR/run"
 LOG_DIR="$WORKDIR/logs"
@@ -65,6 +70,84 @@ validate_name() {
         ''|*[!A-Za-z0-9._-]*|.*|-*) fail "helper name must start with a letter or digit and contain only A-Z, a-z, 0-9, dot, underscore, or dash" ;;
     esac
     [ "${#name}" -le 64 ] || fail "helper name must be 64 characters or fewer"
+}
+
+validate_helper_class() {
+    case "$HELPER_CLASS" in
+        research|delegate) ;;
+        *) fail "AUTONOMY_HELPER_CLASS must be research or delegate" ;;
+    esac
+}
+
+# A headless helper has nobody to answer a permission prompt, so its class is
+# enforced here rather than asserted in prose. Deny wins over allow, so the deny
+# list is the real boundary; a research helper cannot write even if its task text
+# talks it into trying.
+prepare_helper_settings() {
+    local class="$1"
+    local path="$WORKDIR/helper-settings-$class.json"
+    local extra_allow="" extra_deny=""
+
+    if [ "$class" = "delegate" ]; then
+        extra_allow=''
+    else
+        extra_deny='
+      "mcp__armada__armada_dispatch",
+      "mcp__armada__create_objective",
+      "mcp__armada__update_objective",
+      "mcp__armada__create_backlog_item",
+      "mcp__armada__update_backlog_item",
+      "mcp__armada__armada_enqueue_merge",
+      "mcp__armada__armada_process_merge_entry",
+      "mcp__armada__armada_create_incident",
+      "mcp__armada__armada_update_incident",
+      "mcp__armada__armada_close_incident",
+      "mcp__armada__armada_cancel_voyage",
+      "mcp__armada__armada_cancel_mission",
+      "mcp__armada__armada_restart_mission",
+      "mcp__armada__armada_nudge_voyage",
+      "mcp__armada__run_check",
+      "Write",
+      "Edit",'
+    fi
+
+    cat > "$path" <<JSON
+{
+  "permissions": {
+    "allow": ["mcp__armada", "Read", "Grep", "Glob", "Bash", "TodoWrite"$extra_allow],
+    "deny": [$extra_deny
+      "mcp__armada__armada_stop_server",
+      "mcp__armada__armada_stop_all",
+      "mcp__armada__armada_restore",
+      "mcp__armada__armada_backup",
+      "mcp__armada__armada_dispatch_hold",
+      "mcp__armada__armada_resolve_check",
+      "mcp__armada__armada_register_agentwake_session",
+      "mcp__armada__armada_objective_scheduler_set",
+      "mcp__armada__armada_purge_voyage",
+      "mcp__armada__armada_purge_mission",
+      "mcp__armada__armada_purge_dock",
+      "mcp__armada__armada_purge_merge_queue",
+      "mcp__armada__armada_delete_voyages",
+      "mcp__armada__armada_delete_missions",
+      "mcp__armada__armada_delete_vessel",
+      "mcp__armada__armada_delete_captains",
+      "mcp__armada__delete_objective",
+      "mcp__armada__delete_backlog_item",
+      "mcp__armada__approve_deployment",
+      "mcp__armada__rollback_deployment",
+      "mcp__armada__create_deployment",
+      "mcp__armada__create_release",
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(docker compose:*)",
+      "Bash(systemctl:*)"
+    ]
+  }
+}
+JSON
+    chmod 600 "$path"
+    printf '%s\n' "$path"
 }
 
 validate_runtime() {
@@ -176,19 +259,36 @@ run_helper() {
     lead_key="${HELPER_LEAD_PARTICIPANT_KEY:-}"
     offer_seconds="${HELPER_OFFER_SECONDS:-240}"
     mcp_config="${HELPER_MCP_CONFIG:-}"
+    local class_line class_limits
+    if [ "${HELPER_CLASS:-research}" = "delegate" ]; then
+        class_line="You are the bounded DELEGATE helper named $helper_name. You may dispatch
+voyages and write objectives, backlog items, incidents and board notes."
+        class_limits="Before you dispatch anything: verify the brief's premise against the target tip,
+claim the vessel or objective on the board, and confirm the objective names
+exactly ONE vessel. Never dispatch onto a vessel another session has claimed, and
+never start a second voyage on a vessel that already has an active one. Do not
+edit repositories, commit, push, run shared test suites, delete refs, deploy, or
+commit durable memory."
+    else
+        class_line="You are the bounded, READ-ONLY helper named $helper_name."
+        class_limits="Do not edit repositories, dispatch voyages, run shared test suites, delete refs,
+deploy, or commit durable memory."
+    fi
+
     contract=$(cat <<EOF
 
 [ARMADA HOST HELPER CONTRACT]
-You are the bounded, read-only helper named $helper_name.
+$class_line
 Your participantKey is $participant_key.
 On entry, read the coordination board and heartbeat with that exact key. Drain
 UnreadWakes before other work and acknowledge each processed wake with
-armada_mark_signal_read. Do only the task above. Do not edit repositories,
-dispatch voyages, run shared test suites, delete refs, deploy, or commit durable
-memory. Post one addressed outcome note to the lead, release any claim you took,
-and exit. Do not start a polling loop or recurring schedule. Your file sandbox
-is the helper working directory. If required evidence is outside it, report the
-boundary instead of weakening the sandbox or guessing.
+armada_mark_signal_read. Do only the task above.
+$class_limits
+Post one addressed outcome note to the lead, release any claim you took, and
+exit. Do not start a polling loop or recurring schedule. Do not wait by running a
+blocking poll; if you must watch a voyage, use scripts/autonomy/watch-armada.mjs.
+Your file sandbox is the helper working directory. If required evidence is
+outside it, report the boundary instead of weakening the sandbox or guessing.
 EOF
 )
 
@@ -218,7 +318,9 @@ EOF
             # The prompt goes on STDIN. `--mcp-config` is variadic, so a positional
             # prompt after it is consumed as a second config path and the helper
             # dies with "MCP config file not found: <the whole prompt>".
-            exec claude --print --setting-sources project,local --strict-mcp-config --mcp-config "$mcp_config" <<<"$prompt"
+            [ -n "${HELPER_SETTINGS:-}" ] || fail "Claude helper is missing its permission policy"
+            exec claude --print --setting-sources project,local --strict-mcp-config \
+                --mcp-config "$mcp_config" --settings "$HELPER_SETTINGS" <<<"$prompt"
             ;;
         codex) exec codex exec "$prompt" ;;
         command)
@@ -255,16 +357,19 @@ do_spawn() {
     require_positive_integer AUTONOMY_MAX_HELPERS "$MAX_HELPERS"
     require_positive_integer AUTONOMY_HELPER_TIMEOUT_MIN "$HELPER_TIMEOUT_MIN"
     validate_runtime
+    validate_helper_class
     prune_dead
 
-    local prompt_file helper_cwd participant_key out_log pid alive mcp_config
+    local prompt_file helper_cwd participant_key out_log pid alive mcp_config helper_settings
     prompt_file=$(canonical_file "$prompt_arg")
     helper_cwd=$(canonical_directory "$helper_cwd_arg")
     participant_key="$PARTICIPANT_PREFIX-$name"
     out_log="$LOG_DIR/$name.log"
     mcp_config=""
+    helper_settings=""
     if [ "$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')" = "claude" ]; then
         mcp_config=$(prepare_claude_mcp_config "$participant_key")
+        helper_settings=$(prepare_helper_settings "$HELPER_CLASS")
     fi
 
     if [ -e "$RUN_DIR/$name.pid" ]; then
@@ -283,6 +388,8 @@ do_spawn() {
         HELPER_LEAD_PARTICIPANT_KEY="$lead_key" \
         HELPER_OFFER_SECONDS="$HELPER_OFFER_SECONDS" \
         HELPER_MCP_CONFIG="$mcp_config" \
+        HELPER_SETTINGS="$helper_settings" \
+        AUTONOMY_HELPER_CLASS="$HELPER_CLASS" \
         AUTONOMY_COMMAND="${AUTONOMY_COMMAND:-}" \
         "$SCRIPT_PATH" __run "$RUNTIME" "$prompt_file" "$helper_cwd" \
         >>"$out_log" 2>&1 &
