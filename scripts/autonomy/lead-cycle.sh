@@ -188,12 +188,16 @@ cmd_run() {
     set +e
     case "$runtime" in
         claude)
+            # The prompt goes on STDIN, not argv. `--mcp-config` is variadic, so a
+            # positional prompt after it is swallowed as a second config path and
+            # the run dies with "MCP config file not found: <the whole prompt>".
+            # stdin also sidesteps the argv length limit for a long brief.
             ${cap[@]+"${cap[@]}"} claude --print --setting-sources project,local \
                 --strict-mcp-config --mcp-config "$mcp_config" \
-                "$(cat "$prompt_file")" > "$log" 2>&1
+                < "$prompt_file" > "$log" 2>&1
             ;;
         codex)
-            ${cap[@]+"${cap[@]}"} codex exec "$(cat "$prompt_file")" > "$log" 2>&1
+            ${cap[@]+"${cap[@]}"} codex exec - < "$prompt_file" > "$log" 2>&1
             ;;
         opencode)
             ${cap[@]+"${cap[@]}"} opencode run "$(cat "$prompt_file")" > "$log" 2>&1

@@ -20,14 +20,27 @@ bash -n "$LEAD_CYCLE"
 mkdir -p "$TEST_ROOT/bin"
 cat > "$TEST_ROOT/bin/claude" <<'EOF'
 #!/usr/bin/env bash
+# Stands in for the real CLI, including its variadic --mcp-config: every
+# following non-flag argument is treated as another config path. A launcher that
+# passes the prompt positionally therefore fails here exactly as it does live.
 set -euo pipefail
 args=("$@")
-for i in "${!args[@]}"; do
-    if [ "${args[$i]}" = "--mcp-config" ]; then
-        printf '%s\n' "${args[$((i+1))]}" > "$LEAD_TEST_CONFIG_PATH"
+configs=()
+collecting=0
+for a in "${args[@]}"; do
+    if [ "$a" = "--mcp-config" ]; then collecting=1; continue; fi
+    if [ "$collecting" = "1" ]; then
+        case "$a" in
+            --*) collecting=0 ;;
+            *) configs+=("$a"); continue ;;
+        esac
     fi
 done
-printf '%s' "${args[${#args[@]}-1]}" > "$LEAD_TEST_PROMPT"
+for c in ${configs[@]+"${configs[@]}"}; do
+    [ -f "$c" ] || { echo "Error: MCP config file not found: $c" >&2; exit 1; }
+done
+[ "${#configs[@]}" -gt 0 ] && printf '%s\n' "${configs[0]}" > "$LEAD_TEST_CONFIG_PATH"
+cat > "$LEAD_TEST_PROMPT"
 EOF
 chmod +x "$TEST_ROOT/bin/claude"
 

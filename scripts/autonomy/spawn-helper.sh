@@ -215,7 +215,10 @@ EOF
         opencode) exec opencode run "$prompt" ;;
         claude)
             [ -n "$mcp_config" ] || fail "Claude helper is missing its Armada MCP config"
-            exec claude --print --setting-sources project,local --strict-mcp-config --mcp-config "$mcp_config" "$prompt"
+            # The prompt goes on STDIN. `--mcp-config` is variadic, so a positional
+            # prompt after it is consumed as a second config path and the helper
+            # dies with "MCP config file not found: <the whole prompt>".
+            exec claude --print --setting-sources project,local --strict-mcp-config --mcp-config "$mcp_config" <<<"$prompt"
             ;;
         codex) exec codex exec "$prompt" ;;
         command)

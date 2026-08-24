@@ -111,8 +111,22 @@ fi
 
 cat > "$TEST_ROOT/claude" <<'EOF'
 #!/usr/bin/env bash
+# Stands in for the real CLI, including its variadic --mcp-config: a positional
+# prompt after that flag is taken as another config path and the run dies. The
+# prompt must therefore arrive on stdin, and this fake proves it does.
 set -euo pipefail
 printf '%s\n' "$@" > "${AUTONOMY_TEST_CAPTURE:?}"
+collecting=0
+for a in "$@"; do
+    if [ "$a" = "--mcp-config" ]; then collecting=1; continue; fi
+    if [ "$collecting" = "1" ]; then
+        case "$a" in
+            --*) collecting=0 ;;
+            *) [ -f "$a" ] || { echo "Error: MCP config file not found: $a" >&2; exit 1; } ;;
+        esac
+    fi
+done
+cat > "${AUTONOMY_TEST_STDIN:?}"
 while :; do sleep 1; done
 EOF
 chmod +x "$TEST_ROOT/claude"
@@ -123,8 +137,12 @@ AUTONOMY_RUNTIME=claude \
 AUTONOMY_WORKDIR="$STATE_ROOT" \
 AUTONOMY_PARTICIPANT_PREFIX=probe \
 AUTONOMY_TEST_CAPTURE="$CAPTURE_FILE" \
+AUTONOMY_TEST_STDIN="$TEST_ROOT/claude-stdin.txt" \
 "$SPAWN_HELPER" spawn claudeprobe "$PROMPT_FILE" "$TEST_ROOT" >/dev/null
 wait_for_file "$CAPTURE_FILE"
+wait_for_file "$TEST_ROOT/claude-stdin.txt"
+grep -Fq "Your participantKey is probe-claudeprobe." "$TEST_ROOT/claude-stdin.txt" \
+    || fail "the Claude helper prompt did not arrive on stdin"
 grep -Fxq -- "--strict-mcp-config" "$CAPTURE_FILE" || fail "Claude strict MCP flag was not passed"
 grep -Fxq -- "--mcp-config" "$CAPTURE_FILE" || fail "Claude explicit MCP config flag was not passed"
 CLAUDE_MCP_CONFIG="$STATE_ROOT/claude-armada-mcp-probe-claudeprobe.json"
