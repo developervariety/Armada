@@ -92,8 +92,13 @@ Coordination Board
    doing and the voyage you are starting
 5. Report outcomes the same way when work finishes
 
-Notes are advisory context for humans and operator sessions. They never reach
-captain briefs; use signals for that.
+Notes can be ADDRESSED to one session (`toParticipantKey`), which emits a Wake:
+that session's next heartbeat or read returns `UnreadWakes`, telling it to pause
+and pick up the handed work. This is how helper sessions receive assignments.
+
+Notes tagged with a voyage reach that voyage's next stage brief. All other
+notes are advisory context for humans and operator sessions; use signals to
+reach a captain mid-pipeline.
 
 ## Planning Workflow
 

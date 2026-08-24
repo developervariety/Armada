@@ -262,7 +262,11 @@ Dispatch is the start of the operator loop.
 5. Poll incidents and Checks on the same cadence.
 6. Use `armada_nudge_voyage` or `armada_send_signal` only for live work that
    needs missing context.
-7. Do not steer a terminal mission. Use restart, recovery, or a new mission.
+7. Inside a blocking monitor loop, heartbeat or read the coordination board
+   with your participantKey between iterations: the response carries
+   `UnreadWakes` when a peer addressed work or an answer to you. Pause and
+   address those first, then acknowledge each with `armada_mark_signal_read`.
+8. Do not steer a terminal mission. Use restart, recovery, or a new mission.
 
 A quiet captain is not proof of a stall. Compare the mission state, process
 ID, dock status, log activity, and elapsed time.
