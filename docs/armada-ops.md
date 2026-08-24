@@ -1022,6 +1022,21 @@ An unattended cycle cannot ask a question. The prompt tells it to post an owner
 decision to the board as a named item and carry on, rather than block. Read those
 on your next session; they are the cycle's questions to you.
 
+**The permission policy is the real boundary.** A headless run has nobody to
+answer a permission prompt, so `lead-cycle.sh` writes a settings file and passes
+it with `--settings`. It allows the Armada tool surface plus ordinary file and
+shell work, and denies what stays an owner action: fleet-destructive and purge
+tools, deployment and release tools, `armada_resolve_check` (which could
+manufacture a green gate), `armada_dispatch_hold` (fleet-wide, and would freeze
+every peer session), `armada_register_agentwake_session` (a cycle could re-point
+the autonomy at itself), force push, `docker compose`, and `systemctl`. Deny wins
+over allow. Widen it deliberately, and never by granting the whole surface.
+
+**Send the prompt on stdin.** `claude --mcp-config` is variadic, so a positional
+prompt after it is consumed as a second config path and the run dies with
+`MCP config file not found: <the entire prompt>`. Both launchers pipe the prompt
+in, which also avoids the argv length limit for a long brief.
+
 ### 8.10 Incidents
 
 | Risk | Tools |
