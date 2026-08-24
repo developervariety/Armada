@@ -40,6 +40,23 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         public const int DefaultPreviewChars = 250;
 
+        /// <summary>
+        /// Elements of a long primitive array kept when previewing.
+        /// <para>
+        /// The bulk of a rich record is usually not one long string but MANY SHORT ONES:
+        /// measured on one page of objectives, EvidenceLinks held 33,967 characters and
+        /// AcceptanceCriteria 28,782, while every individual element was far below the
+        /// string preview limit and so survived untouched. Capping the array is what
+        /// actually shrinks those records.
+        /// </para>
+        /// <para>
+        /// Only arrays of PRIMITIVES are capped. An array of objects is the collection
+        /// itself -- the records the caller asked for -- and dropping members of it would
+        /// silently lose data rather than abbreviate it.
+        /// </para>
+        /// </summary>
+        public const int DefaultPreviewItems = 5;
+
         #endregion
 
         #region Public-Methods
@@ -55,11 +72,16 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="includeFullContent">When true, the payload is returned unchanged.</param>
         /// <param name="previewChars">Characters to keep. Defaults to <see cref="DefaultPreviewChars"/>.</param>
         /// <returns>The shrunk payload, or the original when nothing needed trimming.</returns>
-        public static object Apply(object payload, bool includeFullContent, int previewChars = DefaultPreviewChars)
+        public static object Apply(
+            object payload,
+            bool includeFullContent,
+            int previewChars = DefaultPreviewChars,
+            int previewItems = DefaultPreviewItems)
         {
             if (payload == null) return payload!;
             if (includeFullContent) return payload;
             if (previewChars < 1) previewChars = DefaultPreviewChars;
+            if (previewItems < 1) previewItems = DefaultPreviewItems;
 
             JsonNode? root;
             try
@@ -75,7 +97,7 @@ namespace Armada.Server.Mcp.Tools
 
             if (root == null) return payload;
 
-            int truncated = Shrink(root, previewChars);
+            int truncated = Shrink(root, previewChars, previewItems);
             if (truncated == 0) return payload;
 
             if (root is JsonObject rootObject)
@@ -98,7 +120,17 @@ namespace Armada.Server.Mcp.Tools
 
         #region Private-Methods
 
-        private static int Shrink(JsonNode node, int previewChars)
+        private static bool IsPrimitiveArray(JsonArray array)
+        {
+            foreach (JsonNode? item in array)
+            {
+                if (item is JsonObject || item is JsonArray) return false;
+            }
+
+            return true;
+        }
+
+        private static int Shrink(JsonNode node, int previewChars, int previewItems)
         {
             int truncated = 0;
 
@@ -106,7 +138,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 foreach (JsonNode? item in array)
                 {
-                    if (item != null) truncated += Shrink(item, previewChars);
+                    if (item != null) truncated += Shrink(item, previewChars, previewItems);
                 }
 
                 return truncated;
@@ -120,6 +152,8 @@ namespace Armada.Server.Mcp.Tools
                 new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, string>>();
             System.Collections.Generic.List<JsonNode> children =
                 new System.Collections.Generic.List<JsonNode>();
+            System.Collections.Generic.List<string> longArrays =
+                new System.Collections.Generic.List<string>();
 
             foreach (System.Collections.Generic.KeyValuePair<string, JsonNode?> property in obj)
             {
@@ -131,6 +165,12 @@ namespace Armada.Server.Mcp.Tools
                     && text.Length > previewChars)
                 {
                     longFields.Add(new System.Collections.Generic.KeyValuePair<string, string>(property.Key, text));
+                }
+                else if (property.Value is JsonArray childArray
+                    && childArray.Count > previewItems
+                    && IsPrimitiveArray(childArray))
+                {
+                    longArrays.Add(property.Key);
                 }
                 else if (property.Value is JsonObject || property.Value is JsonArray)
                 {
@@ -145,7 +185,23 @@ namespace Armada.Server.Mcp.Tools
                 truncated++;
             }
 
-            foreach (JsonNode child in children) truncated += Shrink(child, previewChars);
+            foreach (string key in longArrays)
+            {
+                JsonArray original = (JsonArray)obj[key]!;
+                int total = original.Count;
+                JsonArray kept = new JsonArray();
+                for (int i = 0; i < previewItems; i++)
+                {
+                    JsonNode? element = original[i];
+                    kept.Add(element == null ? null : JsonNode.Parse(element.ToJsonString()));
+                }
+
+                obj[key] = kept;
+                obj[key + "Count"] = total;
+                truncated++;
+            }
+
+            foreach (JsonNode child in children) truncated += Shrink(child, previewChars, previewItems);
 
             return truncated;
         }

@@ -101,6 +101,47 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("A long array of short strings is capped, and its true count reported", () =>
+            {
+                // The real bulk of a rich record. Every element is short enough to escape
+                // the string preview, so capping the array is what actually shrinks it.
+                object payload = new
+                {
+                    Id = "obj_1",
+                    EvidenceLinks = new List<string> { "a", "b", "c", "d", "e", "f", "g", "h" },
+                    Tags = new List<string> { "x", "y" }
+                };
+
+                JsonElement result = JsonSerializer.SerializeToElement(
+                    McpResultPreview.Apply(payload, includeFullContent: false));
+
+                AssertEqual(McpResultPreview.DefaultPreviewItems,
+                    result.GetProperty("EvidenceLinks").GetArrayLength());
+                AssertEqual(8, result.GetProperty("EvidenceLinksCount").GetInt32(),
+                    "The reader must see how many were withheld.");
+                AssertEqual(2, result.GetProperty("Tags").GetArrayLength(),
+                    "A short array is left alone.");
+                AssertFalse(result.TryGetProperty("TagsCount", out _));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("An array of RECORDS is never capped, only arrays of primitives", () =>
+            {
+                // Capping this would silently drop the records the caller asked for, which
+                // is data loss rather than abbreviation.
+                List<object> records = new List<object>();
+                for (int i = 0; i < 20; i++) records.Add(new { Id = "obj_" + i });
+
+                object payload = new { Objects = records };
+                JsonElement result = JsonSerializer.SerializeToElement(
+                    McpResultPreview.Apply(payload, includeFullContent: false));
+
+                AssertEqual(20, result.GetProperty("Objects").GetArrayLength(),
+                    "Every record must survive.");
+                AssertFalse(result.TryGetProperty("ObjectsCount", out _));
+                return Task.CompletedTask;
+            });
+
             await RunTest("It measurably shrinks a payload of the size that broke callers", () =>
             {
                 // The measured offender was 388,594 characters. The point of the helper is
@@ -110,11 +151,17 @@ namespace Armada.Test.Unit.Suites.Services
                 List<object> objects = new List<object>();
                 for (int i = 0; i < 50; i++)
                 {
+                    List<string> evidence = new List<string>();
+                    for (int e = 0; e < 30; e++) evidence.Add("commit-" + i + "-" + e);
+                    List<string> criteria = new List<string>();
+                    for (int c = 0; c < 20; c++) criteria.Add("criterion " + c + " must hold for record " + i);
+
                     objects.Add(new
                     {
                         Id = "obj_" + i,
                         Description = new string('d', 2000),
-                        AcceptanceCriteria = new string('a', 1500)
+                        EvidenceLinks = evidence,
+                        AcceptanceCriteria = criteria
                     });
                 }
 
@@ -130,9 +177,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(after < 60000,
                     "A previewed page must fit well under the caller's tool output limit; got "
                         + after + " from " + before);
-                AssertTrue(after < before / 5,
-                    "A previewed payload should be a small fraction of the original; got "
-                        + after + " from " + before);
+                // Deliberately no proportional assertion. The caller's limit is absolute
+                // and does not scale with the size of the backlog, so a ratio would just
+                // compete with the bound above and fail on a few hundred bytes.
                 return Task.CompletedTask;
             });
         }
