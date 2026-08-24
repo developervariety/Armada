@@ -65,16 +65,24 @@ operator controls for larger multi-agent workflows.
 | Core workflow | Missions, voyages, captains, docks, pipelines, and landing | Same model, with more pipeline stages and stronger handoff checks |
 | Planning and delivery | Objectives are dispatched by an operator | Autonomous scheduling, build/test gates, recovery, incidents, and durable landing jobs |
 | Repository context | Agents work from supplied mission context | Per-vessel code index, symbol graph, semantic search, and dispatch-ready context packs |
-| Model routing | Dispatch pins concrete models | Tier-based, provider-neutral routing with per-stage overrides and captain health checks |
-| Runtimes | Core captain runtime support | Multi-runtime pool, including Codex, Claude Code, Gemini, and OpenCode, with quarantine and diagnostics |
+| Model routing | Tier-based routing and per-stage captain assignment | Same model, with additional provider-neutral policy and routing controls |
+| Runtimes | Multi-runtime support, including OpenCode | Same runtimes, with additional cross-runtime hardening and diagnostics |
 | Operator experience | REST, MCP, dashboard, and delivery records | Adds coordination board, session claims, prompt-budget visibility, telemetry, captain chat, and expanded MCP tools |
 | Safety and verification | Review and landing workflows | Boundary scanning, isolated checks, sibling-consumer builds, no-op detection, and evidence-driven recovery |
 
-Several useful upstream features are included or aligned here, such as the
+Several features that started in this fork are now also in upstream: the
 workspace terminal and diff, Needs You inbox, landing-conflict details,
-project profiles, skills, and the Touchstone test harness. Some upstream
-implementation choices remain separate where the fork already has a more
-complete equivalent.
+boundary scanning, auto-land, captain quarantine, model tiers, OpenCode,
+no-op completion handling, reasoning effort, project profiles, per-stage
+captain assignment, background jobs, token usage, and coordination leases.
+They are shared capabilities, not fork-only differences.
+
+The fork-specific additions remain autonomous scheduling, dispatch-armed
+build/test gates, evidence-driven recovery, code indexing and context packs,
+symbol search, the coordination board and session handoffs, prompt-budget
+controls, and the broader operator workflow around these features. The fork
+also keeps its own implementations where they are more complete than the
+upstream equivalent.
 
 ---
 

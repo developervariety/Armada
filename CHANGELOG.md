@@ -14,7 +14,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Three MCP tools expose it to operator sessions: `armada_coordination_post` to claim work before starting it and report outcomes, `armada_coordination_read` for recent notes plus active participants, and `armada_coordination_heartbeat` for presence. REST counterparts live under `/api/v1/coordination/`
 - The admiral mirrors selected fleet events onto the default room as system notes (`voyage.dispatched`, `voyage.cancelled`, `mission.completed`, `mission.failed`, `mission.cancelled`) through the central event choke point, so new voyages announce themselves without anyone posting manually
 - The dashboard gains a `/chatroom` page: room list, presence chips with last-seen times, a chronological stream, a composer, live WebSocket delivery with a polling fallback, and a per-browser heartbeat so an open dashboard shows as present
-- Board notes are advisory context only. They never inject into captain briefs; signals remain the handoff-boundary mechanism. Captains cannot post yet - that path is tracked as a backlog objective on the operator's own instance
+- Board notes are advisory context only. They never inject into captain briefs; signals remain the handoff-boundary mechanism. Captains can add one-line `[ARMADA:NOTE]` milestones from mission output, and the admiral links those notes to the mission on the board
 
 ### Coordination claims
 - Sessions can now RESERVE work instead of only posting about it: `armada_coordination_claim` creates a reservation against a vessel or objective with a named holder and an expiry (default 4 hours, clamped 0.5-72). Heartbeats keep a live session's claims alive automatically; a lapsed claim disappears without anyone cleaning up
@@ -65,12 +65,18 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Dispatch
 - Dispatch now arms the new voyage's Build and UnitTest Checks itself, so a voyage no longer reaches its Judge stage carrying none. A Judge PASS is rejected without a green independent Check, so a bare voyage was already condemned when it started and nothing said so until the whole pipeline had run. Cancelling a voyage discards its Checks, so a re-dispatch previously started bare again
-- Armed Checks are created `Pending`, not executed: a Pending Check attached to a voyage is run in place at the Judge stage, so arming costs nothing at dispatch instead of loading the host as the first captain starts
+- Armed Checks are created `Pending`, not executed. They become runnable after a stage commits work, and the executor records the branch and commit before running the check against that exact work, so arming costs nothing at dispatch and never measures the default branch by accident
 - A type is armed only when the resolved workflow profile defines its command, and never twice for one voyage - a second Build beside a failed one would leave a green and a red attached, and one failed Check rejects a PASS however many green ones sit beside it
 - Arming failures are logged and never fail the dispatch; `VoyageCheckArming.Enabled`, `ArmBuild`, and `ArmUnitTest` control the behavior
 
 ### Checks
 - A Judge PASS rejected by the real-signal gate now NAMES the Checks that blocked it (id, type and label) in the mission's `FailureReason`, and states that every failed Check must be resolved. The message previously named only the rule, so an operator could not tell which record to inspect; when several Checks failed for one environmental cause, resolving all but one left a leftover that silently rejected the PASS hours later
+
+### Recent dashboard and session updates
+- Re-aligned the dashboard with the consolidated navigation while retaining fork-specific Code Index, Notifications, coordination, token-usage, and captain-assignment surfaces
+- Added addressed-note wake delivery, registered-session spawning, participant-key visibility, and documentation for helper-session handoffs
+- Added bearer and session-auth headers to dashboard requests where the relay requires both forms of authentication
+- Repaired dark readiness cards, workspace layout, responsive shell controls, mobile sidebar navigation, and Ask Armada control sizing
 
 ---
 
