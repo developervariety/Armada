@@ -138,16 +138,21 @@ was settled.
 
 **Any commit that merges `upstream/main`, cherry-picks an upstream commit, or
 reverts a previously-absorbed upstream feature MUST also update the
-`## What This Fork Adds Over Upstream` section of `README.md`.** The README delta
-is part of the deliverable, not a follow-up: either the merge commit includes the
-edit, or a follow-up commit on the same voyage and branch makes it before the
-merge lands.
+`## Upstream vs Fork` section of `README.md`.** The README delta is part of the
+deliverable, not a follow-up: either the merge commit includes the edit, or a
+follow-up commit on the same voyage and branch makes it before the merge lands.
 
-That section carries a header line — "Last upstream sync: `<date>`, merge-base
-`<merge-commit-sha>` (N upstream commits absorbed)" — then groups the fork's
-additions by subsystem, each bullet ending with the relevant fork commit SHA and
-running one to three sentences. Where upstream ships a feature we keep in-tree
-but do not wire in (for example the Mux runtime), say so with a one-line reason.
+**Describe the delta by CAPABILITY, never by commit SHA.** A hash tells a reader
+nothing about what the system does, and it rots: the commit it names moves behind
+a merge, a rebase, or a rewrite, and then the line is both meaningless and wrong.
+Anyone who wants the commits can ask git, which is authoritative — the merge base
+is `git merge-base origin/main upstream/main`. The README's job is to say what the
+fork DOES that upstream does not, in prose a maintainer can act on.
+
+So: group the fork's additions by subsystem, one to three sentences each, in terms
+of behaviour. Where upstream ships a feature we keep in-tree but do not wire in
+(for example the Mux runtime), say so with a one-line reason. Say which features
+have since landed upstream too, so they are not mistaken for fork-only differences.
 The section sits immediately after `## Why Armada`'s "Who It's For" subsection.
 
 Without this, anyone comparing forks loses the feature delta, and the README is
