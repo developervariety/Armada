@@ -371,8 +371,23 @@ gate reads every Check attached to the voyage and to the Judge mission:
 | All green | PASS stands |
 | Any `Failed` | PASS is rejected |
 | Any `Pending` or `Running` | PASS is held, then re-run in place |
+| `Passed` for a commit other than the reviewed tip | Stale: PASS is held exactly as for `Pending`; the executor cancels the record as superseded and arms a fresh one for the tip |
 | None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
 | `Canceled` | Ignored |
+
+A green is a statement about one commit. A voyage-armed Check is stamped at the
+FIRST stage that commits, and every later stage commits on top, so by the Judge
+the only green record can describe a commit several stages back - in the worst
+case a planner commit that never landed. The gate therefore compares each
+`Passed` record's commit to the tip the Judge reviewed (the Judge mission's own
+commit hash) and treats a mismatch as unresolved. The hold message names both
+commits. While the PASS is held, the check executor supersedes the stale record:
+it is set `Canceled` with a summary naming its successor, a fresh `Pending`
+record of the same type is armed unless a queued, running, or tip-green sibling
+already covers it, and a `check.superseded` event is written. The stale record
+stays as history of what it measured; nothing is deleted or rewritten. A
+`Passed` record that carries no commit at all cannot be compared and is not
+called stale.
 
 Two consequences follow, and both have cost real voyages.
 
@@ -391,10 +406,14 @@ a second Build beside a failed one would leave a green and a red on the same
 voyage, and one failed Check rejects a Judge PASS however many green ones sit
 next to it.
 
-The armed Checks are `Pending`, not executed. A Pending Check attached to a
-voyage is run in place when the Judge stage reaches it, so arming costs nothing
-at dispatch and still satisfies the real-signal gate; executing at dispatch
-would put a full suite on the host at the moment the first captain starts work.
+The armed Checks are `Pending`, not executed. An armed record becomes eligible
+to run as soon as a stage has committed to a branch, and it is stamped with that
+branch and commit before it executes, so it measures the work rather than the
+vessel's default branch. Arming therefore costs nothing at dispatch and still
+satisfies the real-signal gate; executing at dispatch would put a full suite on
+the host at the moment the first captain starts work. An armed record reads
+`command = echo` with no branch until that stamp - that is the correct armed
+state, not a broken stub.
 
 Arming never fails a dispatch. A voyage that exists without its Checks can
 still be armed by hand, whereas refusing to dispatch over a Check record would

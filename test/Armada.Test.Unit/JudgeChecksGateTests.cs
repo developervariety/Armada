@@ -345,6 +345,93 @@ namespace Armada.Test.Unit
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            // A voyage-armed Check is stamped once, at the first stage that commits, and every later
+            // stage commits on top. A green that measured the first commit says nothing about the
+            // tip the Judge reviews, and a gate that reads Status alone honors it anyway.
+            await RunTest("GateRules_StaleGreen_IsAGreenForADifferentCommit", () =>
+            {
+                CheckRun passedAtA = new CheckRun
+                {
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet build",
+                    CommitHash = "aaaaaaaa1111111111111111111111111111aaaa"
+                };
+                AssertTrue(CheckRunGateRules.IsStale(passedAtA, "bbbbbbbb2222222222222222222222222222bbbb"),
+                    "a green for commit A is stale when the review is of commit B");
+                AssertFalse(CheckRunGateRules.IsStale(passedAtA, "aaaaaaaa1111111111111111111111111111aaaa"),
+                    "a green for the reviewed commit is not stale");
+                AssertFalse(CheckRunGateRules.IsStale(passedAtA, "aaaaaaaa111"),
+                    "an abbreviated reviewed commit matches by prefix");
+                AssertFalse(CheckRunGateRules.IsStale(passedAtA, null),
+                    "no reviewed commit means nothing to compare against");
+                AssertFalse(CheckRunGateRules.IsStale(passedAtA, "   "),
+                    "a blank reviewed commit means nothing to compare against");
+
+                CheckRun passedUnstamped = new CheckRun { Status = CheckRunStatusEnum.Passed, Command = "dotnet build" };
+                AssertFalse(CheckRunGateRules.IsStale(passedUnstamped, "bbbbbbbb2222222222222222222222222222bbbb"),
+                    "a record with no commit of its own cannot be compared, so the rule does not call it stale");
+
+                CheckRun failedAtA = new CheckRun { Status = CheckRunStatusEnum.Failed, Command = "dotnet build", CommitHash = "aaaaaaaa1111" };
+                AssertFalse(CheckRunGateRules.IsStale(failedAtA, "bbbbbbbb2222"),
+                    "only a Passed record can be a stale green; a Failed one is a real failure whatever it measured");
+
+                CheckRun canceledAtA = new CheckRun { Status = CheckRunStatusEnum.Canceled, Command = "dotnet build", CommitHash = "aaaaaaaa1111" };
+                AssertFalse(CheckRunGateRules.IsStale(canceledAtA, "bbbbbbbb2222"),
+                    "a Canceled record does not participate at all");
+
+                AssertTrue(CheckRunGateRules.SameCommit("ABCDEF0123456789", "abcdef01"),
+                    "commit comparison is case-insensitive and prefix-tolerant");
+                AssertFalse(CheckRunGateRules.SameCommit("abcdef", "abcdef0123"),
+                    "an abbreviation shorter than seven characters is too weak to match");
+                AssertFalse(CheckRunGateRules.SameCommit(null, "abcdef0123"),
+                    "a missing side never matches");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // The Judge gate must hold a PASS on a stale green exactly as it holds one on a Pending
+            // record: the executor re-arms the Check for the reviewed tip while the hold lasts.
+            // Without the reviewed commit the classifier keeps its old, Status-only behaviour.
+            await RunTest("JudgeGate_StaleGreen_HoldsThePass", () =>
+            {
+                CheckRun passedAtA = new CheckRun
+                {
+                    Id = "chk_stale",
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = "aaaaaaaa1111111111111111111111111111aaaa"
+                };
+                const string tip = "bbbbbbbb2222222222222222222222222222bbbb";
+
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasPending,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passedAtA }, "review ok", tip),
+                    "a green for an older commit holds the PASS for the reviewed tip");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.GreenChecks,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passedAtA }, "review ok", "aaaaaaaa1111111111111111111111111111aaaa"),
+                    "a green for the reviewed commit passes the gate");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.GreenChecks,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passedAtA }, "review ok"),
+                    "with no reviewed commit the classifier reads Status only, as before");
+
+                CheckRun failedAtTip = new CheckRun { Status = CheckRunStatusEnum.Failed, Command = "dotnet test", CommitHash = tip };
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passedAtA, failedAtTip }, "review ok", tip),
+                    "a real failure still outranks a hold");
+
+                string described = MissionService.DescribeUnresolvedChecks(new List<CheckRun> { passedAtA }, tip);
+                AssertContains("chk_stale", described, "the hold names the stale record");
+                AssertContains("stale", described, "the hold says WHY the record does not count");
+                AssertContains("aaaaaaaa1111", described, "the hold names the commit the record measured");
+                AssertContains("bbbbbbbb2222", described, "the hold names the commit under review");
+                AssertEqual(String.Empty, MissionService.DescribeUnresolvedChecks(new List<CheckRun> { passedAtA }, null),
+                    "with no reviewed commit a Passed record is not described as blocking");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             // A Check record is created before it runs, so its existence and its signal are two
             // different facts. A record armed at dispatch has never executed: it holds no command
             // output and carries no branch, so it can neither vouch for the work nor be waited on.

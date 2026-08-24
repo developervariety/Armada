@@ -82,7 +82,10 @@ build/test gates, evidence-driven recovery, code indexing and context packs,
 symbol search, the coordination board and session handoffs, prompt-budget
 controls, and the broader operator workflow around these features. The fork
 also keeps its own implementations where they are more complete than the
-upstream equivalent.
+upstream equivalent. Its Judge gate reads a green Check as a statement about
+one commit: a Check that passed for an earlier commit than the tip under
+review holds the PASS and is superseded by a fresh record for the tip, so a
+green earned by a stage several commits back cannot vouch for later work.
 
 The fork's autonomy layer is the largest current delta. It adds bounded lead
 cycles with timer and wake triggers, single-flight execution, an explicit

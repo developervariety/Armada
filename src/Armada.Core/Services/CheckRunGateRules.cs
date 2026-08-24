@@ -92,6 +92,48 @@ namespace Armada.Core.Services
             return run!.Status == CheckRunStatusEnum.Pending || run.Status == CheckRunStatusEnum.Running;
         }
 
+        /// <summary>
+        /// True when a Passed Check measured a commit other than the one under review, so its green
+        /// vouches for older work and must not decide the gate for the newer work.
+        /// </summary>
+        /// <remarks>
+        /// A voyage-armed Check is stamped once, at the first stage that commits, and the stages
+        /// that follow keep committing on top. A Judge then reviews the tip while the only green
+        /// record measured a commit several stages back -- in the worst case a planner commit that
+        /// never landed. A gate that reads Status alone cannot see that; comparing the record's
+        /// commit to the reviewed one can. A record with no commit of its own cannot be compared and
+        /// is not reported stale by this rule.
+        /// </remarks>
+        /// <param name="run">The Check to test. Null returns false.</param>
+        /// <param name="reviewedCommit">The commit under review. Null or empty returns false.</param>
+        /// <returns>True when the record is a green for a different commit.</returns>
+        public static bool IsStale(CheckRun? run, string? reviewedCommit)
+        {
+            if (!ParticipatesInRealSignalGate(run)) return false;
+            if (run!.Status != CheckRunStatusEnum.Passed) return false;
+            if (String.IsNullOrWhiteSpace(reviewedCommit)) return false;
+            if (String.IsNullOrWhiteSpace(run.CommitHash)) return false;
+            return !SameCommit(run.CommitHash, reviewedCommit);
+        }
+
+        /// <summary>
+        /// True when two commit identifiers name the same commit. Either side may be abbreviated,
+        /// so the shorter is compared as a prefix of the longer; an abbreviation shorter than seven
+        /// characters is too weak to match anything.
+        /// </summary>
+        /// <param name="left">A full or abbreviated commit hash.</param>
+        /// <param name="right">A full or abbreviated commit hash.</param>
+        /// <returns>True when both name the same commit.</returns>
+        public static bool SameCommit(string? left, string? right)
+        {
+            if (String.IsNullOrWhiteSpace(left) || String.IsNullOrWhiteSpace(right)) return false;
+            string a = left.Trim();
+            string b = right.Trim();
+            int shortest = Math.Min(a.Length, b.Length);
+            if (shortest < 7) return false;
+            return String.Compare(a, 0, b, 0, shortest, StringComparison.OrdinalIgnoreCase) == 0;
+        }
+
         #endregion
     }
 }

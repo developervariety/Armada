@@ -55,10 +55,16 @@ a correction still reaches the next brief. Between events, do other work.
 1. REFILL. For an active campaign, use `armada_campaign_status`. Read the
    scheduler concurrency ceiling and keep up to that many safe, independent
    writable lanes supplied with verified, unblocked, auto-enabled
-   `ReadyForDispatch` objectives. Keep `maxConcurrentVoyagesPerVessel=1` and
-   prefer different vessels. Raise that limit only when the vessel is proven
-   safe for concurrent docks. Treat repositories as one lane when either suite uses
-   the other through a sibling-project reference. Do not auto-enable
+   `ReadyForDispatch` objectives. Prefer different vessels. The per-vessel
+   ceiling is an owner setting: read it from `armada_objective_scheduler_status`
+   rather than assuming it. It may sit above 1 only on a vessel whose
+   `AllowConcurrentMissions` is true and whose concurrent rows are chained by
+   `BlockedByObjectiveIds` so their files and suites never overlap; do not raise
+   it yourself. Treat repositories as one lane when either suite uses
+   the other through a sibling-project reference, and inside one lane give
+   every row exactly one dependent in that lane - two is a fork that the
+   scheduler will start side by side. A rescue voyage is a running voyage
+   whatever the scheduler's dispatched count says. Do not auto-enable
    hardware-dependent work, operator-only cleanup, overlapping file scopes, or
    work that would run conflicting dock-side suites. Check every brief premise
    against the target tip before you create or refine work. Encode ordering in

@@ -24,6 +24,7 @@ namespace Armada.Server
         private readonly ReleaseService _Releases;
         private readonly IncidentService _Incidents;
         private readonly LoggingModule _Logging;
+        private readonly StaleCheckSupersessionService _Supersession;
         private readonly SemaphoreSlim _SweepGate = new SemaphoreSlim(1, 1);
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Web;
 
@@ -42,6 +43,7 @@ namespace Armada.Server
             _Releases = releases ?? throw new ArgumentNullException(nameof(releases));
             _Incidents = incidents ?? throw new ArgumentNullException(nameof(incidents));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Supersession = new StaleCheckSupersessionService(_Database, _Logging);
         }
 
         /// <summary>
@@ -77,6 +79,25 @@ namespace Armada.Server
         public async Task<int> RunSweepAsync(CancellationToken token = default)
         {
             AuthContext auth = BuildSystemAuth();
+
+            // A green that measured an earlier commit must be replaced before eligible work is
+            // chosen, so the Pending record it leaves behind is picked up in this same sweep. Left
+            // in place, that green would satisfy the Judge gate for work it never measured.
+            try
+            {
+                int superseded = await _Supersession.SupersedeAsync(token).ConfigureAwait(false);
+                if (superseded > 0)
+                    _Logging.Info(_Header + "superseded " + superseded + " stale green check(s) whose work moved on");
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "stale-check supersession failed: " + ex.Message);
+            }
+
             CheckRunQuery query = new CheckRunQuery
             {
                 Status = CheckRunStatusEnum.Pending,
@@ -120,17 +141,10 @@ namespace Armada.Server
         {
             List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
 
-            return missions
-                .Where(mission => mission != null)
-                .Where(mission => !String.IsNullOrWhiteSpace(mission.BranchName))
-                .Where(mission => !String.IsNullOrWhiteSpace(mission.CommitHash))
-                .Where(mission => mission.Status == MissionStatusEnum.WorkProduced
-                    || mission.Status == MissionStatusEnum.PullRequestOpen
-                    || mission.Status == MissionStatusEnum.Testing
-                    || mission.Status == MissionStatusEnum.Review
-                    || mission.Status == MissionStatusEnum.Complete)
-                .OrderByDescending(mission => mission.LastUpdateUtc)
-                .FirstOrDefault();
+            // One definition, shared with the supersession service: the executor stamps from it and
+            // the supersession compares against it, so they cannot disagree about which commit a
+            // record ought to carry.
+            return StaleCheckSupersessionService.SelectWorkUnderReview(missions);
         }
 
         /// <summary>

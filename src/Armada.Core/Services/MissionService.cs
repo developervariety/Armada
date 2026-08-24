@@ -1579,16 +1579,18 @@ namespace Armada.Core.Services
                                 {
                                     await ResetMissionForReRunAsync(mission, token).ConfigureAwait(false);
                                     retryingMissingVerdict = true;
+                                    string holding = DescribeUnresolvedChecks(_LastJudgeGateChecks, _LastJudgeReviewedCommit);
                                     _Logging.Info(_Header + "judge mission " + mission.Id +
-                                        " PASS held: independent Checks not green yet; re-running in place (attempt " +
-                                        mission.RecoveryAttempts + " of " + _MaxJudgeCheckWaitRetries + ")");
+                                        " PASS held: independent Checks not green for the reviewed commit yet; re-running in place (attempt " +
+                                        mission.RecoveryAttempts + " of " + _MaxJudgeCheckWaitRetries + ")"
+                                        + (String.IsNullOrEmpty(holding) ? String.Empty : "; holding: " + holding));
                                 }
                                 else
                                 {
                                     mission.Status = MissionStatusEnum.Failed;
                                     mission.CompletedUtc = DateTime.UtcNow;
                                     mission.LastUpdateUtc = DateTime.UtcNow;
-                                    string unresolved = DescribeUnresolvedChecks(_LastJudgeGateChecks);
+                                    string unresolved = DescribeUnresolvedChecks(_LastJudgeGateChecks, _LastJudgeReviewedCommit);
                                     mission.FailureReason =
                                         "Judge PASS rejected: independent Checks never resolved after "
                                         + _MaxJudgeCheckWaitRetries + " wait attempts (real-signal gate)."
@@ -5555,8 +5557,16 @@ namespace Armada.Core.Services
 
             List<CheckRun> collected = checks.Values.ToList();
             _LastJudgeGateChecks = collected;
-            return ClassifyJudgeCheckGate(collected, judgeMission.AgentOutput);
+            _LastJudgeReviewedCommit = judgeMission.CommitHash;
+            return ClassifyJudgeCheckGate(collected, judgeMission.AgentOutput, judgeMission.CommitHash);
         }
+
+        /// <summary>
+        /// The commit the most recent Judge gate evaluation compared its Checks against: the tip the
+        /// Judge reviewed. Retained beside <see cref="_LastJudgeGateChecks"/> so a hold message can
+        /// say WHICH commit a stale green measured and which one the review is about.
+        /// </summary>
+        private string? _LastJudgeReviewedCommit = null;
 
         /// <summary>
         /// The Checks collected by the most recent <see cref="EvaluateJudgeCheckGateAsync"/> call,
@@ -5597,12 +5607,14 @@ namespace Armada.Core.Services
         /// when nothing is unresolved, so callers can append it unconditionally.
         /// </summary>
         /// <param name="checks">The Checks collected by the gate. Null renders as empty.</param>
+        /// <param name="reviewedCommit">The commit under review; a Passed record for a different
+        /// commit is stale and is named with both commits. Null names only unresolved records.</param>
         /// <returns>A comma-separated list of id, type and label, or an empty string.</returns>
-        internal static string DescribeUnresolvedChecks(List<CheckRun>? checks)
+        internal static string DescribeUnresolvedChecks(List<CheckRun>? checks, string? reviewedCommit = null)
         {
             if (checks == null) return String.Empty;
             List<CheckRun> matching = checks
-                .Where(CheckRunGateRules.IsUnresolved)
+                .Where(c => CheckRunGateRules.IsUnresolved(c) || CheckRunGateRules.IsStale(c, reviewedCommit))
                 .OrderBy(c => c.Id, StringComparer.Ordinal)
                 .ToList();
             if (matching.Count == 0) return String.Empty;
@@ -5611,7 +5623,10 @@ namespace Armada.Core.Services
             foreach (CheckRun c in matching)
             {
                 string label = String.IsNullOrWhiteSpace(c.Label) ? c.Type.ToString() : c.Label!;
-                parts.Add(c.Id + " (" + c.Type + ": " + label + ", " + c.Status + ")");
+                string state = CheckRunGateRules.IsStale(c, reviewedCommit)
+                    ? "stale: Passed at " + c.CommitHash + " but the review is of " + reviewedCommit
+                    : c.Status.ToString();
+                parts.Add(c.Id + " (" + c.Type + ": " + label + ", " + state + ")");
             }
             return String.Join(", ", parts);
         }
@@ -5621,9 +5636,12 @@ namespace Armada.Core.Services
         /// review output. Canceled Checks are ignored, and so are Checks that were armed but never
         /// executed: neither carries command output, so neither can decide the PASS. Of what
         /// remains, a single Failed Check overrides the PASS; a Pending or Running Check holds it;
+        /// so does a Passed Check that measured a commit other than <paramref name="reviewedCommit"/>,
+        /// because a green for older work says nothing about the tip under review and the executor
+        /// re-arms it (<see cref="StaleCheckSupersessionService"/>) while the PASS is held;
         /// no deciding Checks at all requires the documented-exclusion marker in the review.
         /// </summary>
-        internal static JudgeCheckGate ClassifyJudgeCheckGate(List<CheckRun> checks, string? agentOutput)
+        internal static JudgeCheckGate ClassifyJudgeCheckGate(List<CheckRun> checks, string? agentOutput, string? reviewedCommit = null)
         {
             List<CheckRun> active = (checks ?? new List<CheckRun>())
                 .Where(CheckRunGateRules.ParticipatesInRealSignalGate).ToList();
@@ -5635,7 +5653,7 @@ namespace Armada.Core.Services
                     : JudgeCheckGate.NoChecksNoExclusion;
             }
             if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return JudgeCheckGate.HasFailed;
-            if (active.Any(CheckRunGateRules.IsUnresolved)) return JudgeCheckGate.HasPending;
+            if (active.Any(c => CheckRunGateRules.IsUnresolved(c) || CheckRunGateRules.IsStale(c, reviewedCommit))) return JudgeCheckGate.HasPending;
             return JudgeCheckGate.GreenChecks;
         }
 
