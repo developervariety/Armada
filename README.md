@@ -84,6 +84,13 @@ controls, and the broader operator workflow around these features. The fork
 also keeps its own implementations where they are more complete than the
 upstream equivalent.
 
+Recent fork delta:
+
+- `45f5a0a1` finishes bounded autonomous lead operations: a reusable fresh-cycle
+  prompt, a capped and timed read-only helper launcher, an executable lifecycle
+  contract test, and aligned setup/operator guidance for AgentWake and the
+  objective scheduler.
+
 ---
 
 ## Features
@@ -98,6 +105,21 @@ Armada models work explicitly so a human or orchestrator can inspect every layer
 - Missions store the actual unit of work, status, persona, preferred model, dependencies, playbook snapshots, logs, diffs, landing state, and output.
 - Voyages group missions and preserve shared title, description, vessel, objective, planning-session, playbook, pipeline, and landing context.
 - Docks are per-mission git worktrees so captains work on isolated branches instead of sharing the user's checkout.
+
+### Autonomous Scheduling And Operator Cycles
+
+The built-in objective scheduler dispatches eligible objectives without an
+operator poll loop. Its settings persist across Admiral restarts, its voyages
+use the normal Build and UnitTest Check-arming path, and the fleet-wide dispatch
+hold stops new operator and scheduler dispatches together.
+
+Optional host-side lead cycles are a separate layer. Use
+[`docs/autonomy/lead-bootstrap-prompt.md`](docs/autonomy/lead-bootstrap-prompt.md)
+for one bounded fresh cycle and `scripts/autonomy/spawn-helper.sh` for capped,
+timed, read-only helpers. Addressed board notes always retain Wake signals and
+can also start a registered AgentWake process. OpenCode wakes start fresh and
+reconstruct state from the addressed task, board, and durable memory. Do not
+give one participant key to both a resident helper and AgentWake.
 
 ### Pipelines and Personas
 
