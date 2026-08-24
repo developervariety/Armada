@@ -2779,6 +2779,70 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .auth-badge-tenant { background: var(--tag-working-bg); color: var(--tag-working-fg); }
 .auth-badge-user { background: var(--tag-idle-bg); color: var(--tag-idle-fg); }
 
+/* Shared form and status primitives (used by skill/profile editors, pipeline tables,
+   admin badge, and the access-denied message) */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem 1.25rem;
+    margin-bottom: 0.75rem;
+}
+.form-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+}
+.checkbox-row {
+    display: flex !important;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text);
+}
+.checkbox-row input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0;
+    flex: 0 0 auto;
+}
+.badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.12rem 0.5rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    line-height: 1.4;
+    background: var(--tag-idle-bg);
+    color: var(--tag-idle-fg);
+}
+.badge-info { background: var(--tag-working-bg); color: var(--tag-working-fg); }
+.badge-success { background: var(--tag-complete-bg); color: var(--tag-complete-fg); }
+.badge-warning { background: var(--tag-review-bg); color: var(--tag-review-fg); }
+.badge-dim { background: transparent; color: var(--text-dim); }
+.badge-admin { background: var(--tag-failed-bg); color: var(--tag-failed-fg); }
+.page-message {
+    max-width: 30rem;
+    margin: 4rem auto;
+    padding: 0 1rem;
+    text-align: center;
+    color: var(--text-dim);
+}
+.page-message h2 { color: var(--text); margin-bottom: 0.4rem; }
+.code-block {
+    margin: 0.35rem 0 0;
+    padding: 0.7rem 0.85rem;
+    border-radius: calc(var(--radius) - 2px);
+    background: color-mix(in srgb, var(--bg-hover) 54%, transparent);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    overflow: auto;
+}
+
 /* Login page (React-specific multi-step flow) */
 .login-container {
     display: flex;
@@ -3926,6 +3990,12 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     display: flex;
     flex-direction: column;
 }
+.chat-panel {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
 .ask-chat-window {
     flex: 1 1 0;
     min-height: 0;
@@ -3953,6 +4023,26 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 /* ==================== Consolidated navigation, hubs, and shared UI ====================
    Ported from upstream's nav/layout rewrite. Undefined upstream tokens are aliased onto this
    fork's palette at the top of this file rather than left to their inline fallbacks. */
+.sidebar-nav-badge {
+    flex-shrink: 0;
+    min-width: 14px;
+    height: 14px;
+    margin-left: auto;
+    padding: 0 3px;
+    border-radius: 7px;
+    font-size: 0.6rem;
+    line-height: 14px;
+    font-weight: 600;
+    text-align: center;
+    color: #ffffff;
+    background: var(--accent);
+}
+.sidebar-collapsed .sidebar-nav-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    margin-left: 0;
+}
 .sidebar-nav-badge-warning {
     background: var(--warning, #d98a00);
 }
@@ -5518,6 +5608,35 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     gap: 1rem;
     align-items: start;
 }
+.workspace-code-view {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    overflow: auto;
+    margin-top: 0.6rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: calc(var(--radius) - 2px);
+    background: color-mix(in srgb, var(--bg-hover) 54%, transparent);
+}
+.workspace-code-line-numbers {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    text-align: right;
+    user-select: none;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.55;
+}
+.workspace-code-block {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--text);
+}
 .api-operation-picker {
     display: flex;
     flex-wrap: wrap;
@@ -6614,6 +6733,7 @@ thead tr.column-filter-row td input.col-filter::placeholder {
         width: 100%;
     }
 .detail-form-grid,
+    .form-grid,
     .detail-meta-grid {
         grid-template-columns: 1fr;
     }
@@ -6789,6 +6909,16 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     text-align: center;
     color: var(--text-dim);
     font-size: 0.82rem;
+}
+.command-palette-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 11vh 1rem 1rem;
 }
 .command-palette {
     width: 560px;

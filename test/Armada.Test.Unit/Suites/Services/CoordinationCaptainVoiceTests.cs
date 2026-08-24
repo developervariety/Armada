@@ -105,6 +105,41 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Addressed notes emit wakes that surface for the target and clear on acknowledge", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    CoordinationService service = new CoordinationService(logging, testDb.Driver);
+
+                    await service.PostMessageAsync(
+                        CoordinationService.DefaultRoomKey,
+                        CoordinationAuthorTypeEnum.Operator,
+                        "session-a", "Session A",
+                        "please audit the ExampleOem lane",
+                        toParticipantKey: "helper-1");
+                    await service.PostMessageAsync(
+                        CoordinationService.DefaultRoomKey,
+                        CoordinationAuthorTypeEnum.Operator,
+                        "session-a", "Session A",
+                        "fleet-wide note");
+
+                    var wakesForHelper = await service.EnumerateUnreadWakesAsync("helper-1");
+                    AssertEqual(1, wakesForHelper.Count);
+                    AssertContains("[to=helper-1]", wakesForHelper[0].Payload);
+                    AssertContains("audit the ExampleOem lane", wakesForHelper[0].Payload);
+                    AssertEqual(SignalTypeEnum.Wake, wakesForHelper[0].Type);
+
+                    var wakesForOther = await service.EnumerateUnreadWakesAsync("session-b");
+                    AssertEqual(0, wakesForOther.Count);
+
+                    await testDb.Driver.Signals.MarkReadAsync(wakesForHelper[0].Id);
+                    var afterAck = await service.EnumerateUnreadWakesAsync("helper-1");
+                    AssertEqual(0, afterAck.Count);
+                }
+            });
+
             await RunTest("CampaignStatus resolves a tagged hub into lanes slices claims and notes", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

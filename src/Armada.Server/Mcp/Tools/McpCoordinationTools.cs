@@ -88,7 +88,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_read",
-                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work.",
+                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read.",
                 new
                 {
                     type = "object",
@@ -117,6 +117,13 @@ namespace Armada.Server.Mcp.Tools
                             roomKey, request.AfterUtc, limit,
                             token: System.Threading.CancellationToken.None,
                             visibleToParticipantKey: String.IsNullOrWhiteSpace(request.ParticipantKey) ? null : request.ParticipantKey).ConfigureAwait(false);
+
+                        List<Signal> unreadWakes = new List<Signal>();
+                        if (!String.IsNullOrWhiteSpace(request.ParticipantKey))
+                        {
+                            try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(request.ParticipantKey!).ConfigureAwait(false); }
+                            catch (NotSupportedException) { }
+                        }
                         List<CoordinationParticipant> participants = await coordination.EnumerateParticipantsAsync(roomKey, activeWithinMinutes).ConfigureAwait(false);
                         List<CoordinationClaim> claims;
                         try
@@ -128,7 +135,7 @@ namespace Armada.Server.Mcp.Tools
                             claims = new List<CoordinationClaim>();
                         }
 
-                        return (object)new { RoomKey = roomKey, Messages = messages, ActiveParticipants = participants, ActiveClaims = claims };
+                        return (object)new { RoomKey = roomKey, Messages = messages, ActiveParticipants = participants, ActiveClaims = claims, UnreadWakes = unreadWakes };
                     }
                     catch (NotSupportedException ex)
                     {
@@ -138,7 +145,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_heartbeat",
-                "Send a presence heartbeat to the shared coordination board. Call periodically while working so other sessions can see you are active, and to prune stale presence.",
+                "Send a presence heartbeat to the shared coordination board. Call periodically while working so other sessions can see you are active, and to prune stale presence. The response carries UnreadWakes: when non-empty, PAUSE your current work and address those directed messages first, then acknowledge each with armada_mark_signal_read.",
                 new
                 {
                     type = "object",
@@ -167,7 +174,12 @@ namespace Armada.Server.Mcp.Tools
                             request.ParticipantKey!,
                             request.DisplayName!,
                             ArmadaConstants.DefaultTenantId).ConfigureAwait(false);
-                        return (object)participant;
+
+                        List<Signal> unreadWakes = new List<Signal>();
+                        try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(request.ParticipantKey!).ConfigureAwait(false); }
+                        catch (NotSupportedException) { }
+
+                        return (object)new { Participant = participant, UnreadWakes = unreadWakes };
                     }
                     catch (NotSupportedException ex)
                     {

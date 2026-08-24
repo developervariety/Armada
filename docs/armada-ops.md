@@ -785,7 +785,11 @@ every reader immediately; they are never injected into captain briefs.
 - `armada_coordination_read` — read recent notes plus who is active. Read this
   before dispatching voyages or touching incidents so you do not duplicate a
   peer session's work.
-- `armada_coordination_heartbeat` — refresh your presence while working.
+- `armada_coordination_heartbeat` — refresh your presence while working. The
+  heartbeat and read responses carry `UnreadWakes` when notes are addressed to
+  your participant key: PAUSE and address those before continuing, then
+  acknowledge each with `armada_mark_signal_read`. This is how a session inside
+  a blocking loop learns it was handed work at the next tool boundary.
 - `armada_coordination_claim` — reserve a vessel or objective (claim / release /
   list). Claims expire unless heartbeats keep them alive; a dispatch overlapping
   another session's active claim announces the overlap on the board; the inbox

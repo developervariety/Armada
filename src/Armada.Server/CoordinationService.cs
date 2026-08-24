@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -146,7 +147,60 @@ namespace Armada.Server
             }
 
             BroadcastMessageCreated(room.Key, message);
+
+            if (!String.IsNullOrWhiteSpace(toParticipantKey))
+            {
+                await EmitWakeForAddressedNoteAsync(toParticipantKey!, authorName, content, token).ConfigureAwait(false);
+            }
+
             return message;
+        }
+
+        /// <summary>
+        /// Writes a Wake signal for an addressed note so the target session's next poll
+        /// (coordination read, heartbeat, or a signals drain) sees a targeted "you have
+        /// mail" instead of having to re-read the whole room. Payload prefix
+        /// "[to=&lt;key&gt;]" is the routing contract shared with the read and heartbeat
+        /// tools; best-effort, never fails the post.
+        /// </summary>
+        private async Task EmitWakeForAddressedNoteAsync(string toParticipantKey, string authorName, string content, CancellationToken token)
+        {
+            try
+            {
+                string body = content ?? String.Empty;
+                if (body.Length > 500) body = body.Substring(0, 500);
+                string payload = "[to=" + toParticipantKey + "] [from=" + authorName + "] " + body;
+                Signal wake = new Signal(SignalTypeEnum.Wake, payload);
+                wake.TenantId = Armada.Core.Constants.DefaultTenantId;
+                await _Database.Signals.CreateAsync(wake, token).ConfigureAwait(false);
+            }
+            catch (NotSupportedException ex)
+            {
+                _Logging.Debug(_Header + "wake unsupported on this backend: " + ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to emit wake for addressed note: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Enumerate unread Wake signals addressed to a participant key (payload prefix
+        /// "[to=&lt;key&gt;]"), oldest first.
+        /// </summary>
+        public async Task<List<Signal>> EnumerateUnreadWakesAsync(string participantKey, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(participantKey)) return new List<Signal>();
+
+            EnumerationQuery query = new EnumerationQuery
+            {
+                SignalType = SignalTypeEnum.Wake.ToString(),
+                UnreadOnly = true,
+                PageSize = 50
+            };
+            EnumerationResult<Signal> result = await _Database.Signals.EnumerateAsync(query, token).ConfigureAwait(false);
+            string prefix = "[to=" + participantKey + "]";
+            return result.Objects.Where(w => w.Payload != null && w.Payload.StartsWith(prefix, StringComparison.Ordinal)).ToList();
         }
 
         /// <summary>

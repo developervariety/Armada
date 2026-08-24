@@ -23,6 +23,7 @@
   --tag-complete-bg: #dcfce7; --tag-complete-fg: #166534;
   --tag-failed-bg: #fee2e2; --tag-failed-fg: #991b1b;
   --tag-review-bg: #fef3c7; --tag-review-fg: #92400e;
+  --tag-pending-bg: #ffedd5; --tag-pending-fg: #9a3412;
   --tag-cancelled-bg: #f3f4f6; --tag-cancelled-fg: #6b7280;
   --diff-bg: #f8fafc;
   --modal-overlay: rgba(0, 0, 0, 0.3);
@@ -64,6 +65,7 @@ html:lang(ja) {
   --tag-complete-bg: #052e16; --tag-complete-fg: #4ade80;
   --tag-failed-bg: #450a0a; --tag-failed-fg: #fca5a5;
   --tag-review-bg: #422006; --tag-review-fg: #fbbf24;
+  --tag-pending-bg: #431407; --tag-pending-fg: #fdba74;
   --tag-cancelled-bg: #1c1917; --tag-cancelled-fg: #a8a29e;
   --diff-bg: #0d1117;
   --modal-overlay: rgba(0, 0, 0, 0.6);
