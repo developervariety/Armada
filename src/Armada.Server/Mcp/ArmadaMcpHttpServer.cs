@@ -164,7 +164,9 @@ namespace Armada.Server.Mcp
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            int offset = ParseCursor(request.Params.Cursor);
+            // MCP permits tools/list to omit params. Some clients use that form for
+            // initial discovery, so treat a missing parameter object as an empty one.
+            int offset = ParseCursor(request.Params?.Cursor);
             List<Tool> tools;
             lock (_Sync)
             {

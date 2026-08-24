@@ -63,6 +63,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The autonomous-rescue marker had two definitions in two files; both now delegate to one, so the rule cannot drift apart
 
 ### MCP
+
+- `tools/list` now accepts the protocol-valid request form that omits `params`, which restores tool discovery for clients that use parameterless initial discovery
 - `run_check`, `retry_check_run`, and `get_check_run` now return a bounded view of a check run - status, exit code, parsed test and coverage totals, artifacts, and the last 40 output lines - instead of the complete command log. A build or test log is routinely one to several megabytes, which overran the tool output limit and returned a truncation error in place of the verdict, forcing a parse step out of band on every call
 - The complete log is still available deliberately: `get_check_run` takes `includeOutput=true` for the whole record, and `outputTailLines` to widen the tail. A truncated view reports the full log's size and names the call that fetches it, so nothing is silently withheld
 - The tail is whole lines taken from the END of the log, which is where a failure's cause almost always is

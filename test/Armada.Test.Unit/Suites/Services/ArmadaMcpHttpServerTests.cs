@@ -134,6 +134,30 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"Status\":\"ok\"", text);
             }).ConfigureAwait(false);
 
+            await RunTest("ToolsList_WithoutParams_RemainsCompatible", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.RegisterTool(
+                    "armada_parameterless_list",
+                    "Verify parameterless discovery",
+                    new { type = "object" },
+                    args => Task.FromResult((object)new { Status = "ok" }));
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                JsonElement list = await SendAsync(
+                    client,
+                    CreateRequestWithoutParams("/mcp", 12, "tools/list")).ConfigureAwait(false);
+                AssertEqual(
+                    "armada_parameterless_list",
+                    list.GetProperty("result").GetProperty("tools")[0].GetProperty("name").GetString());
+            }).ConfigureAwait(false);
+
             await RunTest("ToolExceptions_RemainJsonRpcErrors", async () =>
             {
                 int port = GetAvailablePort();
@@ -260,6 +284,25 @@ namespace Armada.Test.Unit.Suites.Services
                 id,
                 method,
                 @params = parameters
+            });
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, path)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("Accept", "application/json, text/event-stream");
+            return request;
+        }
+
+        private static HttpRequestMessage CreateRequestWithoutParams(
+            string path,
+            int id,
+            string method)
+        {
+            string json = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id,
+                method
             });
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, path)
             {

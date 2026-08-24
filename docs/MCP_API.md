@@ -22,6 +22,10 @@ The HTTP server is stateless. A client does not need to preserve an MCP session
 ID between requests. A remote client can use an SSH stdio bridge that forwards
 each request to the running Admiral's loopback endpoint.
 
+For parameterless discovery, clients can send `tools/list` with an empty
+`params` object or without a `params` member. Armada accepts both protocol
+forms.
+
 Do not start `armada mcp stdio` inside a host that already runs the Admiral.
 That command creates a second service graph. It does not control the running
 Admiral.
