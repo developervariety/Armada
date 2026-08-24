@@ -16,7 +16,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 bash -n "$LEAD_CYCLE"
 
-# A fake `claude` that records the prompt and the MCP config path it was given.
+# Fake runtimes record their inputs and never contact a provider.
 mkdir -p "$TEST_ROOT/bin"
 cat > "$TEST_ROOT/bin/claude" <<'EOF'
 #!/usr/bin/env bash
@@ -25,6 +25,10 @@ cat > "$TEST_ROOT/bin/claude" <<'EOF'
 # passes the prompt positionally therefore fails here exactly as it does live.
 set -euo pipefail
 args=("$@")
+printf '%s\n' "$*" > "${LEAD_TEST_CLAUDE_ARGS:-/dev/null}"
+printf '%s\n' "${ANTHROPIC_BASE_URL:-}" > "${LEAD_TEST_CLAUDE_BASE_URL:-/dev/null}"
+printf '%s\n' "${ANTHROPIC_API_KEY:-}" > "${LEAD_TEST_CLAUDE_KEY:-/dev/null}"
+printf '%s\n' "${ANTHROPIC_AUTH_TOKEN:-}" > "${LEAD_TEST_CLAUDE_TOKEN:-/dev/null}"
 configs=()
 collecting=0
 for a in "${args[@]}"; do
@@ -60,16 +64,48 @@ fi
 EOF
 chmod +x "$TEST_ROOT/bin/claude"
 
+cat > "$TEST_ROOT/bin/opencode" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ -f "${OPENCODE_CONFIG:-}" ] || { echo "missing OPENCODE_CONFIG" >&2; exit 1; }
+if [ -n "${LEAD_TEST_REAL_OPENCODE:-}" ]; then
+    "$LEAD_TEST_REAL_OPENCODE" debug config --pure > "${LEAD_TEST_RESOLVED_OPENCODE_CONFIG:-/dev/null}"
+fi
+printf '%s\n' "$OPENCODE_CONFIG" > "$LEAD_TEST_OPENCODE_CONFIG_PATH"
+printf '%s\n' "$*" > "$LEAD_TEST_OPENCODE_ARGS"
+printf '%s\n' "${!#}" > "$LEAD_TEST_OPENCODE_PROMPT"
+pwd > "$LEAD_TEST_OPENCODE_CWD"
+echo '{"type":"step_start","sessionID":"opencode-probe","part":{"type":"step-start"}}'
+echo '{"type":"text","part":{"type":"text","text":"checking the fleet"}}'
+echo '{"type":"tool_use","part":{"type":"tool","callID":"oc-t1","tool":"armada_status","state":{"status":"running","input":{}}}}'
+echo '{"type":"tool_use","part":{"type":"tool","callID":"oc-t1","tool":"armada_status","state":{"status":"completed","output":"healthy"}}}'
+echo '{"type":"step_finish","part":{"type":"step-finish","reason":"stop","cost":0.001}}'
+EOF
+chmod +x "$TEST_ROOT/bin/opencode"
+
+printf '%s\n' 'fake-vilao-key' > "$TEST_ROOT/vilao.key"
+chmod 600 "$TEST_ROOT/vilao.key"
+
 export LEAD_TEST_PROMPT="$TEST_ROOT/prompt.txt"
 export LEAD_TEST_CONFIG_PATH="$TEST_ROOT/config-path.txt"
 export LEAD_TEST_SETTINGS_PATH="$TEST_ROOT/settings-path.txt"
 export LEAD_TEST_CWD="$TEST_ROOT/claude-cwd.txt"
+export LEAD_TEST_CLAUDE_ARGS="$TEST_ROOT/claude-args.txt"
+export LEAD_TEST_CLAUDE_BASE_URL="$TEST_ROOT/claude-base-url.txt"
+export LEAD_TEST_CLAUDE_KEY="$TEST_ROOT/claude-key.txt"
+export LEAD_TEST_CLAUDE_TOKEN="$TEST_ROOT/claude-token.txt"
+export LEAD_TEST_OPENCODE_CONFIG_PATH="$TEST_ROOT/opencode-config-path.txt"
+export LEAD_TEST_OPENCODE_ARGS="$TEST_ROOT/opencode-args.txt"
+export LEAD_TEST_OPENCODE_PROMPT="$TEST_ROOT/opencode-prompt.txt"
+export LEAD_TEST_OPENCODE_CWD="$TEST_ROOT/opencode-cwd.txt"
 
 run_lead() {
     PATH="$TEST_ROOT/bin:$PATH" \
-    AUTONOMY_LEAD_WORKDIR="$WORKDIR" \
+    AUTONOMY_LEAD_WORKDIR="${WORKDIR_OVERRIDE:-$WORKDIR}" \
     AUTONOMY_LEAD_REPO="$REPO_ROOT" \
     AUTONOMY_LEAD_KEY="${LEAD_KEY_OVERRIDE:-probe-lead}" \
+    AUTONOMY_LEAD_RUNTIME="${RUNTIME_OVERRIDE:-claude}" \
+    AUTONOMY_LEAD_API_KEY_FILE="$TEST_ROOT/vilao.key" \
     AUTONOMY_LEAD_TIMEOUT_MIN=5 \
     AUTONOMY_SKIP_PREFLIGHT="${PREFLIGHT_OVERRIDE:-1}" \
     "$LEAD_CYCLE" "$@"
@@ -79,12 +115,17 @@ run_lead() {
 if LEAD_KEY_OVERRIDE='bad key' run_lead run >/dev/null 2>&1; then
     fail "a participant key with a space was accepted"
 fi
-if AUTONOMY_LEAD_RUNTIME=notareal run_lead run >/dev/null 2>&1; then
+if RUNTIME_OVERRIDE=notareal run_lead run >/dev/null 2>&1; then
     fail "an unknown runtime was accepted"
 fi
 if AUTONOMY_ARMADA_MCP_URL='ftp://x' run_lead run >/dev/null 2>&1; then
     fail "a non-http MCP URL was accepted"
 fi
+chmod 644 "$TEST_ROOT/vilao.key"
+if run_lead run >/dev/null 2>&1; then
+    fail "a provider key file with group or other access was accepted"
+fi
+chmod 600 "$TEST_ROOT/vilao.key"
 
 # --- one successful cycle -------------------------------------------------
 run_lead run >/dev/null
@@ -111,6 +152,15 @@ grep -Fq '"X-Armada-Participant": "probe-lead"' "$CONFIG" \
 [ -s "$TEST_ROOT/settings-path.txt" ] || fail "--settings was not passed to the runtime"
 
 grep -Fq " ok " "$WORKDIR/run/last-result" || fail "a successful cycle was not recorded"
+
+grep -Fq -- '--model claude-fable-5' "$LEAD_TEST_CLAUDE_ARGS" \
+    || fail "the direct Claude route did not pin the Vilao model"
+grep -Fxq 'https://api.vilao.ai' "$LEAD_TEST_CLAUDE_BASE_URL" \
+    || fail "the direct Claude route did not use the Vilao base URL"
+grep -Fxq 'fake-vilao-key' "$LEAD_TEST_CLAUDE_KEY" \
+    || fail "the direct Claude route did not load the protected key file"
+[ -z "$(tr -d '\r\n' < "$LEAD_TEST_CLAUDE_TOKEN")" ] \
+    || fail "an inherited Anthropic auth token reached the Vilao process"
 
 # A cycle must leave a readable transcript, not only its closing paragraph. An
 # eight-minute run once left 73 bytes, so the raw stream and the digest are both kept.
@@ -155,6 +205,49 @@ assert any(d.startswith("Bash(git push --force") for d in deny), "force push mus
 PYEOF
 [ ! -e "$WORKDIR/run/cycle.pid" ] || fail "the pidfile outlived the cycle"
 
+# --- OpenCode hybrid route -----------------------------------------------
+OPENCODE_WORKDIR="$TEST_ROOT/opencode-state"
+WORKDIR_OVERRIDE="$OPENCODE_WORKDIR" RUNTIME_OVERRIDE=opencode run_lead run >/dev/null
+[ -s "$LEAD_TEST_OPENCODE_PROMPT" ] || fail "OpenCode received no prompt"
+grep -Fq '[COST-AWARE DELEGATION]' "$LEAD_TEST_OPENCODE_PROMPT" \
+    || fail "the OpenCode prompt did not define cost-aware delegation"
+grep -Fq -- '--model vilao/claude-fable-5' "$LEAD_TEST_OPENCODE_ARGS" \
+    || fail "OpenCode did not pin the Vilao primary model"
+grep -Fq -- '--agent build' "$LEAD_TEST_OPENCODE_ARGS" \
+    || fail "OpenCode did not start the primary build agent"
+grep -Fq -- '--format json' "$LEAD_TEST_OPENCODE_ARGS" \
+    || fail "OpenCode did not request a durable event stream"
+
+OPENCODE_CONFIG=$(cat "$LEAD_TEST_OPENCODE_CONFIG_PATH")
+python3 - "$OPENCODE_CONFIG" "$TEST_ROOT/vilao.key" <<'PYEOF' \
+    || fail "the OpenCode lead overlay is wrong"
+import json, sys
+config = json.load(open(sys.argv[1]))
+key_file = sys.argv[2]
+assert config["model"] == "vilao/claude-fable-5"
+assert config["small_model"] == "opencode/deepseek-v4-flash"
+assert config["subagent_depth"] == 1
+assert config["provider"]["vilao"]["options"]["baseURL"] == "https://api.vilao.ai"
+assert config["provider"]["vilao"]["options"]["apiKey"] == f"{{file:{key_file}}}"
+assert config["provider"]["vilao"]["options"]["setCacheKey"] is True
+assert config["mcp"]["armada"]["headers"]["X-Armada-Participant"] == "probe-lead"
+assert config["agent"]["build"]["model"] == "vilao/claude-fable-5"
+assert config["agent"]["explore"]["model"] == "opencode/deepseek-v4-flash"
+general = config["agent"]["general"]
+assert general["model"] == "opencode/deepseek-v4-flash"
+assert general["tools"]["write"] is False
+assert general["tools"]["bash"] is False
+PYEOF
+
+OPENCODE_DIGEST=$(ls "$OPENCODE_WORKDIR"/logs/cycle-*.log 2>/dev/null | tail -1)
+grep -q '^\[init\].*runtime=opencode' "$OPENCODE_DIGEST" \
+    || fail "the OpenCode digest is missing its session line"
+grep -q '^\[tool\] *armada_status' "$OPENCODE_DIGEST" \
+    || fail "the OpenCode digest did not record the tool call"
+grep -q '^\[result\] stop steps=1' "$OPENCODE_DIGEST" \
+    || fail "the OpenCode digest did not record the result"
+[ ! -e "$OPENCODE_WORKDIR/run/cycle.pid" ] || fail "the OpenCode pidfile outlived the cycle"
+
 # --- single flight --------------------------------------------------------
 # A live pidfile must make a second cycle skip rather than run. This is the
 # guarantee that stops a timer and a wake starting two leads on one key.
@@ -194,6 +287,8 @@ WAKE_OUT=$(printf 'woken by a mission failure' | \
     AUTONOMY_LEAD_WORKDIR="$WORKDIR" \
     AUTONOMY_LEAD_REPO="$REPO_ROOT" \
     AUTONOMY_LEAD_KEY=probe-lead \
+    AUTONOMY_LEAD_RUNTIME=claude \
+    AUTONOMY_LEAD_API_KEY_FILE="$TEST_ROOT/vilao.key" \
     AUTONOMY_LEAD_TIMEOUT_MIN=5 \
     AUTONOMY_SKIP_PREFLIGHT=1 \
     "$SCRIPT_DIR/lead-wake.sh" --print --continue --setting-sources project,local --strict-mcp-config 2>&1)

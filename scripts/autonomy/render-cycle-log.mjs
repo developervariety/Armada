@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// Render a Claude `--output-format stream-json` transcript into a readable cycle log.
+// Render a Claude stream-json or OpenCode JSON transcript into a readable cycle log.
 //
 // WHY: `claude --print` emits only the FINAL assistant message. One autonomous cycle
 // ran for eight minutes, did real work, and left a 73-byte log saying it had nothing
@@ -44,6 +44,11 @@ export function renderStream(lines) {
   const toolNamesById = new Map();
   let toolCalls = 0;
   let toolErrors = 0;
+  let openCodeSeen = false;
+  let openCodeSteps = 0;
+  let openCodeCost = 0;
+  let openCodeReason = "complete";
+  let openCodeFinished = false;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -69,6 +74,64 @@ export function renderStream(lines) {
         `[init]   session=${event.session_id ?? "?"} model=${event.model ?? "?"} ` +
         `cwd=${event.cwd ?? "?"} tools=${toolCount}`,
       );
+      continue;
+    }
+
+    // OpenCode emits one JSON object for each part. A tool part can be emitted
+    // more than once as its state changes, so count and print its invocation
+    // only once. Keep its completed or failed state as a separate result line.
+    if (event.type === "step_start") {
+      openCodeSeen = true;
+      openCodeFinished = false;
+      openCodeSteps++;
+      if (openCodeSteps === 1) {
+        out.push(`[init]   session=${event.sessionID ?? event.session_id ?? "?"} runtime=opencode`);
+      }
+      continue;
+    }
+
+    if (event.type === "text") {
+      openCodeSeen = true;
+      const body = event.part?.text ?? event.text;
+      if (body?.trim()) out.push(`[say]    ${collapse(body, MAX_TEXT)}`);
+      continue;
+    }
+
+    if (event.type === "tool_use") {
+      openCodeSeen = true;
+      const part = event.part ?? event;
+      const state = part.state ?? {};
+      const id = part.callID ?? part.call_id ?? part.id ?? `${part.tool ?? part.name ?? "tool"}-${toolCalls}`;
+      const name = part.tool ?? part.name ?? "tool";
+      if (!toolNamesById.has(id)) {
+        toolCalls++;
+        toolNamesById.set(id, name);
+        const detail = describeToolInput(name, state.input ?? part.input);
+        out.push(`[tool]   ${name}${detail ? `: ${detail}` : ""}`);
+      }
+      if (state.status === "completed") {
+        out.push(`[ok]     ${name}: ${collapse(state.output, MAX_TOOL_RESULT)}`);
+      } else if (state.status === "error" || state.status === "failed") {
+        toolErrors++;
+        out.push(`[ERROR]  ${name}: ${collapse(state.error ?? state.output, MAX_TOOL_RESULT)}`);
+      }
+      continue;
+    }
+
+    if (event.type === "step_finish") {
+      openCodeSeen = true;
+      openCodeFinished = true;
+      const part = event.part ?? event;
+      openCodeReason = part.reason ?? event.reason ?? openCodeReason;
+      if (typeof part.cost === "number") openCodeCost += part.cost;
+      continue;
+    }
+
+    if (event.type === "error") {
+      openCodeSeen = true;
+      openCodeFinished = true;
+      openCodeReason = "error";
+      out.push(`[ERROR]  opencode: ${collapse(event.error?.message ?? event.message ?? event.error, MAX_TEXT)}`);
       continue;
     }
 
@@ -119,7 +182,12 @@ export function renderStream(lines) {
 
   // A stream that ends without a result event means the run was killed -- a timeout
   // cap, or the host going away. Say so, rather than letting the log just stop.
-  if (!out.some((entry) => entry.startsWith("[result]"))) {
+  if (openCodeSeen && openCodeFinished && !out.some((entry) => entry.startsWith("[result]"))) {
+    out.push(
+      `[result] ${openCodeReason} steps=${openCodeSteps} cost=$${openCodeCost.toFixed(6)} ` +
+      `tool_calls=${toolCalls} tool_errors=${toolErrors}`,
+    );
+  } else if (!out.some((entry) => entry.startsWith("[result]"))) {
     out.push(`[result] INCOMPLETE: the stream ended with no result event ` +
       `(killed, timed out, or the runtime died). tool_calls=${toolCalls} tool_errors=${toolErrors}`);
   }

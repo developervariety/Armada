@@ -17,6 +17,10 @@ Group=armada
 WorkingDirectory=__ARMADA_CHECKOUT__
 Environment=AUTONOMY_LEAD_KEY=armada-lead
 Environment=AUTONOMY_LEAD_RUNTIME=claude
+Environment=AUTONOMY_LEAD_MODEL=claude-fable-5
+Environment=AUTONOMY_LEAD_API_BASE_URL=https://api.vilao.ai
+Environment=AUTONOMY_LEAD_API_KEY_FILE=/home/armada/.armada/secrets/autonomy-lead-vilao.key
+Environment=AUTONOMY_LEAD_WORKDIR=/home/armada/.armada/autonomy-lead
 Environment=AUTONOMY_LEAD_TIMEOUT_MIN=30
 ExecStart=__ARMADA_CHECKOUT__/scripts/autonomy/lead-cycle.sh run
 # The cap belongs to lead-cycle.sh so a wake-started cycle gets it too. This is

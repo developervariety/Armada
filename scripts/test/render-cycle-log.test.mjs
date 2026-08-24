@@ -98,3 +98,35 @@ test("reports a non-success result with its message", () => {
   assert.match(out, /\[result] error_max_turns turns=99/);
   assert.match(out, /hit the turn limit/);
 });
+
+test("renders an OpenCode JSON event stream", () => {
+  const out = renderStream(lines(
+    { type: "step_start", sessionID: "oc-1", part: { type: "step-start" } },
+    { type: "text", part: { type: "text", text: "Inspecting the fleet." } },
+    {
+      type: "tool_use",
+      part: { type: "tool", callID: "call-1", tool: "armada_status", state: { status: "running", input: {} } },
+    },
+    {
+      type: "tool_use",
+      part: { type: "tool", callID: "call-1", tool: "armada_status", state: { status: "completed", output: "healthy" } },
+    },
+    { type: "step_finish", part: { type: "step-finish", reason: "stop", cost: 0.00125 } },
+  ));
+
+  assert.match(out, /^\[init\] {3}session=oc-1 runtime=opencode$/m);
+  assert.match(out, /^\[say] {4}Inspecting the fleet\.$/m);
+  assert.equal(out.match(/^\[tool\]/gm)?.length, 1);
+  assert.match(out, /^\[ok\] {5}armada_status: healthy$/m);
+  assert.match(out, /^\[result\] stop steps=1 cost=\$0\.001250 tool_calls=1 tool_errors=0$/m);
+});
+
+test("reports an OpenCode stream that starts an unfinished step", () => {
+  const out = renderStream(lines(
+    { type: "step_start", sessionID: "oc-2", part: { type: "step-start" } },
+    { type: "step_finish", part: { type: "step-finish", reason: "tool-calls", cost: 0.001 } },
+    { type: "step_start", sessionID: "oc-2", part: { type: "step-start" } },
+  ));
+
+  assert.match(out, /\[result\] INCOMPLETE: the stream ended with no result event/);
+});

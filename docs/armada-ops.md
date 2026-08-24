@@ -1050,6 +1050,12 @@ Two things start a cycle, and they are complementary:
 cycle is running is refused, not queued, so one participant key never gets two
 process owners.
 
+The timer and AgentWake must use the same state directory. The default is
+`$HOME/.armada/autonomy-lead`. The Admiral container can write this bind mount,
+and the host timer can read the same lock and log files. Do not use
+`$HOME/autonomy-lead`: that host path is not mounted in the Admiral container,
+so an AgentWake process cannot create it.
+
 **Give the lead its own participant key.** `armada-lead` by default, and never an
 interactive operator's key. Two process owners on one key duplicate dispatch and
 cannot be told apart on the board.
@@ -1072,10 +1078,31 @@ history, and a tick missed while the host was down runs at the next start. An
 earlier monotonic schedule carried `Persistent=true` where it has no effect, so a
 missed run was silently never caught up.
 
-**The model is not pinned.** The cycle runs the Claude Code CLI headless and takes
-whatever model that CLI is configured to use, so a change to its default silently
-changes what runs unattended. Each cycle records the model on the `[init]` line of
-its digest; read it there rather than asking the CLI afterwards.
+**The model is pinned.** The default runtime is Claude Code. It uses
+`claude-fable-5` through the same Anthropic-compatible Vilao route as the Fable
+judge captains. Claude Code and the provider control prompt caching for this
+route.
+
+Do not use OpenCode as the primary harness for the Vilao subscription route.
+Tests on 24 August 2026 showed that Vilao returned empty responses with
+`finish=unknown`. OpenCode treated each response as a reason to continue and
+created 501 zero-token turns before the test cap stopped it. This is unsafe for
+a provider that charges per request. The optional OpenCode overlay stays
+process-specific for compatibility work, but it is not the production lead
+runtime. Do not put that overlay in the global OpenCode config. Captains also
+read the global config and must not get the lead key or permission policy.
+
+Before you install the service, create the provider key file:
+
+```sh
+install -o armada -g armada -d -m 700 /home/armada/.armada/secrets
+install -o armada -g armada -m 600 <secure-vilao-key-source> \
+  /home/armada/.armada/secrets/autonomy-lead-vilao.key
+```
+
+The key file must contain only the Vilao API key. Do not put the key in the unit,
+the repository, or the generated event log. The Claude Code launcher reads the
+file and removes an inherited `ANTHROPIC_AUTH_TOKEN` before it starts.
 
 **Each cycle leaves two files** under the lead's log directory:
 `cycle-<stamp>.jsonl`, the whole event stream, and `cycle-<stamp>.log`, a rendered
@@ -1090,19 +1117,18 @@ three for its handoff and cleanup. Raise it with `AUTONOMY_LEAD_TIMEOUT_MIN`, an
 keep the systemd unit's `TimeoutStartSec` above it as the outer backstop.
 
 **The permission policy is the real boundary.** A headless run has nobody to
-answer a permission prompt, so `lead-cycle.sh` writes a settings file and passes
-it with `--settings`. It allows the Armada tool surface plus ordinary file and
-shell work, and denies what stays an owner action: fleet-destructive and purge
-tools, deployment and release tools, `armada_resolve_check` (which could
-manufacture a green gate), `armada_dispatch_hold` (fleet-wide, and would freeze
-every peer session), `armada_register_agentwake_session` (a cycle could re-point
-the autonomy at itself), force push, `docker compose`, and `systemctl`. Deny wins
-over allow. Widen it deliberately, and never by granting the whole surface.
+answer a permission prompt, so `lead-cycle.sh` writes the runtime policy before
+it starts the model. It allows the primary agent to use Armada and ordinary file
+and shell tools. It denies fleet-destructive and purge tools, deployment and
+release tools, check resolution, the fleet-wide dispatch hold, AgentWake
+registration, force push, Docker Compose, and systemd. Deny wins over allow. The
+optional OpenCode agents have an additional read-only policy. Widen the policy
+only for a named need.
 
-**Send the prompt on stdin.** `claude --mcp-config` is variadic, so a positional
-prompt after it is consumed as a second config path and the run dies with
-`MCP config file not found: <the entire prompt>`. Both launchers pipe the prompt
-in, which also avoids the argv length limit for a long brief.
+**Send the Claude prompt on stdin.** `claude --mcp-config` is variadic,
+so a positional prompt after it is consumed as a second config path and the run
+dies with `MCP config file not found: <the entire prompt>`. OpenCode accepts the
+prompt as its `run` argument.
 
 ### 8.10 Incidents
 

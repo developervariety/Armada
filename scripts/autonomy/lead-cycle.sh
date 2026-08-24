@@ -16,8 +16,19 @@
 #   AUTONOMY_LEAD_KEY         participant key (default armada-lead). MUST differ
 #                             from any interactive operator's key.
 #   AUTONOMY_LEAD_RUNTIME     claude, codex, or opencode (default claude)
+#   AUTONOMY_LEAD_MODEL       primary provider model (default claude-fable-5)
+#   AUTONOMY_LEAD_SUBAGENT_MODEL
+#                             OpenCode read-only subagent model
+#                             (default opencode/deepseek-v4-flash)
+#   AUTONOMY_LEAD_API_BASE_URL
+#                             Anthropic-native provider URL
+#                             (default https://api.vilao.ai)
+#   AUTONOMY_LEAD_API_KEY_FILE
+#                             provider key file (default
+#                             $HOME/.armada/secrets/autonomy-lead-vilao.key)
 #   AUTONOMY_LEAD_TIMEOUT_MIN wall-clock cap per cycle (default 30)
-#   AUTONOMY_LEAD_WORKDIR     state root (default $HOME/autonomy-lead)
+#   AUTONOMY_LEAD_WORKDIR     shared host/container state root (default
+#                             $HOME/.armada/autonomy-lead)
 #   AUTONOMY_LEAD_REPO        Armada checkout holding the bootstrap prompt
 #                             (default: derived from this script's location)
 #   AUTONOMY_ARMADA_MCP_URL   Armada MCP URL (default http://127.0.0.1:7891/mcp)
@@ -33,8 +44,12 @@ umask 077
 
 LEAD_KEY="${AUTONOMY_LEAD_KEY:-armada-lead}"
 RUNTIME="${AUTONOMY_LEAD_RUNTIME:-claude}"
+MODEL="${AUTONOMY_LEAD_MODEL:-claude-fable-5}"
+SUBAGENT_MODEL="${AUTONOMY_LEAD_SUBAGENT_MODEL:-opencode/deepseek-v4-flash}"
+API_BASE_URL="${AUTONOMY_LEAD_API_BASE_URL:-https://api.vilao.ai}"
+API_KEY_FILE="${AUTONOMY_LEAD_API_KEY_FILE:-$HOME/.armada/secrets/autonomy-lead-vilao.key}"
 TIMEOUT_MIN="${AUTONOMY_LEAD_TIMEOUT_MIN:-30}"
-WORKDIR="${AUTONOMY_LEAD_WORKDIR:-$HOME/autonomy-lead}"
+WORKDIR="${AUTONOMY_LEAD_WORKDIR:-$HOME/.armada/autonomy-lead}"
 # This script lives in the checkout, so the checkout is two levels up. Deriving
 # it beats a hard-coded path: it works on any host and in any clone.
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
@@ -64,6 +79,19 @@ validate() {
         claude|codex|opencode) ;;
         *) fail "AUTONOMY_LEAD_RUNTIME must be claude, codex, or opencode" ;;
     esac
+    case "$MODEL" in
+        ''|*[!A-Za-z0-9._:\[\]-]*) fail "AUTONOMY_LEAD_MODEL contains unsupported characters" ;;
+    esac
+    case "$SUBAGENT_MODEL" in
+        ''|*[!A-Za-z0-9._:/#\[\]-]*) fail "AUTONOMY_LEAD_SUBAGENT_MODEL contains unsupported characters" ;;
+    esac
+    case "$API_BASE_URL" in
+        http://*|https://*) ;;
+        *) fail "AUTONOMY_LEAD_API_BASE_URL must use http or https" ;;
+    esac
+    case "$API_BASE_URL" in
+        *\"*|*\\*|*[[:space:]]*) fail "AUTONOMY_LEAD_API_BASE_URL contains unsupported characters" ;;
+    esac
     case "$MCP_URL" in
         http://*|https://*) ;;
         *) fail "AUTONOMY_ARMADA_MCP_URL must use http or https" ;;
@@ -73,6 +101,24 @@ validate() {
     esac
     [ -f "$REPO/docs/autonomy/lead-bootstrap-prompt.md" ] \
         || fail "bootstrap prompt not found under $REPO"
+
+    case "$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')" in
+        claude|opencode)
+            [ -f "$API_KEY_FILE" ] || fail "provider key file not found: $API_KEY_FILE"
+            [ -s "$API_KEY_FILE" ] || fail "provider key file is empty: $API_KEY_FILE"
+            [ -r "$API_KEY_FILE" ] || fail "provider key file is not readable: $API_KEY_FILE"
+            local key_mode key_lines
+            if key_mode=$(stat -c '%a' "$API_KEY_FILE" 2>/dev/null) \
+                || key_mode=$(stat -f '%Lp' "$API_KEY_FILE" 2>/dev/null); then
+                case "$key_mode" in
+                    *00) ;;
+                    *) fail "provider key file must not grant group or other access: $API_KEY_FILE" ;;
+                esac
+            fi
+            key_lines=$(awk 'END { print NR }' "$API_KEY_FILE")
+            [ "$key_lines" -eq 1 ] || fail "provider key file must contain exactly one line: $API_KEY_FILE"
+            ;;
+    esac
 }
 
 is_alive() {
@@ -170,6 +216,157 @@ JSON
     printf '%s\n' "$path"
 }
 
+prepare_opencode_config() {
+    local path="$WORKDIR/lead-opencode.json"
+    local primary_model="vilao/$MODEL"
+    local key_reference="{file:$API_KEY_FILE}"
+
+    # This overlay belongs to the lead process only. The global OpenCode config
+    # is also used by captains, so putting the lead model, participant header, or
+    # permission policy there would silently turn every OpenCode captain into the
+    # lead. OPENCODE_CONFIG merges this file over the global provider credentials
+    # for this process and its child sessions only.
+    jq -n \
+        --arg apiBaseUrl "$API_BASE_URL" \
+        --arg apiKey "$key_reference" \
+        --arg model "$MODEL" \
+        --arg primaryModel "$primary_model" \
+        --arg subagentModel "$SUBAGENT_MODEL" \
+        --arg mcpUrl "$MCP_URL" \
+        --arg leadKey "$LEAD_KEY" \
+        '{
+          "$schema": "https://opencode.ai/config.json",
+          model: $primaryModel,
+          small_model: $subagentModel,
+          subagent_depth: 1,
+          provider: {
+            vilao: {
+              npm: "@ai-sdk/anthropic",
+              name: "Vilao",
+              options: {
+                baseURL: $apiBaseUrl,
+                apiKey: $apiKey,
+                setCacheKey: true
+              },
+              models: {
+                ($model): {
+                  name: "Vilao Claude Fable 5"
+                }
+              }
+            }
+          },
+          mcp: {
+            armada: {
+              type: "remote",
+              url: $mcpUrl,
+              enabled: true,
+              oauth: false,
+              headers: {
+                "X-Armada-Participant": $leadKey
+              }
+            }
+          },
+          permission: {
+            question: "deny",
+            armada_armada_stop_server: "deny",
+            armada_armada_stop_all: "deny",
+            armada_armada_restore: "deny",
+            armada_armada_backup: "deny",
+            armada_armada_dispatch_hold: "deny",
+            armada_armada_resolve_check: "deny",
+            armada_armada_register_agentwake_session: "deny",
+            armada_armada_objective_scheduler_set: "deny",
+            armada_armada_delete_captain: "deny",
+            armada_armada_delete_captains: "deny",
+            armada_armada_delete_dock: "deny",
+            armada_armada_delete_docks: "deny",
+            armada_armada_delete_event: "deny",
+            armada_armada_delete_events: "deny",
+            armada_armada_delete_fleet: "deny",
+            armada_armada_delete_fleets: "deny",
+            armada_armada_delete_incident: "deny",
+            armada_armada_delete_merge: "deny",
+            armada_armada_delete_missions: "deny",
+            armada_armada_delete_signals: "deny",
+            armada_armada_delete_vessel: "deny",
+            armada_armada_delete_vessels: "deny",
+            armada_armada_delete_voyages: "deny",
+            armada_armada_purge_dock: "deny",
+            armada_armada_purge_merge_entries: "deny",
+            armada_armada_purge_merge_entry: "deny",
+            armada_armada_purge_merge_queue: "deny",
+            armada_armada_purge_mission: "deny",
+            armada_armada_purge_voyage: "deny",
+            armada_delete_objective: "deny",
+            armada_delete_backlog_item: "deny",
+            armada_delete_playbook: "deny",
+            armada_delete_runbook: "deny",
+            armada_delete_runbook_execution: "deny",
+            armada_delete_environment: "deny",
+            armada_delete_persona: "deny",
+            armada_delete_pipeline: "deny",
+            armada_delete_workflow_profile: "deny",
+            armada_create_deployment: "deny",
+            armada_update_deployment: "deny",
+            armada_approve_deployment: "deny",
+            armada_rollback_deployment: "deny",
+            armada_verify_deployment: "deny",
+            armada_create_release: "deny",
+            armada_update_release: "deny",
+            bash: {
+              "*": "allow",
+              "git push --force*": "deny",
+              "git push -f *": "deny",
+              "docker compose *": "deny",
+              "systemctl *": "deny",
+              "rm -rf /*": "deny"
+            }
+          },
+          agent: {
+            build: {
+              model: $primaryModel
+            },
+            explore: {
+              model: $subagentModel
+            },
+            general: {
+              description: "Read-only Armada fleet and repository investigator. Return evidence to the lead and never change state.",
+              model: $subagentModel,
+              tools: {
+                write: false,
+                edit: false,
+                patch: false,
+                bash: false
+              },
+              permission: {
+                question: "deny",
+                armada_armada_coordination_post: "deny",
+                armada_armada_coordination_claim: "deny",
+                armada_armada_mark_signal_read: "deny",
+                armada_armada_update_objective: "deny",
+                armada_update_objective: "deny",
+                armada_create_objective: "deny",
+                armada_armada_mark_objective_auto_dispatchable: "deny",
+                armada_armada_enqueue_merge: "deny",
+                armada_armada_process_merge_entry: "deny",
+                armada_armada_close_incident: "deny",
+                armada_armada_update_incident: "deny",
+                armada_armada_cancel_mission: "deny",
+                armada_armada_cancel_voyage: "deny",
+                armada_armada_dispatch: "deny",
+                armada_armada_nudge_voyage: "deny",
+                armada_armada_signal: "deny"
+              }
+            },
+            title: { model: $subagentModel },
+            summary: { model: $subagentModel },
+            compaction: { model: $subagentModel }
+          }
+        }' > "$path"
+    chmod 600 "$path"
+    printf '%s\n' "$path"
+}
+
 build_prompt() {
     # The bootstrap doc is the contract. Everything below it is the only
     # per-cycle state: which key to use, and that this is an unattended run.
@@ -199,6 +396,22 @@ $REPO/scripts/autonomy/watch-armada.mjs and read its lines. A blocking shell loo
 inside one tool call produces no visible progress, cannot see a directed board
 note while it runs, and has ended turns mid-work.
 EOF
+
+    if [ "$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')" = "opencode" ]; then
+        cat <<EOF
+
+[COST-AWARE DELEGATION]
+You are the primary lead on $MODEL. Use the OpenCode explore subagent for
+repository searches and the general subagent for read-only fleet inspection.
+Those child agents run on $SUBAGENT_MODEL. Give each child one bounded,
+independent question and ask for exact evidence. You must make all decisions and
+all state changes yourself. Never delegate a write, dispatch, merge, incident
+change, signal acknowledgement, coordination claim, or board post. Parallel
+read-only work is useful; parallel control of Armada is forbidden. Combine
+related reads into one child task. Each return to the primary is another Vilao
+request, so do not split one investigation into many small child tasks.
+EOF
+    fi
 
     if [ -n "${AUTONOMY_WAKE_TEXT:-}" ]; then
         cat <<EOF
@@ -271,13 +484,14 @@ cmd_run() {
     else echo "warning: no timeout binary; running this cycle UNCAPPED" >&2
     fi
 
-    local stamp log raw prompt_file mcp_config settings_file runtime status
+    local stamp log raw prompt_file mcp_config settings_file opencode_config runtime status
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     log="$LOG_DIR/cycle-$stamp.log"
     raw="$LOG_DIR/cycle-$stamp.jsonl"
     prompt_file="$RUN_DIR/prompt-$stamp.md"
     mcp_config=$(prepare_mcp_config)
     settings_file=$(prepare_settings)
+    opencode_config=""
     runtime=$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')
 
     build_prompt > "$prompt_file"
@@ -308,8 +522,14 @@ cmd_run() {
             # work once left a 73-byte log claiming it had nothing to report. The raw
             # .jsonl is written incrementally, so it survives a killed run and the
             # digest below can still be rendered from a partial stream.
-            ${cap[@]+"${cap[@]}"} claude --print \
+            local api_key
+            api_key=$(tr -d '\r\n' < "$API_KEY_FILE")
+            ${cap[@]+"${cap[@]}"} env -u ANTHROPIC_AUTH_TOKEN \
+                ANTHROPIC_BASE_URL="$API_BASE_URL" \
+                ANTHROPIC_API_KEY="$api_key" \
+                claude --print \
                 --output-format stream-json --verbose \
+                --model "$MODEL" \
                 --setting-sources project,local \
                 --strict-mcp-config --mcp-config "$mcp_config" \
                 --settings "$settings_file" \
@@ -320,7 +540,10 @@ cmd_run() {
             ${cap[@]+"${cap[@]}"} codex exec - < "$prompt_file" > "$log" 2>&1
             ;;
         opencode)
-            ${cap[@]+"${cap[@]}"} opencode run "$(cat "$prompt_file")" > "$log" 2>&1
+            opencode_config=$(prepare_opencode_config)
+            ${cap[@]+"${cap[@]}"} env OPENCODE_CONFIG="$opencode_config" \
+                opencode run --model "vilao/$MODEL" --agent build --format json \
+                "$(cat "$prompt_file")" > "$raw" 2>&1
             ;;
     esac
     status=$?
@@ -362,6 +585,10 @@ cmd_status() {
     fi
     echo "key:     $LEAD_KEY"
     echo "runtime: $RUNTIME"
+    echo "model:   $MODEL"
+    if [ "$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')" = "opencode" ]; then
+        echo "reader:  $SUBAGENT_MODEL"
+    fi
     echo "running: $pid"
     echo -n "last:    "
     cat "$LAST_FILE" 2>/dev/null || echo "no cycle has run"
