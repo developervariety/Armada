@@ -171,6 +171,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("dispatched=0", scheduler.LastResultSummary ?? string.Empty, "Sweep summary should show zero dispatches.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_EligibleObjectiveWithTwoVessels_RecordsObjectiveSkippedReason", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel first = await testDb.Driver.Vessels.CreateAsync(new Vessel("two-vessel-a", "https://github.com/test/a.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Vessel second = await testDb.Driver.Vessels.CreateAsync(new Vessel("two-vessel-b", "https://github.com/test/b.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Reads two repositories, commits to one",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { first.Id, second.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "An objective with two vessels must not auto-dispatch.");
+                AssertEqual("objective_skipped", scheduler.LastSkipReason, "A sweep that refused every eligible objective must name the reason.");
+                AssertContains("objective_skips=1", scheduler.LastResultSummary ?? string.Empty, "Sweep summary should count the objective-level skip.");
+
+                List<ArmadaEvent> skippedEvents = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_vessel_count")
+                    .ConfigureAwait(false);
+                AssertEqual(1, skippedEvents.Count, "The vessel-count skip must be recorded as an objective event.");
+                AssertContains(objective.Id, skippedEvents[0].Message ?? string.Empty, "The skip event must name the objective.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_AfterFirstDispatch_SecondSchedulerInstanceDoesNotDispatchAgain", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

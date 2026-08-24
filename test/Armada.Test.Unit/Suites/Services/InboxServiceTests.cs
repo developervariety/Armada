@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -74,6 +75,142 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(failed, "a failed mission must produce an inbox item");
                     AssertEqual(InboxSeverityEnum.Warning, failed!.Severity);
                     AssertEqual("gate failed", failed.Detail);
+                }
+            });
+
+            await RunTest("GetInboxAsync hides a Failed mission whose voyage has halted", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage halted = await testDb.Driver.Voyages.CreateAsync(new Voyage("Halted voyage")
+                    {
+                        Status = VoyageStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Voyage live = await testDb.Driver.Voyages.CreateAsync(new Voyage("Live voyage")
+                    {
+                        Status = VoyageStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+
+                    Mission haltedFailure = new Mission("Stage failed in a halted voyage")
+                    {
+                        Status = MissionStatusEnum.Failed,
+                        VoyageId = halted.Id
+                    };
+                    Mission liveFailure = new Mission("Stage failed in a live voyage")
+                    {
+                        Status = MissionStatusEnum.Failed,
+                        VoyageId = live.Id
+                    };
+                    Mission haltedLanding = new Mission("Landing failed in a halted voyage")
+                    {
+                        Status = MissionStatusEnum.LandingFailed,
+                        VoyageId = halted.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(haltedFailure).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(liveFailure).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(haltedLanding).ConfigureAwait(false);
+
+                    InboxService service = CreateService(testDb.Driver);
+                    List<InboxItem> items = await service.GetInboxAsync().ConfigureAwait(false);
+
+                    AssertTrue(items.All(item => item.EntityId != haltedFailure.Id), "a failed mission in a halted voyage is carried by its incident, not the inbox");
+                    AssertTrue(items.All(item => item.EntityId != haltedLanding.Id), "a landing failure in a halted voyage is carried by its incident, not the inbox");
+                    AssertTrue(items.Any(item => item.Kind == "failed" && item.EntityId == liveFailure.Id), "a failed mission in a live voyage stays actionable");
+                }
+            });
+
+            await RunTest("GetInboxAsync follows a rescue mission to the voyage it rescues", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage halted = await testDb.Driver.Voyages.CreateAsync(new Voyage("Halted voyage")
+                    {
+                        Status = VoyageStatusEnum.Cancelled
+                    }).ConfigureAwait(false);
+                    Voyage live = await testDb.Driver.Voyages.CreateAsync(new Voyage("Live voyage")
+                    {
+                        Status = VoyageStatusEnum.Open
+                    }).ConfigureAwait(false);
+
+                    Mission haltedParent = await testDb.Driver.Missions.CreateAsync(new Mission("Original in halted voyage")
+                    {
+                        Status = MissionStatusEnum.Failed,
+                        VoyageId = halted.Id
+                    }).ConfigureAwait(false);
+                    Mission liveParent = await testDb.Driver.Missions.CreateAsync(new Mission("Original in live voyage")
+                    {
+                        Status = MissionStatusEnum.Failed,
+                        VoyageId = live.Id
+                    }).ConfigureAwait(false);
+
+                    Mission haltedRescue = new Mission("Rescue 1: halted")
+                    {
+                        Status = MissionStatusEnum.Failed,
+                        ParentMissionId = haltedParent.Id
+                    };
+                    Mission liveRescue = new Mission("Rescue 1: live")
+                    {
+                        Status = MissionStatusEnum.LandingFailed,
+                        ParentMissionId = liveParent.Id
+                    };
+                    Mission orphan = new Mission("No voyage anywhere")
+                    {
+                        Status = MissionStatusEnum.Failed
+                    };
+                    await testDb.Driver.Missions.CreateAsync(haltedRescue).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(liveRescue).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(orphan).ConfigureAwait(false);
+
+                    InboxService service = CreateService(testDb.Driver);
+                    List<InboxItem> items = await service.GetInboxAsync().ConfigureAwait(false);
+
+                    AssertTrue(items.All(item => item.EntityId != haltedRescue.Id), "a rescue of a halted voyage is not actionable on its own");
+                    AssertTrue(items.Any(item => item.Kind == "landing_failed" && item.EntityId == liveRescue.Id), "a rescue whose parent voyage is live stays actionable");
+                    AssertTrue(items.Any(item => item.Kind == "failed" && item.EntityId == orphan.Id), "a mission with no voyage in its chain stays visible");
+                }
+            });
+
+            await RunTest("GetInboxAsync surfaces open incidents and hides closed ones", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    AuthContext auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "UnitTest");
+
+                    Incident open = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Judge rejected the verdict",
+                        Status = IncidentStatusEnum.Open,
+                        Severity = IncidentSeverityEnum.High,
+                        RecoveryNotes = "Autonomous policy stopped before rescue dispatch."
+                    }).ConfigureAwait(false);
+                    Incident monitoring = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Host memory watch",
+                        Status = IncidentStatusEnum.Monitoring,
+                        Severity = IncidentSeverityEnum.Low
+                    }).ConfigureAwait(false);
+                    Incident closed = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Already handled",
+                        Status = IncidentStatusEnum.Closed,
+                        Severity = IncidentSeverityEnum.Critical
+                    }).ConfigureAwait(false);
+
+                    InboxService service = CreateService(testDb.Driver);
+                    List<InboxItem> items = await service.GetInboxAsync().ConfigureAwait(false);
+
+                    InboxItem? openItem = items.FirstOrDefault(item => item.Kind == "open_incident" && item.EntityId == open.Id);
+                    AssertNotNull(openItem, "an open incident must produce an inbox item");
+                    AssertEqual(InboxSeverityEnum.Critical, openItem!.Severity, "a High incident is critical in the inbox");
+                    AssertEqual("Autonomous policy stopped before rescue dispatch.", openItem.Detail);
+                    AssertEqual("/incidents/" + open.Id, openItem.Href);
+
+                    InboxItem? monitoringItem = items.FirstOrDefault(item => item.Kind == "open_incident" && item.EntityId == monitoring.Id);
+                    AssertNotNull(monitoringItem, "a monitoring incident must produce an inbox item");
+                    AssertEqual(InboxSeverityEnum.Warning, monitoringItem!.Severity, "a Low incident is a warning in the inbox");
+
+                    AssertTrue(items.All(item => item.EntityId != closed.Id), "a closed incident is not actionable");
                 }
             });
 

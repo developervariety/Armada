@@ -302,6 +302,7 @@ namespace Armada.Server
 
                 int dispatched = 0;
                 int vesselConcurrencySkips = 0;
+                int objectiveSkips = 0;
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
 
                 foreach (Objective objective in eligible)
@@ -342,6 +343,7 @@ namespace Armada.Server
                     }
                     catch (ObjectiveSkippedException)
                     {
+                        objectiveSkips++;
                     }
                     catch (Exception ex)
                     {
@@ -349,11 +351,17 @@ namespace Armada.Server
                     }
                 }
 
+                // A sweep that dispatched nothing must say why. Objective-level skips (wrong vessel count,
+                // merge-queue back-pressure, index in progress) used to leave the reason null, which read
+                // as a healthy idle fleet while eligible objectives were being refused every tick.
                 LastSkipReason = dispatched == 0 && vesselConcurrencySkips > 0
                     ? "vessel_concurrency"
-                    : null;
+                    : dispatched == 0 && objectiveSkips > 0
+                        ? "objective_skipped"
+                        : null;
                 LastResultSummary = "reconciled=" + reconciledCount + " dispatched=" + dispatched
-                    + (vesselConcurrencySkips > 0 ? " vessel_skips=" + vesselConcurrencySkips : String.Empty);
+                    + (vesselConcurrencySkips > 0 ? " vessel_skips=" + vesselConcurrencySkips : String.Empty)
+                    + (objectiveSkips > 0 ? " objective_skips=" + objectiveSkips : String.Empty);
                 _Logging.Info(_Header + "sweep complete: reconciled=" + reconciledCount + " dispatched=" + dispatched + " capacity=" + capacity + ".");
             }
             finally
@@ -469,6 +477,10 @@ namespace Armada.Server
             if (objective.VesselIds.Count != 1)
             {
                 _Logging.Warn(_Header + "objective " + objective.Id + " skipped: must have exactly one vessel for v1 auto-dispatch (has " + objective.VesselIds.Count + ").");
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_vessel_count",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": auto-dispatch needs exactly one vessel, it has "
+                        + objective.VesselIds.Count + ". Set VesselIds to the vessel whose repository receives the commit.",
+                    objective, null, token).ConfigureAwait(false);
                 throw new ObjectiveSkippedException();
             }
 
