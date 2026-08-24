@@ -935,6 +935,21 @@ namespace Armada.Server
                     if (String.IsNullOrWhiteSpace(usage.Model))
                         usage.Model = String.IsNullOrWhiteSpace(captain.Model) ? "(runtime default)" : captain.Model.Trim();
 
+                    await TokenUsageCapture.CaptureAsync(
+                        _Database, _Logging, "mission",
+                        model: usage.Model,
+                        runtime: usage.Runtime,
+                        tenantId: mission.TenantId,
+                        userId: mission.UserId,
+                        vesselId: mission.VesselId,
+                        captainId: captain.Id,
+                        sourceId: mission.Id,
+                        inputTokens: usage.InputTokens,
+                        outputTokens: usage.OutputTokens,
+                        cachedTokens: usage.CacheReadTokens,
+                        inputText: null,
+                        outputText: null).ConfigureAwait(false);
+
                     ArmadaEvent evt = new ArmadaEvent(
                         "mission.token_usage",
                         "Authoritative token usage reported by " + usage.Runtime + " for " + usage.Model);
