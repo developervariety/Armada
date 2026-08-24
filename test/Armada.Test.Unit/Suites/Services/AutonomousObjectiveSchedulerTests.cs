@@ -342,6 +342,139 @@ namespace Armada.Test.Unit.Suites.Services
                     reloaded.AutonomousObjectiveScheduler.MaxConcurrentVoyages,
                     "Concurrency set over MCP must survive a restart too.");
             }).ConfigureAwait(false);
+
+            await RunTest("A scheduler-dispatched voyage arms the vessel's Build and UnitTest Checks", async () =>
+            {
+                // The scheduler dispatches through the admiral directly rather than through
+                // VoyageDispatchService. It armed nothing for months because the arming lived in
+                // that one caller, so every autonomous voyage reached its Judge with no Check
+                // attached and the operator had to attach one by hand.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arming-vessel", "https://github.com/test/arming.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    Name = "arming-profile",
+                    Active = true,
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = vessel.Id,
+                    BuildCommand = "dotnet build",
+                    UnitTestCommand = "dotnet test"
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Autonomous work that needs a gate",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 5
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "The sweep should dispatch exactly one voyage.");
+
+                EnumerationResult<CheckRun> armed = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    VesselId = vessel.Id,
+                    PageSize = 100
+                }).ConfigureAwait(false);
+
+                AssertEqual(2, armed.Objects.Count, "A scheduler voyage must arm the same Checks an operator dispatch arms.");
+                AssertTrue(armed.Objects.Exists(c => c.Type == CheckRunTypeEnum.Build), "Build must be armed.");
+                AssertTrue(armed.Objects.Exists(c => c.Type == CheckRunTypeEnum.UnitTest), "UnitTest must be armed.");
+
+                foreach (CheckRun run in armed.Objects)
+                {
+                    // The armed state carries no branch and an UNSTAMPED command on purpose. The
+                    // executor stamps both once a stage has committed, so the Check measures that
+                    // work rather than the default branch. Reading this record as a broken stub is
+                    // the misdiagnosis to avoid: CheckRun.Command defaults to "echo" and rejects
+                    // empty, so a freshly armed record always reads "echo" and never wrote it.
+                    AssertEqual(CheckRunStatusEnum.Pending, run.Status, "An armed Check starts Pending.");
+                    AssertTrue(String.IsNullOrEmpty(run.BranchName), "An armed Check carries no branch until it is stamped.");
+                    AssertTrue(
+                        run.Command != "dotnet build" && run.Command != "dotnet test",
+                        "An armed Check must not carry the profile command until the executor stamps it.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Arming disabled in settings arms nothing on the scheduler path too", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arming-off-vessel", "https://github.com/test/armingoff.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    Name = "arming-off-profile",
+                    Active = true,
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = vessel.Id,
+                    BuildCommand = "dotnet build",
+                    UnitTestCommand = "dotnet test"
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Autonomous work with arming disabled",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 5
+                    },
+                    VoyageCheckArming = new VoyageCheckArmingSettings { Enabled = false }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "The sweep should still dispatch.");
+
+                EnumerationResult<CheckRun> armed = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    VesselId = vessel.Id,
+                    PageSize = 100
+                }).ConfigureAwait(false);
+
+                AssertEqual(0, armed.Objects.Count, "Disabling arming must disable it on every dispatch path.");
+            }).ConfigureAwait(false);
         }
 
         private static AutonomousObjectiveScheduler CreateScheduler(

@@ -478,6 +478,22 @@ namespace Armada.Server
             AuthContext objectiveAuth = BuildAuth(objective);
             await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token).ConfigureAwait(false);
 
+            // Arm this voyage's Checks through the same seam the operator dispatch paths use. The
+            // scheduler dispatches through the admiral directly rather than through
+            // VoyageDispatchService, so without this call an autonomously dispatched voyage reaches
+            // its Judge with no Check attached, and a Judge PASS is rejected for want of a green
+            // independent Check that nothing was ever going to produce.
+            Vessel? armingVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
+            if (armingVessel == null)
+            {
+                _Logging.Warn(_Header + "could not arm Checks for voyage " + voyage.Id + ": vessel " + vesselId + " not found.");
+            }
+            else
+            {
+                VoyageCheckArmingService arming = new VoyageCheckArmingService(_Database, _Settings, _Logging);
+                await arming.ArmAsync(voyage, armingVessel, "scheduler", token).ConfigureAwait(false);
+            }
+
             await EmitObjectiveEventAsync("objective_scheduler.objective_dispatched",
                 "Autonomous scheduler dispatched objective " + objective.Id + " as voyage " + voyage.Id + " on vessel " + vesselId + ".",
                 objective, vesselId, token).ConfigureAwait(false);

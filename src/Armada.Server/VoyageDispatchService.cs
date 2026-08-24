@@ -236,9 +236,9 @@ namespace Armada.Server
             }
 
             // Arm the voyage's own Checks here, in the same action as the dispatch, so the voyage
-            // carries a standing record of which gates it wants. The records are intent markers:
-            // they are executed once the voyage completes, and they do not stand in for the real
-            // Build and UnitTest signal the Judge gate requires against the mission's own branch.
+            // carries a standing record of which gates it wants. A record is armed Pending with no
+            // command and no branch; the executor stamps both onto it and runs it once a stage has
+            // committed, so the Check measures the work under review and not the default branch.
             await ArmVoyageChecksAsync(voyage, dispatchVessel, token).ConfigureAwait(false);
 
             await WarnOnCoordinationClaimConflictsAsync(voyage, dispatchVessel, request.ObjectiveId, token).ConfigureAwait(false);
@@ -315,55 +315,19 @@ namespace Armada.Server
         /// convenience into an outage.
         /// </para>
         /// </remarks>
+        /// <summary>
+        /// Arm this voyage's Checks through the shared arming seam.
+        /// </summary>
+        /// <remarks>
+        /// The work lives in VoyageCheckArmingService because this is not the only path that
+        /// starts a voyage. The autonomous objective scheduler dispatches through the admiral
+        /// directly and calls the same seam, so neither path can arm while the other silently
+        /// does not.
+        /// </remarks>
         private async Task ArmVoyageChecksAsync(Voyage voyage, Vessel vessel, CancellationToken token)
         {
-            try
-            {
-                VoyageCheckArmingSettings? arming = _Settings?.VoyageCheckArming;
-                if (arming == null || !arming.Enabled) return;
-
-                AuthContext auth = AuthContext.Authenticated(
-                    voyage.TenantId ?? vessel.TenantId ?? "default",
-                    voyage.UserId ?? "default",
-                    true,
-                    true,
-                    "system");
-
-                WorkflowProfileService profiles = new WorkflowProfileService(_Database, _Logging!);
-                WorkflowProfile? profile = await profiles.ResolveForVesselAsync(auth, vessel, null, token).ConfigureAwait(false);
-
-                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(arming, profile, null);
-                if (planned.Count == 0)
-                {
-                    LogDispatchInfo("dispatch step checks_armed voyage " + voyage.Id + " armed=0"
-                        + (profile == null ? " reason=no_workflow_profile" : " reason=no_matching_commands"));
-                    return;
-                }
-
-                foreach (CheckRunTypeEnum type in planned)
-                {
-                    CheckRun run = new CheckRun
-                    {
-                        TenantId = voyage.TenantId,
-                        UserId = voyage.UserId,
-                        VesselId = vessel.Id,
-                        VoyageId = voyage.Id,
-                        WorkflowProfileId = profile?.Id,
-                        Type = type,
-                        Source = CheckRunSourceEnum.Armada,
-                        Status = CheckRunStatusEnum.Pending,
-                        Label = type.ToString() + " (armed at dispatch)"
-                    };
-
-                    await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
-                }
-
-                LogDispatchInfo("dispatch step checks_armed voyage " + voyage.Id + " armed=" + planned.Count);
-            }
-            catch (Exception ex)
-            {
-                _Logging?.Warn("[VoyageDispatchService] could not arm Checks for voyage " + voyage.Id + ": " + ex.Message);
-            }
+            VoyageCheckArmingService arming = new VoyageCheckArmingService(_Database, _Settings, _Logging);
+            await arming.ArmAsync(voyage, vessel, "dispatch", token).ConfigureAwait(false);
         }
 
         private static VoyageDispatchResult? ValidateRequest(string title, List<MissionDescription>? missions)
