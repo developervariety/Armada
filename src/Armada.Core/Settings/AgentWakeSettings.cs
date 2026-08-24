@@ -39,8 +39,8 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Spawn the agent CLI as a headless process (current default). Best when
         /// the operator is AFK with the interactive session closed; the spawned
-        /// process resumes the saved conversation and drives the orchestrator turn
-        /// autonomously.
+        /// process drives an orchestrator turn autonomously. Claude and Codex can
+        /// resume a registered session; OpenCode always starts a fresh session.
         /// </summary>
         SpawnProcess,
 
@@ -61,7 +61,7 @@ namespace Armada.Core.Settings
     }
 
     /// <summary>
-    /// Configuration for AgentWake mode -- starts a local Claude or Codex process on wake events.
+    /// Configuration for AgentWake mode -- starts a local Claude, Codex, or OpenCode process on wake events.
     /// Lives under the <c>remoteTrigger.agentWake</c> key in settings.json.
     /// Default values allow opt-in with only <c>mode: "AgentWake"</c> and no other fields.
     /// </summary>
@@ -78,13 +78,14 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// Optional command override. If null or empty, defaults to "claude" for the Claude runtime
-        /// or "codex" for the Codex runtime.
+        /// "codex" for Codex, or "opencode" for OpenCode.
         /// </summary>
         public string? Command { get; set; }
 
         /// <summary>
-        /// Optional session ID. If present, resumes the specified session; if absent,
-        /// resumes the latest continuation candidate (--continue for Claude, --last for Codex).
+        /// Optional session ID. Claude and Codex resume it when supported; if absent,
+        /// they use their latest continuation candidate. OpenCode ignores resume state
+        /// and starts a fresh session seeded with the wake text.
         /// </summary>
         public string? SessionId { get; set; }
 

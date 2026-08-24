@@ -45,6 +45,7 @@ Check these settings before you depend on the related workflow:
 | `seedDockRuntimeMcpConfig` | Gives compatible captains dock-local Armada MCP configuration. |
 | `autonomousRecovery.enabled` | Enables bounded server-side mission recovery. |
 | `incidentLifecycle.enabled` | Enables evidence-driven incident transitions. |
+| `remoteTrigger.enabled`, mode, and `agentWake.deliveryMode` | Enables AgentWake process and/or signal delivery. |
 | Objective `AutoDispatchEnabled` and scheduler state | Enables autonomous objective dispatch. |
 | Vessel or voyage landing mode | Selects `LocalMerge`, `PullRequest`, `MergeQueue`, or `None`. |
 | Vessel default pipeline | Selects the normal persona path. |
@@ -534,27 +535,58 @@ Operating rules:
 
 ### 4.11 Helper Sessions And The Lead Roster
 
-A lead session that runs helper sessions owns their employment. Three sets,
-all readable from the coordination board, define the roster: participants
-(who is present and when last seen), active claims (who holds work), and the
-difference: a participant present with no claim is IDLE.
+A lead session that runs host-side helper sessions owns their complete
+lifecycle. This is separate from the autonomous objective scheduler: the
+scheduler selects ready objectives and dispatches captains inside Armada. An
+optional lead cycle reviews the inbox, refills campaigns, and delegates narrow
+read-only investigations. Armada does not schedule that lead cycle by itself;
+an operator starts a fresh cycle directly, through an external scheduler, or by
+registering it for AgentWake process delivery.
+
+Use `scripts/autonomy/spawn-helper.sh` for bounded host-side helpers:
+
+```bash
+scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
+scripts/autonomy/spawn-helper.sh list
+scripts/autonomy/spawn-helper.sh kill census
+scripts/autonomy/spawn-helper.sh cull
+```
+
+The launcher enforces `AUTONOMY_MAX_HELPERS` (default 2), records PIDs and
+participant keys under `AUTONOMY_WORKDIR`, and culls sessions older than
+`AUTONOMY_HELPER_TIMEOUT_MIN` (default 90). It supports `opencode`, `claude`,
+and `codex`; `AUTONOMY_RUNTIME=command` plus `AUTONOMY_COMMAND` is the local
+test adapter. Every prompt receives a fixed contract: use the generated
+participant key, drain and acknowledge addressed wakes, stay read-only, post
+one outcome, release claims, and exit. Run
+`scripts/autonomy/test-spawn-helper.sh` after launcher changes.
+
+Three sets from the coordination board define the roster: participants (who is
+present and when last seen), active claims (who holds work), and their
+difference (a participant present without a claim is idle).
 
 Lead duties:
 
-- Hand idle helpers work with an ADDRESSED note (`toParticipantKey`) naming
-  the task, vessel or objective, and constraints. The note emits a Wake, so
-  the helper's next heartbeat delivers it.
+- Hand a live helper work with an addressed note (`toParticipantKey`) naming
+  the task, vessel or objective, and constraints. The note always writes a
+  Wake signal, so its next heartbeat delivers the full payload.
 - Or stand the helper down explicitly ("stand down, nothing available").
-  Saying there is no work IS the work; an idle helper left polling is a
-  silent waste both sides ignore.
+  A script-managed helper must then exit; it must not wait in a polling loop.
 - Re-check the roster between loop iterations, not only at session start.
 
-Helper duties (standby protocol): on finishing, post the outcome, release
-the claim, post "idle, standing by", then drop to a low-cost standby loop -
-heartbeat every few minutes and nothing else. The heartbeat response carries
-`UnreadWakes`, which is the entire poll: empty means nothing to read;
-non-empty means pause and take the handed work. Full room reads and table
-polling on a maybe are the failure this protocol prevents.
+Do not register a script-managed helper for AgentWake. That creates two process
+owners for one participant key and can duplicate work. Use one model:
+
+- A bounded script-managed helper handles its initial task and any wake already
+  waiting at a tool boundary, reports, and exits.
+- A registered AgentWake session has no resident process. An addressed note can
+  start a fresh process when delivery mode is `SpawnProcess` or `Both`.
+
+One process owns one participant key. OpenCode AgentWake sessions are always
+fresh, so the addressed note must contain the complete task and the bootstrap
+prompt must tell the session to reconstruct context from the board and durable
+memory. The reusable lead prompt is
+`docs/autonomy/lead-bootstrap-prompt.md`.
 
 ## 5. Recovery And Incident Workflow
 
@@ -750,6 +782,12 @@ shows only critical items).
 | --- | --- |
 | Read | `armada_objective_scheduler_status` |
 | Write | `armada_objective_scheduler_set`, `armada_mark_objective_auto_dispatchable` |
+
+Scheduler state changed through MCP is persisted to the loaded settings file
+and survives an Admiral restart. Scheduler dispatches use the same Build and
+UnitTest Check arming path as operator dispatches. A dispatch hold blocks both.
+See `docs/SCHEDULING.md` for eligibility and ordering, and section 4.11 for the
+separate optional lead-cycle layer.
 
 ### 8.7 Checks
 
@@ -985,8 +1023,18 @@ authentication before approving a real release.
 | Read | `armada_agentwake_status` |
 | Write | `armada_register_agentwake_session` |
 
-AgentWake is a resume transport. It is not the work queue or the source of
-truth.
+AgentWake is a process-delivery transport, not the work queue or the source of
+truth. Register one session with its runtime and, when addressed-note delivery
+is required, its exact `participantKey`. An addressed board note always creates
+a Wake signal. With delivery mode `SpawnProcess` or `Both`, a matching
+registration also starts the runtime process. With `McpNotification`, or when no
+registration matches, the signal remains for the next heartbeat or read.
+
+OpenCode does not resume an earlier conversation for AgentWake. It starts a
+fresh session by design. Put the complete task in the addressed note and make
+the bootstrap prompt reconstruct state from the coordination board and durable
+memory. Never give the same participant key to a resident process and an
+AgentWake registration.
 
 ### 8.19 Backup, Restore, And Server Control
 

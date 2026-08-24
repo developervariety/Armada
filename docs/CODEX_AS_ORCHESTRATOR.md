@@ -65,6 +65,20 @@ For non-trivial work, prefer this flow:
 
 See [`armada-ops.md`](armada-ops.md) for the current operator playbook.
 
+## Concurrent Sessions And Autonomous Cycles
+
+Use one stable coordination participant key. Read and heartbeat before work,
+drain full `UnreadWakes` payloads between monitor iterations, and acknowledge
+each processed Wake. Addressed notes always retain a signal and can also start
+the registered AgentWake runtime in `SpawnProcess` or `Both` mode. OpenCode
+wakes are fresh sessions, so the note carries the task and the session rebuilds
+state from the board and durable memory.
+
+The objective scheduler is the built-in unattended dispatcher. Optional lead
+cycles use [`autonomy/lead-bootstrap-prompt.md`](autonomy/lead-bootstrap-prompt.md);
+bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`. Do not assign
+one participant key to both a resident helper and AgentWake.
+
 ---
 
 ## Appendix: Manual Configuration

@@ -5,7 +5,7 @@ namespace Armada.Server.Mcp
     /// <summary>Arguments for registering a live orchestrator session for AgentWake Auto mode.</summary>
     public class AgentWakeSessionArgs
     {
-        /// <summary>Concrete runtime: Codex or Claude.</summary>
+        /// <summary>Concrete runtime: Codex, OpenCode, or Claude.</summary>
         public AgentWakeRuntime Runtime { get; set; } = AgentWakeRuntime.Auto;
 
         /// <summary>Optional runtime-specific session identifier.</summary>
@@ -14,7 +14,7 @@ namespace Armada.Server.Mcp
         /// <summary>Optional command override for this runtime.</summary>
         public string? Command { get; set; }
 
-        /// <summary>Optional working directory for the resumed orchestrator session.</summary>
+        /// <summary>Optional working directory for the started orchestrator session.</summary>
         public string? WorkingDirectory { get; set; }
 
         /// <summary>Optional client name/version for diagnostics.</summary>

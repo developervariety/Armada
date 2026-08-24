@@ -178,6 +178,40 @@ To use MySQL, PostgreSQL, or SQL Server instead of SQLite, change the `database`
 }
 ```
 
+### AgentWake In A Container
+
+AgentWake process delivery runs the agent CLI inside the Admiral container, not
+on the Docker host. The selected executable, its authentication/configuration,
+the working directory, and every repository or memory path needed by the fresh
+session must therefore exist in that container.
+
+Add the following to the settings file that the running Admiral reports as
+loaded (bind-mount that file so the change survives a container replacement):
+
+```json
+{
+  "remoteTrigger": {
+    "enabled": true,
+    "mode": "AgentWake",
+    "agentWake": {
+      "runtime": "OpenCode",
+      "deliveryMode": "Both"
+    }
+  }
+}
+```
+
+Settings hot-reload, but `armada_register_agentwake_session` is runtime state
+and must be called again after an Admiral restart. Supply the stable
+coordination `participantKey` when addressed notes should start the session.
+OpenCode starts fresh for every wake, so the note must carry the complete task
+and the session must read the board and durable memory.
+
+Use `McpNotification` when a resident operator only needs Wake rows. Use
+`SpawnProcess` or `Both` only after a controlled spawn test. Do not run a host
+service-managed Admiral beside the containerized Admiral; two service graphs
+can consume the same settings and state with different registrations.
+
 Valid `type` values: `Sqlite`, `Mysql`, `Postgresql`, `SqlServer`.
 
 ---

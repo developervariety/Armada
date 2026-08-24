@@ -159,4 +159,25 @@ The sweep dispatches an objective only when it is `AutoDispatchEnabled` **and** 
 
 ### Relationship to the manual loop
 
-The objective scheduler is the server-side alternative to an operator polling `armada_status` and dispatching unblocked work every tick. Enable it for stable objective graphs where hands-off continuation is the goal; keep it disabled (the default) when you want an operator to review each dispatch. It does not change mission-level scheduling once a voyage exists -- priority, voyage association, and FIFO (above) still decide which mission a captain picks up next.
+The objective scheduler is the server-side alternative to an operator polling
+`armada_status` and dispatching unblocked work every tick. Enable it for stable
+objective graphs where hands-off continuation is the goal; keep it disabled
+(the default) when you want an operator to review each dispatch. Changes made
+with `armada_objective_scheduler_set` are persisted to the loaded settings file
+and survive an Admiral restart.
+
+Each scheduler-dispatched voyage passes through the same check-arming service
+as an operator dispatch. When its workflow profile defines them, Build and
+UnitTest Checks are attached in `Pending` state and run against the produced
+stage commit before a Judge PASS can land. `armada_dispatch_hold` stops new
+scheduler and operator dispatches while leaving in-flight voyages running.
+
+The scheduler does not maintain campaign quality or run operator research. An
+optional fresh lead cycle can handle the inbox, verify and refill objectives,
+and delegate bounded read-only helpers; see
+`docs/autonomy/lead-bootstrap-prompt.md` and section 4.11 of
+`docs/armada-ops.md`. That cycle must be started manually, by an external
+scheduler, or through AgentWake. It is not a second server-side scheduler.
+
+Once a voyage exists, mission-level priority, voyage association, and FIFO
+(above) still decide which mission a captain picks up next.

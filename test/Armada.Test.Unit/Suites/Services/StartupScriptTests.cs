@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Diagnostics;
     using System.IO;
     using Armada.Test.Common;
 
@@ -38,6 +39,9 @@ namespace Armada.Test.Unit.Suites.Services
                     Path.Combine("scripts", "macos", "install-launchd-agent.sh"),
                     Path.Combine("scripts", "macos", "update-launchd-agent.sh"),
                     Path.Combine("scripts", "macos", "remove-launchd-agent.sh"),
+                    Path.Combine("scripts", "autonomy", "spawn-helper.sh"),
+                    Path.Combine("scripts", "autonomy", "test-spawn-helper.sh"),
+                    Path.Combine("docs", "autonomy", "lead-bootstrap-prompt.md"),
                 };
 
                 foreach (string relativePath in files)
@@ -98,6 +102,43 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains(@"CurrentVersion\Run", installTaskContents, "Windows installer should register a current-user Run entry");
                 AssertFalse(installTaskContents.Contains("schtasks /create"), "Windows installer should not depend on schtasks task creation");
                 AssertContains("does not require elevation", startupDocContents, "Startup guide should document the non-elevated Windows task flow");
+            });
+
+            await RunTest("Autonomy Helper Lifecycle Is Bounded And Tested", () =>
+            {
+                string root = FindRepositoryRoot();
+                string helperPath = Path.Combine(root, "scripts", "autonomy", "spawn-helper.sh");
+                string testPath = Path.Combine(root, "scripts", "autonomy", "test-spawn-helper.sh");
+                string helperContents = File.ReadAllText(helperPath);
+                string promptContents = File.ReadAllText(Path.Combine(root, "docs", "autonomy", "lead-bootstrap-prompt.md"));
+
+                AssertContains("AUTONOMY_MAX_HELPERS", helperContents, "helper launcher should enforce a concurrency cap");
+                AssertContains("AUTONOMY_HELPER_TIMEOUT_MIN", helperContents, "helper launcher should enforce a timeout");
+                AssertContains("armada_mark_signal_read", helperContents, "helper contract should acknowledge addressed wakes");
+                AssertContains("Do not start a polling loop", helperContents, "helper contract should require a bounded exit");
+                AssertContains("fresh session", promptContents, "lead prompt should document fresh-session reconstruction");
+
+                if (OperatingSystem.IsWindows())
+                {
+                    return;
+                }
+
+                using Process process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "/bin/bash",
+                    ArgumentList = { testPath },
+                    WorkingDirectory = root,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                }) ?? throw new InvalidOperationException("Could not start autonomy helper contract test.");
+
+                string standardOutput = process.StandardOutput.ReadToEnd();
+                string standardError = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                AssertEqual(0, process.ExitCode, "autonomy helper contract test should pass: " + standardOutput + standardError);
+                AssertContains("PASS: bounded helper lifecycle", standardOutput, "autonomy helper contract test should report completion");
             });
         }
 

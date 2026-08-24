@@ -28,7 +28,7 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         runtime = new { type = "string", description = "Concrete runtime: Codex, OpenCode, or Claude. Auto is not valid here." },
-                        sessionId = new { type = "string", description = "Optional session ID to resume. Omit to use --last for Codex or --continue for Claude." },
+                        sessionId = new { type = "string", description = "Optional session ID for Claude or Codex resume. OpenCode always starts fresh and ignores resume state." },
                         command = new { type = "string", description = "Optional command override for this runtime." },
                         workingDirectory = new { type = "string", description = "Optional working directory to use when Armada wakes the session." },
                         clientName = new { type = "string", description = "Optional client name/version for diagnostics." },

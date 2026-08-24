@@ -94,7 +94,26 @@ Coordination Board
 
 Notes can be ADDRESSED to one session (`toParticipantKey`), which emits a Wake:
 that session's next heartbeat or read returns `UnreadWakes`, telling it to pause
-and pick up the handed work. This is how helper sessions receive assignments.
+and pick up the handed work. Acknowledge each handled Wake with
+`armada_mark_signal_read`. If the key belongs to the registered AgentWake
+session and delivery mode is `SpawnProcess` or `Both`, the note also starts the
+registered runtime. OpenCode starts a fresh session, so the note must contain
+the task and the session must reconstruct context from the board and durable
+memory. The signal row is retained even if process delivery does not start.
+
+For optional host-side, read-only helpers, use the bounded launcher and its
+contract test:
+
+```bash
+scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
+scripts/autonomy/test-spawn-helper.sh
+```
+
+The built-in objective scheduler dispatches ready objectives. Host-side lead
+cycles and helpers are an operator layer; see
+`docs/autonomy/lead-bootstrap-prompt.md` and section 4.11 of the operations
+guide. Do not register a launcher-managed helper for AgentWake under the same
+participant key.
 
 Notes tagged with a voyage reach that voyage's next stage brief. All other
 notes are advisory context for humans and operator sessions; use signals to

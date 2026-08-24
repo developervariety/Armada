@@ -7,16 +7,20 @@ orchestrator. Captains perform mission work in isolated docks.
 
 Read `docs/armada-ops.md` before you operate Armada. It contains the complete
 workflow and all registered MCP tool names. Read `docs/MCP_API.md` for live
-schema discovery and transport behavior.
+schema discovery and transport behavior. For an optional fresh autonomous lead
+cycle, use `docs/autonomy/lead-bootstrap-prompt.md`.
 
 ## Session Start
 
-1. Call `armada_status`.
-2. Enumerate active voyages, missions, captains, merge entries, incidents,
+1. Read the coordination board and heartbeat with one stable participant key.
+   Drain full `UnreadWakes` payloads first and acknowledge processed signals
+   with `armada_mark_signal_read`.
+2. Call `armada_status` and inspect the dispatch hold and objective scheduler.
+3. Enumerate active voyages, missions, captains, merge entries, incidents,
    objectives, and Checks with small pages.
-3. Drain the audit queue.
-4. Read each relevant open objective in full.
-5. Check incidents and the merge queue before new dispatches.
+4. Drain the audit queue.
+5. Read each relevant open objective in full.
+6. Check incidents, active claims, and the merge queue before new dispatches.
 
 ## Work Intake
 
@@ -52,6 +56,8 @@ Keep an active loop while work runs.
 - Read mission and captain logs when progress is unclear.
 - Use captain diagnostics before deep process inspection.
 - Poll incidents and Checks.
+- Heartbeat between monitor-loop iterations. Handle and acknowledge directed
+  `UnreadWakes` before you continue.
 - Nudge only live work that needs missing context.
 - Do not steer a terminal mission.
 

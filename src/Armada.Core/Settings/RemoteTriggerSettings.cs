@@ -58,7 +58,7 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// AgentWake mode settings. Used when <see cref="Mode"/> is <see cref="RemoteTriggerMode.AgentWake"/>.
-        /// If absent, defaults are used (Claude runtime, --continue, 600s timeout).
+        /// If absent, defaults are used (Claude runtime, process delivery, 600s timeout).
         /// </summary>
         public AgentWakeSettings? AgentWake { get; set; }
 

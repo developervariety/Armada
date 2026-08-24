@@ -117,6 +117,27 @@ Do not infer success from the absence of a JSON-RPC error. Many Armada tools
 return a structured application result with `success`, `status`, `code`,
 `error`, or `action` fields. Read those fields.
 
+## Coordination And AgentWake
+
+Every concurrent operator uses one stable coordination `participantKey`.
+Heartbeat or read with that key between monitor-loop iterations. Both responses
+can contain full `UnreadWakes` payloads from addressed notes; process the work
+first and acknowledge each signal with `armada_mark_signal_read`.
+
+`armada_register_agentwake_session` registers one in-memory process target with
+a concrete `runtime` (`Claude`, `Codex`, or `OpenCode`) and an optional
+`participantKey`, session ID, command, working directory, and client name. The
+registration must be repeated after an Admiral restart. The settings file
+controls delivery under `remoteTrigger.agentWake`: `SpawnProcess`,
+`McpNotification`, or `Both`.
+
+An addressed board note always retains a Wake signal. When its key matches the
+registration and delivery is `SpawnProcess` or `Both`, Armada also starts the
+registered runtime. OpenCode always starts a fresh session; it does not use
+resume state. Put the complete task in the note and reconstruct context from
+the board and durable memory. Do not give one participant key to both a
+resident helper process and an AgentWake registration.
+
 ## Long Operations
 
 Dispatch, code-index refresh, and merge processing can return an accepted job
