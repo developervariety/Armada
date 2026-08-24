@@ -4019,10 +4019,15 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .chat-metrics-row-value { color: var(--text); font-weight: 600; font-family: var(--mono); }
 .chat-stream-notice svg { color: var(--accent); flex-shrink: 0; }
 .ask-header-controls {
-    display: flex;
+    display: grid;
+    grid-template-columns: max-content max-content minmax(14rem, min(24rem, 100%));
     align-items: flex-end;
     gap: 1rem;
+    min-width: 0;
+    max-width: 100%;
 }
+.ask-header-controls > label:last-child { min-width: 0; max-width: 100%; }
+.ask-header-controls > label:last-child select { width: 100%; min-width: 0; max-width: 100%; }
 .ask-stream-toggle {
     display: inline-flex;
     align-items: center;
@@ -7459,4 +7464,15 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     min-height: 0;
     /* Breathing room between the composer and the bottom of the viewport. */
     padding-bottom: 1.25rem;
+}
+
+@media (max-width: 900px) {
+    .ask-header-controls {
+        grid-template-columns: max-content max-content;
+        width: 100%;
+    }
+    .ask-header-controls > label:last-child {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
 }
