@@ -286,7 +286,8 @@ namespace Armada.Server.Mcp.Tools
                         tag = new { type = "string", description = "Campaign tag, for example 'campaign:porting'. Resolves every objective carrying it as a root. Omit when rootObjectiveId is supplied." },
                         rootObjectiveId = new { type = "string", description = "Campaign root objective ID (obj_ prefix). Omit when tag is supplied." },
                         noteLimit = new { type = "integer", description = "Recent board notes to include (default 10)." },
-                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." }
+                        includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." },
+                        includeSlices = new { type = "boolean", description = "Include the slice objectives under each lane (default false; each lane always carries sliceCount). The lane rollup is what fits in one response; ask for slices when you need them." }
                     }
                 },
                 async (args) =>
@@ -347,6 +348,10 @@ namespace Armada.Server.Mcp.Tools
                         AddToParent(o.ParentObjectiveId!, o);
                     }
 
+                    bool includeSlices = args.HasValue
+                        && args.Value.TryGetProperty("includeSlices", out JsonElement _slices)
+                        && _slices.ValueKind == JsonValueKind.True;
+
                     var tree = new List<object>();
                     foreach (string rootId in rootIds)
                     {
@@ -357,7 +362,17 @@ namespace Armada.Server.Mcp.Tools
                             foreach (CampaignNode lane in laneNodes)
                             {
                                 byParent.TryGetValue(lane.Id, out List<CampaignNode>? slices);
-                                lanes.Add(new { objective = lane, children = slices ?? new List<CampaignNode>() });
+                                List<CampaignNode> laneSlices = slices ?? new List<CampaignNode>();
+
+                                // A campaign rollup is about lanes; the slices under them are
+                                // most of the payload. One live campaign held 161 nodes at
+                                // 102,096 characters, past the caller's limit, while the
+                                // lane-level view is what the tool is actually for. Slices are
+                                // therefore counted by default and returned on request.
+                                if (includeSlices)
+                                    lanes.Add(new { objective = lane, children = laneSlices, sliceCount = laneSlices.Count });
+                                else
+                                    lanes.Add(new { objective = lane, sliceCount = laneSlices.Count });
                             }
                         }
 
