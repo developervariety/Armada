@@ -61,6 +61,7 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     ObjectiveQuery query = JsonSerializer.Deserialize<ObjectiveQuery>(args!.Value, _JsonOptions) ?? new ObjectiveQuery();
+                    if (McpResultPreview.WantsDefaultPageSize(args)) query.PageSize = McpResultPreview.DefaultMcpPageSize;
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
                     object result = await objectiveService.EnumerateAsync(auth, query).ConfigureAwait(false);
                     bool wantsFull = args.HasValue
@@ -97,6 +98,7 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     ObjectiveQuery query = JsonSerializer.Deserialize<ObjectiveQuery>(args!.Value, _JsonOptions) ?? new ObjectiveQuery();
+                    if (McpResultPreview.WantsDefaultPageSize(args)) query.PageSize = McpResultPreview.DefaultMcpPageSize;
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
                     object result = await objectiveService.EnumerateAsync(auth, query).ConfigureAwait(false);
                     bool wantsFull = args.HasValue

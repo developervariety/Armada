@@ -142,6 +142,24 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("An absent pageSize means the MCP default; an explicit one is honoured", () =>
+            {
+                // Previewing alone could not bound these tools: what remained was simply
+                // fifty rich records. The page size is the last lever, so a caller that
+                // does not choose one must get a page that fits.
+                AssertTrue(McpResultPreview.WantsDefaultPageSize(null),
+                    "No arguments at all means no page size was chosen.");
+                AssertTrue(McpResultPreview.WantsDefaultPageSize(
+                    JsonSerializer.SerializeToElement(new { status = "Scoped" })),
+                    "Other filters without pageSize still means none was chosen.");
+                AssertFalse(McpResultPreview.WantsDefaultPageSize(
+                    JsonSerializer.SerializeToElement(new { pageSize = 50 })),
+                    "An explicit page size must always be honoured.");
+                AssertTrue(McpResultPreview.DefaultMcpPageSize <= 10,
+                    "Measured on a live fleet, 15 records already reach the size that was failing.");
+                return Task.CompletedTask;
+            });
+
             await RunTest("It measurably shrinks a payload of the size that broke callers", () =>
             {
                 // The measured offender was 388,594 characters. The point of the helper is

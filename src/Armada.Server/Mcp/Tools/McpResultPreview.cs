@@ -57,6 +57,39 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         public const int DefaultPreviewItems = 5;
 
+        /// <summary>
+        /// Page size used by MCP list tools when the caller does not ask for one.
+        /// <para>
+        /// Previewing fields and capping arrays takes a page of objectives from 388,594
+        /// characters to 185,301, and no further: what remains is simply fifty rich
+        /// records at roughly 3.7 KB each. The record COUNT is then the only lever left.
+        /// Measured on the same fleet: 50 records give 185,301 characters, 25 give
+        /// 101,099, 20 give 79,596, 15 give 57,247 -- which is level with the size that
+        /// was already failing -- and 10 give 37,710. Ten is therefore the largest page
+        /// with real headroom.
+        /// </para>
+        /// <para>
+        /// This applies to the MCP surface only, where the output limit exists. REST
+        /// callers keep their own default. Every response carries TotalRecords and
+        /// TotalPages, and an explicit pageSize is always honoured.
+        /// </para>
+        /// </summary>
+        public const int DefaultMcpPageSize = 10;
+
+        /// <summary>
+        /// True when the caller did not supply <c>pageSize</c>, so a list tool should
+        /// apply <see cref="DefaultMcpPageSize"/> rather than the service default.
+        /// </summary>
+        /// <param name="args">Raw tool arguments.</param>
+        /// <returns>True when no explicit page size was given.</returns>
+        public static bool WantsDefaultPageSize(JsonElement? args)
+        {
+            if (args == null || !args.HasValue) return true;
+            if (args.Value.ValueKind != JsonValueKind.Object) return true;
+            return !args.Value.TryGetProperty("pageSize", out JsonElement size)
+                || size.ValueKind == JsonValueKind.Null;
+        }
+
         #endregion
 
         #region Public-Methods

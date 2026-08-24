@@ -60,6 +60,7 @@ namespace Armada.Server.Mcp.Tools
                     IncidentQuery query = args.HasValue
                         ? JsonSerializer.Deserialize<IncidentQuery>(args.Value, _JsonOptions) ?? new IncidentQuery()
                         : new IncidentQuery();
+                    if (McpResultPreview.WantsDefaultPageSize(args)) query.PageSize = McpResultPreview.DefaultMcpPageSize;
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
                     object result = await incidentService.EnumerateAsync(auth, query).ConfigureAwait(false);
                     bool wantsFull = args.HasValue

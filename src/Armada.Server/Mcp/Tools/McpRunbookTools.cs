@@ -104,6 +104,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     RunbookExecutionQuery query = Deserialize<RunbookExecutionQuery>(args) ?? new RunbookExecutionQuery();
+                    if (McpResultPreview.WantsDefaultPageSize(args)) query.PageSize = McpResultPreview.DefaultMcpPageSize;
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
                     object result = await runbookService.EnumerateExecutionsAsync(auth, query).ConfigureAwait(false);
                     bool wantsFull = args.HasValue
