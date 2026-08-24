@@ -258,6 +258,12 @@ cmd_run() {
     runtime=$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')
 
     build_prompt > "$prompt_file"
+
+    # Run from the checkout, whoever started us. The systemd unit sets
+    # WorkingDirectory, but a wake or a hand-run does not, and the runtime loads its
+    # project rules relative to the working directory -- a cycle started from $HOME
+    # silently gets no repository instructions.
+    cd "$REPO" || fail "cannot enter the Armada checkout at $REPO"
     echo $$ > "$PID_FILE"
     trap 'rm -f "$PID_FILE"' EXIT
 

@@ -48,6 +48,7 @@ for i in "${!args[@]}"; do
         printf '%s\n' "${args[$((i+1))]}" > "${LEAD_TEST_SETTINGS_PATH:-/dev/null}"
     fi
 done
+pwd > "${LEAD_TEST_CWD:-/dev/null}"
 cat > "$LEAD_TEST_PROMPT"
 if [ "$emit_stream" = "1" ]; then
     echo '{"type":"system","subtype":"init","session_id":"probe","cwd":"/tmp","tools":["Bash"]}'
@@ -62,6 +63,7 @@ chmod +x "$TEST_ROOT/bin/claude"
 export LEAD_TEST_PROMPT="$TEST_ROOT/prompt.txt"
 export LEAD_TEST_CONFIG_PATH="$TEST_ROOT/config-path.txt"
 export LEAD_TEST_SETTINGS_PATH="$TEST_ROOT/settings-path.txt"
+export LEAD_TEST_CWD="$TEST_ROOT/claude-cwd.txt"
 
 run_lead() {
     PATH="$TEST_ROOT/bin:$PATH" \
@@ -120,6 +122,13 @@ grep -q "^\\[init\\]" "$DIGEST" || fail "the digest is missing the session line"
 grep -q "^\\[tool\\] *Bash: git status" "$DIGEST" || fail "the digest did not record the tool call"
 grep -q "^\\[ok\\] *Bash: clean" "$DIGEST" || fail "the digest did not record the tool result"
 grep -q "^\\[result\\] success turns=3" "$DIGEST" || fail "the digest did not record the outcome"
+
+# The runtime loads project rules relative to its working directory, so the cycle
+# must enter the checkout itself rather than inherit whatever the caller had.
+CWD_PROBE=$(cd /tmp && run_lead run 2>&1; echo "exit=$?")
+printf '%s' "$CWD_PROBE" | grep -Fq "cannot enter" && fail "the cycle could not enter the checkout"
+grep -Fq "$REPO_ROOT" "$TEST_ROOT/claude-cwd.txt" 2>/dev/null \
+    || fail "the cycle did not run from the Armada checkout"
 
 # An unattended run has nobody to answer a permission prompt, so the policy must
 # be written and passed. Deny must cover the actions that stay owner-only.
