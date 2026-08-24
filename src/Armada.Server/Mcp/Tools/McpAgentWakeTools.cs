@@ -21,17 +21,18 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_register_agentwake_session",
-                "Register the current Claude/Codex orchestrator session so AgentWake Auto mode can resume the right runtime and session when Armada has work.",
+                "Register the current orchestrator session so AgentWake can start the right runtime when Armada has work.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        runtime = new { type = "string", description = "Concrete runtime: Codex or Claude. Auto is not valid here." },
+                        runtime = new { type = "string", description = "Concrete runtime: Codex, OpenCode, or Claude. Auto is not valid here." },
                         sessionId = new { type = "string", description = "Optional session ID to resume. Omit to use --last for Codex or --continue for Claude." },
                         command = new { type = "string", description = "Optional command override for this runtime." },
                         workingDirectory = new { type = "string", description = "Optional working directory to use when Armada wakes the session." },
-                        clientName = new { type = "string", description = "Optional client name/version for diagnostics." }
+                        clientName = new { type = "string", description = "Optional client name/version for diagnostics." },
+                        participantKey = new { type = "string", description = "Optional coordination-board participant key. Addressed notes for this key can start this registered session." }
                     },
                     required = new[] { "runtime" }
                 },

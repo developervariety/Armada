@@ -601,6 +601,7 @@ namespace Armada.Core.Services
                 Command = source.Command,
                 WorkingDirectory = source.WorkingDirectory,
                 ClientName = source.ClientName,
+                ParticipantKey = source.ParticipantKey,
                 LastSeenUtc = source.LastSeenUtc,
             };
         }

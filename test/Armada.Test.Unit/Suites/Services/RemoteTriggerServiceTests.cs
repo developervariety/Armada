@@ -357,14 +357,21 @@ namespace Armada.Test.Unit.Suites.Services
                 settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Auto };
                 RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
                 Func<JsonElement?, Task<object>>? handler = null;
+                object? registrationSchema = null;
                 McpAgentWakeTools.Register((name, description, schema, registeredHandler) =>
                 {
-                    if (name == "armada_register_agentwake_session") handler = registeredHandler;
+                    if (name == "armada_register_agentwake_session")
+                    {
+                        handler = registeredHandler;
+                        registrationSchema = schema;
+                    }
                 }, service);
 
                 AssertNotNull(handler, "armada_register_agentwake_session handler should be registered");
-                using JsonDocument doc = JsonDocument.Parse("{\"runtime\":\"Codex\",\"sessionId\":\"codex-session-456\",\"workingDirectory\":\"mcp-workdir\"}");
+                AssertTrue(JsonSerializer.Serialize(registrationSchema).Contains("participantKey", StringComparison.Ordinal), "registration schema should advertise participantKey");
+                using JsonDocument doc = JsonDocument.Parse("{\"runtime\":\"Codex\",\"sessionId\":\"codex-session-456\",\"workingDirectory\":\"mcp-workdir\",\"participantKey\":\"mcp-helper\"}");
                 await handler!(doc.RootElement).ConfigureAwait(false);
+                AssertEqual("mcp-helper", service.GetAgentWakeSession()!.ParticipantKey, "MCP-registered participant key should be retained");
                 await service.FireDrainerAsync("vessel-a", "event").ConfigureAwait(false);
 
                 AgentWakeProcessRequest req = host.LastRequest!;
