@@ -6,34 +6,26 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { entityRoute } from '../lib/routing';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'eventType' | 'entityType' | 'createdUtc';
-
-function entityRoute(entityId: string | null): string | null {
-  if (!entityId) return null;
-  if (entityId.startsWith('flt_')) return `/fleets/${entityId}`;
-  if (entityId.startsWith('vsl_')) return `/vessels/${entityId}`;
-  if (entityId.startsWith('cpt_')) return `/captains/${entityId}`;
-  if (entityId.startsWith('msn_')) return `/missions/${entityId}`;
-  if (entityId.startsWith('vyg_')) return `/voyages/${entityId}`;
-  if (entityId.startsWith('sig_')) return `/signals/${entityId}`;
-  if (entityId.startsWith('evt_')) return `/events/${entityId}`;
-  if (entityId.startsWith('dck_')) return `/docks/${entityId}`;
-  if (entityId.startsWith('mrg_')) return `/merge-queue`;
-  return null;
-}
 
 export default function Events() {
   const navigate = useNavigate();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
   const [events, setEvents] = useState<ArmadaEvent[]>([]);
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,6 +87,8 @@ export default function Events() {
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
   }, []);
+
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('events', load);
 
   // Client-side column filter + sort
   const filtered = useMemo(() => {
@@ -176,24 +170,34 @@ export default function Events() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Events')}</h2>
-          <p className="text-dim view-subtitle">{t('System event log capturing state changes, completions, failures, and other notable occurrences.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <RefreshButton onRefresh={load} title={t('Refresh event data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Events')}
+        subtitle={t('System event log capturing state changes, completions, failures, and other notable occurrences.')}
+        actions={(
+          <>
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh event data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? `${(viewRecord as { eventType?: string }).eventType || t('Event')}` : t('Event')}
+        subtitle={viewRecord ? String((viewRecord as { id?: string }).id ?? '') : ''}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => { const r = viewRecord; setViewRecord(null); if (r) navigate(`/events/${(r as { id: string }).id}`); }}
+        editLabel={t('Open Details')}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -250,7 +254,7 @@ export default function Events() {
                 {sorted.map(evt => {
                   const entRoute = entityRoute(evt.entityId);
                   return (
-                    <tr key={evt.id} className="clickable" onClick={() => navigate(`/events/${evt.id}`)}>
+                    <tr key={evt.id} className="clickable" onClick={() => setViewRecord(evt as unknown as Record<string, unknown>)}>
                       <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={selected.includes(evt.id)} onChange={() => toggleSelect(evt.id)} title={t('Select this event')} />
                       </td>

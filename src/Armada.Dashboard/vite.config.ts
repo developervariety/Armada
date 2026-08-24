@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { configDefaults } from 'vitest/config';
-import pkg from './package.json';
+import pkg from './package.json' with { type: 'json' };
 
 export default defineConfig({
   base: '/dashboard/',
@@ -12,7 +12,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    pool: 'threads',
     setupFiles: './src/test/setup.ts',
+    // This checkout lives on an exFAT volume: macOS writes AppleDouble `._*`
+    // sidecars beside real files, and vitest must never treat them as tests.
     exclude: [...(configDefaults.exclude ?? []), '**/._*'],
   },
   build: {

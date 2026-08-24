@@ -4,6 +4,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createPromptTemplate, getPromptTemplate, updatePromptTemplate, resetPromptTemplate } from '../api/client';
 import type { PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
+import PageHeader from '../components/shared/PageHeader';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -281,29 +282,31 @@ export default function PromptTemplateDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/prompt-templates">{t('Prompt Templates')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('Create') : templateName}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Prompt Template') : templateName}</h2>
-        <div className="inline-actions">
-          {createMode ? (
-            <StatusBadge status={category || 'mission'} />
-          ) : (
-            <>
-              <StatusBadge status={template!.category} />
-              {template!.isBuiltIn && <StatusBadge status="Built-in" />}
-              <ActionMenu id={`template-${template!.name}`} items={[
-                { label: 'Duplicate', onClick: () => void handleDuplicate() },
-                { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template!.name }), data: template }) },
-                ...(template!.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
-              ]} />
-            </>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/prompt-templates">{t('Prompt Templates')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('Create') : templateName}</span>
+          </>
+        }
+        title={createMode ? t('Create Prompt Template') : templateName}
+        actions={
+          <>
+            {createMode ? (
+              <StatusBadge status={category || 'mission'} />
+            ) : (
+              <>
+                <StatusBadge status={template!.category} />
+                {template!.isBuiltIn && <StatusBadge status="Built-in" />}
+                <ActionMenu id={`template-${template!.name}`} items={[
+                  { label: 'Duplicate', onClick: () => void handleDuplicate() },
+                  { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template!.name }), data: template }) },
+                  ...(template!.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
+                ]} />
+              </>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

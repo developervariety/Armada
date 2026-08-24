@@ -6,16 +6,18 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPipelineDuplicatePayload } from '../lib/duplicates';
-
-type SortDir = 'asc' | 'desc';
-type SortField = 'name' | 'description' | 'stages' | 'isBuiltIn' | 'active' | 'createdUtc';
+import { useResourceTable } from '../lib/useResourceTable';
 
 interface StageFormEntry {
   personaName: string;
@@ -47,19 +49,27 @@ export default function Pipelines() {
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
 
+  // Row-click view modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
+
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ name: '', description: '' });
-
-  // Pagination
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const table = useResourceTable({
+    rows: pipelines,
+    getId: (p) => p.id,
+    columnValues: {
+      name: (p) => p.name.toLowerCase(),
+      description: (p) => (p.description ?? '').toLowerCase(),
+      stages: (p) => (p.stages ?? []).length,
+      isBuiltIn: (p) => (p.isBuiltIn ? 1 : 0),
+      active: (p) => (p.active ? 1 : 0),
+      createdUtc: (p) => p.createdUtc,
+    },
+    initialSortField: 'name',
+    initialSortDir: 'asc',
+    initialPageSize: 25,
+  });
 
   const load = useCallback(async () => {
     try {
@@ -77,51 +87,7 @@ export default function Pipelines() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Filtered rows
-  const filtered = useMemo(() => {
-    return pipelines.filter(p =>
-      (!colFilters.name || p.name.toLowerCase().includes(colFilters.name.toLowerCase())) &&
-      (!colFilters.description || (p.description ?? '').toLowerCase().includes(colFilters.description.toLowerCase()))
-    );
-  }, [pipelines, colFilters]);
-
-  // Sorted rows
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number | boolean = '';
-      let vb: string | number | boolean = '';
-      if (sortField === 'stages') { va = (a.stages ?? []).length; vb = (b.stages ?? []).length; }
-      else if (sortField === 'isBuiltIn') { va = a.isBuiltIn ? 1 : 0; vb = b.isBuiltIn ? 1 : 0; }
-      else if (sortField === 'active') { va = a.active ? 1 : 0; vb = b.active ? 1 : 0; }
-      else if (sortField === 'createdUtc') { va = a.createdUtc; vb = b.createdUtc; }
-      else if (sortField === 'description') { va = (a.description ?? '').toLowerCase(); vb = (b.description ?? '').toLowerCase(); }
-      else { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  // Paginated
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('pipelines', load);
 
   // CRUD
   function openCreate() {
@@ -217,16 +183,17 @@ export default function Pipelines() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Pipelines')}</h2>
-          <p className="text-dim view-subtitle">{t('Multi-stage workflows combining different personas')}</p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
-          <RefreshButton onRefresh={load} title="Refresh pipeline data" />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Pipelines')}
+        subtitle={t('Multi-stage workflows combining different personas')}
+        actions={(
+          <>
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title="Refresh pipeline data" />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -300,6 +267,17 @@ export default function Pipelines() {
       {/* JSON Viewer */}
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
 
+      {/* Row-click View Modal */}
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={typeof viewRecord?.name === 'string' ? viewRecord.name : t('Pipeline')}
+        subtitle={t('Pipeline')}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/pipelines/${encodeURIComponent((r as { name: string }).name)}`); }}
+        editLabel={t('Open Details')}
+      />
+
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
@@ -309,39 +287,39 @@ export default function Pipelines() {
 
       {pipelines.length > 0 && (
         <>
-          <Pagination pageNumber={currentPage} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={sorted.length}
-            onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
+          <Pagination pageNumber={table.currentPage} pageSize={table.pageSize} totalPages={table.totalPages}
+            totalRecords={table.sorted.length}
+            onPageChange={p => table.setPageNumber(p)} onPageSizeChange={s => { table.setPageSize(s); table.setPageNumber(1); }} />
 
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th className="sortable" onClick={() => handleSort('name')} title={t('Pipeline name -- click to sort')}>
-                    {t('Name')}{sortIcon('name')}
+                  <th className="sortable" onClick={() => table.handleSort('name')} title={t('Pipeline name -- click to sort')}>
+                    {t('Name')}{table.sortIcon('name')}
                   </th>
                   <th>{t('ID')}</th>
-                  <th className="sortable" onClick={() => handleSort('description')} title={t('Description -- click to sort')}>
-                    {t('Description')}{sortIcon('description')}
+                  <th className="sortable" onClick={() => table.handleSort('description')} title={t('Description -- click to sort')}>
+                    {t('Description')}{table.sortIcon('description')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('stages')} title={t('Stage count -- click to sort')}>
-                    {t('Stages')}{sortIcon('stages')}
+                  <th className="sortable" onClick={() => table.handleSort('stages')} title={t('Stage count -- click to sort')}>
+                    {t('Stages')}{table.sortIcon('stages')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('isBuiltIn')} title={t('Built-in -- click to sort')}>
-                    {t('Built-in')}{sortIcon('isBuiltIn')}
+                  <th className="sortable" onClick={() => table.handleSort('isBuiltIn')} title={t('Built-in -- click to sort')}>
+                    {t('Built-in')}{table.sortIcon('isBuiltIn')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('active')} title={t('Active -- click to sort')}>
-                    {t('Active')}{sortIcon('active')}
+                  <th className="sortable" onClick={() => table.handleSort('active')} title={t('Active -- click to sort')}>
+                    {t('Active')}{table.sortIcon('active')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created date -- click to sort')}>
-                    {t('Created')}{sortIcon('createdUtc')}
+                  <th className="sortable" onClick={() => table.handleSort('createdUtc')} title={t('Created date -- click to sort')}>
+                    {t('Created')}{table.sortIcon('createdUtc')}
                   </th>
                   <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.description ?? ''} onChange={e => table.setColFilter('description', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -350,8 +328,8 @@ export default function Pipelines() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map(p => (
-                  <tr key={p.id} className="clickable" onClick={() => openEdit(p)}>
+                {table.paginated.map(p => (
+                  <tr key={p.id} className="clickable" onClick={() => setViewRecord(p as unknown as Record<string, unknown>)}>
                     <td><strong>{p.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
@@ -375,7 +353,7 @@ export default function Pipelines() {
                     </td>
                   </tr>
                 ))}
-                {paginated.length === 0 && (
+                {table.paginated.length === 0 && (
                   <tr><td colSpan={8} className="text-dim">{t('No pipelines match the current filters.')}</td></tr>
                 )}
               </tbody>

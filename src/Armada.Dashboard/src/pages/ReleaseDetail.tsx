@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createRelease,
   deleteRelease,
   getRelease,
   getReleaseGitHubPullRequests,
-  getReleaseWebhookEvents,
   listCheckRuns,
   listDeployments,
   listObjectives,
@@ -15,9 +14,7 @@ import {
   refreshRelease,
   updateRelease,
 } from '../api/client';
-import type { ArmadaEvent, CheckRun, Deployment, GitHubPullRequestDetail, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
-import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
-import { useAutoRefresh } from '../lib/useAutoRefresh';
+import type { CheckRun, Deployment, GitHubPullRequestDetail, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -25,6 +22,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 interface ReleasePrefillState {
@@ -64,7 +62,6 @@ export default function ReleaseDetail() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [gitHubPullRequests, setGitHubPullRequests] = useState<GitHubPullRequestDetail[]>([]);
-  const [webhookEvents, setWebhookEvents] = useState<ArmadaEvent[]>([]);
   const [vesselId, setVesselId] = useState('');
   const [workflowProfileId, setWorkflowProfileId] = useState('');
   const [title, setTitle] = useState('Draft Release');
@@ -210,26 +207,6 @@ export default function ReleaseDetail() {
     return () => { cancelled = true; };
   }, [createMode, id]);
 
-  const loadWebhookEvents = useCallback(async () => {
-    if (createMode || !id) {
-      setWebhookEvents([]);
-      return;
-    }
-
-    try {
-      const result = await getReleaseWebhookEvents(id);
-      setWebhookEvents(result || []);
-    } catch {
-      setWebhookEvents([]);
-    }
-  }, [createMode, id]);
-
-  useEffect(() => {
-    void loadWebhookEvents();
-  }, [loadWebhookEvents]);
-
-  const { seconds: webhookRefreshSeconds, setSeconds: setWebhookRefreshSeconds } = useAutoRefresh('releasedetail_webhook', loadWebhookEvents);
-
   function buildPayload(): ReleaseUpsertRequest {
     return {
       vesselId: vesselId || null,
@@ -346,70 +323,73 @@ export default function ReleaseDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/releases">{t('Releases')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Release') : title}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Release') : title}</h2>
-        <div className="inline-actions">
-          {!createMode && <StatusBadge status={status} />}
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/deployments/new', {
-                state: {
-                  prefill: {
-                    vesselId: vesselId || null,
-                    workflowProfileId: workflowProfileId || null,
-                    releaseId: release?.id || null,
-                    voyageId: release?.voyageIds[0] || null,
-                    missionId: release?.missionIds[0] || null,
-                    title: `${title} Deploy`,
-                    sourceRef: tagName || version || null,
-                    summary: summary || null,
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/releases">{t('Releases')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Release') : title}</span>
+          </>
+        }
+        title={createMode ? t('Create Release') : title}
+        actions={
+          <>
+            {!createMode && <StatusBadge status={status} />}
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/deployments/new', {
+                  state: {
+                    prefill: {
+                      vesselId: vesselId || null,
+                      workflowProfileId: workflowProfileId || null,
+                      releaseId: release?.id || null,
+                      voyageId: release?.voyageIds[0] || null,
+                      missionId: release?.missionIds[0] || null,
+                      title: `${title} Deploy`,
+                      sourceRef: tagName || version || null,
+                      summary: summary || null,
+                    },
                   },
-                },
-              })}
-            >
-              {t('Deploy')}
-            </button>
-          )}
-          {!createMode && (
-            <button
-              className="btn btn-sm"
-              onClick={() => navigate('/checks', {
-                state: {
-                  prefill: {
-                    vesselId: vesselId || null,
-                    workflowProfileId: workflowProfileId || null,
-                    voyageId: release?.voyageIds[0] || null,
-                    missionId: release?.missionIds[0] || null,
-                    label: title,
+                })}
+              >
+                {t('Deploy')}
+              </button>
+            )}
+            {!createMode && (
+              <button
+                className="btn btn-sm"
+                onClick={() => navigate('/checks', {
+                  state: {
+                    prefill: {
+                      vesselId: vesselId || null,
+                      workflowProfileId: workflowProfileId || null,
+                      voyageId: release?.voyageIds[0] || null,
+                      missionId: release?.missionIds[0] || null,
+                      label: title,
+                    },
                   },
-                },
-              })}
-            >
-              {t('Run Check')}
-            </button>
-          )}
-          {!createMode && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: release })}>
-              {t('View JSON')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm" disabled={refreshing} onClick={handleRefresh}>
-              {refreshing ? t('Refreshing...') : t('Refresh Derived Fields')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
-              {t('Delete')}
-            </button>
-          )}
-        </div>
-      </div>
+                })}
+              >
+                {t('Run Check')}
+              </button>
+            )}
+            {!createMode && (
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: release })}>
+                {t('View JSON')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm" disabled={refreshing} onClick={handleRefresh}>
+                {refreshing ? t('Refreshing...') : t('Refresh Derived Fields')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+                {t('Delete')}
+              </button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
@@ -627,52 +607,6 @@ export default function ReleaseDetail() {
                     )}
                   </div>
                 ))}
-              </div>
-            )}
-          </div>
-
-          <div className="card" style={{ marginBottom: '1rem' }}>
-            <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-              <h3>{t('CD Webhook Delivery')}</h3>
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }} className="text-dim">
-                <span>{webhookEvents.length} {t('delivery events')}</span>
-                <AutoRefreshSelect seconds={webhookRefreshSeconds} onChange={setWebhookRefreshSeconds} />
-              </div>
-            </div>
-
-            {webhookEvents.length === 0 ? (
-              <p className="text-dim">{t('No CD webhook deliveries recorded. Events appear here when the release is approved (Shipped) and the cdWebhook setting is configured.')}</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '0.6rem' }}>
-                {webhookEvents.map((evt) => {
-                  const delivered = evt.eventType === 'release.webhook.delivered';
-                  let statusCode: number | null = null;
-                  try {
-                    const parsed = evt.payload ? (JSON.parse(evt.payload) as { statusCode?: number | null }) : null;
-                    statusCode = parsed?.statusCode ?? null;
-                  } catch {
-                    statusCode = null;
-                  }
-                  return (
-                    <div key={evt.id} className="card" style={{ padding: '0.85rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
-                        <div>
-                          <strong>{delivered ? t('Delivered') : t('Failed')}</strong>
-                          {statusCode != null && (
-                            <span className="mono text-dim" style={{ marginLeft: '0.5rem', fontSize: '0.78rem' }}>HTTP {statusCode}</span>
-                          )}
-                        </div>
-                        <StatusBadge status={delivered ? 'passed' : 'failed'} />
-                      </div>
-                      {evt.message && (
-                        <div className="text-dim" style={{ marginTop: '0.35rem' }}>{evt.message}</div>
-                      )}
-                      <div className="text-dim" style={{ marginTop: '0.35rem' }}>
-                        <span title={formatDateTime(evt.createdUtc)}>{formatRelativeTime(evt.createdUtc)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             )}
           </div>

@@ -6,50 +6,73 @@ vi.mock('../shared/StatusBadge', () => ({
   default: ({ status }: { status: string }) => <span>{status}</span>,
 }));
 
+vi.mock('../../context/LocaleContext', () => ({
+  useLocale: () => ({ t: (value: string) => value }),
+}));
+
 const t = (value: string) => value;
 
+function session(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'psn_active',
+    tenantId: null,
+    userId: null,
+    captainId: 'cpt_1',
+    vesselId: 'ves_1',
+    fleetId: 'flt_1',
+    dockId: 'dok_1',
+    branchName: 'armada/planning/psn_active',
+    title: 'Active planning session',
+    status: 'Active',
+    pipelineId: null,
+    processId: null,
+    failureReason: null,
+    selectedPlaybooks: [],
+    createdUtc: '2026-05-17T00:00:00Z',
+    startedUtc: '2026-05-17T00:00:00Z',
+    completedUtc: null,
+    lastUpdateUtc: '2026-05-17T00:05:00Z',
+    ...overrides,
+  };
+}
+
+function renderCard(props: Partial<Record<string, unknown>> = {}, sessions = [session()]) {
+  return render(
+    <PlanningSessionListCard
+      t={t}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sessions={sessions as any}
+      activeSessionId={undefined}
+      endingSessionId={null}
+      formatRelativeTime={() => 'just now'}
+      resolveCaptainName={() => 'Planner'}
+      resolveVesselName={() => 'Repository'}
+      resolvePipelineName={() => '-'}
+      onSelect={props.onSelect as never ?? (() => undefined)}
+      onEndSession={props.onEndSession as never ?? (() => undefined)}
+      onDeleteSession={props.onDeleteSession as never ?? (() => undefined)}
+      onDeleteAll={props.onDeleteAll as never ?? (() => undefined)}
+    />,
+  );
+}
+
 describe('PlanningSessionListCard', () => {
-  it('allows ending an active session without triggering row selection', async () => {
+  it('starts collapsed and expands to show the table', async () => {
+    const user = userEvent.setup();
+    renderCard();
+    expect(screen.queryByText('Active planning session')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Recent Sessions/ }));
+    expect(screen.getByText('Active planning session')).toBeInTheDocument();
+  });
+
+  it('ends an active session from the action menu without triggering row selection', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const onEndSession = vi.fn();
+    renderCard({ onSelect, onEndSession });
 
-    render(
-      <PlanningSessionListCard
-        t={t}
-        sessions={[
-          {
-            id: 'psn_active',
-            tenantId: null,
-            userId: null,
-            captainId: 'cpt_1',
-            vesselId: 'ves_1',
-            fleetId: 'flt_1',
-            dockId: 'dok_1',
-            branchName: 'armada/planning/psn_active',
-            title: 'Active planning session',
-            status: 'Active',
-            pipelineId: null,
-            processId: null,
-            failureReason: null,
-            selectedPlaybooks: [],
-            createdUtc: '2026-05-17T00:00:00Z',
-            startedUtc: '2026-05-17T00:00:00Z',
-            completedUtc: null,
-            lastUpdateUtc: '2026-05-17T00:05:00Z',
-          },
-        ]}
-        activeSessionId={undefined}
-        endingSessionId={null}
-        formatRelativeTime={() => 'just now'}
-        resolveCaptainName={() => 'Planner'}
-        resolveVesselName={() => 'Repository'}
-        resolvePipelineName={() => '-'}
-        onSelect={onSelect}
-        onEndSession={onEndSession}
-      />,
-    );
-
+    await user.click(screen.getByRole('button', { name: /Recent Sessions/ }));
+    await user.click(screen.getByTitle('Actions'));
     await user.click(screen.getByRole('button', { name: 'End Session' }));
 
     expect(onEndSession).toHaveBeenCalledTimes(1);
@@ -57,43 +80,16 @@ describe('PlanningSessionListCard', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('shows ending state for sessions already stopping', () => {
-    render(
-      <PlanningSessionListCard
-        t={t}
-        sessions={[
-          {
-            id: 'psn_stopping',
-            tenantId: null,
-            userId: null,
-            captainId: 'cpt_1',
-            vesselId: 'ves_1',
-            fleetId: 'flt_1',
-            dockId: 'dok_1',
-            branchName: 'armada/planning/psn_stopping',
-            title: 'Stopping session',
-            status: 'Stopping',
-            pipelineId: null,
-            processId: null,
-            failureReason: null,
-            selectedPlaybooks: [],
-            createdUtc: '2026-05-17T00:00:00Z',
-            startedUtc: '2026-05-17T00:00:00Z',
-            completedUtc: null,
-            lastUpdateUtc: '2026-05-17T00:05:00Z',
-          },
-        ]}
-        activeSessionId={undefined}
-        endingSessionId={null}
-        formatRelativeTime={() => 'just now'}
-        resolveCaptainName={() => 'Planner'}
-        resolveVesselName={() => 'Repository'}
-        resolvePipelineName={() => '-'}
-        onSelect={() => undefined}
-        onEndSession={() => undefined}
-      />,
-    );
+  it('deletes a session from the action menu', async () => {
+    const user = userEvent.setup();
+    const onDeleteSession = vi.fn();
+    renderCard({ onDeleteSession });
 
-    expect(screen.getByRole('button', { name: 'Ending...' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /Recent Sessions/ }));
+    await user.click(screen.getByTitle('Actions'));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(onDeleteSession).toHaveBeenCalledTimes(1);
+    expect(onDeleteSession.mock.calls[0][0].id).toBe('psn_active');
   });
 });

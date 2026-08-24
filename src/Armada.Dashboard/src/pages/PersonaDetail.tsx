@@ -3,12 +3,13 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createPersona, deletePersona, getPersona, getPromptTemplate, listCaptains, listPromptTemplates, resetPromptTemplate, updatePersona, updatePromptTemplate } from '../api/client';
 import type { Captain, Persona, PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
+import CaptainPicker from '../components/shared/CaptainPicker';
+import CaptainRef from '../components/shared/CaptainRef';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
-import CaptainPicker from '../components/shared/CaptainPicker';
-import CaptainRef from '../components/shared/CaptainRef';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -75,10 +76,8 @@ export default function PersonaDetail() {
       setPersona(found);
       const templateResult = await listPromptTemplates({ pageSize: 9999 });
       setTemplateNames(templateResult.objects.map(t => t.name));
-      // Best-effort: the picker degrades to showing the raw id when captains cannot be listed,
-      // which is better than failing the whole persona page over a secondary lookup.
-      const captainResult = await listCaptains({ pageSize: 9999 }).catch(() => null);
-      if (captainResult) setCaptains(captainResult.objects);
+      const captainResult = await listCaptains({ pageSize: 9999 });
+      setCaptains(captainResult.objects);
       if (found.promptTemplateName) {
         await loadPromptForPersona(found.promptTemplateName);
       } else {
@@ -195,23 +194,25 @@ export default function PersonaDetail() {
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/personas">{t('Personas')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{persona.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{persona.name}</h2>
-        <div className="inline-actions">
-          <ActionMenu id={`persona-${persona.name}`} items={[
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
-            { label: 'Edit', onClick: openEdit },
-            { label: 'Duplicate', onClick: () => void handleDuplicate() },
-            ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
-            { label: 'Delete', danger: true, onClick: handleDelete },
-          ]} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/personas">{t('Personas')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{persona.name}</span>
+          </>
+        }
+        title={persona.name}
+        actions={
+          <>
+            <ActionMenu id={`persona-${persona.name}`} items={[
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
+              { label: 'Delete', danger: true, onClick: handleDelete },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -233,9 +234,12 @@ export default function PersonaDetail() {
               <CaptainPicker
                 captains={captains}
                 value={form.defaultCaptainId}
-                onChange={(defaultCaptainId) => setForm({ ...form, defaultCaptainId })}
-                ariaLabel={t('Default captain for this persona')}
+                onChange={(captainId) => setForm({ ...form, defaultCaptainId: captainId })}
+                autoLabel={t('None (default routing)')}
               />
+              <span className="text-dim" style={{ fontSize: '0.75rem', display: 'block', marginTop: '0.3rem' }}>
+                {t('Pre-fills the per-step captain at dispatch and becomes the preferred captain for missions of this persona.')}
+              </span>
             </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Save')}</button>
@@ -270,7 +274,7 @@ export default function PersonaDetail() {
         </div>
         <div className="detail-field">
           <span className="detail-label">{t('Default Captain')}</span>
-          <CaptainRef captainId={persona.defaultCaptainId} captains={captains} />
+          <span><CaptainRef captainId={persona.defaultCaptainId} captains={captains} autoLabel={t('None (default routing)')} /></span>
         </div>
         <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>

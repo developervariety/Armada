@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { getDoctor } from '../api/client';
 import StatusBadge from '../components/shared/StatusBadge';
 import ErrorModal from '../components/shared/ErrorModal';
+import PageHeader from '../components/shared/PageHeader';
 import { useLocale } from '../context/LocaleContext';
 
 interface DiagnosticCheck {
@@ -45,30 +46,30 @@ export default function Doctor() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Doctor')}</h2>
-          <p className="text-muted">{t('System health diagnostics and checks.')}</p>
-        </div>
-        <div className="page-actions">
-          {hasResults && (
-            <span
-              className={`doctor-badge ${hasFailures ? 'doctor-fail' : allPassing ? 'doctor-pass' : 'doctor-warn'}`}
-              style={{ marginRight: '0.5rem' }}
+      <PageHeader
+        title={t('Diagnostics')}
+        subtitle={t('System health diagnostics and checks.')}
+        actions={(
+          <>
+            {hasResults && (
+              <span
+                className={`doctor-badge ${hasFailures ? 'doctor-fail' : allPassing ? 'doctor-pass' : 'doctor-warn'}`}
+                style={{ marginRight: '0.5rem' }}
+              >
+                {hasFailures ? t('Unhealthy') : allPassing ? t('Healthy') : t('Warnings')}
+              </span>
+            )}
+            <button
+              className="btn-primary btn-sm"
+              onClick={runChecks}
+              disabled={running}
+              title={t('Run all health checks')}
             >
-              {hasFailures ? t('Unhealthy') : allPassing ? t('Healthy') : t('Warnings')}
-            </span>
-          )}
-          <button
-            className="btn-primary btn-sm"
-            onClick={runChecks}
-            disabled={running}
-            title={t('Run all health checks')}
-          >
-            {running ? t('Running...') : t('Run Checks')}
-          </button>
-        </div>
-      </div>
+              {running ? t('Running...') : t('Run Checks')}
+            </button>
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 

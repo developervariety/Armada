@@ -12,9 +12,9 @@ const formatDateTime = (value: string) => value;
 const formatRelativeTime = () => 'just now';
 
 describe('PlanningTranscriptCard', () => {
-  it('renders waiting assistant output and allows selecting a completed assistant reply', async () => {
+  it('renders waiting assistant output and opens a completed assistant reply in Dispatch', async () => {
     const user = userEvent.setup();
-    const onSelectMessage = vi.fn();
+    const onOpenMessageInDispatch = vi.fn();
 
     render(
       <PlanningTranscriptCard
@@ -66,7 +66,6 @@ describe('PlanningTranscriptCard', () => {
             lastUpdateUtc: '2026-04-29T00:00:02Z',
           },
         ]}
-        selectedMessageId=""
         currentStatus="Active"
         composer=""
         sending={false}
@@ -76,17 +75,18 @@ describe('PlanningTranscriptCard', () => {
         deleting={false}
         formatDateTime={formatDateTime}
         formatRelativeTime={formatRelativeTime}
-        onSelectMessage={onSelectMessage}
+        onOpenMessageInDispatch={onOpenMessageInDispatch}
         onComposerChange={() => undefined}
         onSend={() => undefined}
+        onStopTurn={() => undefined}
         onEndSession={() => undefined}
         onDelete={() => undefined}
       />,
     );
 
-    expect(screen.getByText('Waiting for response...')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Use For Dispatch' }));
-    expect(onSelectMessage).toHaveBeenCalledWith('psm_ready');
+    expect(screen.getByText('Structured draft output')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open in Dispatch' }));
+    expect(onOpenMessageInDispatch).toHaveBeenCalledWith('psm_ready');
   });
 
   it('sends the composed message when the session is active', async () => {
@@ -107,7 +107,6 @@ describe('PlanningTranscriptCard', () => {
         playbookCount={1}
         updatedUtc="2026-04-29T00:00:03Z"
         messages={[]}
-        selectedMessageId=""
         currentStatus="Active"
         composer="Add a migration checklist"
         sending={false}
@@ -117,17 +116,16 @@ describe('PlanningTranscriptCard', () => {
         deleting={false}
         formatDateTime={formatDateTime}
         formatRelativeTime={formatRelativeTime}
-        onSelectMessage={() => undefined}
+        onOpenMessageInDispatch={() => undefined}
         onComposerChange={onComposerChange}
         onSend={onSend}
+        onStopTurn={() => undefined}
         onEndSession={() => undefined}
         onDelete={() => undefined}
       />,
     );
 
-    const composer = screen.getByRole('textbox', { name: 'Send Message' });
-
-    expect(composer).toHaveAttribute('rows', '3');
+    const composer = screen.getByPlaceholderText('Describe the problem, ask for a plan, or negotiate the next steps with the captain.');
 
     await user.type(composer, ' now');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -136,7 +134,7 @@ describe('PlanningTranscriptCard', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
-  it('renders explicit end-session and transcript-delete actions', () => {
+  it('renders explicit end-session and clear-conversation actions', () => {
     render(
       <PlanningTranscriptCard
         t={t}
@@ -150,7 +148,6 @@ describe('PlanningTranscriptCard', () => {
         playbookCount={1}
         updatedUtc="2026-04-29T00:00:03Z"
         messages={[]}
-        selectedMessageId=""
         currentStatus="Active"
         composer=""
         sending={false}
@@ -160,15 +157,17 @@ describe('PlanningTranscriptCard', () => {
         deleting={false}
         formatDateTime={formatDateTime}
         formatRelativeTime={formatRelativeTime}
-        onSelectMessage={() => undefined}
+        onOpenMessageInDispatch={() => undefined}
         onComposerChange={() => undefined}
         onSend={() => undefined}
+        onStopTurn={() => undefined}
         onEndSession={() => undefined}
         onDelete={() => undefined}
       />,
     );
 
     expect(screen.getByRole('button', { name: 'End Session' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Delete Transcript' })).toBeInTheDocument();
+    // The transcript-delete action is now the trash icon beside Send in the composer.
+    expect(screen.getByRole('button', { name: 'Clear conversation' })).toBeInTheDocument();
   });
 });

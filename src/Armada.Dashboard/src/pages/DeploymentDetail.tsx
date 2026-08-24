@@ -33,6 +33,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 interface DeploymentPrefillState {
@@ -415,77 +416,80 @@ export default function DeploymentDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/deployments">{t('Deployments')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Deployment') : title}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Deployment') : title}</h2>
-        <div className="inline-actions">
-          {!createMode && deployment && <StatusBadge status={deployment.status} />}
-          {!createMode && deployment && <StatusBadge status={deployment.verificationStatus} />}
-          {!createMode && selectedVessel && (
-            <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)}>
-              {t('Open Workspace')}
-            </button>
-          )}
-          {!createMode && deployment && (
-            <button className="btn btn-sm" onClick={() => openRunCheck(deployment)}>
-              {t('Run Check')}
-            </button>
-          )}
-          {!createMode && deployment?.vesselId && (
-            <button className="btn btn-sm" disabled={syncingGitHub} onClick={() => void handleSyncGitHubActions(deployment)}>
-              {syncingGitHub ? t('Syncing GitHub...') : t('Sync GitHub Actions')}
-            </button>
-          )}
-          {!createMode && deployment && (
-            <button className="btn btn-sm" onClick={() => openRunbooks(deployment)}>
-              {t('Runbook')}
-            </button>
-          )}
-          {!createMode && deployment && (
-            <button className="btn btn-sm" onClick={() => openIncidentCreate(deployment)}>
-              {t('Create Incident')}
-            </button>
-          )}
-          {!createMode && deployment?.releaseId && (
-            <button className="btn btn-sm" onClick={() => navigate(`/releases/${deployment.releaseId}`)}>
-              {t('Open Release')}
-            </button>
-          )}
-          {!createMode && deployment && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: deployment })}>
-              {t('View JSON')}
-            </button>
-          )}
-          {!createMode && deployment?.status === 'PendingApproval' && canManage && (
-            <>
-              <button className="btn btn-sm btn-primary" onClick={() => handleAction('approve', deployment)}>
-                {t('Approve')}
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/deployments">{t('Deployments')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Deployment') : title}</span>
+          </>
+        }
+        title={createMode ? t('Create Deployment') : title}
+        actions={
+          <>
+            {!createMode && deployment && <StatusBadge status={deployment.status} />}
+            {!createMode && deployment && <StatusBadge status={deployment.verificationStatus} />}
+            {!createMode && selectedVessel && (
+              <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)}>
+                {t('Open Workspace')}
               </button>
-              <button className="btn btn-sm" onClick={() => handleAction('deny', deployment)}>
-                {t('Deny')}
+            )}
+            {!createMode && deployment && (
+              <button className="btn btn-sm" onClick={() => openRunCheck(deployment)}>
+                {t('Run Check')}
               </button>
-            </>
-          )}
-          {!createMode && deployment && deployment.status !== 'PendingApproval' && canManage && (
-            <>
-              <button className="btn btn-sm" onClick={() => handleAction('verify', deployment)}>
-                {t('Verify')}
+            )}
+            {!createMode && deployment?.vesselId && (
+              <button className="btn btn-sm" disabled={syncingGitHub} onClick={() => void handleSyncGitHubActions(deployment)}>
+                {syncingGitHub ? t('Syncing GitHub...') : t('Sync GitHub Actions')}
               </button>
-              <button className="btn btn-sm" onClick={() => handleAction('rollback', deployment)}>
-                {t('Rollback')}
+            )}
+            {!createMode && deployment && (
+              <button className="btn btn-sm" onClick={() => openRunbooks(deployment)}>
+                {t('Runbook')}
               </button>
-            </>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
-              {t('Delete')}
-            </button>
-          )}
-        </div>
-      </div>
+            )}
+            {!createMode && deployment && (
+              <button className="btn btn-sm" onClick={() => openIncidentCreate(deployment)}>
+                {t('Create Incident')}
+              </button>
+            )}
+            {!createMode && deployment?.releaseId && (
+              <button className="btn btn-sm" onClick={() => navigate(`/releases/${deployment.releaseId}`)}>
+                {t('Open Release')}
+              </button>
+            )}
+            {!createMode && deployment && (
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: deployment })}>
+                {t('View JSON')}
+              </button>
+            )}
+            {!createMode && deployment?.status === 'PendingApproval' && canManage && (
+              <>
+                <button className="btn btn-sm btn-primary" onClick={() => handleAction('approve', deployment)}>
+                  {t('Approve')}
+                </button>
+                <button className="btn btn-sm" onClick={() => handleAction('deny', deployment)}>
+                  {t('Deny')}
+                </button>
+              </>
+            )}
+            {!createMode && deployment && deployment.status !== 'PendingApproval' && canManage && (
+              <>
+                <button className="btn btn-sm" onClick={() => handleAction('verify', deployment)}>
+                  {t('Verify')}
+                </button>
+                <button className="btn btn-sm" onClick={() => handleAction('rollback', deployment)}>
+                  {t('Rollback')}
+                </button>
+              </>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+                {t('Delete')}
+              </button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

@@ -30,6 +30,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 
 const INCIDENT_STATUSES: IncidentStatus[] = ['Open', 'Monitoring', 'Mitigated', 'RolledBack', 'Closed'];
@@ -394,41 +395,44 @@ export default function IncidentDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/incidents">{t('Incidents')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Incident') : title}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Incident') : title}</h2>
-        <div className="inline-actions">
-          {!createMode && <StatusBadge status={status} />}
-          {!createMode && <StatusBadge status={severity} />}
-          {!!(vesselId || selectedEnvironment?.vesselId) && (
-            <>
-              <button className="btn btn-sm" onClick={handlePlanHotfix}>{t('Plan Hotfix')}</button>
-              <button className="btn btn-sm" onClick={handleDispatchHotfix}>{t('Dispatch Hotfix')}</button>
-            </>
-          )}
-          {!createMode && (
-            <button className="btn btn-sm" onClick={handleRunbook}>{t('Runbook')}</button>
-          )}
-          {!createMode && incident?.deploymentId && (
-            <button className="btn btn-sm" onClick={handleRollback}>{t('Rollback Deployment')}</button>
-          )}
-          {!createMode && incident?.deploymentId && (
-            <button className="btn btn-sm" onClick={() => navigate(`/deployments/${incident.deploymentId}`)}>{t('Open Deployment')}</button>
-          )}
-          {!createMode && incident?.environmentId && (
-            <button className="btn btn-sm" onClick={() => navigate(`/environments/${incident.environmentId}`)}>{t('Open Environment')}</button>
-          )}
-          {!createMode && incident && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: incident })}>{t('View JSON')}</button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/incidents">{t('Incidents')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Incident') : title}</span>
+          </>
+        }
+        title={createMode ? t('Create Incident') : title}
+        actions={
+          <>
+            {!createMode && <StatusBadge status={status} />}
+            {!createMode && <StatusBadge status={severity} />}
+            {!!(vesselId || selectedEnvironment?.vesselId) && (
+              <>
+                <button className="btn btn-sm" onClick={handlePlanHotfix}>{t('Plan Hotfix')}</button>
+                <button className="btn btn-sm" onClick={handleDispatchHotfix}>{t('Dispatch Hotfix')}</button>
+              </>
+            )}
+            {!createMode && (
+              <button className="btn btn-sm" onClick={handleRunbook}>{t('Runbook')}</button>
+            )}
+            {!createMode && incident?.deploymentId && (
+              <button className="btn btn-sm" onClick={handleRollback}>{t('Rollback Deployment')}</button>
+            )}
+            {!createMode && incident?.deploymentId && (
+              <button className="btn btn-sm" onClick={() => navigate(`/deployments/${incident.deploymentId}`)}>{t('Open Deployment')}</button>
+            )}
+            {!createMode && incident?.environmentId && (
+              <button className="btn btn-sm" onClick={() => navigate(`/environments/${incident.environmentId}`)}>{t('Open Environment')}</button>
+            )}
+            {!createMode && incident && (
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: incident })}>{t('View JSON')}</button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

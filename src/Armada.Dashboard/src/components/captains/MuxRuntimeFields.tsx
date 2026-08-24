@@ -50,7 +50,7 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
     if (!isMuxRuntime(runtime)) return '';
     if (loading) return t('Loading saved Mux endpoints...');
     if (loadError) return loadError;
-    if (endpoints.length === 0) return t('Current Mux versions use provider config instead of saved endpoints.');
+    if (endpoints.length === 0) return t('No saved Mux endpoints were found for this config directory.');
     return t('{{count}} saved Mux endpoint(s) available.', { count: endpoints.length });
   }, [endpoints.length, loadError, loading, runtime, t]);
 
@@ -58,11 +58,6 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
 
   return (
     <div className="mux-runtime-fields" style={{ marginTop: compact ? '0.5rem' : '0.75rem' }}>
-      <div className="wizard-context-strip" style={{ marginBottom: '0.75rem' }}>
-        <span>{t('Mux Runtime')}</span>
-        <strong>{t('This captain uses the active Mux provider configuration.')}</strong>
-      </div>
-
       <div className="wizard-form-grid">
         <div className="form-group">
           <label title={t('Optional mux config directory override. Leave blank to use mux defaults.')}>{t('Mux Config Directory')}</label>
@@ -73,12 +68,13 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
           />
         </div>
         <div className="form-group">
-          <label title={t('Legacy named Mux endpoint retained for older configs. Current Mux provider settings are read from the config directory or environment.')}>{t('Mux Endpoint')}</label>
+          <label title={t('Named mux endpoint to validate and launch for this captain.')}>{t('Mux Endpoint')}</label>
           <input
             list="mux-endpoint-options"
             value={form.muxEndpoint}
             onChange={(event) => onChange({ muxEndpoint: event.target.value })}
-            placeholder={t('Optional legacy endpoint name')}
+            placeholder={t('Required endpoint name')}
+            required
           />
           <datalist id="mux-endpoint-options">
             {endpoints.map((endpoint) => (
@@ -101,11 +97,11 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
         <summary>{t('Advanced Mux Overrides')}</summary>
         <div className="wizard-form-grid" style={{ marginTop: '0.75rem' }}>
           <div className="form-group">
-            <label>{t('OpenAI-Compatible Base URL')}</label>
+            <label>{t('Mux Base URL')}</label>
             <input
               value={form.muxBaseUrl}
               onChange={(event) => onChange({ muxBaseUrl: event.target.value })}
-              placeholder={t('Optional, e.g. https://api.zyloo.io/v1')}
+              placeholder={t('Optional override')}
             />
           </div>
           <div className="form-group">
@@ -146,8 +142,11 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
               value={form.muxApprovalPolicy}
               onChange={(event) => onChange({ muxApprovalPolicy: event.target.value })}
             >
-              <option value="">{t('Default exec mode')}</option>
-              <option value="plan">plan</option>
+              <option value="">{t('Default (auto)')}</option>
+              <option value="auto">auto</option>
+              <option value="autoapprove">autoapprove</option>
+              <option value="deny">deny</option>
+              <option value="ask">ask</option>
             </select>
           </div>
         </div>

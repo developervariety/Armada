@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { createPipeline, getPipeline, updatePipeline, deletePipeline, listPersonas } from '../api/client';
-import type { Pipeline } from '../types/models';
+import { createPipeline, getPipeline, updatePipeline, deletePipeline, listPersonas, listVessels, createVoyage } from '../api/client';
+import type { Pipeline, PipelineStage, Vessel } from '../types/models';
+import { useAuth } from '../context/AuthContext';
 import ActionMenu from '../components/shared/ActionMenu';
+import PageHeader from '../components/shared/PageHeader';
 import JsonViewer from '../components/shared/JsonViewer';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
@@ -19,14 +21,50 @@ interface StageForm {
   reviewDenyAction: 'RetryStage' | 'FailPipeline';
 }
 
+function PipelineFlow({ stages, label }: { stages: PipelineStage[]; label: (key: string) => string }) {
+  const ordered = stages.slice().sort((a, b) => a.order - b.order);
+  if (ordered.length === 0) return <p className="text-dim">{label('No stages defined.')}</p>;
+  return (
+    <div className="pipeline-flow" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '0.25rem' }}>
+      {ordered.map((stage, i) => (
+        <div key={stage.id || i} style={{ display: 'flex', alignItems: 'center' }}>
+          <div
+            className="card"
+            style={{ padding: '0.6rem 0.8rem', minWidth: '140px', borderLeft: stage.requiresReview ? '3px solid var(--warning, #d98a00)' : undefined }}
+            title={stage.description || ''}
+          >
+            <div className="text-dim" style={{ fontSize: '0.7rem' }}>{label('Stage')} {i + 1}</div>
+            <strong>{stage.personaName || label('(unset)')}</strong>
+            <div style={{ marginTop: '0.3rem', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+              {stage.isOptional && <span className="badge badge-info">{label('Optional')}</span>}
+              {stage.requiresReview && <span className="badge badge-warning">{label('Review')}</span>}
+            </div>
+          </div>
+          {i < ordered.length - 1 && <span style={{ padding: '0 0.4rem', color: 'var(--text-dim)' }}>{'→'}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PipelineDetail() {
   const { t, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const { isAdmin, isTenantAdmin } = useAuth();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Live run-mode
+  const [vessels, setVessels] = useState<Vessel[]>([]);
+  const [showRun, setShowRun] = useState(false);
+  const [runVesselId, setRunVesselId] = useState('');
+  const [runTitle, setRunTitle] = useState('');
+  const [runDescription, setRunDescription] = useState('');
+  const [running, setRunning] = useState(false);
+  const canManage = isAdmin || isTenantAdmin;
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
@@ -48,6 +86,10 @@ export default function PipelineDetail() {
       setPipeline(found);
       const personaResult = await listPersonas({ pageSize: 9999 });
       setPersonaNames(personaResult.objects.map(p => p.name));
+      try {
+        const vesselResult = await listVessels();
+        setVessels(vesselResult.objects || []);
+      } catch { /* vessels are optional for run-mode */ }
       if (isInitialLoad) setError('');
     } catch {
       setError(t('Failed to load pipeline.'));
@@ -147,28 +189,64 @@ export default function PipelineDetail() {
     }
   }
 
+  function openRun() {
+    if (!pipeline) return;
+    setRunTitle(t('Run: {{name}}', { name: pipeline.name }));
+    setRunDescription('');
+    setRunVesselId(vessels[0]?.id ?? '');
+    setShowRun(true);
+  }
+
+  async function handleRun(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pipeline || !runVesselId) return;
+    setRunning(true);
+    try {
+      const voyage = await createVoyage({
+        title: runTitle || t('Run: {{name}}', { name: pipeline.name }),
+        vesselId: runVesselId,
+        pipeline: pipeline.name,
+        missions: [{ vesselId: runVesselId, title: runTitle || pipeline.name, description: runDescription || undefined }],
+      });
+      setShowRun(false);
+      pushToast('success', t('Voyage launched.'));
+      navigate(`/voyages/${voyage.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Run failed.'));
+    } finally {
+      setRunning(false);
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !pipeline) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!pipeline) return <p className="text-dim">{t('Pipeline not found.')}</p>;
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/pipelines">{t('Pipelines')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{pipeline.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{pipeline.name}</h2>
-        <div className="inline-actions">
-          <ActionMenu id={`pipeline-${pipeline.name}`} items={[
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
-            { label: 'Edit', onClick: openEdit },
-            { label: 'Duplicate', onClick: () => void handleDuplicate() },
-            { label: 'Delete', danger: true, onClick: handleDelete, disabled: pipeline.isBuiltIn },
-          ]} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/pipelines">{t('Pipelines')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{pipeline.name}</span>
+          </>
+        }
+        title={pipeline.name}
+        actions={
+          <>
+            {canManage && (
+              <button className="btn btn-primary" onClick={openRun} disabled={pipeline.stages.length === 0} title={t('Dispatch a voyage using this pipeline')}>
+                {'▶'} {t('Run')}
+              </button>
+            )}
+            <ActionMenu id={`pipeline-${pipeline.name}`} items={[
+              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
+              { label: 'Edit', onClick: openEdit },
+              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              { label: 'Delete', danger: true, onClick: handleDelete, disabled: pipeline.isBuiltIn },
+            ]} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -231,6 +309,28 @@ export default function PipelineDetail() {
         </div>
       )}
 
+      {/* Run modal (live run-mode) */}
+      {showRun && (
+        <div className="modal-overlay" onClick={() => setShowRun(false)}>
+          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleRun} style={{ maxWidth: '520px', width: '90%' }}>
+            <h3>{t('Run Pipeline')}</h3>
+            <p className="text-dim" style={{ marginTop: 0 }}>{t('Dispatch a voyage that runs this pipeline\'s stages against a vessel.')}</p>
+            <label>{t('Vessel')}
+              <select value={runVesselId} onChange={e => setRunVesselId(e.target.value)} required>
+                <option value="">{t('Select a vessel...')}</option>
+                {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </label>
+            <label>{t('Title')}<input type="text" value={runTitle} onChange={e => setRunTitle(e.target.value)} required /></label>
+            <label>{t('Objective / Description')}<textarea rows={4} value={runDescription} onChange={e => setRunDescription(e.target.value)} /></label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={running || !runVesselId}>{running ? t('Launching...') : t('Launch Voyage')}</button>
+              <button type="button" className="btn" onClick={() => setShowRun(false)}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
@@ -250,6 +350,17 @@ export default function PipelineDetail() {
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><span>{pipeline.active !== false ? <span className="badge badge-success">{t('Yes')}</span> : <span className="badge badge-dim">{t('No')}</span>}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={pipeline.createdUtc}>{formatDateTime(pipeline.createdUtc)}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatDateTime(pipeline.lastUpdateUtc)}</span></div>
+      </div>
+
+      {/* Visual flow */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3>{t('Flow')}</h3>
+          {canManage && <button className="btn" onClick={openEdit}>{t('Edit stages')}</button>}
+        </div>
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <PipelineFlow stages={pipeline.stages} label={t} />
+        </div>
       </div>
 
       {/* Stages */}

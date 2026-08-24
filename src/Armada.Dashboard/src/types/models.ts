@@ -119,6 +119,14 @@ export interface Vessel {
   branchCleanupPolicy: string | null;
   requirePassingChecksToLand: boolean;
   protectedBranchPatterns: string[];
+  secretScanEnabled?: boolean;
+  protectedPathPatterns?: string[];
+  privateIdentifierDenylist?: string[];
+  autoLandEnabled?: boolean;
+  autoLandMaxFiles?: number;
+  autoLandMaxLines?: number;
+  autoLandPathAllowGlobs?: string[];
+  autoLandPathDenyGlobs?: string[];
   releaseBranchPrefix: string;
   hotfixBranchPrefix: string;
   requirePullRequestForProtectedBranches: boolean;
@@ -214,6 +222,7 @@ export interface Mission {
   voyageId: string | null;
   vesselId: string | null;
   captainId: string | null;
+  requestedCaptainId?: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -575,6 +584,7 @@ export interface PlanningSessionMessage {
   sequence: number;
   content: string;
   isSelectedForDispatch: boolean;
+  metrics?: CaptainChatMetrics | null;
   createdUtc: string;
   lastUpdateUtc: string;
 }
@@ -1987,6 +1997,8 @@ export interface PlanningSessionCreateRequest {
 
 export interface PlanningSessionMessageRequest {
   content: string;
+  showThinking?: boolean;
+  stream?: boolean;
 }
 
 export interface PlanningSessionDispatchRequest {

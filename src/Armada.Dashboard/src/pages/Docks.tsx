@@ -6,14 +6,16 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
-
-type SortDir = 'asc' | 'desc';
-type SortField = 'branchName' | 'active' | 'createdUtc';
+import { useResourceTable } from '../lib/useResourceTable';
 
 export default function Docks() {
   const navigate = useNavigate();
@@ -34,18 +36,25 @@ export default function Docks() {
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
 
+  // View detail modal
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
+
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('createdUtc');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ branchName: '', worktreePath: '' });
+  const table = useResourceTable({
+    rows: docks,
+    getId: (d) => d.id,
+    columnValues: {
+      branchName: (d) => (d.branchName ?? '').toLowerCase(),
+      worktreePath: (d) => (d.worktreePath ?? '').toLowerCase(),
+      active: (d) => (d.active ? 1 : 0),
+      createdUtc: (d) => d.createdUtc,
+    },
+    initialSortField: 'createdUtc',
+    initialSortDir: 'desc',
+    initialPageSize: 25,
+  });
 
   const captainName = useCallback((id: string | null) => {
     if (!id) return '-';
@@ -66,7 +75,7 @@ export default function Docks() {
       setDocks(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
-      setSelected([]);
+      table.setSelected([]);
       setError('');
     } catch {
       setError(t('Failed to load docks.'));
@@ -76,54 +85,12 @@ export default function Docks() {
   }, [pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('docks', load);
 
   useEffect(() => {
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
   }, []);
-
-  // Client-side column filter + sort
-  const filtered = useMemo(() => {
-    return docks.filter(d =>
-      (!colFilters.branchName || (d.branchName ?? '').toLowerCase().includes(colFilters.branchName.toLowerCase())) &&
-      (!colFilters.worktreePath || (d.worktreePath ?? '').toLowerCase().includes(colFilters.worktreePath.toLowerCase()))
-    );
-  }, [docks, colFilters]);
-
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number = '';
-      let vb: string | number = '';
-      switch (sortField) {
-        case 'branchName': va = (a.branchName ?? '').toLowerCase(); vb = (b.branchName ?? '').toLowerCase(); break;
-        case 'active': va = a.active ? 1 : 0; vb = b.active ? 1 : 0; break;
-        case 'createdUtc': va = a.createdUtc; vb = b.createdUtc; break;
-      }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
-
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === sorted.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(sorted.map(d => d.id)); }
-  function clearSelection() { setSelected([]); }
 
   // Delete
   function handleDelete(id: string) {
@@ -146,11 +113,11 @@ export default function Docks() {
     setConfirm({
       open: true,
       title: t('Delete Selected Docks'),
-      message: t('Delete {{count}} selected dock(s)? This will clean up the git worktrees and cannot be undone.', { count: selected.length }),
+      message: t('Delete {{count}} selected dock(s)? This will clean up the git worktrees and cannot be undone.', { count: table.selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        const ids = [...selected];
-        setSelected([]);
+        const ids = [...table.selected];
+        table.setSelected([]);
         let failed = 0;
         for (const id of ids) {
           try { await deleteDock(id); } catch { failed++; }
@@ -169,24 +136,32 @@ export default function Docks() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Docks')}</h2>
-          <p className="text-dim view-subtitle">{t('Git worktrees provisioned for captains. Docks are system-managed and track branch activity.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <RefreshButton onRefresh={load} title={t('Refresh dock data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Docks')}
+        subtitle={t('Git worktrees provisioned for captains. Docks are system-managed and track branch activity.')}
+        actions={(
+          <>
+            {table.selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({table.selected.length})
+              </button>
+            )}
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh dock data')} />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? `${t('Dock')}: ${String(viewRecord.branchName || viewRecord.id || '')}` : ''}
+        subtitle={viewRecord ? String(viewRecord.worktreePath || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -204,20 +179,20 @@ export default function Docks() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all docks')} />
+                    <input type="checkbox" checked={table.allSelected} onChange={e => e.target.checked ? table.selectAll() : table.clearSelection()} title={t('Select all docks')} />
                   </th>
                   <th>{t('ID')}</th>
                   <th>{t('Vessel')}</th>
                   <th>{t('Captain')}</th>
-                  <th className="sortable" onClick={() => handleSort('branchName')} title={t('Branch name -- click to sort')}>
-                    {t('Branch')}{sortIcon('branchName')}
+                  <th className="sortable" onClick={() => table.handleSort('branchName')} title={t('Branch name -- click to sort')}>
+                    {t('Branch')}{table.sortIcon('branchName')}
                   </th>
                   <th>{t('Worktree Path')}</th>
-                  <th className="sortable" onClick={() => handleSort('active')} title={t('Active status -- click to sort')}>
-                    {t('Active')}{sortIcon('active')}
+                  <th className="sortable" onClick={() => table.handleSort('active')} title={t('Active status -- click to sort')}>
+                    {t('Active')}{table.sortIcon('active')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created -- click to sort')}>
-                    {t('Created')}{sortIcon('createdUtc')}
+                  <th className="sortable" onClick={() => table.handleSort('createdUtc')} title={t('Created -- click to sort')}>
+                    {t('Created')}{table.sortIcon('createdUtc')}
                   </th>
                   <th className="text-right">{t('Actions')}</th>
                 </tr>
@@ -226,18 +201,18 @@ export default function Docks() {
                   <td></td>
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder={t('Filter...')} /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.worktreePath} onChange={e => setColFilters(f => ({ ...f, worktreePath: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.branchName ?? ''} onChange={e => table.setColFilter('branchName', e.target.value)} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.worktreePath ?? ''} onChange={e => table.setColFilter('worktreePath', e.target.value)} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(d => (
-                  <tr key={d.id} className="clickable" onClick={() => navigate(`/docks/${d.id}`)}>
+                {table.sorted.map(d => (
+                  <tr key={d.id} className="clickable" onClick={() => setViewRecord(d as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggleSelect(d.id)} title={t('Select this dock')} />
+                      <input type="checkbox" checked={table.selected.includes(d.id)} onChange={() => table.toggleSelect(d.id)} title={t('Select this dock')} />
                     </td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
@@ -277,7 +252,7 @@ export default function Docks() {
                     </td>
                   </tr>
                 ))}
-                {sorted.length === 0 && (
+                {table.sorted.length === 0 && (
                   <tr><td colSpan={9} className="text-dim">{t('No docks match the current filters.')}</td></tr>
                 )}
               </tbody>

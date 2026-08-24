@@ -966,9 +966,6 @@ export default function Workspace() {
         )}
       </div>
 
-      {currentVessel && <WorkspaceDiff vesselId={currentVessel.id} />}
-      {currentVessel && <WorkspaceTerminal vesselId={currentVessel.id} />}
-
       {loadingWorkspace && !status && (
         <div className="modal-overlay workspace-loading-overlay" role="presentation">
           <div className="modal workspace-loading-modal" role="status" aria-live="polite" aria-modal="true">
@@ -1098,6 +1095,9 @@ export default function Workspace() {
           </form>
         </div>
       )}
+
+      {currentVessel && <WorkspaceDiff vesselId={currentVessel.id} />}
+      {currentVessel && <WorkspaceTerminal vesselId={currentVessel.id} />}
     </div>
   );
 }

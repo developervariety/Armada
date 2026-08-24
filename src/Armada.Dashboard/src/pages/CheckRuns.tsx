@@ -12,10 +12,14 @@ import type { CheckRun, CheckRunRequest, CheckRunType, Vessel, VesselReadinessRe
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import ActionMenu from '../components/shared/ActionMenu';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import RecordDetailModal from '../components/shared/RecordDetailModal';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import StatusBadge from '../components/shared/StatusBadge';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
 import {
@@ -119,7 +123,9 @@ export default function CheckRuns() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'Passed' | 'Failed' | 'Running' | 'Pending' | 'Canceled'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'Armada' | 'External'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | CheckRunType>('all');
+  const [colFilters, setColFilters] = useState({ label: '', environmentName: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   const [showRunModal, setShowRunModal] = useState(false);
   const [running, setRunning] = useState(false);
@@ -161,6 +167,7 @@ export default function CheckRuns() {
   useEffect(() => {
     load();
   }, []);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('checkruns', load);
 
   useEffect(() => {
     const state = (location.state || {}) as CheckRunPrefillState;
@@ -253,8 +260,10 @@ export default function CheckRuns() {
     const matchesStatus = statusFilter === 'all' || run.status === statusFilter;
     const matchesSource = sourceFilter === 'all' || run.source === sourceFilter;
     const matchesType = typeFilter === 'all' || run.type === typeFilter;
-    return matchesVessel && matchesStatus && matchesSource && matchesType;
-  }), [runs, sourceFilter, statusFilter, typeFilter, vesselFilter]);
+    const matchesColFilters = (!colFilters.label || (run.label || run.type || '').toLowerCase().includes(colFilters.label.toLowerCase()))
+      && (!colFilters.environmentName || (run.environmentName ?? '').toLowerCase().includes(colFilters.environmentName.toLowerCase()));
+    return matchesVessel && matchesStatus && matchesSource && matchesType && matchesColFilters;
+  }), [colFilters, runs, sourceFilter, statusFilter, typeFilter, vesselFilter]);
   const comparisonMap = useMemo(() => buildCheckRunComparisonMap(runs), [runs]);
 
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
@@ -320,23 +329,35 @@ export default function CheckRuns() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Checks')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Structured build, test, deploy, and verification runs with durable output, artifacts, and retry support.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh check runs')} />
-          <button className="btn btn-primary" onClick={() => openRunModal()}>
-            + {t('Run Check')}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={t('Checks')}
+        subtitle={t('Structured build, test, deploy, and verification runs with durable output, artifacts, and retry support.')}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh check runs')} />
+            <button className="btn btn-primary" onClick={() => openRunModal()}>
+              + {t('Run Check')}
+            </button>
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <RecordDetailModal
+        open={!!viewRecord}
+        title={viewRecord ? String(viewRecord.label || viewRecord.type || viewRecord.id || '') : ''}
+        subtitle={viewRecord ? String(viewRecord.type || '') : undefined}
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
+        onEdit={() => {
+          const id = viewRecord?.id;
+          setViewRecord(null);
+          if (id) navigate(`/checks/${String(id)}`);
+        }}
+        editLabel={t('Open Details')}
+      />
 
       {showRunModal && (
         <div className="modal-overlay" onClick={() => !running && setShowRunModal(false)}>
@@ -536,10 +557,20 @@ export default function CheckRuns() {
                 <th>{t('Created')}</th>
                 <th className="text-right">{t('Actions')}</th>
               </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.label} onChange={e => setColFilters(f => ({ ...f, label: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td><input type="text" className="col-filter" value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
             </thead>
             <tbody>
               {filtered.map((run) => (
-                <tr key={run.id} className="clickable" onClick={() => navigate(`/checks/${run.id}`)}>
+                <tr key={run.id} className="clickable" onClick={() => setViewRecord(run as unknown as Record<string, unknown>)}>
                   <td>
                     {(() => {
                       const parsingSummary = summarizeRunParsing(run);

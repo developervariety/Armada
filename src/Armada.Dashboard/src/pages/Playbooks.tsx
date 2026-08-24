@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPlaybook, deletePlaybook, listPlaybooks } from '../api/client';
+import { createPlaybook, deletePlaybook, listPlaybooks, updatePlaybook } from '../api/client';
 import type { Playbook } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -10,7 +10,10 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 
 export default function Playbooks() {
@@ -23,6 +26,7 @@ export default function Playbooks() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [colFilters, setColFilters] = useState({ fileName: '', description: '' });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
@@ -31,7 +35,68 @@ export default function Playbooks() {
     onConfirm: () => {},
   });
 
+  // Create/Edit modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Playbook | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [createForm, setCreateForm] = useState<{ fileName: string; description: string; content: string; active: boolean }>({
+    fileName: 'NEW_PLAYBOOK.md',
+    description: '',
+    content: '# Playbook\n\nDescribe the rules the model must follow.\n',
+    active: true,
+  });
+
   const canManage = isAdmin || isTenantAdmin;
+
+  function openCreate() {
+    setEditing(null);
+    setCreateForm({
+      fileName: 'NEW_PLAYBOOK.md',
+      description: '',
+      content: '# Playbook\n\nDescribe the rules the model must follow.\n',
+      active: true,
+    });
+    setShowCreate(true);
+  }
+
+  function openEdit(playbook: Playbook) {
+    setEditing(playbook);
+    setCreateForm({
+      fileName: playbook.fileName,
+      description: playbook.description || '',
+      content: playbook.content,
+      active: playbook.active,
+    });
+    setShowCreate(true);
+  }
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      const payload = {
+        fileName: createForm.fileName,
+        description: createForm.description.trim() || null,
+        content: createForm.content,
+        active: createForm.active,
+      };
+      if (editing) {
+        const updated = await updatePlaybook(editing.id, payload);
+        setShowCreate(false);
+        pushToast('success', t('Playbook "{{name}}" saved.', { name: updated.fileName }));
+      } else {
+        const created = await createPlaybook(payload);
+        setShowCreate(false);
+        pushToast('success', t('Playbook "{{name}}" created.', { name: created.fileName }));
+      }
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     try {
@@ -50,6 +115,8 @@ export default function Playbooks() {
     load();
   }, []);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('playbooks', load);
+
   const filtered = playbooks.filter((playbook) => {
     const matchesSearch = search.trim().length === 0
       || playbook.fileName.toLowerCase().includes(search.toLowerCase())
@@ -60,7 +127,10 @@ export default function Playbooks() {
       || (statusFilter === 'active' && playbook.active)
       || (statusFilter === 'inactive' && !playbook.active);
 
-    return matchesSearch && matchesStatus;
+    const matchesColumns = (!colFilters.fileName || (playbook.fileName ?? '').toLowerCase().includes(colFilters.fileName.toLowerCase()))
+      && (!colFilters.description || (playbook.description ?? '').toLowerCase().includes(colFilters.description.toLowerCase()));
+
+    return matchesSearch && matchesStatus && matchesColumns;
   });
 
   const activeCount = playbooks.filter((playbook) => playbook.active).length;
@@ -97,22 +167,21 @@ export default function Playbooks() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Playbooks')}</h2>
-          <p className="text-dim view-subtitle">
-            {t('Tenant-scoped markdown playbooks that can be attached to voyages and missions. Use them for durable engineering rules, architecture standards, or execution checklists.')}
-          </p>
-        </div>
-        <div className="view-actions">
-          <RefreshButton onRefresh={load} title={t('Refresh playbooks')} />
-          {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/playbooks/new')}>
-              + {t('Playbook')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={t('Playbooks')}
+        subtitle={t('Tenant-scoped markdown playbooks that can be attached to voyages and missions. Use them for durable engineering rules, architecture standards, or execution checklists.')}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh playbooks')} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + {t('Playbook')}
+              </button>
+            )}
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
@@ -123,6 +192,31 @@ export default function Playbooks() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
+            <h3>{editing ? t('Edit Playbook') : t('Create Playbook')}</h3>
+            <label>{t('File Name')}
+              <input type="text" value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} placeholder={t('CSHARP_BACKEND_ARCHITECTURE.md')} required />
+            </label>
+            <label>{t('Description')}
+              <input type="text" value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} placeholder={t('Optional summary shown during playbook selection')} />
+            </label>
+            <label>{t('Markdown Content')}
+              <textarea rows={16} value={createForm.content} onChange={(event) => setCreateForm({ ...createForm, content: event.target.value })} spellCheck={false} />
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
+              <span>{t('Active and selectable during dispatch')}</span>
+            </label>
+            <div className="modal-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Playbook')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
@@ -178,10 +272,18 @@ export default function Playbooks() {
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
               </tr>
+              <tr className="column-filter-row">
+                <td><input type="text" className="col-filter" value={colFilters.fileName} onChange={e => setColFilters(f => ({ ...f, fileName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => setColFilters(f => ({ ...f, description: e.target.value }))} placeholder={t('Filter...')} /></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
             </thead>
             <tbody>
               {filtered.map((playbook) => (
-                <tr key={playbook.id} className="clickable" onClick={() => navigate(`/playbooks/${playbook.id}`)}>
+                <tr key={playbook.id} className="clickable" onClick={() => canManage ? openEdit(playbook) : navigate(`/playbooks/${playbook.id}`)}>
                   <td>
                     <strong>{playbook.fileName}</strong>
                     <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{playbook.id}</div>
@@ -201,6 +303,7 @@ export default function Playbooks() {
                       id={`playbook-${playbook.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/playbooks/${playbook.id}`) },
+                        ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(playbook) }] : []),
                         ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(playbook) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: playbook.fileName, data: playbook }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(playbook) }] : []),

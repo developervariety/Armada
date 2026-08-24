@@ -17,6 +17,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
 import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
@@ -340,31 +341,34 @@ export default function WorkflowProfileDetail() {
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/workflow-profiles">{t('Workflow Profiles')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Workflow Profile') : name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{createMode ? t('Create Workflow Profile') : name}</h2>
-        <div className="inline-actions">
-          {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
-          {!createMode && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: profile })}>
-              {t('View JSON')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
-              {t('Duplicate')}
-            </button>
-          )}
-          {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
-              {t('Delete')}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/workflow-profiles">{t('Workflow Profiles')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('New Workflow Profile') : name}</span>
+          </>
+        }
+        title={createMode ? t('Create Workflow Profile') : name}
+        actions={
+          <>
+            {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
+            {!createMode && (
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: profile })}>
+                {t('View JSON')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+                {t('Duplicate')}
+              </button>
+            )}
+            {!createMode && canManage && (
+              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+                {t('Delete')}
+              </button>
+            )}
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

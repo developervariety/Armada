@@ -10,13 +10,14 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildVesselDuplicatePayload } from '../lib/duplicates';
-
-type SortDir = 'asc' | 'desc';
-type SortField = 'name' | 'fleetId' | 'defaultBranch' | 'createdUtc';
+import { useResourceTable } from '../lib/useResourceTable';
 
 interface VesselForm {
   name: string;
@@ -35,11 +36,21 @@ interface VesselForm {
   branchCleanupPolicy: string;
   allowConcurrentMissions: boolean;
   defaultPipelineId: string;
+  secretScanEnabled: boolean;
+  protectedPathPatterns: string;
+  privateIdentifierDenylist: string;
+  autoLandEnabled: boolean;
+  autoLandMaxFiles: string;
+  autoLandMaxLines: string;
+  autoLandPathAllowGlobs: string;
+  autoLandPathDenyGlobs: string;
 }
 
 const emptyForm: VesselForm = {
   name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '',
   projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false, defaultPipelineId: '',
+  secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '',
+  autoLandEnabled: false, autoLandMaxFiles: '', autoLandMaxLines: '', autoLandPathAllowGlobs: '', autoLandPathDenyGlobs: '',
 };
 
 export default function Vessels() {
@@ -65,19 +76,9 @@ export default function Vessels() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ name: '', fleetId: '', repoUrl: '', landingMode: '' });
-
-  // Pagination
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  // Select-based column filters (equality; applied before the shared table hook)
+  const [fleetFilter, setFleetFilter] = useState('');
+  const [landingModeFilter, setLandingModeFilter] = useState('');
 
   const fleetMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -89,6 +90,28 @@ export default function Vessels() {
     if (!id) return '';
     return fleetMap.get(id) ?? id.substring(0, 8);
   }
+
+  const baseRows = useMemo(() => {
+    return vessels.filter(v =>
+      (!fleetFilter || v.fleetId === fleetFilter) &&
+      (!landingModeFilter || (v.landingMode ?? '') === landingModeFilter)
+    );
+  }, [vessels, fleetFilter, landingModeFilter]);
+
+  const table = useResourceTable({
+    rows: baseRows,
+    getId: (v) => v.id,
+    columnValues: {
+      name: (v) => v.name.toLowerCase(),
+      repoUrl: (v) => (v.repoUrl ?? '').toLowerCase(),
+      fleetId: (v) => fleetName(v.fleetId).toLowerCase(),
+      defaultBranch: (v) => (v.defaultBranch ?? 'main').toLowerCase(),
+      createdUtc: (v) => v.createdUtc,
+    },
+    initialSortField: 'name',
+    initialSortDir: 'asc',
+    initialPageSize: 25,
+  });
 
   const load = useCallback(async () => {
     try {
@@ -119,59 +142,7 @@ export default function Vessels() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Filtered
-  const filtered = useMemo(() => {
-    return vessels.filter(v =>
-      (!colFilters.name || v.name.toLowerCase().includes(colFilters.name.toLowerCase())) &&
-      (!colFilters.fleetId || v.fleetId === colFilters.fleetId) &&
-      (!colFilters.repoUrl || (v.repoUrl ?? '').toLowerCase().includes(colFilters.repoUrl.toLowerCase())) &&
-      (!colFilters.landingMode || (v.landingMode ?? '') === colFilters.landingMode)
-    );
-  }, [vessels, colFilters, fleetMap]);
-
-  // Sorted
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string = '';
-      let vb: string = '';
-      switch (sortField) {
-        case 'fleetId': va = fleetName(a.fleetId).toLowerCase(); vb = fleetName(b.fleetId).toLowerCase(); break;
-        case 'defaultBranch': va = (a.defaultBranch ?? 'main').toLowerCase(); vb = (b.defaultBranch ?? 'main').toLowerCase(); break;
-        case 'createdUtc': va = a.createdUtc; vb = b.createdUtc; break;
-        default: va = a.name.toLowerCase(); vb = b.name.toLowerCase();
-      }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir, fleetMap]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
-
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(filtered.map(v => v.id)); }
-  function clearSelection() { setSelected([]); }
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('vessels', load);
 
   // CRUD
   function openCreate() { setForm({ ...emptyForm }); setEditing(null); setShowForm(true); }
@@ -193,6 +164,14 @@ export default function Vessels() {
       gitHubTokenOverride: '',
       clearGitHubTokenOverride: false,
       defaultPipelineId: v.defaultPipelineId ?? '',
+      secretScanEnabled: v.secretScanEnabled ?? false,
+      protectedPathPatterns: (v.protectedPathPatterns || []).join('\n'),
+      privateIdentifierDenylist: (v.privateIdentifierDenylist || []).join('\n'),
+      autoLandEnabled: v.autoLandEnabled ?? false,
+      autoLandMaxFiles: v.autoLandMaxFiles ? String(v.autoLandMaxFiles) : '',
+      autoLandMaxLines: v.autoLandMaxLines ? String(v.autoLandMaxLines) : '',
+      autoLandPathAllowGlobs: (v.autoLandPathAllowGlobs || []).join('\n'),
+      autoLandPathDenyGlobs: (v.autoLandPathDenyGlobs || []).join('\n'),
     });
     setEditing(v);
     setShowForm(true);
@@ -210,6 +189,12 @@ export default function Vessels() {
       if (!payload.branchCleanupPolicy) delete payload.branchCleanupPolicy;
       if (!payload.modelContext) delete payload.modelContext;
       if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+      payload.protectedPathPatterns = form.protectedPathPatterns.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+      payload.privateIdentifierDenylist = form.privateIdentifierDenylist.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+      payload.autoLandMaxFiles = form.autoLandMaxFiles.trim() ? Math.max(0, parseInt(form.autoLandMaxFiles, 10) || 0) : 0;
+      payload.autoLandMaxLines = form.autoLandMaxLines.trim() ? Math.max(0, parseInt(form.autoLandMaxLines, 10) || 0) : 0;
+      payload.autoLandPathAllowGlobs = form.autoLandPathAllowGlobs.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+      payload.autoLandPathDenyGlobs = form.autoLandPathDenyGlobs.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
       delete payload.clearGitHubTokenOverride;
       if (editing)
       {
@@ -258,11 +243,11 @@ export default function Vessels() {
     setConfirm({
       open: true,
       title: t('Delete Selected Vessels'),
-      message: t('Delete {{count}} selected vessel(s)? This cannot be undone.', { count: selected.length }),
+      message: t('Delete {{count}} selected vessel(s)? This cannot be undone.', { count: table.selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        const ids = [...selected];
-        setSelected([]);
+        const ids = [...table.selected];
+        table.setSelected([]);
         let failed = 0;
         for (const id of ids) {
           try { await deleteVessel(id); } catch { failed++; }
@@ -300,31 +285,32 @@ export default function Vessels() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Vessels')}</h2>
-          <p className="text-dim view-subtitle">{t('Git repositories registered with Armada')}</p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
-            {t('Workspace')}
-          </button>
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
+      <PageHeader
+        title={t('Vessels')}
+        subtitle={t('Git repositories registered with Armada')}
+        actions={(
+          <>
+            <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
+              {t('Workspace')}
             </button>
-          )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
-          <RefreshButton onRefresh={load} title="Refresh vessel data" />
-        </div>
-      </div>
+            {table.selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({table.selected.length})
+              </button>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title="Refresh vessel data" />
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" style={{ width: '95vw', maxWidth: '95vw', height: '95vh', maxHeight: '95vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className="modal" style={{ width: 'min(1080px, 95vw)', maxWidth: 'min(1080px, 95vw)', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Vessel') : t('Create Vessel')}</h3>
 
             {/* Row 1: Name + Fleet + Repo URL (3 cols) */}
@@ -414,6 +400,48 @@ export default function Vessels() {
                 <input type="checkbox" checked={form.enableModelContext} onChange={e => setForm({ ...form, enableModelContext: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
                 <span style={{ verticalAlign: 'middle' }}>{t('Enable Model Context')}</span>
               </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title={t('Scan each mission diff for secrets before landing, and flag protected paths / private identifiers.')}>
+                <input type="checkbox" checked={form.secretScanEnabled} onChange={e => setForm({ ...form, secretScanEnabled: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
+                <span style={{ verticalAlign: 'middle' }}>{t('Scan Mission Diffs for Secrets')}</span>
+              </label>
+            </div>
+
+            {/* Dock boundary path/identifier rules */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1.5rem', marginBottom: '0.5rem' }}>
+              <label style={{ display: 'flex', flexDirection: 'column' }}>
+                {t('Protected Path Patterns')}
+                <textarea value={form.protectedPathPatterns} onChange={e => setForm({ ...form, protectedPathPatterns: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. .env* or infra/**')} style={{ resize: 'vertical' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column' }}>
+                {t('Private Identifier Denylist')}
+                <textarea value={form.privateIdentifierDenylist} onChange={e => setForm({ ...form, privateIdentifierDenylist: e.target.value })} rows={2} placeholder={t('One value per line; do not list real secrets')} style={{ resize: 'vertical' }} />
+              </label>
+            </div>
+
+            {/* Auto-land rules */}
+            <div style={{ marginBottom: '0.5rem' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', lineHeight: 1, cursor: 'pointer' }} title={t('When enabled, a passing mission must satisfy the rules below to land unattended; otherwise it holds for review.')}>
+                <input type="checkbox" checked={form.autoLandEnabled} onChange={e => setForm({ ...form, autoLandEnabled: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
+                <span style={{ verticalAlign: 'middle' }}>{t('Auto-land small changes')}</span>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1.5rem' }}>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Max Files (0 = no limit)')}
+                  <input type="number" min={0} value={form.autoLandMaxFiles} onChange={e => setForm({ ...form, autoLandMaxFiles: e.target.value })} placeholder="0" />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Max Lines (0 = no limit)')}
+                  <input type="number" min={0} value={form.autoLandMaxLines} onChange={e => setForm({ ...form, autoLandMaxLines: e.target.value })} placeholder="0" />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Auto-land Allowed Paths')}
+                  <textarea value={form.autoLandPathAllowGlobs} onChange={e => setForm({ ...form, autoLandPathAllowGlobs: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. src/**')} style={{ resize: 'vertical' }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column' }}>
+                  {t('Auto-land Denied Paths')}
+                  <textarea value={form.autoLandPathDenyGlobs} onChange={e => setForm({ ...form, autoLandPathDenyGlobs: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. infra/**')} style={{ resize: 'vertical' }} />
+                </label>
+              </div>
             </div>
 
             {/* Context textareas always 3 cols -- fills remaining vertical space */}
@@ -459,27 +487,27 @@ export default function Vessels() {
 
       {vessels.length > 0 && (
         <>
-          <Pagination pageNumber={currentPage} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={sorted.length}
-            onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
+          <Pagination pageNumber={table.currentPage} pageSize={table.pageSize} totalPages={table.totalPages}
+            totalRecords={table.sorted.length}
+            onPageChange={p => table.setPageNumber(p)} onPageSizeChange={s => { table.setPageSize(s); table.setPageNumber(1); }} />
 
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all vessels')} />
+                    <input type="checkbox" checked={table.allSelected} onChange={e => e.target.checked ? table.selectAll() : table.clearSelection()} title={t('Select all vessels')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('name')} title={t('Vessel name -- click to sort')}>
-                    {t('Name')}{sortIcon('name')}
+                  <th className="sortable" onClick={() => table.handleSort('name')} title={t('Vessel name -- click to sort')}>
+                    {t('Name')}{table.sortIcon('name')}
                   </th>
                   <th>{t('ID')}</th>
-                  <th className="sortable" onClick={() => handleSort('fleetId')} title={t('Fleet -- click to sort')}>
-                    {t('Fleet')}{sortIcon('fleetId')}
+                  <th className="sortable" onClick={() => table.handleSort('fleetId')} title={t('Fleet -- click to sort')}>
+                    {t('Fleet')}{table.sortIcon('fleetId')}
                   </th>
                   <th title={t('Remote git repository URL')}>{t('Repo URL')}</th>
-                  <th className="sortable" onClick={() => handleSort('defaultBranch')} title={t('Default branch -- click to sort')}>
-                    {t('Branch')}{sortIcon('defaultBranch')}
+                  <th className="sortable" onClick={() => table.handleSort('defaultBranch')} title={t('Default branch -- click to sort')}>
+                    {t('Branch')}{table.sortIcon('defaultBranch')}
                   </th>
                   <th title={t('How completed mission work is integrated (LocalMerge, PullRequest, MergeQueue, None)')}>{t('Landing Mode')}</th>
                   <th title={t('Commits ahead and behind the remote default branch')}>{t('Sync')}</th>
@@ -487,18 +515,18 @@ export default function Vessels() {
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title={t('Filter vessels by fleet')} value={colFilters.fleetId} onChange={e => { setColFilters(f => ({ ...f, fleetId: e.target.value })); setPageNumber(1); }}>
+                    <select className="col-filter" title={t('Filter vessels by fleet')} value={fleetFilter} onChange={e => { setFleetFilter(e.target.value); table.setPageNumber(1); }}>
                       <option value="">{t('All Fleets')}</option>
                       {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
                   </td>
-                  <td><input type="text" className="col-filter" value={colFilters.repoUrl} onChange={e => { setColFilters(f => ({ ...f, repoUrl: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={table.colFilters.repoUrl ?? ''} onChange={e => table.setColFilter('repoUrl', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title={t('Filter vessels by landing mode')} value={colFilters.landingMode} onChange={e => { setColFilters(f => ({ ...f, landingMode: e.target.value })); setPageNumber(1); }}>
+                    <select className="col-filter" title={t('Filter vessels by landing mode')} value={landingModeFilter} onChange={e => { setLandingModeFilter(e.target.value); table.setPageNumber(1); }}>
                       <option value="">{t('All Modes')}</option>
                       <option value="LocalMerge">LocalMerge</option>
                       <option value="PullRequest">PullRequest</option>
@@ -511,10 +539,10 @@ export default function Vessels() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map(v => (
+                {table.paginated.map(v => (
                   <tr key={v.id} className="clickable" onClick={() => openEdit(v)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title={t('Select this vessel')} />
+                      <input type="checkbox" checked={table.selected.includes(v.id)} onChange={() => table.toggleSelect(v.id)} title={t('Select this vessel')} />
                     </td>
                     <td><strong>{v.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
@@ -575,7 +603,7 @@ export default function Vessels() {
                     </td>
                   </tr>
                 ))}
-                {paginated.length === 0 && (
+                {table.paginated.length === 0 && (
                   <tr><td colSpan={9} className="text-dim">{t('No vessels match the current filters.')}</td></tr>
                 )}
               </tbody>

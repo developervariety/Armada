@@ -6,9 +6,15 @@ import type { Vessel, Pipeline, SelectedPlaybook, VesselReadinessResult, Captain
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import PlaybookSelector from '../components/shared/PlaybookSelector';
+import ReadinessPanel from '../components/shared/ReadinessPanel';
+import PageHeader from '../components/shared/PageHeader';
 import CaptainPicker from '../components/shared/CaptainPicker';
 import FallbackTierSelect from '../components/shared/FallbackTierSelect';
-import ReadinessPanel from '../components/shared/ReadinessPanel';
+
+interface StepAssignment {
+  captainId: string | null;
+  fallbackTier: CaptainTier | null;
+}
 
 interface DispatchPrefillState {
   fromPlanning?: boolean;
@@ -21,12 +27,6 @@ interface DispatchPrefillState {
   prompt?: string;
   selectedPlaybooks?: SelectedPlaybook[];
   voyageTitle?: string;
-}
-
-/** One pipeline step's captain choice: a preferred captain and the tier to fall back to when it is busy. */
-interface StepAssignment {
-  captainId: string | null;
-  fallbackTier: CaptainTier | null;
 }
 
 export default function Dispatch() {
@@ -69,13 +69,12 @@ export default function Dispatch() {
   }, []);
 
   // The distinct personas (steps) of the selected pipeline, in stage order, de-duplicated.
-  const selectedPipelineForSteps = pipelines.find((p) => p.name === selectedPipeline) ?? null;
-  const stepPersonas: string[] = selectedPipelineForSteps
-    ? Array.from(new Set(selectedPipelineForSteps.stages.slice().sort((a, b) => a.order - b.order).map((stage) => stage.personaName)))
+  const selectedPipelineObj = pipelines.find((p) => p.name === selectedPipeline) ?? null;
+  const stepPersonas: string[] = selectedPipelineObj
+    ? Array.from(new Set(selectedPipelineObj.stages.slice().sort((a, b) => a.order - b.order).map((s) => s.personaName)))
     : [];
 
-  // Seed each step's preferred captain from that persona's default whenever the pipeline or personas
-  // change. An assignment the operator already touched is preserved rather than reset by the reseed.
+  // Seed each step's preferred captain from that persona's default whenever the pipeline (or personas) change.
   useEffect(() => {
     if (stepPersonas.length === 0) {
       setStepAssignments({});
@@ -144,14 +143,11 @@ export default function Dispatch() {
       return;
     }
 
-    const selectedPipelineObj = pipelines.find((p) => p.name === selectedPipeline);
     const isMultiStage = selectedPipelineObj != null && selectedPipelineObj.stages.length > 1;
 
     const tasks = [prompt.trim()];
     if (!tasks.length) return;
 
-    // Only steps the operator actually set are sent. An untouched step is left off entirely so the
-    // voyage stores no override for it and normal persona/tier routing still applies.
     const captainAssignments: CaptainAssignmentOverride[] = Object.entries(stepAssignments)
       .filter(([, assignment]) => assignment.captainId || assignment.fallbackTier)
       .map(([persona, assignment]) => ({ persona, captainId: assignment.captainId, fallbackTier: assignment.fallbackTier }));
@@ -196,14 +192,10 @@ export default function Dispatch() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2>{t('Dispatch')}</h2>
-          <p className="text-muted">
-            {t('Describe the work you want Armada to dispatch through the selected vessel and pipeline.')}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title={t('Dispatch')}
+        subtitle={t('Describe the work you want Armada to dispatch through the selected vessel and pipeline.')}
+      />
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="dispatch-form">

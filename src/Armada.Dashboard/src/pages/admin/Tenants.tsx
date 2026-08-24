@@ -7,6 +7,8 @@ import ConfirmDialog from '../../components/shared/ConfirmDialog';
 import JsonViewer from '../../components/shared/JsonViewer';
 import CopyButton from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
+import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../../lib/useAutoRefresh';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
@@ -52,6 +54,7 @@ export default function Tenants() {
   }, [isAdmin, t, user?.tenant]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('tenants', load);
 
   const filtered = useMemo(() =>
     items.filter(t => !colFilters.name || t.name.toLowerCase().includes(colFilters.name.toLowerCase())),
@@ -169,6 +172,7 @@ export default function Tenants() {
         <div className="view-actions">
           {isAdmin && !remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
           {isAdmin && !remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Tenant')}</button>}
+          <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
           <RefreshButton onRefresh={load} title="Refresh tenants" />
         </div>
       </div>
