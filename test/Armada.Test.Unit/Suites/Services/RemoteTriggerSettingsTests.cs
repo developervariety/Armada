@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Linq;
     using System.Reflection;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading.Tasks;
     using Armada.Core.Settings;
     using Armada.Test.Common;
@@ -353,6 +354,46 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(captured.AgentWake, "removing the section should clear AgentWake settings");
                 return Task.CompletedTask;
             });
+
+            await RunTest("DeliveryMode_LegacyMcpNotificationSpelling_StillLoads", () =>
+            {
+                // Settings files written before the rename carry "McpNotification". That
+                // name promised an MCP server push this transport cannot carry, but an
+                // existing file must keep loading. Both real load paths are pinned here:
+                // ArmadaSettings uses its own options, Program.cs builds its own and adds
+                // JsonStringEnumConverter, which resolves ahead of a type-level attribute.
+                JsonSerializerOptions armadaSettingsStyle = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+                JsonSerializerOptions programStyle = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                programStyle.Converters.Add(new JsonStringEnumConverter());
+
+                foreach (JsonSerializerOptions options in new[] { armadaSettingsStyle, programStyle })
+                {
+                    AgentWakeSettings legacy = JsonSerializer.Deserialize<AgentWakeSettings>(
+                        "{\"deliveryMode\":\"McpNotification\"}", options)!;
+                    AssertEqual(AgentWakeDeliveryMode.StoredWake, legacy.DeliveryMode, "legacy spelling must still load");
+
+                    AgentWakeSettings current = JsonSerializer.Deserialize<AgentWakeSettings>(
+                        "{\"deliveryMode\":\"StoredWake\"}", options)!;
+                    AssertEqual(AgentWakeDeliveryMode.StoredWake, current.DeliveryMode, "current spelling must load");
+
+                    AgentWakeSettings spawn = JsonSerializer.Deserialize<AgentWakeSettings>(
+                        "{\"deliveryMode\":\"SpawnProcess\"}", options)!;
+                    AssertEqual(AgentWakeDeliveryMode.SpawnProcess, spawn.DeliveryMode, "other modes must be unaffected");
+                }
+
+                // Writing uses the corrected name, so a file round-trips to the accurate one.
+                AssertContains(
+                    "StoredWake",
+                    JsonSerializer.Serialize(
+                        new AgentWakeSettings { DeliveryMode = AgentWakeDeliveryMode.StoredWake },
+                        armadaSettingsStyle));
+                return Task.CompletedTask;
+            });
+
         }
     }
 }

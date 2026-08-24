@@ -548,6 +548,19 @@ namespace Armada.Server
             _McpServer = new ArmadaMcpHttpServer(_Settings.Rest.Hostname, _Settings.McpPort);
             _McpServer.ServerName = ArmadaConstants.ProductName;
             _McpServer.ServerVersion = ArmadaConstants.ProductVersion;
+
+            // Deliver directed wakes on whatever tool the session calls next. Before this,
+            // a wake reached a session only through the two coordination tools below, so a
+            // session monitoring a voyage could hold unread mail for the whole run.
+            _McpServer.WakeBannerExcludedTools.Add("armada_coordination_read");
+            _McpServer.WakeBannerExcludedTools.Add("armada_coordination_heartbeat");
+            _McpServer.PendingWakeProvider = async (participantKey, token) =>
+            {
+                List<Signal> wakes = await _CoordinationService
+                    .EnumerateUnreadWakesAsync(participantKey, token).ConfigureAwait(false);
+                return wakes.Select(wake => wake.Payload ?? String.Empty).ToList();
+            };
+
             RegisterMcpTools();
 
             await _McpServer.StartAsync(_TokenSource.Token).ConfigureAwait(false);

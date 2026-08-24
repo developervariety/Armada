@@ -294,10 +294,13 @@ Dispatch is the start of the operator loop.
 5. Poll incidents and Checks on the same cadence.
 6. Use `armada_nudge_voyage` or `armada_send_signal` only for live work that
    needs missing context.
-7. Inside a blocking monitor loop, heartbeat or read the coordination board
-   with your participantKey between iterations: the response carries
-   `UnreadWakes` when a peer addressed work or an answer to you. Pause and
-   address those first, then acknowledge each with `armada_mark_signal_read`.
+7. Inside a blocking monitor loop, watch for the `[ARMADA WAKE]` banner. When
+   your client sends the participant header (below), Armada appends pending
+   directed messages to ANY tool result, so a status poll delivers your mail.
+   Pause and address those first, then acknowledge each with
+   `armada_mark_signal_read`. Without the header, heartbeat or read the board
+   with your participantKey between iterations instead; those two tools are the
+   only others that carry `UnreadWakes`.
 8. Do not steer a terminal mission. Use restart, recovery, or a new mission.
 
 A quiet captain is not proof of a stall. Compare the mission state, process
@@ -909,6 +912,60 @@ every reader immediately; they are never injected into captain briefs.
   your participant key: PAUSE and address those before continuing, then
   acknowledge each with `armada_mark_signal_read`. This is how a session inside
   a blocking loop learns it was handed work at the next tool boundary.
+
+#### Identify your session so wakes reach you on any tool
+
+MCP has no channel that can interrupt a running agent. Armada's MCP transport
+is stateless, so the server cannot push, and no client turns an inbound
+notification into a model turn. A tool result is the only content a session is
+certain to read, so a pending wake rides back on one.
+
+Send the caller's participant key on every MCP request:
+
+```
+X-Armada-Participant: <participantKey>
+```
+
+Armada then appends an `[ARMADA WAKE]` block to the result of whichever tool
+the session calls next, so `armada_status` or `armada_voyage_status` delivers
+mail just as `armada_coordination_read` does. Without the header a session is
+anonymous and receives no wake — that is deliberate, because the server would
+otherwise have to guess whose mail to hand out.
+
+Configure it per client:
+
+- SSH stdio bridge: set `ARMADA_PARTICIPANT_KEY` in the MCP server's `env`.
+  `scripts/mcp-ssh-http-bridge.mjs` turns it into the header.
+- Direct HTTP clients: add the header to the server entry's `headers` object.
+- Bounded helpers: `scripts/autonomy/spawn-helper.sh` writes the header into the
+  generated per-helper config. An `AUTONOMY_CLAUDE_MCP_CONFIG` you supply
+  yourself must carry the header, or the helper gets no wakes.
+
+Delivery is not acknowledgement. The banner repeats on every tool result until
+the session calls `armada_mark_signal_read`; a wake that stopped appearing
+before it was read would be a lost wake. The two coordination tools above are
+excluded, because they already return the same wakes in their own payload.
+
+#### Watch the board in real time
+
+The banner is reliable but not immediate: a session that calls no tool sees
+nothing until it does. The Admiral's WebSocket hub already broadcasts every
+board message, so `scripts/autonomy/watch-board-wakes.mjs` listens there and
+reports a directed note the moment it is posted:
+
+```sh
+ARMADA_PARTICIPANT_KEY=lead-session \
+ARMADA_WS_URL=ws://127.0.0.1:7890/ws \
+node scripts/autonomy/watch-board-wakes.mjs
+```
+
+Each matching note prints one line. Set `ARMADA_WAKE_COMMAND` to run a notifier
+instead; the note JSON arrives on that command's stdin. Pass `--all` to watch
+every note rather than one key, and `--once` to exit after the first match.
+
+The watcher notifies and nothing more. It never reads, acknowledges, or
+consumes a wake, so the banner and `armada_mark_signal_read` remain the
+delivery and acknowledgement path.
 - `armada_coordination_claim` — reserve a vessel or objective (claim / release /
   list). Claims expire unless heartbeats keep them alive; a dispatch overlapping
   another session's active claim announces the overlap on the board; the inbox
@@ -1083,9 +1140,15 @@ its own `participantKey` temporarily overrides the configured key and remains
 useful for a controlled probe or a resumable Claude or Codex session. An
 addressed board note always creates a Wake signal. With delivery mode
 `SpawnProcess` or `Both`, a note for the effective participant key also starts
-the runtime process. With `McpNotification`, or when no key matches, the signal
+the runtime process. With `StoredWake`, or when no key matches, the signal
 remains for the next heartbeat or read. `armada_agentwake_status` reports the
 configured key, effective key, delivery mode, runtime, and transient session.
+
+Nothing is pushed under any delivery mode. The row waits until the session next
+calls a tool, and the participant header above is what lets that call carry it.
+This mode was called `McpNotification`, which promised a push the transport
+cannot carry; it is now `StoredWake`. Settings files using the old spelling keep
+loading unchanged, and Armada writes the new one.
 
 OpenCode does not resume an earlier conversation for AgentWake. It starts a
 fresh session by design. Put the complete task in the addressed note and make

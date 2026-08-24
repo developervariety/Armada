@@ -374,6 +374,14 @@ async function sendRequestOverSsh(message, sessionId, requestObject, environment
     "--header",
     shellQuote("Accept: application/json, text/event-stream"),
   ];
+
+  // Identify the coordination-board session behind this call. The remote transport
+  // is stateless, so every request must carry its own identity; without it Armada
+  // cannot return the directed wakes waiting on this operator.
+  const participantKey = validateParticipantKey(environment.ARMADA_PARTICIPANT_KEY);
+  if (participantKey) {
+    headers.push("--header", shellQuote("X-Armada-Participant: " + participantKey));
+  }
   const protocolVersion = requestObject?.params?._meta?.["io.modelcontextprotocol/protocolVersion"];
   if (typeof protocolVersion === "string" && protocolVersion.length > 0) {
     headers.push("--header", shellQuote("MCP-Protocol-Version: " + encodeHeaderValue(protocolVersion)));
@@ -465,6 +473,25 @@ function parseTimeoutSeconds(value) {
 
 function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
+}
+
+export function validateParticipantKey(value) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = String(value).trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  // The key reaches a shell-quoted curl header and then a tool result the model
+  // reads. Refuse anything that is not a plain identifier rather than quoting
+  // harder around it.
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(trimmed)) {
+    throw new Error("ARMADA_PARTICIPANT_KEY must be 1-128 characters of A-Z a-z 0-9 . _ : or -");
+  }
+
+  return trimmed;
 }
 
 function validateSessionId(value) {

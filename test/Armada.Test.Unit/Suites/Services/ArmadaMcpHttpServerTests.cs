@@ -225,6 +225,185 @@ namespace Armada.Test.Unit.Suites.Services
                     "armada_tool_500",
                     secondResult.GetProperty("tools")[0].GetProperty("name").GetString());
             }).ConfigureAwait(false);
+
+            await RunTest("PendingWake_RidesBackOnAnyToolResult", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.PendingWakeProvider = (participantKey, token) =>
+                    Task.FromResult((IReadOnlyList<string>)new List<string>
+                    {
+                        "[to=" + participantKey + "] [from=lead] take vessel review"
+                    });
+                RegisterStatusTool(server);
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                // A monitoring session calls a status tool, not a coordination tool. Before
+                // the wake rode on the tool result, this is exactly where mail went unseen.
+                JsonElement withoutHeader = await CallStatusToolAsync(client, 1, null).ConfigureAwait(false);
+                AssertFalse(
+                    ResultText(withoutHeader).Contains("[ARMADA WAKE]", StringComparison.Ordinal),
+                    "an unidentified caller must not receive another session's mail");
+
+                JsonElement withHeader = await CallStatusToolAsync(client, 2, "lead-session").ConfigureAwait(false);
+                string text = ResultText(withHeader);
+                AssertContains("armada_status ok", text);
+                AssertContains("[ARMADA WAKE]", text);
+                AssertContains("take vessel review", text);
+                AssertContains("armada_mark_signal_read", text);
+            }).ConfigureAwait(false);
+
+            await RunTest("PendingWake_RepeatsUntilAcknowledged", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                int providerCalls = 0;
+                server.PendingWakeProvider = (participantKey, token) =>
+                {
+                    providerCalls++;
+                    return Task.FromResult((IReadOnlyList<string>)new List<string> { "still waiting" });
+                };
+                RegisterStatusTool(server);
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                // Delivery is not acknowledgement. A wake that stopped being shown before
+                // the session read it would be a lost wake.
+                JsonElement first = await CallStatusToolAsync(client, 1, "lead-session").ConfigureAwait(false);
+                JsonElement second = await CallStatusToolAsync(client, 2, "lead-session").ConfigureAwait(false);
+                AssertContains("[ARMADA WAKE]", ResultText(first));
+                AssertContains("[ARMADA WAKE]", ResultText(second));
+                AssertEqual(2, providerCalls, "each tool call should re-check for pending wakes");
+            }).ConfigureAwait(false);
+
+            await RunTest("PendingWake_SkipsToolsThatCarryTheirOwnWakes", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.WakeBannerExcludedTools.Add("armada_coordination_read");
+                server.PendingWakeProvider = (participantKey, token) =>
+                    Task.FromResult((IReadOnlyList<string>)new List<string> { "directed work" });
+                server.RegisterTool(
+                    "armada_coordination_read",
+                    "Read the board",
+                    new { type = "object" },
+                    args => Task.FromResult((object)new { UnreadWakes = new[] { "directed work" } }));
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                JsonElement call = await CallToolAsync(
+                    client, 1, "armada_coordination_read", "lead-session").ConfigureAwait(false);
+                string text = ResultText(call);
+                AssertContains("UnreadWakes", text);
+                AssertFalse(
+                    text.Contains("[ARMADA WAKE]", StringComparison.Ordinal),
+                    "a tool that already returns its wakes must not be given a second copy");
+            }).ConfigureAwait(false);
+
+            await RunTest("PendingWake_LookupFailureLeavesTheToolResultIntact", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.PendingWakeProvider = (participantKey, token) =>
+                    throw new InvalidOperationException("board unavailable");
+                RegisterStatusTool(server);
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                // Losing the caller's real result to a board lookup is the worse outcome.
+                JsonElement call = await CallStatusToolAsync(client, 1, "lead-session").ConfigureAwait(false);
+                AssertContains("armada_status ok", ResultText(call));
+            }).ConfigureAwait(false);
+
+            await RunTest("PendingWake_RejectsAMalformedParticipantHeader", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                string? observedKey = null;
+                server.PendingWakeProvider = (participantKey, token) =>
+                {
+                    observedKey = participantKey;
+                    return Task.FromResult((IReadOnlyList<string>)new List<string> { "mail" });
+                };
+                RegisterStatusTool(server);
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                // The key is echoed into text a model reads, so a key that is not a plain
+                // identifier is dropped rather than passed on.
+                JsonElement call = await CallStatusToolAsync(client, 1, "lead session <b>").ConfigureAwait(false);
+                AssertNull(observedKey, "a malformed participant key must not reach the board lookup");
+                AssertFalse(
+                    ResultText(call).Contains("[ARMADA WAKE]", StringComparison.Ordinal),
+                    "a malformed participant key must not deliver a wake");
+            }).ConfigureAwait(false);
+        }
+
+        private static void RegisterStatusTool(ArmadaMcpHttpServer server)
+        {
+            server.RegisterTool(
+                "armada_status",
+                "Report fleet status",
+                new { type = "object" },
+                args => Task.FromResult((object)new { Status = "armada_status ok" }));
+        }
+
+        private static async Task<JsonElement> CallStatusToolAsync(
+            HttpClient client,
+            int id,
+            string? participantKey)
+        {
+            return await CallToolAsync(client, id, "armada_status", participantKey).ConfigureAwait(false);
+        }
+
+        private static async Task<JsonElement> CallToolAsync(
+            HttpClient client,
+            int id,
+            string toolName,
+            string? participantKey)
+        {
+            HttpRequestMessage request = CreateRequest(
+                "/mcp",
+                id,
+                "tools/call",
+                new { name = toolName, arguments = new { } });
+            if (participantKey != null)
+                request.Headers.TryAddWithoutValidation(
+                    ArmadaMcpHttpServer.ParticipantHeaderName, participantKey);
+            return await SendAsync(client, request).ConfigureAwait(false);
+        }
+
+        private static string ResultText(JsonElement response)
+        {
+            StringBuilder text = new StringBuilder();
+            foreach (JsonElement block in response.GetProperty("result").GetProperty("content").EnumerateArray())
+            {
+                if (block.TryGetProperty("text", out JsonElement value))
+                    text.AppendLine(value.GetString());
+            }
+
+            return text.ToString();
         }
 
         private static ArmadaMcpHttpServer CreateServer(int port)

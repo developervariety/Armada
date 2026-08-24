@@ -72,7 +72,7 @@ namespace Armada.Core.Services
         {
         }
 
-        /// <summary>Production overload: AgentWake process host plus database driver for MCP notification delivery mode.</summary>
+        /// <summary>Production overload: AgentWake process host plus database driver for stored-wake delivery mode.</summary>
         public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, IAgentWakeProcessHost? agentWakeHost, DatabaseDriver? database, LoggingModule logging)
             : this(settings, http, agentWakeHost, database, logging, _DefaultRetryDelay)
         {
@@ -84,7 +84,7 @@ namespace Armada.Core.Services
         {
         }
 
-        /// <summary>Full overload: includes AgentWake process host, optional database driver for MCP notification delivery, and custom retry delay for test isolation.</summary>
+        /// <summary>Full overload: includes AgentWake process host, optional database driver for stored-wake delivery, and custom retry delay for test isolation.</summary>
         public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, IAgentWakeProcessHost? agentWakeHost, DatabaseDriver? database, LoggingModule logging, TimeSpan retryDelay)
         {
             _Settings = settings ?? new RemoteTriggerSettings { Enabled = false };
@@ -118,7 +118,7 @@ namespace Armada.Core.Services
                 bool didMcp = false;
                 bool didSpawn = false;
 
-                if (deliveryMode == AgentWakeDeliveryMode.McpNotification || deliveryMode == AgentWakeDeliveryMode.Both)
+                if (deliveryMode == AgentWakeDeliveryMode.StoredWake || deliveryMode == AgentWakeDeliveryMode.Both)
                 {
                     await WriteWakeSignalAsync(vesselId, text, critical: false, token).ConfigureAwait(false);
                     didMcp = true;
@@ -191,7 +191,7 @@ namespace Armada.Core.Services
                 bool didMcp = false;
                 bool didSpawn = false;
 
-                if (deliveryMode == AgentWakeDeliveryMode.McpNotification || deliveryMode == AgentWakeDeliveryMode.Both)
+                if (deliveryMode == AgentWakeDeliveryMode.StoredWake || deliveryMode == AgentWakeDeliveryMode.Both)
                 {
                     await WriteWakeSignalAsync(vesselId: null, text, critical: true, token).ConfigureAwait(false);
                     didMcp = true;
@@ -309,11 +309,16 @@ namespace Armada.Core.Services
         #region Private-Methods
 
         /// <summary>
-        /// Writes a <see cref="SignalTypeEnum.Wake"/> signal row carrying the wake text. Interactive
-        /// orchestrators drain these via <c>armada_enumerate entityType=signals signalType=Wake
-        /// unreadOnly=true</c> and acknowledge with <c>armada_mark_signal_read</c>. Used when
-        /// <see cref="AgentWakeDeliveryMode.McpNotification"/> or
+        /// Writes a <see cref="SignalTypeEnum.Wake"/> signal row carrying the wake text. Used when
+        /// <see cref="AgentWakeDeliveryMode.StoredWake"/> or
         /// <see cref="AgentWakeDeliveryMode.Both"/> is configured.
+        /// <para>
+        /// Writing the row does not deliver it, and nothing here pushes it anywhere. A live
+        /// session collects it when Armada appends it to that session's next MCP tool result,
+        /// or when the session reads the board. Operators can list rows with
+        /// <c>armada_enumerate entityType=signals signalType=Wake unreadOnly=true</c> and
+        /// acknowledge with <c>armada_mark_signal_read</c>.
+        /// </para>
         /// </summary>
         /// <param name="vesselId">Source vessel id, or null/empty for cross-vessel critical wakes.</param>
         /// <param name="text">Wake-text payload as produced by <c>MissionOutcomeWakeHandler.BuildWakeText</c> or the critical caller.</param>
@@ -323,7 +328,7 @@ namespace Armada.Core.Services
         {
             if (_Database == null)
             {
-                _Logging.Warn(_Header + "AgentWake McpNotification mode configured but no DatabaseDriver wired; skipping signal write");
+                _Logging.Warn(_Header + "AgentWake StoredWake mode configured but no DatabaseDriver wired; skipping signal write");
                 return;
             }
 

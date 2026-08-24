@@ -1,10 +1,13 @@
 namespace Armada.Server.Mcp
 {
     using System.Globalization;
+    using System.Text;
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using Microsoft.AspNetCore.Builder;
     using Microsoft.AspNetCore.Hosting;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.Primitives;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Hosting;
     using Microsoft.Extensions.Logging;
@@ -23,11 +26,29 @@ namespace Armada.Server.Mcp
         // extension catalogs.
         private const int _PAGE_SIZE = 500;
 
+        // A wake banner rides on every tool result until it is acknowledged, so it stays
+        // small on purpose: enough to make the session stop, never the whole board.
+        private const int _WAKE_BANNER_MAX_ITEMS = 5;
+        private const int _WAKE_BANNER_MAX_ITEM_LENGTH = 400;
+        private const int _PARTICIPANT_KEY_MAX_LENGTH = 128;
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
             Converters = { new JsonStringEnumConverter() }
         };
+
+        /// <summary>
+        /// Request header naming the coordination-board participant behind a tool call.
+        /// The transport is stateless, so each request must carry its own identity;
+        /// there is no session the server could read it from.
+        /// </summary>
+        public const string ParticipantHeaderName = "X-Armada-Participant";
+
+        // Set by the middleware below and read inside the tool handler. An AsyncLocal
+        // flows down the request's async chain, which is what a stateless transport
+        // leaves us: the header is the only place the caller's identity exists.
+        private static readonly AsyncLocal<string?> _RequestParticipantKey = new AsyncLocal<string?>();
 
         private readonly string _Hostname;
         private readonly int _Port;
@@ -46,6 +67,32 @@ namespace Armada.Server.Mcp
         /// Gets or sets the advertised MCP server version.
         /// </summary>
         public string ServerVersion { get; set; } = "1.0.0";
+
+        /// <summary>
+        /// Optional lookup for directed wakes waiting on a participant. Called with the
+        /// participant key from <see cref="ParticipantHeaderName"/> after a tool produces
+        /// its result; each returned string is one pending wake, oldest first.
+        /// <para>
+        /// This exists because MCP has no channel that can interrupt an agent. A server
+        /// cannot push to this transport at all, and no client turns an inbound
+        /// notification into a model turn. A tool result is the only content the model
+        /// is guaranteed to read, so a pending wake rides back on whichever tool the
+        /// session calls next.
+        /// </para>
+        /// <para>
+        /// Delivery is not acknowledgement. This never marks a wake read, so the banner
+        /// repeats until the session calls the acknowledgement tool. A wake that stopped
+        /// being shown before it was read would be a lost wake.
+        /// </para>
+        /// </summary>
+        public Func<string, CancellationToken, Task<IReadOnlyList<string>>>? PendingWakeProvider { get; set; }
+
+        /// <summary>
+        /// Tools that must not receive the appended wake banner, because they already
+        /// return pending wakes in their own structured payload. The server holds the
+        /// set but never populates it; naming tools is the caller's policy.
+        /// </summary>
+        public ISet<string> WakeBannerExcludedTools { get; } = new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
         /// Create an MCP HTTP server.
@@ -132,6 +179,15 @@ namespace Armada.Server.Mcp
                 .WithCallToolHandler(CallToolAsync);
 
             WebApplication application = builder.Build();
+
+            // Capture the caller's participant key before the MCP handler runs, so the
+            // tool handler can read it without depending on SDK transport internals.
+            application.Use(async (context, next) =>
+            {
+                _RequestParticipantKey.Value = ReadParticipantHeader(context);
+                await next(context).ConfigureAwait(false);
+            });
+
             application.MapMcp("/mcp");
             application.MapMcp("/rpc");
 
@@ -217,7 +273,11 @@ namespace Armada.Server.Mcp
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 object result = await registration.Handler(arguments).ConfigureAwait(false);
-                return ConvertToolResult(result);
+                CallToolResult toolResult = ConvertToolResult(result);
+                return await AppendPendingWakesAsync(
+                    request.Params.Name,
+                    toolResult,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -251,6 +311,108 @@ namespace Armada.Server.Mcp
                 ? stringResult
                 : serialized.GetRawText();
             return CreateTextResult(text, isError: false);
+        }
+
+        private static string? ReadParticipantHeader(HttpContext context)
+        {
+            if (!context.Request.Headers.TryGetValue(ParticipantHeaderName, out StringValues values))
+                return null;
+
+            string? value = values.Count == 0 ? null : values[0];
+            if (String.IsNullOrWhiteSpace(value)) return null;
+
+            // The key is echoed into a tool result the model reads, so refuse anything
+            // that is not a plain identifier rather than passing control characters on.
+            string trimmed = value!.Trim();
+            if (trimmed.Length > _PARTICIPANT_KEY_MAX_LENGTH) return null;
+            foreach (char character in trimmed)
+            {
+                bool allowed = Char.IsLetterOrDigit(character)
+                    || character == '-' || character == '_' || character == '.' || character == ':';
+                if (!allowed) return null;
+            }
+
+            return trimmed;
+        }
+
+        /// <summary>
+        /// Append pending directed wakes to a tool result as one extra text block. Any
+        /// failure here is swallowed: a wake is a courtesy, and losing the caller's
+        /// actual tool result to a board lookup would be the worse outcome.
+        /// </summary>
+        private async Task<CallToolResult> AppendPendingWakesAsync(
+            string toolName,
+            CallToolResult result,
+            CancellationToken cancellationToken)
+        {
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>>? provider = PendingWakeProvider;
+            if (provider == null) return result;
+
+            string? participantKey = _RequestParticipantKey.Value;
+            if (String.IsNullOrEmpty(participantKey)) return result;
+            if (WakeBannerExcludedTools.Contains(toolName)) return result;
+
+            try
+            {
+                IReadOnlyList<string> wakes =
+                    await provider(participantKey!, cancellationToken).ConfigureAwait(false);
+                if (wakes == null || wakes.Count == 0) return result;
+
+                // Build a new result rather than appending to the handler's. Nothing
+                // returns a shared CallToolResult today, and a banner that accumulated
+                // on a cached one would be a slow leak nobody would look for here.
+                List<ContentBlock> content = result.Content == null
+                    ? new List<ContentBlock>()
+                    : new List<ContentBlock>(result.Content);
+                content.Add(new TextContentBlock { Text = BuildWakeBanner(wakes) });
+
+                return new CallToolResult
+                {
+                    Content = content,
+                    StructuredContent = result.StructuredContent,
+                    IsError = result.IsError
+                };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return result;
+            }
+        }
+
+        private static string BuildWakeBanner(IReadOnlyList<string> wakes)
+        {
+            StringBuilder banner = new StringBuilder();
+            banner.Append("[ARMADA WAKE] ")
+                .Append(wakes.Count.ToString(CultureInfo.InvariantCulture))
+                .Append(wakes.Count == 1 ? " directed message is" : " directed messages are")
+                .Append(" waiting on you. PAUSE the current work, address them, then acknowledge each with armada_mark_signal_read.");
+
+            int shown = 0;
+            foreach (string wake in wakes)
+            {
+                if (shown == _WAKE_BANNER_MAX_ITEMS) break;
+                if (String.IsNullOrWhiteSpace(wake)) continue;
+
+                string text = wake.Trim();
+                if (text.Length > _WAKE_BANNER_MAX_ITEM_LENGTH)
+                    text = text.Substring(0, _WAKE_BANNER_MAX_ITEM_LENGTH) + "...";
+
+                banner.Append("\n- ").Append(text);
+                shown++;
+            }
+
+            if (wakes.Count > shown)
+            {
+                banner.Append("\n- (")
+                    .Append((wakes.Count - shown).ToString(CultureInfo.InvariantCulture))
+                    .Append(" more; read the board for the rest)");
+            }
+
+            return banner.ToString();
         }
 
         private static CallToolResult CreateTextResult(string text, bool isError)

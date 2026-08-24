@@ -65,16 +65,31 @@ namespace Armada.Test.Automated.Suites
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
                 await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
 
+                // The socket joins the broadcast set when it connects, and the hub awaits
+                // GetStatusAsync before sending the snapshot. Any fleet event raised in that
+                // window is delivered first, so the snapshot is guaranteed to ARRIVE, not to
+                // arrive first. Skip broadcasts rather than pinning an order the hub never
+                // promised.
                 byte[] buffer = new byte[1048576];
                 using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                WebSocketReceiveResult result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token).ConfigureAwait(false);
-                string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                using JsonDocument doc = JsonDocument.Parse(json);
-                JsonElement root = doc.RootElement;
+                bool sawSnapshot = false;
+                string lastType = "<none>";
+                while (!sawSnapshot)
+                {
+                    WebSocketReceiveResult result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token).ConfigureAwait(false);
+                    string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    using JsonDocument doc = JsonDocument.Parse(json);
+                    JsonElement root = doc.RootElement;
 
-                AssertEqual("status.snapshot", root.GetProperty("type").GetString());
-                Assert(root.TryGetProperty("data", out _), "Should contain data property");
-                Assert(root.TryGetProperty("timestamp", out _), "Should contain timestamp");
+                    lastType = root.GetProperty("type").GetString() ?? "<null>";
+                    if (!String.Equals(lastType, "status.snapshot", StringComparison.Ordinal)) continue;
+
+                    sawSnapshot = true;
+                    Assert(root.TryGetProperty("data", out _), "Should contain data property");
+                    Assert(root.TryGetProperty("timestamp", out _), "Should contain timestamp");
+                }
+
+                Assert(sawSnapshot, "subscribe should deliver a status.snapshot; last frame was " + lastType);
             }).ConfigureAwait(false);
 
             // Status Tests

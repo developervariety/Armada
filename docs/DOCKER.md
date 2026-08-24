@@ -216,7 +216,8 @@ resume state. OpenCode starts fresh for every wake, so the note must carry the
 complete task and the session must read the board and durable memory. Confirm
 the effective owner with `armada_agentwake_status`.
 
-Use `McpNotification` when a resident operator only needs Wake rows. Use
+Use `StoredWake` (formerly `McpNotification`, still accepted) when a resident
+operator only needs Wake rows. Use
 `SpawnProcess` or `Both` only after a controlled spawn test. Do not run a host
 service-managed Admiral beside the containerized Admiral; two service graphs
 can consume the same settings and state with different registrations.

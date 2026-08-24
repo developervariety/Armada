@@ -127,8 +127,15 @@ AUTONOMY_TEST_CAPTURE="$CAPTURE_FILE" \
 wait_for_file "$CAPTURE_FILE"
 grep -Fxq -- "--strict-mcp-config" "$CAPTURE_FILE" || fail "Claude strict MCP flag was not passed"
 grep -Fxq -- "--mcp-config" "$CAPTURE_FILE" || fail "Claude explicit MCP config flag was not passed"
-grep -Fq '"mcpServers"' "$STATE_ROOT/claude-armada-mcp.json" || fail "Claude Armada MCP config was not generated"
-grep -Fq 'http://127.0.0.1:7891/mcp' "$STATE_ROOT/claude-armada-mcp.json" || fail "Claude Armada MCP URL was not generated"
+CLAUDE_MCP_CONFIG="$STATE_ROOT/claude-armada-mcp-probe-claudeprobe.json"
+grep -Fq '"mcpServers"' "$CLAUDE_MCP_CONFIG" || fail "Claude Armada MCP config was not generated"
+grep -Fq 'http://127.0.0.1:7891/mcp' "$CLAUDE_MCP_CONFIG" || fail "Claude Armada MCP URL was not generated"
+# Without this header the helper is anonymous to the board, so Armada cannot
+# return its directed wakes on an ordinary tool call.
+grep -Fq '"X-Armada-Participant": "probe-claudeprobe"' "$CLAUDE_MCP_CONFIG" \
+    || fail "Claude Armada MCP config did not carry the participant header"
+python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$CLAUDE_MCP_CONFIG" \
+    || fail "Claude Armada MCP config is not valid JSON"
 AUTONOMY_WORKDIR="$STATE_ROOT" "$SPAWN_HELPER" kill claudeprobe >/dev/null
 
 echo "PASS: bounded helper lifecycle"

@@ -11,6 +11,7 @@ import {
   parseHttpResponse,
   parseMcpResponseMessages,
   runBridge,
+  validateParticipantKey,
 } from "../mcp-ssh-http-bridge.mjs";
 
 test("parses newline-delimited JSON-RPC messages", () => {
@@ -255,6 +256,66 @@ printf '%s' '{"jsonrpc":"2.0","id":9,"result":{"resultType":"complete"}}'
     assert.match(args, /Mcp-Method: tools\/call/);
     assert.match(args, /Mcp-Name: armada_status/);
     assert.doesNotMatch(args, /MCP-Session-Id/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("validateParticipantKey accepts identifiers and refuses anything else", () => {
+  assert.equal(validateParticipantKey("lead-session"), "lead-session");
+  assert.equal(validateParticipantKey("  helper.review:1  "), "helper.review:1");
+  assert.equal(validateParticipantKey(undefined), null);
+  assert.equal(validateParticipantKey(""), null);
+  assert.throws(() => validateParticipantKey("lead session"), /ARMADA_PARTICIPANT_KEY/);
+  assert.throws(() => validateParticipantKey("lead'; rm -rf /"), /ARMADA_PARTICIPANT_KEY/);
+  assert.throws(() => validateParticipantKey("k".repeat(129)), /ARMADA_PARTICIPANT_KEY/);
+});
+
+test("sends the participant header so directed wakes can ride back on any tool call", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "armada-mcp-bridge-participant-"));
+  try {
+    const fakeSsh = join(directory, "fake-ssh");
+    const argsLog = join(directory, "args.log");
+    await writeFile(fakeSsh, `#!/bin/sh
+printf '%s' "$*" > "$FAKE_SSH_ARGS_LOG"
+cat >/dev/null
+printf 'HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n'
+printf '%s' '{"jsonrpc":"2.0","id":4,"result":{"content":[]}}'
+`);
+    await chmod(fakeSsh, 0o700);
+
+    const runOnce = async (participantKey) => {
+      const input = new PassThrough();
+      const environment = {
+        ...process.env,
+        ARMADA_SSH_COMMAND: fakeSsh,
+        ARMADA_SSH_HOST: "admiral-host",
+        FAKE_SSH_ARGS_LOG: argsLog,
+      };
+      if (participantKey === undefined) {
+        delete environment.ARMADA_PARTICIPANT_KEY;
+      } else {
+        environment.ARMADA_PARTICIPANT_KEY = participantKey;
+      }
+
+      const bridge = runBridge({
+        input,
+        output: new PassThrough(),
+        errorOutput: new PassThrough(),
+        environment,
+      });
+      input.end(JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "armada_status", arguments: {} },
+      }) + "\n");
+      await bridge;
+      return readFile(argsLog, "utf8");
+    };
+
+    assert.match(await runOnce("lead-session"), /X-Armada-Participant: lead-session/);
+    assert.doesNotMatch(await runOnce(undefined), /X-Armada-Participant/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

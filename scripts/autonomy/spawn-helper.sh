@@ -79,11 +79,14 @@ validate_runtime() {
 }
 
 prepare_claude_mcp_config() {
+    # An operator-supplied config is theirs to own. It must carry its own
+    # X-Armada-Participant header, or the helper receives no directed wakes.
     if [ -n "${AUTONOMY_CLAUDE_MCP_CONFIG:-}" ]; then
         canonical_file "$AUTONOMY_CLAUDE_MCP_CONFIG"
         return
     fi
 
+    local participant_key="${1:-}"
     local mcp_url="${AUTONOMY_ARMADA_MCP_URL:-http://127.0.0.1:7891/mcp}"
     case "$mcp_url" in
         http://*|https://*) ;;
@@ -93,8 +96,23 @@ prepare_claude_mcp_config() {
         *\"*|*\\*|*[[:space:]]*) fail "AUTONOMY_ARMADA_MCP_URL contains unsupported characters" ;;
     esac
 
-    local config_path="$WORKDIR/claude-armada-mcp.json"
-    printf '{\n  "mcpServers": {\n    "armada": {\n      "type": "http",\n      "url": "%s"\n    }\n  }\n}\n' "$mcp_url" > "$config_path"
+    # The participant header identifies this helper to the board, so Armada can
+    # return its directed wakes on whatever tool the helper calls next. Without
+    # it the helper sees mail only when it reads the board by hand.
+    local config_path headers
+    if [ -n "$participant_key" ]; then
+        case "$participant_key" in
+            *[!A-Za-z0-9._:-]*) fail "participant key contains unsupported characters: $participant_key" ;;
+        esac
+        config_path="$WORKDIR/claude-armada-mcp-$participant_key.json"
+        headers=$(printf ',\n      "headers": {\n        "X-Armada-Participant": "%s"\n      }' "$participant_key")
+    else
+        config_path="$WORKDIR/claude-armada-mcp.json"
+        headers=""
+    fi
+
+    printf '{\n  "mcpServers": {\n    "armada": {\n      "type": "http",\n      "url": "%s"%s\n    }\n  }\n}\n' \
+        "$mcp_url" "$headers" > "$config_path"
     chmod 600 "$config_path"
     printf '%s\n' "$config_path"
 }
@@ -243,7 +261,7 @@ do_spawn() {
     out_log="$LOG_DIR/$name.log"
     mcp_config=""
     if [ "$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')" = "claude" ]; then
-        mcp_config=$(prepare_claude_mcp_config)
+        mcp_config=$(prepare_claude_mcp_config "$participant_key")
     fi
 
     if [ -e "$RUN_DIR/$name.pid" ]; then

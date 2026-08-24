@@ -26,6 +26,17 @@ For parameterless discovery, clients can send `tools/list` with an empty
 `params` object or without a `params` member. Armada accepts both protocol
 forms.
 
+Because the transport is stateless, Armada cannot send a server-initiated
+notification and never does. A client that must be reachable identifies itself
+per request instead:
+
+| Header | Value | Effect |
+| --- | --- | --- |
+| `X-Armada-Participant` | The caller's coordination `participantKey` | Pending directed wakes are appended to every tool result |
+
+The key must be 1-128 characters of `A-Z a-z 0-9 . _ : -`. Armada drops a key
+of any other shape rather than echoing it into a tool result.
+
 Do not start `armada mcp stdio` inside a host that already runs the Admiral.
 That command creates a second service graph. It does not control the running
 Admiral.
@@ -124,9 +135,18 @@ return a structured application result with `success`, `status`, `code`,
 ## Coordination And AgentWake
 
 Every concurrent operator uses one stable coordination `participantKey`.
-Heartbeat or read with that key between monitor-loop iterations. Both responses
-can contain full `UnreadWakes` payloads from addressed notes; process the work
-first and acknowledge each signal with `armada_mark_signal_read`.
+
+Send that key as the `X-Armada-Participant` header on every request. Armada
+then appends an `[ARMADA WAKE]` block to the result of ANY tool the session
+calls, so a status poll inside a monitor loop delivers directed messages.
+`armada_coordination_read` and `armada_coordination_heartbeat` are excluded
+from the banner because they already return the same wakes as a full
+`UnreadWakes` payload. Process the work first, then acknowledge each signal
+with `armada_mark_signal_read`; the banner repeats until you do.
+
+A session that sends no header receives no wake banner, and must heartbeat or
+read the board with its `participantKey` between monitor-loop iterations to see
+addressed work at all.
 
 Set `remoteTrigger.agentWake.participantKey` for a stable addressed process
 owner that survives an Admiral restart. `armada_register_agentwake_session`
@@ -134,7 +154,9 @@ registers one in-memory process target with a concrete `runtime` (`Claude`,
 `Codex`, or `OpenCode`) and an optional `participantKey`, session ID, command,
 working directory, and client name. A registration key overrides the configured
 key until restart. The settings file controls delivery:
-`SpawnProcess`, `McpNotification`, or `Both`.
+`SpawnProcess`, `StoredWake`, or `Both`. `StoredWake` stores the wake row and
+sends no MCP notification, because this transport cannot carry one. It was
+called `McpNotification`; that spelling is still accepted in settings files.
 
 An addressed board note always retains a Wake signal. When its key matches the
 effective participant key and delivery is `SpawnProcess` or `Both`, Armada also

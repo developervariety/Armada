@@ -29,11 +29,17 @@ namespace Armada.Core.Settings
 
     /// <summary>
     /// Delivery channel for AgentWake events. Lets operators choose between
-    /// the historical process-spawn behavior (AFK orchestrator) and an
-    /// MCP-pollable signal channel (interactive orchestrator running in the
-    /// same admiral instance).
+    /// the historical process-spawn behavior (AFK orchestrator) and a stored
+    /// signal row that a live orchestrator collects (interactive orchestrator
+    /// running against the same admiral instance).
+    /// <para>
+    /// No mode is an MCP server push, and no mode can be. Armada's MCP transport
+    /// is stateless, so there is no channel a notification could travel on; a
+    /// stored wake instead rides back on the next MCP tool result for a caller
+    /// that identifies itself with the participant header.
+    /// </para>
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(AgentWakeDeliveryModeConverter))]
     public enum AgentWakeDeliveryMode
     {
         /// <summary>
@@ -46,11 +52,22 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// Write a <see cref="Armada.Core.Enums.SignalTypeEnum.Wake"/> signal row
-        /// instead of spawning a process. Interactive operators drain these via
-        /// <c>armada_enumerate entityType=signals signalType=Wake unreadOnly=true</c>
-        /// and acknowledge with <c>armada_mark_signal_read</c>.
+        /// instead of spawning a process. Nothing is pushed anywhere; the row
+        /// waits until the session next calls a tool. It reaches a live session
+        /// in two ways: appended to any MCP tool result when the caller sends the
+        /// participant header, and in the payload of
+        /// <c>armada_coordination_read</c> / <c>armada_coordination_heartbeat</c>.
+        /// Operators can also list rows with <c>armada_enumerate
+        /// entityType=signals signalType=Wake unreadOnly=true</c>. Acknowledge
+        /// with <c>armada_mark_signal_read</c>.
+        /// <para>
+        /// Named <c>McpNotification</c> before the transport was examined. That
+        /// spelling never described anything: the MCP transport is stateless and
+        /// cannot carry a server push. It is still accepted in settings files by
+        /// <see cref="AgentWakeDeliveryModeConverter"/>.
+        /// </para>
         /// </summary>
-        McpNotification,
+        StoredWake,
 
         /// <summary>
         /// Do both: spawn a process AND write a Wake signal. Useful for transition
@@ -104,8 +121,16 @@ namespace Armada.Core.Settings
         /// Delivery mode for AgentWake events. Defaults to
         /// <see cref="AgentWakeDeliveryMode.SpawnProcess"/> for backward
         /// compatibility; interactive orchestrators should set this to
-        /// <see cref="AgentWakeDeliveryMode.McpNotification"/>.
+        /// <see cref="AgentWakeDeliveryMode.StoredWake"/>.
+        /// <para>
+        /// The converter is attached to the PROPERTY, not only to the enum. A converter
+        /// in <c>JsonSerializerOptions.Converters</c> outranks a type-level attribute, so
+        /// any caller that registers a generic enum converter would otherwise shadow it
+        /// and reject the legacy <c>McpNotification</c> spelling. A property attribute
+        /// outranks both, which keeps this working whatever options a caller builds.
+        /// </para>
         /// </summary>
+        [JsonConverter(typeof(AgentWakeDeliveryModeConverter))]
         public AgentWakeDeliveryMode DeliveryMode { get; set; } = AgentWakeDeliveryMode.SpawnProcess;
 
         /// <summary>Seconds before the spawned agent process is killed. Defaults to 600 (10 minutes).</summary>
