@@ -376,7 +376,15 @@ namespace Armada.Server.Mcp.Tools
                             }
                         }
 
-                        tree.Add(new { objective = root, children = lanes });
+                        // Project the root the same way as its lanes. Serializing the full
+                        // Objective here was most of the payload: 24 roots at 1.4 to 4.8 KB
+                        // each, roughly 70 KB, against lanes of a few hundred bytes. A
+                        // rollup wants the same summary at every level.
+                        tree.Add(new
+                        {
+                            objective = root == null ? null : CampaignNode.From(root),
+                            children = lanes
+                        });
                     }
 
                     List<CoordinationClaim> claims;
