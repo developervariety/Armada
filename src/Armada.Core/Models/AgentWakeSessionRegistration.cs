@@ -24,6 +24,12 @@ namespace Armada.Core.Models
         /// <summary>Optional client name/version for operator diagnostics.</summary>
         public string? ClientName { get; set; }
 
+        /// <summary>
+        /// Coordination-board participant key this session heartbeats as. When an
+        /// addressed note targets this key, the wake bridge can spawn this session.
+        /// </summary>
+        public string? ParticipantKey { get; set; }
+
         /// <summary>UTC timestamp set by Armada when the registration is accepted.</summary>
         public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
     }

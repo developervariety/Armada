@@ -19,5 +19,8 @@ namespace Armada.Server.Mcp
 
         /// <summary>Optional client name/version for diagnostics.</summary>
         public string? ClientName { get; set; }
+
+        /// <summary>Coordination-board participant key this session heartbeats as; addressed notes targeting this key wake this session.</summary>
+        public string? ParticipantKey { get; set; }
     }
 }

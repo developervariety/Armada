@@ -42,7 +42,7 @@ namespace Armada.Server.Mcp.Tools
 
                     AgentWakeSessionArgs request = JsonSerializer.Deserialize<AgentWakeSessionArgs>(args.Value, _JsonOptions)!;
                     if (request.Runtime == AgentWakeRuntime.Auto)
-                        return Task.FromResult((object)new { Error = "runtime must be Codex or Claude" });
+                        return Task.FromResult((object)new { Error = "runtime must be Codex, OpenCode, or Claude" });
 
                     AgentWakeSessionRegistration registered;
                     try
@@ -53,7 +53,8 @@ namespace Armada.Server.Mcp.Tools
                             SessionId = request.SessionId,
                             Command = request.Command,
                             WorkingDirectory = request.WorkingDirectory,
-                            ClientName = request.ClientName
+                            ClientName = request.ClientName,
+                            ParticipantKey = request.ParticipantKey
                         });
                     }
                     catch (Exception ex)

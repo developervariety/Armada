@@ -406,6 +406,7 @@ namespace Armada.Server.Mcp.Tools
                             if (wasActive)
                             {
                                 await SafePostAsync(coordination, "[hold] Dispatching resumed. The admiral is clear for new voyages.").ConfigureAwait(false);
+                                await coordination.EmitHoldWakeAsync("[hold] Dispatching resumed - the admiral is clear for new voyages.").ConfigureAwait(false);
                             }
 
                             return (object)new { Active = false, Cleared = true };
@@ -420,6 +421,7 @@ namespace Armada.Server.Mcp.Tools
 
                             dispatchHold.Engage(request.Reason!, request.SetBy);
                             await SafePostAsync(coordination, "[hold] Dispatching paused by " + request.SetBy + ": " + request.Reason + " Hold off dispatching new voyages until this is cleared.").ConfigureAwait(false);
+                            await coordination.EmitHoldWakeAsync("[hold] Dispatching paused by " + request.SetBy + " (" + request.Reason + "). Hold new voyages; you will be woken on clear.").ConfigureAwait(false);
                             return (object)new { Active = true, Hold = dispatchHold.Snapshot() };
                         }
 

@@ -510,6 +510,14 @@ namespace Armada.Server
                 _WebSocketHub);
 
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
+            _CoordinationService.BoardWakeEmitter = async (participantKey, text, token) =>
+            {
+                // participantKey null targets the registered AgentWake session.
+                AgentWakeSessionRegistration? registered = _RemoteTriggerService.GetAgentWakeSession();
+                string? target = participantKey ?? registered?.ParticipantKey;
+                if (String.IsNullOrEmpty(target)) return;
+                await _RemoteTriggerService.FireBoardWakeAsync(target!, text, token).ConfigureAwait(false);
+            };
 
             _CaptainTools = new CaptainToolService(
                 _Logging,

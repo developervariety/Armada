@@ -268,6 +268,7 @@ namespace Armada.Core.Services
                 Command = NormalizeOptional(registration.Command),
                 WorkingDirectory = NormalizeOptional(registration.WorkingDirectory),
                 ClientName = NormalizeOptional(registration.ClientName),
+                ParticipantKey = NormalizeOptional(registration.ParticipantKey),
                 LastSeenUtc = DateTime.UtcNow,
             };
 
@@ -328,6 +329,44 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "WriteWakeSignalAsync failed: " + ex.Message);
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(participantKey)) return;
+
+            try
+            {
+                if (_Database != null)
+                {
+                    Signal signal = new Signal(SignalTypeEnum.Wake, "[to=" + participantKey + "] " + text);
+                    signal.TenantId = Constants.DefaultTenantId;
+                    await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+                }
+
+                if (!_Settings.IsAgentWakeConfigured()) return;
+                AgentWakeDeliveryMode deliveryMode = _Settings.AgentWake?.DeliveryMode ?? AgentWakeDeliveryMode.SpawnProcess;
+                if (deliveryMode != AgentWakeDeliveryMode.SpawnProcess && deliveryMode != AgentWakeDeliveryMode.Both) return;
+                if (_AgentWakeHost == null)
+                {
+                    _Logging.Warn(_Header + "board wake: SpawnProcess mode configured but no IAgentWakeProcessHost wired");
+                    return;
+                }
+
+                AgentWakeSessionRegistration? session = GetAgentWakeSession();
+                if (session == null || !string.Equals(session.ParticipantKey, participantKey, StringComparison.Ordinal))
+                {
+                    _Logging.Info(_Header + "board wake: no registered session for participant " + participantKey + "; signal row only");
+                    return;
+                }
+
+                await FireAgentWakeDrainerAsync("board", text, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "FireBoardWakeAsync failed: " + ex.Message);
             }
         }
 
@@ -433,6 +472,23 @@ namespace Armada.Core.Services
         {
             string command = awSettings.GetEffectiveCommand(runtime, commandOverride);
             List<string> args = new List<string>();
+
+            if (runtime == AgentWakeRuntime.OpenCode)
+            {
+                // OpenCode runs standalone (no session resume). The wake payload is
+                // the opening message; the session reconstructs state from memory
+                // and the coordination board.
+                args.Add("run");
+                args.Add(payload);
+                return new AgentWakeProcessRequest
+                {
+                    Command = command,
+                    ArgumentList = args,
+                    StdinPayload = null,
+                    WorkingDirectory = workingDirectory,
+                    TimeoutSeconds = awSettings.TimeoutSeconds,
+                };
+            }
 
             if (runtime == AgentWakeRuntime.Codex)
             {

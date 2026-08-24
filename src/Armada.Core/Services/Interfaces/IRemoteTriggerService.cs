@@ -15,6 +15,9 @@ namespace Armada.Core.Services.Interfaces
         /// <summary>Fire a drainer wake for the given vessel with the given event-context text. Returns silently if coalesced, throttled, or disabled.</summary>
         Task FireDrainerAsync(string vesselId, string text, CancellationToken token = default);
 
+        /// <summary>Write a Wake signal addressed to a coordination-board participant and, when that participant matches the registered AgentWake session in a spawn-capable mode, spawn the drainer with the wake text.</summary>
+        Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default);
+
         /// <summary>Fire a critical wake (audit Critical or similar). Bypasses coalescing and throttle since these are rare and high-priority.</summary>
         Task FireCriticalAsync(string text, CancellationToken token = default);
 

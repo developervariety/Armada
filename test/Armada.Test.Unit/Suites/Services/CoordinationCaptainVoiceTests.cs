@@ -105,6 +105,66 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Board wake emitter owns delivery for addressed notes and hold events", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    CoordinationService service = new CoordinationService(logging, testDb.Driver);
+
+                    string? emittedKey = null;
+                    string? emittedText = null;
+                    int emitCount = 0;
+                    service.BoardWakeEmitter = (key, text, token) =>
+                    {
+                        emittedKey = key;
+                        emittedText = text;
+                        emitCount++;
+                        return Task.CompletedTask;
+                    };
+
+                    await service.PostMessageAsync(
+                        CoordinationService.DefaultRoomKey,
+                        CoordinationAuthorTypeEnum.Operator,
+                        "session-a", "Session A",
+                        "handed work note",
+                        toParticipantKey: "helper-1");
+
+                    AssertEqual(1, emitCount);
+                    AssertEqual("helper-1", emittedKey);
+                    AssertContains("[from=Session A]", emittedText);
+                    AssertContains("handed work note", emittedText);
+
+                    // No signal row when the emitter owns delivery.
+                    EnumerationQuery wakeQuery = new EnumerationQuery
+                    {
+                        SignalType = SignalTypeEnum.Wake.ToString(),
+                        UnreadOnly = true,
+                        PageSize = 50
+                    };
+                    EnumerationResult<Signal> rows = await testDb.Driver.Signals.EnumerateAsync(wakeQuery);
+                    AssertEqual(0, rows.Objects.Count);
+
+                    // Hold events wake the registered session: emitter called with null key.
+                    await service.EmitHoldWakeAsync("[hold] Dispatching paused");
+                    AssertEqual(2, emitCount);
+                    AssertNull(emittedKey);
+
+                    // Emitter failure falls back to the signal row.
+                    service.BoardWakeEmitter = (key, text, token) => throw new InvalidOperationException("spawn host down");
+                    await service.PostMessageAsync(
+                        CoordinationService.DefaultRoomKey,
+                        CoordinationAuthorTypeEnum.Operator,
+                        "session-a", "Session A",
+                        "fallback note",
+                        toParticipantKey: "helper-2");
+                    EnumerationResult<Signal> fallbackRows = await testDb.Driver.Signals.EnumerateAsync(wakeQuery);
+                    AssertEqual(1, fallbackRows.Objects.Count);
+                    AssertContains("[to=helper-2]", fallbackRows.Objects[0].Payload);
+                }
+            });
+
             await RunTest("Addressed notes emit wakes that surface for the target and clear on acknowledge", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

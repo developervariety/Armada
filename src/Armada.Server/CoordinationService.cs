@@ -24,6 +24,15 @@ namespace Armada.Server
         private string _Header = "[CoordinationService] ";
 
         /// <summary>
+        /// Optional bridge to the AgentWake wake path. Invoked with the target
+        /// participant key (null = the registered AgentWake session) and the wake
+        /// text. When set, it owns wake delivery for addressed notes and hold
+        /// events; when null, addressed notes fall back to writing the Wake
+        /// signal row directly.
+        /// </summary>
+        public Func<string?, string, CancellationToken, Task>? BoardWakeEmitter { get; set; }
+
+        /// <summary>
         /// The key of the default fleet-wide room, created on first use.
         /// </summary>
         public static readonly string DefaultRoomKey = "fleet";
@@ -165,12 +174,26 @@ namespace Armada.Server
         /// </summary>
         private async Task EmitWakeForAddressedNoteAsync(string toParticipantKey, string authorName, string content, CancellationToken token)
         {
+            string body = content ?? String.Empty;
+            if (body.Length > 500) body = body.Substring(0, 500);
+            string text = "[from=" + authorName + "] " + body;
+
+            if (BoardWakeEmitter != null)
+            {
+                try
+                {
+                    await BoardWakeEmitter(toParticipantKey, text, token).ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "board wake emitter failed; falling back to signal row: " + ex.Message);
+                }
+            }
+
             try
             {
-                string body = content ?? String.Empty;
-                if (body.Length > 500) body = body.Substring(0, 500);
-                string payload = "[to=" + toParticipantKey + "] [from=" + authorName + "] " + body;
-                Signal wake = new Signal(SignalTypeEnum.Wake, payload);
+                Signal wake = new Signal(SignalTypeEnum.Wake, "[to=" + toParticipantKey + "] " + text);
                 wake.TenantId = Armada.Core.Constants.DefaultTenantId;
                 await _Database.Signals.CreateAsync(wake, token).ConfigureAwait(false);
             }
@@ -181,6 +204,23 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "failed to emit wake for addressed note: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Emit a wake for a fleet-wide event (dispatch hold engage/clear) targeted at
+        /// the registered AgentWake session, if one is registered with a participant key.
+        /// </summary>
+        public async Task EmitHoldWakeAsync(string text, CancellationToken token = default)
+        {
+            if (BoardWakeEmitter == null) return;
+            try
+            {
+                await BoardWakeEmitter(null, text, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "hold wake failed: " + ex.Message);
             }
         }
 

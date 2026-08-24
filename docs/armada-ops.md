@@ -836,6 +836,14 @@ new helper session, which reads broadcast plus its own mail and picks up
 addressed asks. `armada_coordination_read` takes `participantKey` for exactly
 this filtered view.
 
+When an addressed note targets the `participantKey` of the registered
+AgentWake session, the admiral also starts that session when AgentWake delivery
+is `SpawnProcess` or `Both`. The Wake signal row is always written, including
+when no registered session matches or process delivery cannot start. An
+OpenCode wake always starts a fresh session. It does not resume an earlier
+session, so the wake text must contain the task and the new session must
+reconstruct its state from the coordination board and durable memory.
+
 Voyage-tagged notes are the one case where the board reaches a captain brief:
 at a stage handoff, up to ten notes naming the voyage created since the prior
 stage started are appended under "Board notes on this voyage". General

@@ -42,6 +42,12 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }
 
+            /// <inheritdoc />
+            public Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default)
+            {
+                return Task.CompletedTask;
+            }
+
             public Task FireCriticalAsync(string text, CancellationToken token = default)
             {
                 CriticalCalls.Add(text);

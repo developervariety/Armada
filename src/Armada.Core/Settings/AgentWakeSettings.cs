@@ -1,6 +1,7 @@
 namespace Armada.Core.Settings
 {
     using System.Collections.Generic;
+    using System.Runtime.Serialization;
     using System.Text.Json.Serialization;
 
     /// <summary>Supported agent runtimes for AgentWake mode.</summary>
@@ -15,6 +16,15 @@ namespace Armada.Core.Settings
 
         /// <summary>Wake Codex CLI.</summary>
         Codex,
+
+        /// <summary>
+        /// Wake the OpenCode CLI.
+        /// OpenCode runs standalone (no session resume), so each wake starts a fresh
+        /// session seeded with the wake text; the wake prompt must direct the session
+        /// to reconstruct state from the coordination board and memory.
+        /// </summary>
+        [EnumMember(Value = "OpenCode")]
+        OpenCode,
     }
 
     /// <summary>
@@ -113,7 +123,12 @@ namespace Armada.Core.Settings
         {
             if (!string.IsNullOrEmpty(commandOverride)) return commandOverride!;
             if (!string.IsNullOrEmpty(Command)) return Command!;
-            return runtime == AgentWakeRuntime.Codex ? "codex" : "claude";
+            return runtime switch
+            {
+                AgentWakeRuntime.Codex => "codex",
+                AgentWakeRuntime.OpenCode => "opencode",
+                _ => "claude",
+            };
         }
 
         /// <summary>Returns the configured Auto fallback order, excluding Auto itself.</summary>

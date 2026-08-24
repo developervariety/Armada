@@ -436,6 +436,7 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class NoOpRemoteTriggerService : IRemoteTriggerService
         {
             public Task FireDrainerAsync(string vesselId, string text, CancellationToken token = default) => Task.CompletedTask;
+            public Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default) => Task.CompletedTask;
             public Task FireCriticalAsync(string text, CancellationToken token = default) => Task.CompletedTask;
             public AgentWakeSessionRegistration RegisterAgentWakeSession(AgentWakeSessionRegistration registration) => registration;
             public AgentWakeSessionRegistration? GetAgentWakeSession() => null;
