@@ -238,7 +238,19 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertContains("campaign hub", json);
                     AssertContains("lane jpro", json);
-                    AssertContains("ledger pass bendix", json);
+
+                    // A rollup returns lanes and COUNTS the slices under them. One live
+                    // campaign was 161 nodes at 102,096 characters, past the caller's
+                    // limit, and the slices were most of it.
+                    AssertContains("sliceCount", json);
+                    AssertTrue(!json.Contains("ledger pass bendix"),
+                        "slices must not appear until they are asked for");
+
+                    object? expanded = await handler!(JsonSerializer.SerializeToElement(
+                        new { tag = "campaign:porting", includeSlices = true })).ConfigureAwait(false);
+                    string expandedJson = JsonSerializer.Serialize(expanded);
+                    AssertContains("ledger pass bendix", expandedJson);
+                    AssertContains("lane jpro", expandedJson);
                     AssertTrue(!json.Contains("unrelated feature"), "objects outside the campaign tree must not appear");
                     AssertContains("session-a", json);
                     AssertContains("claimed vsl_example", json);
