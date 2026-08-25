@@ -32,7 +32,9 @@ state is in Armada and workspace memory, not in this conversation.
 1. Load all workspace rules and the repository instructions in scope.
 2. Heartbeat with your exact participant key. Drain `UnreadWakes` first. Treat
    each full Wake payload as directed work and acknowledge each completed item
-   with `armada_mark_signal_read`. An availability note from a helper requires
+   with `armada_mark_signal_read`. That covers both the Wakes addressed to your
+   key and the unaddressed mission-outcome Wake that started this cycle: as the
+   effective AgentWake participant you own the unaddressed ones. An availability note from a helper requires
    an immediate addressed assignment or an explicit stand-down before other
    lead work continues.
 3. Read the coordination board and active claims. Do not duplicate a peer's

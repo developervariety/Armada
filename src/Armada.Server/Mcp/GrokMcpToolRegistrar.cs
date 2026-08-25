@@ -122,7 +122,7 @@ namespace Armada.Server.Mcp
             McpIncidentTools.Register(candidate, incidentService, objectiveService);
             McpObjectiveSchedulerTools.Register(candidate, objectiveScheduler, database, objectiveService, coordination);
             McpVoyageTools.Register(candidate, database, admiral, settings);
-            McpSignalTools.Register(candidate, database);
+            McpSignalTools.Register(candidate, database, () => remoteTriggerService.GetAgentWakeStatus().EffectiveParticipantKey);
             McpAgentWakeTools.Register(candidate, remoteTriggerService);
             McpLeadCycleTools.Register(
                 register,

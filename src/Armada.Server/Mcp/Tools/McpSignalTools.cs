@@ -26,7 +26,7 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for signal data access.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database)
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, Func<string?>? effectiveWakeOwnerKey = null)
         {
             register(
                 "armada_send_signal",
@@ -184,16 +184,9 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Status = "not_found", SignalId = request.SignalId };
 
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey;
-                    if (!String.IsNullOrWhiteSpace(participantKey))
-                    {
-                        string prefix = "[to=" + participantKey + "]";
-                        if (signal.Type != SignalTypeEnum.Wake
-                            || String.IsNullOrEmpty(signal.Payload)
-                            || !signal.Payload.StartsWith(prefix, StringComparison.Ordinal))
-                        {
-                            return (object)new { Error = "An authenticated participant can acknowledge only its own Wake signal." };
-                        }
-                    }
+                    string? refusal = WakeAcknowledgementRefusal(participantKey, signal, effectiveWakeOwnerKey?.Invoke());
+                    if (refusal != null)
+                        return (object)new { Error = refusal };
 
                     if (signal.Read)
                         return (object)new { Status = "already_read", SignalId = request.SignalId };
@@ -201,6 +194,46 @@ namespace Armada.Server.Mcp.Tools
                     await database.Signals.MarkReadAsync(request.SignalId).ConfigureAwait(false);
                     return (object)new { Status = "marked", SignalId = request.SignalId };
                 });
+        }
+
+        /// <summary>
+        /// Decides whether an authenticated participant may acknowledge a signal. Returns null when
+        /// the acknowledgement is allowed, otherwise the refusal text.
+        /// <para>
+        /// An anonymous caller (no participant header) may acknowledge anything, unchanged. An
+        /// authenticated participant may acknowledge only Wake signals: a Wake addressed with a
+        /// <c>[to=&lt;key&gt;]</c> prefix belongs to that key alone, and an UNADDRESSED Wake (a
+        /// mission-outcome or critical wake, prefixed <c>[vsl=...]</c> or <c>[CRITICAL]</c> or
+        /// nothing) belongs to the effective AgentWake participant, because that is the session
+        /// the wake starts. Without that owner rule a broadcast Wake had no legal acknowledger
+        /// that sends the header, so the lead it woke could never mark it read.
+        /// </para>
+        /// </summary>
+        /// <param name="participantKey">The caller's participant key, or null when anonymous.</param>
+        /// <param name="signal">The signal being acknowledged.</param>
+        /// <param name="effectiveWakeOwnerKey">The effective AgentWake participant key, or null when none is registered.</param>
+        /// <returns>Null when allowed; otherwise the refusal message.</returns>
+        internal static string? WakeAcknowledgementRefusal(string? participantKey, Signal signal, string? effectiveWakeOwnerKey)
+        {
+            if (String.IsNullOrWhiteSpace(participantKey)) return null;
+            if (signal.Type != SignalTypeEnum.Wake || String.IsNullOrEmpty(signal.Payload))
+                return "An authenticated participant can acknowledge only a Wake signal.";
+
+            const string addressedPrefix = "[to=";
+            if (signal.Payload.StartsWith(addressedPrefix, StringComparison.Ordinal))
+            {
+                string ownPrefix = addressedPrefix + participantKey + "]";
+                if (signal.Payload.StartsWith(ownPrefix, StringComparison.Ordinal)) return null;
+                return "An authenticated participant can acknowledge only its own Wake signal.";
+            }
+
+            if (!String.IsNullOrWhiteSpace(effectiveWakeOwnerKey)
+                && String.Equals(participantKey, effectiveWakeOwnerKey, StringComparison.Ordinal))
+                return null;
+
+            return "An unaddressed Wake belongs to the effective AgentWake participant ("
+                + (String.IsNullOrWhiteSpace(effectiveWakeOwnerKey) ? "none registered" : effectiveWakeOwnerKey)
+                + "); only that key, or an anonymous caller, can acknowledge it.";
         }
 
         private sealed class MarkSignalReadArgs

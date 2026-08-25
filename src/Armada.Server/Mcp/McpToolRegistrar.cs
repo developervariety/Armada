@@ -119,7 +119,7 @@ namespace Armada.Server.Mcp
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold);
-            McpSignalTools.Register(register, database);
+            McpSignalTools.Register(register, database, () => remoteTriggerService?.GetAgentWakeStatus().EffectiveParticipantKey);
             McpEventTools.Register(register, database);
             McpTokenUsageTools.Register(register, database);
             McpPapercutTools.Register(register, database);

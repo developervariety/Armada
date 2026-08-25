@@ -1016,6 +1016,15 @@ the session calls `armada_mark_signal_read`; a wake that stopped appearing
 before it was read would be a lost wake. The two coordination tools above are
 excluded, because they already return the same wakes in their own payload.
 
+Who may acknowledge a Wake follows who it woke. A session that sends the
+participant header may mark read a Wake addressed to it (`[to=<its key>]`), and
+the effective AgentWake participant (`armada_agentwake_status`) may also mark
+read an UNADDRESSED Wake — a mission-outcome or critical wake prefixed
+`[vsl=...]` or `[CRITICAL]` — because that is the session such a wake starts.
+Any other authenticated key is refused with the owner named; an anonymous
+caller (no header) remains unrestricted. Mail and Nudge signals are consumed by
+the stage handoff and are never acknowledged through this tool.
+
 #### Do not wait by polling. Subscribe.
 
 The banner is reliable but not immediate: a session that calls no tool sees
