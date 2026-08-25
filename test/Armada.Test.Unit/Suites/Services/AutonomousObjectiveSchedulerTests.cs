@@ -498,6 +498,95 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("vessel_concurrency=1", scheduler.LastResultSummary ?? String.Empty, "Summary should name the vessel-limited objective.");
             }).ConfigureAwait(false);
 
+            // An engaged dispatch hold is the hold working, not a fault. It is read once per tick and
+            // named, so a real dispatch fault arriving during a deploy window still reads as one.
+            await RunTest("An engaged dispatch hold is reported as dispatch_hold once per tick, never as dispatch_error", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                for (int i = 0; i < 2; i++)
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("hold-vessel-" + i, "https://github.com/test/hold-" + i + ".git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Held objective " + i,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3
+                    }
+                };
+
+                DispatchHold hold = new DispatchHold();
+                hold.Engage("redeploy window", "operator-session");
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings, hold);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "Nothing dispatches while the hold is engaged.");
+                AssertEqual("dispatch_hold", scheduler.LastSkipReason, "The hold is reported by its own name.");
+                AssertContains("dispatch_hold", scheduler.LastResultSummary ?? string.Empty, "The summary names the hold.");
+                List<ArmadaEvent> holdEvents = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_dispatch_hold")
+                    .ConfigureAwait(false);
+                AssertEqual(1, holdEvents.Count, "One event per tick, not one per eligible objective (two were eligible).");
+
+                hold.Clear();
+                await scheduler.SweepAsync().ConfigureAwait(false);
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "The second sweep within the interval is a no-op; the hold cleared cleanly.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A dispatch fault with no hold engaged still reads as dispatch_error", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("fault-vessel", "https://github.com/test/fault.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Faulting objective",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                admiral.ThrowOnDispatch = new InvalidOperationException("vessel path is unreadable");
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings, new DispatchHold());
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertContains("dispatch_error", scheduler.LastSkipReason ?? string.Empty, "A genuine dispatch fault keeps its name.");
+            }).ConfigureAwait(false);
+
             await RunTest("A sweep that dispatches nothing says why", async () =>
             {
                 // A multi-vessel objective is eligible by every rule the selector checks,
@@ -831,7 +920,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static AutonomousObjectiveScheduler CreateScheduler(
             DatabaseDriver database,
             IAdmiralService admiral,
-            ArmadaSettings settings)
+            ArmadaSettings settings, DispatchHold? dispatchHold = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -842,7 +931,9 @@ namespace Armada.Test.Unit.Suites.Services
                 admiral,
                 new StubMergeQueueService(),
                 settings,
-                logging);
+                logging,
+                null,
+                dispatchHold);
         }
 
         private sealed class StubMergeQueueService : IMergeQueueService
@@ -877,6 +968,7 @@ namespace Armada.Test.Unit.Suites.Services
                 _Database = database;
             }
 
+            public Exception? ThrowOnDispatch { get; set; }
             public int DispatchVoyageCallCount { get; private set; }
 
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
@@ -899,6 +991,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public async Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, CancellationToken token = default)
             {
+                if (ThrowOnDispatch != null) throw ThrowOnDispatch;
                 DispatchVoyageCallCount++;
                 Voyage voyage = new Voyage
                 {

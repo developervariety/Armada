@@ -105,6 +105,10 @@ namespace Armada.Server
         #region Private-Members
 
         private const string _Header = "[AutonomousObjectiveScheduler] ";
+        // The fleet-wide dispatch hold, read once per sweep so an engaged hold is reported by its own
+        // name and never as a dispatch fault. Null in tests that do not model a hold.
+        private readonly DispatchHold? _DispatchHold;
+
         private readonly DatabaseDriver _Database;
         private readonly ObjectiveService _Objectives;
         private readonly IAdmiralService _Admiral;
@@ -135,8 +139,10 @@ namespace Armada.Server
             IMergeQueueService mergeQueue,
             ArmadaSettings settings,
             LoggingModule logging,
-            ICodeIndexService? codeIndex = null)
+            ICodeIndexService? codeIndex = null,
+            DispatchHold? dispatchHold = null)
         {
+            _DispatchHold = dispatchHold;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -341,6 +347,23 @@ namespace Armada.Server
                         "Autonomous objective scheduler dispatch skipped: " + concurrencyDetail + ".", token).ConfigureAwait(false);
                     LastSkipReason = "max_concurrent";
                     LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (max_concurrent)";
+                    return;
+                }
+
+                // An engaged dispatch hold refuses every dispatch, so it is read ONCE here rather than
+                // discovered per candidate as an exception. Reported by name: while a deploy window
+                // is open, LastSkipReason must not read as a fault, or a real fault arriving during
+                // the window is indistinguishable from the hold and is never investigated.
+                DispatchHoldSnapshot? hold = _DispatchHold?.Snapshot();
+                if (hold != null)
+                {
+                    string holdDetail = "dispatch hold engaged by " + (String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy)
+                        + " at " + hold.SetByUtc.ToString("u") + ": " + hold.Reason;
+                    _Logging.Info(_Header + "sweep: " + holdDetail + "; " + eligible.Count + " eligible objective(s) wait.");
+                    await EmitSystemEventAsync("objective_scheduler.skipped_dispatch_hold",
+                        "Autonomous objective scheduler dispatch skipped: " + holdDetail + ".", token).ConfigureAwait(false);
+                    LastSkipReason = "dispatch_hold";
+                    LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (dispatch_hold)";
                     return;
                 }
 

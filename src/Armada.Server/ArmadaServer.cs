@@ -276,7 +276,7 @@ namespace Armada.Server
             _AutonomousRecovery = new AutonomousRecoveryOrchestrator(
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService);
-            _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex);
+            _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex, _DispatchHold);
             _IncidentLifecycle = new IncidentLifecycleOrchestrator(_Database, _IncidentService, _Settings, _Logging);
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
