@@ -4285,6 +4285,16 @@ namespace Armada.Core.Services
             List<Signal> unreadMailboxSignals = await LoadUnreadMailboxSignalsAsync(token).ConfigureAwait(false);
             HashSet<string> appliedSignalIds = new HashSet<string>(StringComparer.Ordinal);
 
+            // A planner stage emits a plan. When it commits behaviour instead, every fan-out
+            // worker below it is stranded by construction -- they are cut without that commit --
+            // and the failure surfaces two stages later as stage_base_missing, read as a captain
+            // fault. Stop it at the planner, name the files, and preserve the work for an operator.
+            if (IsPlannerPersona(completedMission.Persona)
+                && await FailPlannerThatCommittedCodeAsync(completedMission, token).ConfigureAwait(false))
+            {
+                return false;
+            }
+
             // Special handling for Architect stage: parse output into new missions
             if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
@@ -7532,6 +7542,77 @@ namespace Armada.Core.Services
         /// The handoff path stamps the downstream mission with the dependency's branch name,
         /// so branch equality is used as the minimum readiness signal before launch.
         /// </summary>
+        /// <summary>
+        /// True for the personas whose deliverable is a plan, never code: the Product Manager and
+        /// the Architect.
+        /// </summary>
+        internal static bool IsPlannerPersona(string? persona)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return false;
+            return String.Equals(persona, "Architect", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(persona, "Product Manager", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(persona, "ProductManager", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The reason prefix a planner stage carries when it committed behaviour instead of a plan.
+        /// </summary>
+        public const string PlannerCommittedCodeReason = "planner_committed_code";
+
+        // Classify the planner's captured diff by the same rule the rescue evaluator applies to a
+        // rescue's diff (DiffPathExtractor over the DiffSnapshot, ChangeSubstanceClassifier over
+        // the paths). A documentation-only diff is a plan; a substantive one fails the planner
+        // here, before any fan-out worker is created against a base that lacks it.
+        private async Task<bool> FailPlannerThatCommittedCodeAsync(Mission planner, CancellationToken token)
+        {
+            IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(planner.DiffSnapshot);
+            if (ChangeSubstanceClassifier.Classify(changedPaths) != ChangeSubstanceEnum.Substantive)
+                return false;
+
+            List<string> named = new List<string>();
+            foreach (string path in changedPaths)
+            {
+                if (named.Count >= 6) break;
+                named.Add(path);
+            }
+            string fileList = String.Join(", ", named) + (changedPaths.Count > named.Count ? " (+" + (changedPaths.Count - named.Count) + " more)" : String.Empty);
+            string reason = PlannerCommittedCodeReason + ": the " + planner.Persona + " stage committed " + changedPaths.Count
+                + " file(s) that carry behaviour (" + fileList + "). A planner emits a plan; code committed here strands every fan-out worker below it, "
+                + "because they are cut without this commit by design. The commit"
+                + (String.IsNullOrWhiteSpace(planner.CommitHash) ? String.Empty : " " + planner.CommitHash)
+                + " on branch " + (planner.BranchName ?? "(none)")
+                + " is preserved for an operator to keep under a recover/ ref and re-dispatch Worker-first.";
+
+            _Logging.Warn(_Header + "mission " + planner.Id + " " + reason);
+
+            planner.Status = MissionStatusEnum.Failed;
+            planner.FailureReason = reason;
+            planner.CompletedUtc = DateTime.UtcNow;
+            planner.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(planner, token).ConfigureAwait(false);
+
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("mission.planner_committed_code",
+                    "Planner stage " + planner.Id + " (" + planner.Persona + ") committed " + changedPaths.Count + " behaviour-carrying file(s); fan-out stopped.");
+                evt.TenantId = planner.TenantId;
+                evt.UserId = planner.UserId;
+                evt.EntityType = "mission";
+                evt.EntityId = planner.Id;
+                evt.MissionId = planner.Id;
+                evt.VesselId = planner.VesselId;
+                evt.VoyageId = planner.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new { persona = planner.Persona, changedFiles = changedPaths, commit = planner.CommitHash, branch = planner.BranchName });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record planner_committed_code event for mission " + planner.Id + ": " + ex.Message);
+            }
+
+            return true;
+        }
+
         private static bool IsPipelineHandoffPrepared(Mission mission, Mission dependency)
         {
             if (mission == null || dependency == null) return false;

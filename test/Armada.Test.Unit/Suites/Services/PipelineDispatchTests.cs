@@ -1408,6 +1408,171 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A planner that commits behaviour strands every fan-out worker below it: they are cut
+            // without that commit by design and fail stage_base_missing two stages later, read as a
+            // captain fault. The handoff fails the planner by name and creates no workers.
+            await RunTest("Architect handoff fails a planner that committed code and creates no fan-out", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
+
+                    Vessel vessel = new Vessel("planner-code-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain architectCaptain = new Captain("planner-code-architect");
+                    architectCaptain.State = CaptainStateEnum.Working;
+                    architectCaptain = await testDb.Driver.Captains.CreateAsync(architectCaptain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("planner-code-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission architect = new Mission("[Architect] Plan", "Break this down");
+                    architect.VesselId = vessel.Id;
+                    architect.VoyageId = voyage.Id;
+                    architect.CaptainId = architectCaptain.Id;
+                    architect.Persona = "Architect";
+                    architect.Status = MissionStatusEnum.InProgress;
+                    architect.BranchName = "armada/planner-code/architect";
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                    Dock architectDock = new Dock(vessel.Id);
+                    architectDock.CaptainId = architectCaptain.Id;
+                    architectDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, architect.Id);
+                    architectDock.BranchName = architect.BranchName;
+                    architectDock.Active = true;
+                    architectDock = await testDb.Driver.Docks.CreateAsync(architectDock).ConfigureAwait(false);
+                    architect.DockId = architectDock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(architect).ConfigureAwait(false);
+
+                    Mission worker = new Mission("[Worker] Placeholder", "Initial worker");
+                    worker.VesselId = vessel.Id;
+                    worker.VoyageId = voyage.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.Pending;
+                    worker.DependsOnMissionId = architect.Id;
+                    worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+                    // The planner's captured diff carries behaviour, not a plan.
+                    missionService.OnCaptureDiff = async (Mission m, Dock d) =>
+                    {
+                        Mission? stored = await testDb.Driver.Missions.ReadAsync(m.Id).ConfigureAwait(false);
+                        stored!.DiffSnapshot = "diff --git a/src/Catalog/Reader.cs b/src/Catalog/Reader.cs\n--- a/src/Catalog/Reader.cs\n+++ b/src/Catalog/Reader.cs\n@@ -1 +1,2 @@\n+class Reader { }\ndiff --git a/docs/plan.md b/docs/plan.md\n--- a/docs/plan.md\n+++ b/docs/plan.md\n@@ -1 +1 @@\n+plan\n";
+                        await testDb.Driver.Missions.UpdateAsync(stored).ConfigureAwait(false);
+                    };
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:MISSION]\n" +
+                        "title: Implement the reader\n" +
+                        "goal: Read the catalogue\n" +
+                        "inputs: the catalogue file\n" +
+                        "deliverables: Reader.cs\n" +
+                        "dependencies: none\n" +
+                        "risks: none\n" +
+                        "done_when: tests pass\n" +
+                        "[/ARMADA:MISSION]";
+
+                    await missionService.HandleCompletionAsync(architectCaptain, architect.Id).ConfigureAwait(false);
+
+                    Mission? updatedArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    List<Mission> afterArchitect = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, updatedArchitect!.Status, "A planner that committed code fails at its own handoff");
+                    AssertContains(MissionService.PlannerCommittedCodeReason, updatedArchitect.FailureReason ?? String.Empty, "The failure names the rule");
+                    AssertContains("src/Catalog/Reader.cs", updatedArchitect.FailureReason ?? String.Empty, "The failure names the behaviour-carrying file");
+                    AssertEqual(2, afterArchitect.Count, "No fan-out worker is created against a base that lacks the planner's commit");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.planner_committed_code").ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "The overreach is recorded as an event");
+                }
+            });
+
+            await RunTest("Architect handoff accepts a planner whose diff is documentation only", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
+
+                    Vessel vessel = new Vessel("planner-docs-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain architectCaptain = new Captain("planner-docs-architect");
+                    architectCaptain.State = CaptainStateEnum.Working;
+                    architectCaptain = await testDb.Driver.Captains.CreateAsync(architectCaptain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("planner-docs-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission architect = new Mission("[Architect] Plan", "Break this down");
+                    architect.VesselId = vessel.Id;
+                    architect.VoyageId = voyage.Id;
+                    architect.CaptainId = architectCaptain.Id;
+                    architect.Persona = "Architect";
+                    architect.Status = MissionStatusEnum.InProgress;
+                    architect.BranchName = "armada/planner-docs/architect";
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                    Dock architectDock = new Dock(vessel.Id);
+                    architectDock.CaptainId = architectCaptain.Id;
+                    architectDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, architect.Id);
+                    architectDock.BranchName = architect.BranchName;
+                    architectDock.Active = true;
+                    architectDock = await testDb.Driver.Docks.CreateAsync(architectDock).ConfigureAwait(false);
+                    architect.DockId = architectDock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(architect).ConfigureAwait(false);
+
+                    Mission worker = new Mission("[Worker] Placeholder", "Initial worker");
+                    worker.VesselId = vessel.Id;
+                    worker.VoyageId = voyage.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.Pending;
+                    worker.DependsOnMissionId = architect.Id;
+                    worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+                    missionService.OnCaptureDiff = async (Mission m, Dock d) =>
+                    {
+                        Mission? stored = await testDb.Driver.Missions.ReadAsync(m.Id).ConfigureAwait(false);
+                        stored!.DiffSnapshot = "diff --git a/docs/plan.md b/docs/plan.md\n--- a/docs/plan.md\n+++ b/docs/plan.md\n@@ -1 +1 @@\n+plan\n";
+                        await testDb.Driver.Missions.UpdateAsync(stored).ConfigureAwait(false);
+                    };
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:MISSION]\n" +
+                        "title: Implement the reader\n" +
+                        "goal: Read the catalogue\n" +
+                        "inputs: the catalogue file\n" +
+                        "deliverables: Reader.cs\n" +
+                        "dependencies: none\n" +
+                        "risks: none\n" +
+                        "done_when: tests pass\n" +
+                        "[/ARMADA:MISSION]";
+
+                    await missionService.HandleCompletionAsync(architectCaptain, architect.Id).ConfigureAwait(false);
+
+                    Mission? updatedArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    // The guard must not fire on a documentation-only diff; whether the plan itself parses
+                    // is the parser's business and is pinned by its own tests.
+                    AssertTrue(String.IsNullOrEmpty(updatedArchitect!.FailureReason) || !updatedArchitect.FailureReason.Contains(MissionService.PlannerCommittedCodeReason),
+                        "A documentation-only planner diff is a plan; the code guard must not fire: " + (updatedArchitect.FailureReason ?? "(none)"));
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.planner_committed_code").ConfigureAwait(false);
+                    AssertEqual(0, events.Count, "No planner_committed_code event on a docs-only diff");
+                }
+            });
+
             await RunTest("Architect handoff ignores placeholder example blocks", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
