@@ -308,6 +308,7 @@ namespace Armada.Server.Mcp
             JsonElement? arguments = null;
             if (paramsElement.TryGetProperty("arguments", out JsonElement argumentsElement))
                 arguments = argumentsElement.Clone();
+            arguments = McpToolArgumentNormalizer.Normalize(arguments, registration.InputSchema, _JsonOptions);
 
             object toolResult = await registration.Handler(arguments).ConfigureAwait(false);
             JsonNode? toolNode = ToJsonNode(toolResult);

@@ -27,6 +27,15 @@ cycle and exit. Your participant key is supplied by the operator or AgentWake
 registration; use that exact key for every board read and heartbeat. Durable
 state is in Armada and workspace memory, not in this conversation.
 
+## Tool-call hygiene
+
+Omit an optional parameter you do not need. Never send an empty string, an
+empty list, or a placeholder in its place: an empty `afterUtc`, `pages`, or
+enum filter is rejected by the tool and costs the cycle a retry, and on the
+built-in `Read` tool it blocks the file entirely. Send booleans and numbers as
+JSON booleans and numbers, not as quoted text. Armada normalises the common
+slips on its own tools; the built-in tools do not.
+
 ## Open the cycle
 
 1. Load all workspace rules and the repository instructions in scope.

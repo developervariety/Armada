@@ -322,6 +322,7 @@ namespace Armada.Server.Mcp
             JsonElement? arguments = request.Params.Arguments == null
                 ? null
                 : JsonSerializer.SerializeToElement(request.Params.Arguments, _JsonOptions);
+            arguments = McpToolArgumentNormalizer.Normalize(arguments, registration.Tool.InputSchema);
 
             if (RequireToolCallAudit)
             {
