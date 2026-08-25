@@ -1201,6 +1201,18 @@ authentication before approving a real release.
 | Read | `armada_agentwake_status` |
 | Write | `armada_register_agentwake_session` |
 
+### 8.19 Dispatch Hold
+
+| Risk | Tools |
+| --- | --- |
+| Write | `armada_dispatch_hold` |
+
+The hold is fleet-wide: while it is engaged every new dispatch is refused,
+whichever session or scheduler asks, and in-flight voyages continue. Engage it
+with your session name and a reason before an Admiral rebuild; a successful
+restart clears it by design. The autonomous lead is denied this tool and never
+clears a hold, stale or otherwise.
+
 AgentWake is a process-delivery transport, not the work queue or the source of
 truth. Put the stable lead key in `remoteTrigger.agentWake.participantKey` when
 addressed process wakes must work after an Admiral restart. A registration with
