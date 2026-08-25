@@ -375,8 +375,10 @@ namespace Armada.Test.Unit
                     "a record attached to no voyage is left alone, because nothing re-arms it");
 
                 CheckRun failedAtA = new CheckRun { Status = CheckRunStatusEnum.Failed, Command = "dotnet build", CommitHash = "aaaaaaaa1111" };
-                AssertFalse(CheckRunGateRules.IsStale(failedAtA, "bbbbbbbb2222"),
-                    "only a Passed record can be a stale green; a Failed one is a real failure whatever it measured");
+                AssertTrue(CheckRunGateRules.IsStale(failedAtA, "bbbbbbbb2222"),
+                    "a Failed record for an older commit is stale too: the reviewed commit may be its fix");
+                AssertFalse(CheckRunGateRules.IsStale(failedAtA, "aaaaaaaa1111"),
+                    "a Failed record for the reviewed commit is a real failure");
 
                 CheckRun canceledAtA = new CheckRun { Status = CheckRunStatusEnum.Canceled, Command = "dotnet build", CommitHash = "aaaaaaaa1111" };
                 AssertFalse(CheckRunGateRules.IsStale(canceledAtA, "bbbbbbbb2222"),
@@ -424,6 +426,18 @@ namespace Armada.Test.Unit
                     MissionService.JudgeCheckGate.HasFailed,
                     MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { passedAtA, failedAtTip }, "review ok", tip),
                     "a real failure still outranks a hold");
+
+                CheckRun failedAtA = new CheckRun { Id = "chk_stale_red", Type = CheckRunTypeEnum.UnitTest, Status = CheckRunStatusEnum.Failed, Command = "dotnet test", CommitHash = "aaaaaaaa1111111111111111111111111111aaaa" };
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasPending,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { failedAtA }, "review ok", tip),
+                    "a failure for an older commit holds the PASS instead of rejecting it: the tip may be the fix, and the re-armed record decides");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { failedAtA }, "review ok"),
+                    "with no reviewed commit the classifier keeps its Status-only behaviour: a failure rejects");
+                AssertContains("stale: Failed at aaaaaaaa1111", MissionService.DescribeUnresolvedChecks(new List<CheckRun> { failedAtA }, tip),
+                    "the hold names the stale failure with its status and commit");
 
                 string described = MissionService.DescribeUnresolvedChecks(new List<CheckRun> { passedAtA }, tip);
                 AssertContains("chk_stale", described, "the hold names the stale record");

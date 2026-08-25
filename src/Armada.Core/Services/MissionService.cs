@@ -5624,7 +5624,7 @@ namespace Armada.Core.Services
             {
                 string label = String.IsNullOrWhiteSpace(c.Label) ? c.Type.ToString() : c.Label!;
                 string state = CheckRunGateRules.IsStale(c, reviewedCommit)
-                    ? "stale: Passed at " + c.CommitHash + " but the review is of " + reviewedCommit
+                    ? "stale: " + c.Status + " at " + (String.IsNullOrWhiteSpace(c.CommitHash) ? "(no commit)" : c.CommitHash) + " but the review is of " + reviewedCommit
                     : c.Status.ToString();
                 parts.Add(c.Id + " (" + c.Type + ": " + label + ", " + state + ")");
             }
@@ -5636,8 +5636,8 @@ namespace Armada.Core.Services
         /// review output. Canceled Checks are ignored, and so are Checks that were armed but never
         /// executed: neither carries command output, so neither can decide the PASS. Of what
         /// remains, a single Failed Check overrides the PASS; a Pending or Running Check holds it;
-        /// so does a Passed Check that measured a commit other than <paramref name="reviewedCommit"/>,
-        /// because a green for older work says nothing about the tip under review and the executor
+        /// so does a Passed or Failed Check that measured a commit other than <paramref name="reviewedCommit"/>,
+        /// because a verdict for older work says nothing about the tip under review and the executor
         /// re-arms it (<see cref="StaleCheckSupersessionService"/>) while the PASS is held;
         /// no deciding Checks at all requires the documented-exclusion marker in the review.
         /// </summary>
@@ -5652,7 +5652,10 @@ namespace Armada.Core.Services
                     ? JudgeCheckGate.NoChecksWithExclusion
                     : JudgeCheckGate.NoChecksNoExclusion;
             }
-            if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return JudgeCheckGate.HasFailed;
+            // A failure for the reviewed commit rejects the PASS. A failure for an OLDER commit is
+            // stale exactly as a green is: the reviewed commit may be the fix for it, so it holds
+            // the PASS while the executor re-arms at the tip, and the new record decides.
+            if (active.Any(c => c.Status == CheckRunStatusEnum.Failed && !CheckRunGateRules.IsStale(c, reviewedCommit))) return JudgeCheckGate.HasFailed;
             if (active.Any(c => CheckRunGateRules.IsUnresolved(c) || CheckRunGateRules.IsStale(c, reviewedCommit))) return JudgeCheckGate.HasPending;
             return JudgeCheckGate.GreenChecks;
         }

@@ -371,7 +371,7 @@ gate reads every Check attached to the voyage and to the Judge mission:
 | All green | PASS stands |
 | Any `Failed` | PASS is rejected |
 | Any `Pending` or `Running` | PASS is held, then re-run in place |
-| `Passed` for a commit other than the reviewed tip | Stale: PASS is held exactly as for `Pending`; the executor cancels the record as superseded and arms a fresh one for the tip |
+| `Passed` or `Failed` for a commit other than the reviewed tip | Stale: PASS is held exactly as for `Pending`; the executor cancels the record as superseded and arms a fresh one for the tip |
 | None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
 | `Canceled` | Ignored |
 
@@ -386,8 +386,11 @@ it is set `Canceled` with a summary naming its successor, a fresh `Pending`
 record of the same type is armed unless a queued, running, or tip-green sibling
 already covers it, and a `check.superseded` event is written. The stale record
 stays as history of what it measured; nothing is deleted or rewritten. A
-`Passed` record that carries no commit at all cannot be compared and is not
-called stale.
+`Failed` record for an older commit is stale in the same sense: the reviewed
+commit may be the fix for it, so it holds rather than rejects, and the re-armed
+record at the tip decides. A record that carries no commit at all is stale
+when it is attached to a voyage (it measured the default branch) and is left
+alone otherwise.
 
 Two consequences follow, and both have cost real voyages.
 

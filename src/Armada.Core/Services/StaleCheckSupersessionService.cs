@@ -18,6 +18,8 @@ namespace Armada.Core.Services
     /// </summary>
     /// <remarks>
     /// A voyage-armed Check is stamped once, at the first stage that commits, and never re-stamped.
+    /// A Failed record for an older commit is treated the same way as a stale green: the later
+    /// commit may be the fix, so the red is superseded and a fresh record decides at the tip.
     /// Every stage after that commits on top, so by the time the Judge runs the only green record
     /// can vouch for a commit several stages back. The Judge gate holds a PASS when it sees such a
     /// record (<see cref="CheckRunGateRules.IsStale"/>); this service is what lets the hold end,
@@ -168,6 +170,7 @@ namespace Armada.Core.Services
             int superseded = 0;
             foreach (CheckRun stale in records.Where(run => CheckRunGateRules.IsStale(run, work.CommitHash)).ToList())
             {
+                CheckRunStatusEnum priorStatus = stale.Status;
                 CheckRun? replacement = null;
                 if (NeedsReplacement(stale, records, work.CommitHash))
                 {
@@ -190,13 +193,13 @@ namespace Armada.Core.Services
                 stale.Status = CheckRunStatusEnum.Canceled;
                 stale.Summary = "Superseded"
                     + (replacement == null ? String.Empty : " by " + replacement.Id)
-                    + ": this record passed at " + Abbreviate(stale.CommitHash)
+                    + ": this record " + (priorStatus == CheckRunStatusEnum.Failed ? "failed" : "passed") + " at " + Abbreviate(stale.CommitHash)
                     + " but the work under review moved to " + Abbreviate(work.CommitHash)
-                    + " (mission " + work.Id + "). A green for older work does not vouch for newer work.";
+                    + " (mission " + work.Id + "). A verdict for older work does not decide newer work.";
                 stale.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.CheckRuns.UpdateAsync(stale, token).ConfigureAwait(false);
 
-                await WriteEventAsync(stale, replacement, work, token).ConfigureAwait(false);
+                await WriteEventAsync(stale, replacement, work, priorStatus, token).ConfigureAwait(false);
                 _Logging?.Info(_Header + "superseded check " + stale.Id + " (passed at " + Abbreviate(stale.CommitHash)
                     + ") on voyage " + voyage.Id + "; work under review is " + Abbreviate(work.CommitHash)
                     + (replacement == null ? "; a sibling already covers it" : "; re-armed as " + replacement.Id));
@@ -217,11 +220,11 @@ namespace Armada.Core.Services
             return trimmed.Length <= 12 ? trimmed : trimmed.Substring(0, 12);
         }
 
-        private async Task WriteEventAsync(CheckRun stale, CheckRun? replacement, Mission work, CancellationToken token)
+        private async Task WriteEventAsync(CheckRun stale, CheckRun? replacement, Mission work, CheckRunStatusEnum priorStatus, CancellationToken token)
         {
             ArmadaEvent evt = new ArmadaEvent(
                 "check.superseded",
-                "Check " + stale.Id + " superseded: passed at " + Abbreviate(stale.CommitHash)
+                "Check " + stale.Id + " superseded: " + (priorStatus == CheckRunStatusEnum.Failed ? "failed" : "passed") + " at " + Abbreviate(stale.CommitHash)
                     + ", work under review moved to " + Abbreviate(work.CommitHash))
             {
                 TenantId = stale.TenantId,
@@ -235,6 +238,7 @@ namespace Armada.Core.Services
                 {
                     StaleCheckId = stale.Id,
                     ReplacementCheckId = replacement?.Id,
+                    PriorStatus = priorStatus.ToString(),
                     stale.Type,
                     MeasuredCommit = stale.CommitHash,
                     WorkCommit = work.CommitHash,

@@ -186,6 +186,28 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            // A red for an older commit is superseded like a stale green: the later commit may be
+            // its fix, and only a record at the tip can say so.
+            await RunTest("StaleRedOnLiveVoyage_IsCanceledAndReArmed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = await SeedVoyageAsync(testDb, VoyageStatusEnum.Open).ConfigureAwait(false);
+                    await SeedStageAsync(testDb, voyage, "Worker", MissionStatusEnum.WorkProduced, CommitA, earlier).ConfigureAwait(false);
+                    await SeedStageAsync(testDb, voyage, "TestEngineer", MissionStatusEnum.WorkProduced, CommitB, later).ConfigureAwait(false);
+                    CheckRun red = await SeedCheckAsync(testDb, voyage, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Failed, CommitA).ConfigureAwait(false);
+
+                    StaleCheckSupersessionService svc = new StaleCheckSupersessionService(testDb.Driver, CreateLogging());
+                    AssertEqual(1, await svc.SupersedeAsync().ConfigureAwait(false), "the stale red is superseded");
+                    List<CheckRun> after = await ReadChecksAsync(testDb, voyage).ConfigureAwait(false);
+                    AssertEqual(2, after.Count, "a replacement was armed");
+                    CheckRun old = after.First(run => run.Id == red.Id);
+                    AssertEqual(CheckRunStatusEnum.Canceled, old.Status, "the stale red is Canceled");
+                    AssertContains("failed at", old.Summary ?? String.Empty, "the summary keeps the fact that it failed, not that it passed");
+                    AssertEqual(CheckRunStatusEnum.Pending, after.First(run => run.Id != red.Id).Status, "the replacement is Pending");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("GreenAtTheReviewedTip_IsLeftAlone", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -93,8 +93,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// True when a Passed Check measured a commit other than the one under review, so its green
-        /// vouches for older work and must not decide the gate for the newer work.
+        /// True when a Passed or Failed Check measured a commit other than the one under review, so
+        /// its verdict describes older work and must not decide the gate for the newer work.
         /// </summary>
         /// <remarks>
         /// A voyage-armed Check is stamped once, at the first stage that commits, and the stages
@@ -109,14 +109,20 @@ namespace Armada.Core.Services
         /// checks that way, seconds after dispatch and before the rescue Worker had started. A
         /// record attached to no voyage is left alone, because nothing re-arms it.
         /// </para>
+        /// <para>
+        /// A FAILED record for an older commit is stale in the same way. The later commit may be
+        /// the fix for exactly that failure, and a gate that kept rejecting on the old red would
+        /// refuse the work that answered it. The stale red is superseded and re-armed at the tip;
+        /// the new record decides.
+        /// </para>
         /// </remarks>
         /// <param name="run">The Check to test. Null returns false.</param>
         /// <param name="reviewedCommit">The commit under review. Null or empty returns false.</param>
-        /// <returns>True when the record is a green for a different commit, or for no commit at all.</returns>
+        /// <returns>True when the record is a verdict for a different commit, or for no commit at all.</returns>
         public static bool IsStale(CheckRun? run, string? reviewedCommit)
         {
             if (!ParticipatesInRealSignalGate(run)) return false;
-            if (run!.Status != CheckRunStatusEnum.Passed) return false;
+            if (run!.Status != CheckRunStatusEnum.Passed && run.Status != CheckRunStatusEnum.Failed) return false;
             if (String.IsNullOrWhiteSpace(reviewedCommit)) return false;
             if (String.IsNullOrWhiteSpace(run.CommitHash)) return !String.IsNullOrWhiteSpace(run.VoyageId);
             return !SameCommit(run.CommitHash, reviewedCommit);
