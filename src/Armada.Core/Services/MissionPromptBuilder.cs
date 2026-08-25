@@ -433,7 +433,11 @@ namespace Armada.Core.Services
             " data and document deliverables. A deliverable the brief places in a stage's FINAL RESPONSE" +
             " -- a [CLAUDE.MD-PROPOSAL] block for a protected path, a report, a quoted proof -- can" +
             " never be in the diff; verify it in that stage's mission output and treat its absence from" +
-            " the diff as correct, never as NOT DELIVERED.";
+            " the diff as correct, never as NOT DELIVERED. A citation inaccuracy inside a comment or" +
+            " remark -- a count, a path, a line total, a wording -- is a Suggested Follow-up, not a" +
+            " NEEDS_REVISION finding, unless the brief names that citation as the deliverable itself;" +
+            " the code and tests are what the stage delivers, and a wrong number in a remark beside" +
+            " correct code does not undo the delivery.";
 
         internal const string JudgeLensAndBoundedRule =
             " Review through THREE distinct lenses, not one identical pass: (1) CORRECTNESS -- does it do" +
