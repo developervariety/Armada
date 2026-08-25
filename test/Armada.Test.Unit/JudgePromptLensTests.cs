@@ -61,6 +61,9 @@ namespace Armada.Test.Unit
                 AssertTrue(judge.Contains("NOT DELIVERED"), "judge prompt gives the wording for an undelivered item");
                 AssertTrue(judge.Contains("Never cite `git grep`"), "judge prompt forbids tip presence as delivery evidence");
                 AssertTrue(judge.Contains("Failed Check exists at the reviewed tip"), "judge prompt ties a failed check to its acceptance item");
+                AssertTrue(judge.Contains("merge-base --is-ancestor"), "judge prompt requires accepted work to be an ancestor of the tip");
+                AssertTrue(judge.Contains("ABSENT from this base"), "judge prompt names absence of accepted work as a regression");
+                AssertTrue(judge.Contains("cherry-picked forward"), "judge prompt accepts cherry-picked presence in the diff as the alternative to ancestry");
 
                 string withLens = MissionPromptBuilder.BuildJudgeLensDirective("CORRECTNESS");
                 AssertTrue(withLens.Contains("DELIVERY-EVIDENCE RULE"), "the primary-lens directive keeps the delivery-evidence rule");

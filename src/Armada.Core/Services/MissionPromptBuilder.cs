@@ -423,7 +423,13 @@ namespace Armada.Core.Services
             " acceptance item, cite the diff hunk (file and line range from `git diff <base>..<tip>`)" +
             " that delivers it, or write NOT DELIVERED. Never cite `git grep` at the tip or a file read" +
             " at the tip as delivery evidence. When a Failed Check exists at the reviewed tip, name the" +
-            " failing test and the acceptance item it belongs to before any Completeness claim.";
+            " failing test and the acceptance item it belongs to before any Completeness claim." +
+            " State the merge-base of the reviewed branch. Every acceptance line that reads 'SATISFIED at" +
+            " <sha>' or 'do not redo' names accepted work: it is present only if that commit is an" +
+            " ancestor of the tip (`git merge-base --is-ancestor <sha> <tip>`) OR its changes appear in" +
+            " the diff against the base (cherry-picked forward). When neither holds, the work is ABSENT" +
+            " from this base -- a regression no green suite can show -- so name it in Completeness and" +
+            " do not pass the stage on the strength of what remains.";
 
         internal const string JudgeLensAndBoundedRule =
             " Review through THREE distinct lenses, not one identical pass: (1) CORRECTNESS -- does it do" +
