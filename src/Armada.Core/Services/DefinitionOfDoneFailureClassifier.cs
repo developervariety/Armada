@@ -20,8 +20,27 @@ namespace Armada.Core.Services
             @"(?:\btests?\s+failed\b|\btest run failed\b|\bfailed:\s*\d+\b|\b\d+\s+failed\b|\bfailures?:\s*\d+\b|\[FAIL\]|\bFAIL(?:ED)?\b.*\b(?:test|assert))",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // Signatures that can only come from the environment: a restore ERROR, a missing SDK, a
+        // shell that cannot find the command. These outrank test evidence, because a dead
+        // environment also prints failed tests. A NuGet WARNING (NU1510 on every pruned
+        // reference, for one) is not among them: read as a signature it labelled a single
+        // deterministic assertion in an 8,000-test run as host trouble.
         private static readonly Regex _InfrastructurePattern = new Regex(
-            @"(?:\brestore failed\b|\bfailed to restore\b|\bunable to load the service index\b|\bNU\d{4}\b|\bpackage\s+[^\r\n]+\s+not found\b|\bcould not resolve\b|\bdependency\b|\bcommand not found\b|\bis not recognized as an internal or external command\b|\bno such file or directory\b|\bpermission denied\b|\bSDK\s+[^\r\n]+\s+not found\b|\bMSB4236\b)",
+            @"(?:\brestore failed\b|\bfailed to restore\b|\bunable to load the service index\b|\berror\s+NU\d{4}\b|\bpackage\s+[^\r\n]+\s+not found\b|\bcould not resolve\b|\bcommand not found\b|\bis not recognized as an internal or external command\b|\bSDK\s+[^\r\n]+\s+not found\b|\bMSB4236\b)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Words that a healthy test run can print too -- a test named for dependency injection, a
+        // fixture that probes an optional file, a build step that continues on error. They point
+        // at the environment only when no test evidence explains the failure; read before the
+        // test evidence they labelled a single deterministic assertion as host trouble.
+        private static readonly Regex _WeakInfrastructurePattern = new Regex(
+            @"(?:\bdependency\b|\bno such file or directory\b|\bpermission denied\b)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // A test-host crash: many failures land at once with a process-level signature, and the
+        // failed tests are victims rather than evidence.
+        private static readonly Regex _TestHostCrashPattern = new Regex(
+            @"(?:\bOutOfProcNode\b|\bCleanupForBuild\b|\btest host process crashed\b|\bThe active test run was aborted\b|\bhost process exited\b)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         /// <summary>
@@ -60,6 +79,11 @@ namespace Armada.Core.Services
                 return DefinitionOfDoneFailureClassEnum.Infra;
 
             string combined = output ?? String.Empty;
+            // A crashed test host prints a compiler-shaped MSBuild error on the way down, so it is
+            // read before the compile branch; a genuine compile failure carries no crash signature.
+            if (_TestHostCrashPattern.IsMatch(combined))
+                return DefinitionOfDoneFailureClassEnum.Infra;
+
             if (IsCompilerDiagnosticLine(combined))
                 return DefinitionOfDoneFailureClassEnum.Compile;
 
@@ -72,7 +96,15 @@ namespace Armada.Core.Services
             if (_InfrastructurePattern.IsMatch(combined))
                 return DefinitionOfDoneFailureClassEnum.Infra;
 
-            if (IsTestFailureDiagnosticLine(combined) || IsTestCommand(commandLabel))
+            // Test evidence outranks a weak environment word: a run that names its failed tests
+            // failed on those tests, whatever else it printed on the way.
+            if (IsTestFailureDiagnosticLine(combined))
+                return DefinitionOfDoneFailureClassEnum.TestFail;
+
+            if (_WeakInfrastructurePattern.IsMatch(combined))
+                return DefinitionOfDoneFailureClassEnum.Infra;
+
+            if (IsTestCommand(commandLabel))
                 return DefinitionOfDoneFailureClassEnum.TestFail;
 
             return DefinitionOfDoneFailureClassEnum.Infra;
