@@ -16,9 +16,11 @@ update Bots and groups, send messages, and read threads. It uses the signed-in
 macOS Grok Bot application. It does not document custom MCP registration,
 routine creation, routine scheduling, or a Linux headless login.
 
-The recommended first production design is hybrid. Grok Bot is the phone,
-conversation, and notification surface. Armada remains the authority for
-identity, permissions, overlap prevention, audit, and fallback.
+The recommended first production design is hybrid. The official Grok Build CLI
+is the preferred candidate for the local model runtime. Grok Bot is the phone,
+conversation, and notification surface only if its control path passes a
+separate proof of concept. Armada remains the authority for identity,
+permissions, overlap prevention, audit, and fallback.
 
 ## 2. Verified Grok Bot capabilities
 
@@ -68,6 +70,50 @@ Third-party source:
   the Grok Bot macOS application, and one interactive sign-in. It reuses the
   application's encrypted session and routing credentials. This is useful for
   local message automation. It is not an Armada security boundary.
+
+### Official Grok Build CLI
+
+Grok Build and Grok Bot are different product surfaces. The official Grok
+Build repository describes a terminal coding agent. It does not document an
+API or command for Grok Bot creation, Grok Bot threads, groups, phone messages,
+or Grok Bot routines. A search of the official repository and its complete user
+guide found no such integration. Thus, Grok Build cannot be treated as the
+phone interface.
+
+The official Grok Build documentation does verify these local-runner functions:
+
+- headless one-shot execution with machine-readable JSON or JSON Lines output;
+- fresh sessions by default, with explicit resume and continue options;
+- local session transcripts, memory, logs, MCP logs, crash reports, and trace
+  exports under `GROK_HOME`;
+- remote MCP over native HTTP or SSE;
+- arbitrary configured HTTP headers, including `Authorization` and
+  `X-Armada-Participant`;
+- static bearer tokens with environment-variable expansion;
+- interactive MCP OAuth and cached MCP OAuth credentials;
+- API-key, browser OAuth, device-code, OIDC, and external-provider login for
+  the Grok model service;
+- permission modes, explicit deny rules, pre-tool hooks, and an optional
+  operating-system sandbox;
+- notification hooks for completion, approval, and agent errors;
+- local scheduled prompts and background monitors.
+
+The local scheduler is not equivalent to a Grok Bot cloud routine. Recurring
+tasks expire after seven days. A task belongs to Grok Build session state, even
+when it is marked durable across sessions. The documentation does not say that
+xAI runs it as a hosted service when the Armada host and Grok process are off.
+Armada must continue to use systemd and AgentWake as its durable start
+mechanisms.
+
+Official sources:
+
+- [Grok Build repository](https://github.com/xai-org/grok-build)
+- [Grok Build authentication](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md)
+- [Grok Build MCP servers](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md)
+- [Grok Build headless mode](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md)
+- [Grok Build hooks](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md)
+- [Grok Build background tasks](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/20-background-tasks.md)
+- [Grok Build permissions and safety](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/22-permissions-and-safety.md)
 
 ## 3. Current Armada lead contract
 
@@ -166,27 +212,36 @@ the real lead cycle.
 - Production: suitable after a narrow messaging proof of concept. This is the
   recommended first deployment.
 
-### C. Grok CLI or API in the local wrapper
+### C. Official Grok Build CLI in the local wrapper
 
-A local process calls an official xAI model API, or a verified headless client,
-inside `lead-cycle.sh`. It keeps the existing repository checkout, shell,
-network boundary, model policy, timeout, log renderer, AgentWake path, and
-systemd schedule.
+A local process calls the official Grok Build CLI in headless mode inside
+`lead-cycle.sh`. It keeps the existing repository checkout, shell, network
+boundary, timeout, log renderer, AgentWake path, and systemd schedule.
 
-- Code: add a runtime adapter and its explicit policy. Keep the shared cycle
-  tools that this branch adds.
+- Code: add a `grok` runtime adapter, an isolated `GROK_HOME`, an Armada MCP
+  entry, machine-readable output capture, and explicit permission rules. Keep
+  the shared cycle tools that this branch adds.
 - Network: outbound HTTPS to the model API. No inbound public MCP endpoint.
-- Authentication: a server-side API key in a root-controlled secret file or
-  service credential store.
-- Risk: an API model does not automatically provide the Grok Bot phone thread,
-  routine UI, or notifications. A model can still misuse any locally exposed
-  tool, so server controls stay necessary.
+- Authentication: a server-side xAI API key, device-code login, or cached OAuth
+  credential. For unattended production, use a service credential that can
+  refresh without a person. Configure the Armada participant header in the MCP
+  entry. Do not put either secret in repository configuration.
+- MCP: official documentation supports HTTP, SSE, custom headers, bearer
+  tokens, and OAuth. The exact Grok Build-to-Armada Streamable HTTP exchange is
+  not yet tested. Use the restricted listener. Do not give this runtime the full
+  MCP catalog.
+- Risk: Grok Build does not provide the Grok Bot phone thread, Bot routine UI,
+  or mobile steering. Client deny rules and hooks are defense in depth only. A
+  model can still misuse a tool that the server accepts, so the restricted
+  server catalog stays necessary.
 - Recovery: current timeout, event log, timer, AgentWake, and fallback behavior
-  remain available.
+  remain available. A killed headless run keeps file changes and saves state up
+  to the last completed tool call. It exits with distinct interrupt and
+  termination codes.
 - Audit: strongest of the three choices because the local wrapper keeps the raw
-  event stream and rendered digest.
-- Production: technically suitable after an official supported headless path
-  is selected. It does not meet the phone experience by itself.
+  event stream and rendered digest. Grok also stores local session and MCP logs.
+- Production: preferred execution candidate after a local compatibility and
+  recovery proof of concept. It does not meet the phone experience by itself.
 
 ## 5. Security and network design
 
@@ -255,22 +310,34 @@ an audit event, and a recovery test.
 ## 6. Recommended proof of concept
 
 1. Keep the durable mode at `LegacyPrimary` and keep `GrokLead.Enabled=false`.
-2. In an isolated test environment, enable the loopback listener and provide
+2. Install the official Grok Build binary on an isolated Armada test host. Run
+   it with an isolated `GROK_HOME` and the restricted MCP catalog. Confirm the
+   participant header, tool discovery, Streamable HTTP responses, exit codes,
+   transcript capture, timeout handling, and secret refresh.
+3. Run ten one-shot, read-only cycles through the existing local wrapper. Do
+   not use Grok Build's `/loop` scheduler. Confirm that systemd remains the only
+   periodic scheduler and that the server lease prevents overlap.
+4. Add a notification hook to a test-only phone channel. Confirm completion,
+   owner-decision, approval, authentication-failure, model-failure, and timeout
+   messages. A notification is not permission to continue.
+5. Separately test whether Grok Bot has a supported custom MCP or messaging
+   control surface. If it does not, keep it out of the production control path.
+6. In an isolated direct-Bot test, enable the loopback listener and provide
    `ARMADA_GROK_MCP_TOKEN` through the service secret environment.
-3. Put a temporary TLS tunnel in front of port 7892. Confirm that port 7891 and
+7. Put a temporary TLS tunnel in front of port 7892. Confirm that port 7891 and
    all Armada REST routes are unreachable through it.
-4. In Grok Bot, try to add the endpoint and secret. Record the exact connector
+8. In Grok Bot, try to add the endpoint and secret. Record the exact connector
    fields and the actual HTTP requests. Stop if the client cannot send bearer
    authentication or cannot use Stateless Streamable HTTP.
-5. Run ten read-only manual cycles. Test phone steering, stop messages,
+9. Run ten read-only manual cycles. Test phone steering, stop messages,
    completion notifications, failures, lease expiry, and audit correlation.
-6. Run scheduled read-only routines for seven days. Keep the hourly legacy
+10. Run scheduled read-only routines for seven days. Keep the hourly legacy
    timer enabled. Do not enable fallback takeover during this observation step.
-7. Enable `GrokPrimary`. The legacy timer then acts as standby. It can acquire a
+11. Enable `GrokPrimary`. The legacy timer then acts as standby. It can acquire a
    fallback cycle only after 130 minutes without Grok mode or cycle activity.
    The timer checks once per hour, so a timer-only takeover can occur later than
    130 minutes. An AgentWake start also checks the same threshold.
-8. Simulate an absent Grok routine and verify one legacy fallback cycle. Then
+12. Simulate an absent Grok routine and verify one legacy fallback cycle. Then
    return to `LegacyPrimary`.
 
 Mode API:
@@ -288,6 +355,7 @@ cycles.
 ## 7. Go or no-go recommendation
 
 - Hybrid phone and notification proof of concept: GO.
+- Official Grok Build local-runner proof of concept: GO and preferred.
 - Read-only direct MCP proof of concept in an isolated environment: GO after
   the owner supplies a test Grok Bot account and approves a temporary tunnel.
 - Direct Grok Bot production replacement: NO-GO now.
@@ -296,7 +364,8 @@ cycles.
 
 ## 8. Open owner decisions
 
-- Choose the first phone path: Grok Bot thread through the macOS CLI bridge, or
+- Choose the first phone path: a Grok Build notification hook to a supported
+  phone channel, a Grok Bot thread through the unofficial macOS CLI bridge, or
   direct Grok Bot custom MCP if the UI supports it.
 - Choose the TLS or tunnel product for the isolated test endpoint.
 - Choose the acceptable standby delay. The branch default is 130 minutes.
