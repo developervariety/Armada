@@ -44,6 +44,26 @@ namespace Armada.Test.Unit
                     "worker prompt must not carry judge guidance");
                 AssertTrue(!MissionPromptBuilder.GetPersonaOutputContract("TestEngineer").Contains("BOUNDED-JUDGE"),
                     "test-engineer prompt must not carry judge guidance");
+                AssertTrue(!MissionPromptBuilder.GetPersonaOutputContract("Worker").Contains("DELIVERY-EVIDENCE"),
+                    "worker prompt must not carry the delivery-evidence rule");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // A Judge once read symbols at the tip, found them real and corroborated, and passed an
+            // acceptance item the branch had never touched: the symbols were already on the base.
+            // Delivery is a property of the diff, so the contract must say so and demand hunks.
+            await RunTest("JudgeContract_ProvesDeliveryByTheDiffNotTheTip", () =>
+            {
+                string judge = MissionPromptBuilder.GetPersonaOutputContract("Judge");
+                AssertTrue(judge.Contains("DELIVERY-EVIDENCE RULE"), "judge prompt names the delivery-evidence rule");
+                AssertTrue(judge.Contains("DIFF against its base"), "judge prompt says delivery is proven by the diff");
+                AssertTrue(judge.Contains("cite the diff hunk"), "judge prompt demands a diff hunk per acceptance item");
+                AssertTrue(judge.Contains("NOT DELIVERED"), "judge prompt gives the wording for an undelivered item");
+                AssertTrue(judge.Contains("Never cite `git grep`"), "judge prompt forbids tip presence as delivery evidence");
+                AssertTrue(judge.Contains("Failed Check exists at the reviewed tip"), "judge prompt ties a failed check to its acceptance item");
+
+                string withLens = MissionPromptBuilder.BuildJudgeLensDirective("CORRECTNESS");
+                AssertTrue(withLens.Contains("DELIVERY-EVIDENCE RULE"), "the primary-lens directive keeps the delivery-evidence rule");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

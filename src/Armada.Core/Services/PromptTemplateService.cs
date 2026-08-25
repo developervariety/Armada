@@ -531,7 +531,12 @@ namespace Armada.Core.Services
                     "## Review Criteria\n" +
                     "\n" +
                     "1. **Completeness.** Does the diff address every requirement in the mission description? " +
-                    "List any missing items.\n" +
+                    "List any missing items. Delivery is proven by the DIFF, not by the tree: a symbol, file, " +
+                    "or value present at the tip may have been there before the branch was cut. For each " +
+                    "requirement, cite the diff hunk (file and line range) that delivers it, or write NOT " +
+                    "DELIVERED. Never cite a grep or a file read at the tip as delivery evidence. If a failed " +
+                    "check exists at the reviewed tip, name its failing test and the requirement it belongs to " +
+                    "before any completeness claim.\n" +
                     "\n" +
                     "2. **Correctness.** Is the implementation logically correct? Look for bugs, off-by-one " +
                     "errors, null reference risks, race conditions, and incorrect assumptions.\n" +

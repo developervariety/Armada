@@ -400,15 +400,37 @@ namespace Armada.Core.Services
         /// affected case (hypothetical patterns that cannot manifest are follow-ups, not blockers -- this
         /// is what prevents an adversarial Judge treadmill of ever-more-exotic non-occurring defects).
         /// </summary>
+        /// <summary>
+        /// The bounded-judge rule, stated once and composed into every Judge directive: a block
+        /// needs a real, corpus-present affected case.
+        /// </summary>
+        internal const string JudgeBoundedRule =
+            " BOUNDED-JUDGE RULE: to BLOCK (FAIL or NEEDS_REVISION) you must exhibit a REAL," +
+            " corpus-present affected case -- concrete inputs or state where the defect actually" +
+            " manifests. A hypothetical pattern that cannot occur in the actual code/corpus is a" +
+            " tracked follow-up note in your review, NOT a blocker.";
+
+        /// <summary>
+        /// The delivery-evidence rule, stated once and composed into every Judge directive. A Judge
+        /// once read symbols at the tip, found them real and corroborated, and passed an acceptance
+        /// item the branch had never touched: the symbols were already on the base. Delivery is a
+        /// property of the diff, so the Judge must cite the hunk that delivers each item.
+        /// </summary>
+        internal const string JudgeDeliveryEvidenceRule =
+            " DELIVERY-EVIDENCE RULE: an acceptance item is delivered only if the branch's DIFF against" +
+            " its base contains the change. Presence of a symbol, file, or value at the tip proves" +
+            " nothing about this branch -- it may have been there before the branch was cut. For each" +
+            " acceptance item, cite the diff hunk (file and line range from `git diff <base>..<tip>`)" +
+            " that delivers it, or write NOT DELIVERED. Never cite `git grep` at the tip or a file read" +
+            " at the tip as delivery evidence. When a Failed Check exists at the reviewed tip, name the" +
+            " failing test and the acceptance item it belongs to before any Completeness claim.";
+
         internal const string JudgeLensAndBoundedRule =
             " Review through THREE distinct lenses, not one identical pass: (1) CORRECTNESS -- does it do" +
             " what was asked, with hidden bugs surfaced; (2) SAFETY & BLAST-RADIUS -- what breaks if this" +
             " is wrong (weigh terminal/command/write frames, seed-key, and cross-tenant/secret exposure" +
             " highest); (3) SOURCE-FIDELITY -- ported values, frames, and test vectors must be corroborated" +
-            " to real source, never synthetic. BOUNDED-JUDGE RULE: to BLOCK (FAIL or NEEDS_REVISION) you" +
-            " must exhibit a REAL, corpus-present affected case -- concrete inputs or state where the defect" +
-            " actually manifests. A hypothetical pattern that cannot occur in the actual code/corpus is a" +
-            " tracked follow-up note in your review, NOT a blocker.";
+            " to real source, never synthetic." + JudgeBoundedRule + JudgeDeliveryEvidenceRule;
 
         /// <summary>
         /// Build the Judge guidance for a mission. When the voyage runs parallel Judges, each Judge
@@ -426,10 +448,7 @@ namespace Armada.Core.Services
 
             return " Your PRIMARY lens for this review is " + primaryLens.Trim() +
                 " -- lead with it and weigh your verdict toward it. Run the other two lenses as secondary" +
-                " passes so nothing falls between the pool. BOUNDED-JUDGE RULE: to BLOCK (FAIL or" +
-                " NEEDS_REVISION) you must exhibit a REAL, corpus-present affected case -- concrete inputs" +
-                " or state where the defect actually manifests. A hypothetical pattern that cannot occur" +
-                " in the actual code/corpus is a tracked follow-up note in your review, NOT a blocker.";
+                " passes so nothing falls between the pool." + JudgeBoundedRule + JudgeDeliveryEvidenceRule;
         }
 
         internal static string GetPersonaOutputContract(string? persona)

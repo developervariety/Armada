@@ -258,6 +258,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("## Completeness", judge!.Content, "Judge template should require a Completeness section");
                     AssertContains("## Failure Modes", judge.Content, "Judge template should require a Failure Modes section");
                     AssertContains("PASS is not allowed", judge.Content, "Judge template should constrain PASS when review is incomplete");
+                    AssertContains("Delivery is proven by the DIFF, not by the tree", judge.Content, "Judge template must say delivery is proven by the diff, not by presence at the tip");
+                    AssertContains("cite the diff hunk", judge.Content, "Judge template must demand a diff hunk per requirement");
 
                     PromptTemplate? testEngineer = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
                     AssertNotNull(testEngineer, "Test engineer template should resolve");
