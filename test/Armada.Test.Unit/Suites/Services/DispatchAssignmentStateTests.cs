@@ -452,6 +452,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Assignment passes run concurrently and select from the same Idle list. Two missions
+            // in one pass must not both provision a dock for the one idle captain: the second must
+            // wait for an idle captain without spending the provisioning cost. Measured live: 12
+            // aborted claims in one day, each after a full dock and sibling provisioning.
+            await RunTest("TryAssign_TwoMissionsOneIdleCaptainConcurrently_OnlyOneProvisions", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    Vessel vessel = new Vessel("race-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("only-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Mission first = new Mission("First mission", "Runs.");
+                    first.VesselId = vessel.Id;
+                    first.Persona = "Worker";
+                    first.Status = MissionStatusEnum.Pending;
+                    first = await testDb.Driver.Missions.CreateAsync(first).ConfigureAwait(false);
+                    Mission second = new Mission("Second mission", "Waits.");
+                    second.VesselId = vessel.Id;
+                    second.Persona = "Worker";
+                    second.Status = MissionStatusEnum.Pending;
+                    second = await testDb.Driver.Missions.CreateAsync(second).ConfigureAwait(false);
+
+                    // Hold the first pass open inside provisioning so the second pass selects while
+                    // the captain is still Idle in the database: the shape of two missions in one sweep.
+                    TaskCompletionSource gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    git.BeforeWorktreeCreate = () => gate.Task;
+                    Task<bool> firstAssign = missionService.TryAssignAsync(first, vessel);
+                    for (int i = 0; i < 100 && git.WorktreeCalls.Count == 0; i++)
+                        await Task.Delay(20).ConfigureAwait(false);
+                    AssertEqual(1, git.WorktreeCalls.Count, "The first pass must be held inside provisioning before the second starts.");
+                    Task<bool> secondAssign = missionService.TryAssignAsync(second, vessel);
+                    for (int i = 0; i < 25; i++)
+                        await Task.Delay(20).ConfigureAwait(false);
+                    gate.SetResult();
+                    bool[] results = await Task.WhenAll(firstAssign, secondAssign).ConfigureAwait(false);
+
+                    int assignedCount = results.Count(r => r);
+                    AssertEqual(1, assignedCount, "Exactly one of two missions can take the one idle captain.");
+                    AssertEqual(1, git.WorktreeCalls.Count, "Only the mission that takes the captain may provision a dock; the other must wait without provisioning, worktrees created: " + git.WorktreeCalls.Count);
+
+                    Mission? firstBack = await testDb.Driver.Missions.ReadAsync(first.Id).ConfigureAwait(false);
+                    Mission? secondBack = await testDb.Driver.Missions.ReadAsync(second.Id).ConfigureAwait(false);
+                    Mission waiting = results[0] ? secondBack! : firstBack!;
+                    AssertEqual(MissionStatusEnum.Pending, waiting.Status, "The mission that lost the captain stays Pending.");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForIdleCaptain, waiting.AssignmentState, "The mission that lost the captain waits for an idle captain, not for a failed claim.");
+                    AssertTrue(String.IsNullOrEmpty(waiting.BranchName), "No branch name is written for a mission that never provisioned.");
+                }
+            });
+
             await RunTest("TryAssign_MissionWithUnknownDependency_ShowsWaitingForDependency", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

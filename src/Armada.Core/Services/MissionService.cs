@@ -89,6 +89,13 @@ namespace Armada.Core.Services
         /// Prevents duplicate provisioning/launch when multiple dispatch paths
         /// race on the same mission.
         /// </summary>
+        // Captains selected for a mission but not yet claimed in the database. Assignment passes
+        // run concurrently and each selects from the same Idle list, so without this two missions
+        // in one pass pick the same captain, both provision full docks, and the second learns at
+        // the final claim that the captain is gone -- after the whole provisioning cost is spent.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _CaptainReservations =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
         private System.Collections.Concurrent.ConcurrentDictionary<string, byte> _InFlightAssignments =
             new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
@@ -252,6 +259,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            Captain? reservedCaptain = null;
             try
             {
                 Mission? latestMission = null;
@@ -531,6 +539,20 @@ namespace Armada.Core.Services
             // Find an idle captain, preferring those matching the mission's persona,
             // honouring optional PreferredModel pin on the mission.
             Captain? captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
+            // Reserve the selection in-process before any provisioning cost is spent. A concurrent
+            // pass that selected the same captain a moment earlier holds the reservation; re-pick
+            // from the captains it left, a bounded number of times, before reporting none idle.
+            int reservationAttempts = 0;
+            while (captain != null && !_CaptainReservations.TryAdd(captain.Id, mission.Id))
+            {
+                reservationAttempts++;
+                _Logging.Info(_Header + "captain " + captain.Id + " was selected for mission " + mission.Id
+                    + " but is reserved by mission " + (_CaptainReservations.TryGetValue(captain.Id, out string? holder) ? holder : "(unknown)")
+                    + " in a concurrent assignment pass; re-selecting (attempt " + reservationAttempts + ")");
+                if (reservationAttempts >= 3) { captain = null; break; }
+                captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
+            }
+            reservedCaptain = captain;
             if (captain == null)
             {
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
@@ -816,6 +838,8 @@ namespace Armada.Core.Services
             }
             finally
             {
+                if (reservedCaptain != null)
+                    _CaptainReservations.TryRemove(new KeyValuePair<string, string>(reservedCaptain.Id, mission.Id));
                 _InFlightAssignments.TryRemove(mission.Id, out _);
             }
         }
@@ -7323,10 +7347,13 @@ namespace Armada.Core.Services
             List<Captain> assignableCaptains = new List<Captain>();
             foreach (Captain idleCaptain in idleCaptains)
             {
-                if (!_CaptainQuarantine.IsQuarantined(idleCaptain))
-                {
-                    assignableCaptains.Add(idleCaptain);
-                }
+                if (_CaptainQuarantine.IsQuarantined(idleCaptain)) continue;
+                // Reserved by another mission's in-flight assignment: still Idle in the database,
+                // but spoken for until that pass claims or releases it.
+                if (_CaptainReservations.TryGetValue(idleCaptain.Id, out string? reservedBy)
+                    && !String.Equals(reservedBy, mission?.Id, StringComparison.Ordinal))
+                    continue;
+                assignableCaptains.Add(idleCaptain);
             }
 
             idleCaptains = assignableCaptains;

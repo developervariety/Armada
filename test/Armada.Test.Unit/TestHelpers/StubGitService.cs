@@ -10,6 +10,12 @@ namespace Armada.Test.Unit.TestHelpers
         // Call tracking
         public List<string> CloneCalls { get; } = new List<string>();
         public List<string> WorktreeCalls { get; } = new List<string>();
+
+        /// <summary>
+        /// Awaited inside CreateWorktreeAsync after the call is recorded, so a test can hold a
+        /// provisioning pass open while another pass runs.
+        /// </summary>
+        public Func<Task>? BeforeWorktreeCreate { get; set; }
         public List<string> DeleteBranchCalls { get; } = new List<string>();
         public List<string> RemoveWorktreeCalls { get; } = new List<string>();
         public List<string> MergeBranchCalls { get; } = new List<string>();
@@ -52,13 +58,13 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
-        public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+        public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
         {
             if (ShouldThrowOnWorktree) throw new InvalidOperationException("Simulated worktree failure");
             ExistingBranches.Add(branchName);
             WorktreeCalls.Add(worktreePath);
+            if (BeforeWorktreeCreate != null) await BeforeWorktreeCreate().ConfigureAwait(false);
             OperationCalls.Add("create-worktree:" + worktreePath);
-            return Task.CompletedTask;
         }
 
         public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default)
