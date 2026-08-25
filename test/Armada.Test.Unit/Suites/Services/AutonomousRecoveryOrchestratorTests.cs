@@ -1596,6 +1596,8 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildRescueDescription_UnderCapJudgeReport_IsEmbeddedWhole).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief keeps the head-first cut for text without Judge sections",
                 TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut).ConfigureAwait(false);
+            await RunTest("TruncateReviewerFeedbackForBrief drops an over-budget narration preamble so the findings survive",
+                TruncateReviewerFeedbackForBrief_NarrationPreambleOverBudget_KeepsTheFindingsNotTheChatter).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(
@@ -1949,6 +1951,26 @@ namespace Armada.Test.Unit.Suites.Services
             AssertTrue(brief.Contains(report), "An under-cap report is embedded verbatim.");
             AssertFalse(brief.Contains("reviewer feedback truncated"), "No truncation marker for an under-cap report.");
             await Task.CompletedTask;
+        }
+
+        // A Judge transcript that opens with more narration than the whole budget: the
+        // narration is dropped first, so the findings sections survive instead of the
+        // chatter. Measured live: 1,724 of 8,015 chars kept, every one of them preamble.
+        public async Task TruncateReviewerFeedbackForBrief_NarrationPreambleOverBudget_KeepsTheFindingsNotTheChatter()
+        {
+            System.Text.StringBuilder preamble = new System.Text.StringBuilder();
+            for (int i = 0; i < 60; i++)
+                preamble.Append("I'll start by reading the mission instructions. Let me re-anchor and check the validation path (" + i + ").\n");
+            string report = preamble.ToString() + BuildJudgeReport(600, 400);
+            string brief = AutonomousRecoveryOrchestrator.TruncateReviewerFeedbackForBrief(report, 2000);
+
+            AssertTrue(brief.Length <= 2400, "the brief must stay near the cap, was " + brief.Length);
+            AssertTrue(!brief.Contains("I'll start by reading the mission instructions"), "narration before the first section must be dropped");
+            AssertTrue(brief.Contains("reviewer narration before the first section omitted"), "the drop must be named in-band");
+            AssertTrue(brief.Contains("## Completeness"), "the first findings section must survive");
+            AssertTrue(brief.Contains("## Verdict"), "the Verdict section must survive whole");
+            AssertTrue(brief.Contains("[ARMADA:VERDICT] NEEDS_REVISION"), "the verdict line must survive");
+            await Task.CompletedTask.ConfigureAwait(false);
         }
 
         public async Task TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut()

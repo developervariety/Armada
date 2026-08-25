@@ -1791,6 +1791,20 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(source) || source.Length <= maxChars)
                 return source ?? String.Empty;
 
+            // A Judge transcript often opens with tool narration ("Let me read the
+            // brief...") before its first section header. That preamble carries no
+            // finding, and under a head-first budget it is exactly what survives while
+            // the findings fall off the end. Drop it before any budget is applied.
+            int firstSection = IndexOfFirstSectionHeader(source);
+            if (firstSection > 0)
+            {
+                source = "--- (" + firstSection + " chars of reviewer narration before the first section omitted; remainder in admiral log) ---"
+                    + Environment.NewLine
+                    + source.Substring(firstSection);
+                if (source.Length <= maxChars)
+                    return source;
+            }
+
             int tailStart = IndexOfAny(source, _ReviewerFeedbackTailHeaders);
             if (tailStart <= 0)
                 return TruncateForBrief(source, maxChars);
@@ -1849,6 +1863,18 @@ namespace Armada.Server
             sb.Append(Environment.NewLine);
             sb.Append(tail);
             return sb.ToString();
+        }
+
+        // The offset of the first "## " section header that starts a line, or -1 when
+        // the text has none (a gate log, a free-form review).
+        private static int IndexOfFirstSectionHeader(string source)
+        {
+            if (source.StartsWith("## ", StringComparison.Ordinal)) return 0;
+            int index = source.IndexOf(Environment.NewLine + "## ", StringComparison.Ordinal);
+            if (index < 0) index = source.IndexOf("\n## ", StringComparison.Ordinal);
+            if (index < 0) return -1;
+            return index + (source.Substring(index).StartsWith(Environment.NewLine, StringComparison.Ordinal)
+                ? Environment.NewLine.Length : 1);
         }
 
         // Room reserved for the omitted-sections marker inside the reviewer-feedback cap,
