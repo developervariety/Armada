@@ -22,6 +22,7 @@
   - [User Management](#user-management)
   - [Credential Management](#credential-management)
   - [Status](#status)
+  - [Lead Control](#lead-control)
   - [Fleets](#fleets)
   - [Vessels](#vessels)
   - [Voyages](#voyages)
@@ -4207,3 +4208,19 @@ Access-Control-Allow-Origin: *
 Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
 Access-Control-Allow-Headers: Content-Type, Authorization, X-Token, X-Api-Key
 ```
+## Lead Control
+
+The admin-only lead-control routes select which unattended lead can acquire the
+next shared cycle lease:
+
+```text
+GET /api/v1/server/lead-control
+PUT /api/v1/server/lead-control/mode
+```
+
+The PUT body needs one mode: `LegacyPrimary`, `GrokPrimary`, or `Maintenance`.
+An omitted mode is a bad request. A mode change does not terminate a cycle that
+already owns the lease.
+
+See [Grok Bot Lead Integration](autonomy/grok-bot-lead.md) for the complete
+operating contract.

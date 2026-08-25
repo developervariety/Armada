@@ -358,6 +358,113 @@ namespace Armada.Test.Unit.Suites.Services
                     ResultText(call).Contains("[ARMADA WAKE]", StringComparison.Ordinal),
                     "a malformed participant key must not deliver a wake");
             }).ConfigureAwait(false);
+
+            await RunTest("BearerAuthenticationFailsClosed", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.BearerToken = "test-token";
+                RegisterStatusTool(server);
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+                using HttpRequestMessage missingRequest = CreateRequest(
+                    "/mcp", 1, "tools/list", new { });
+                using HttpResponseMessage missingResponse = await client.SendAsync(missingRequest).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, missingResponse.StatusCode);
+
+                using HttpRequestMessage validRequest = CreateRequest(
+                    "/mcp", 2, "tools/list", new { });
+                validRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                    "Bearer", "test-token");
+                using HttpResponseMessage validResponse = await client.SendAsync(validRequest).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, validResponse.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("FixedParticipantRejectsSpoofingAndFeedsAudit", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.BearerToken = "test-token";
+                server.FixedParticipantKey = "armada-lead";
+                McpToolCallAudit? observedAudit = null;
+                string? observedParticipant = null;
+                server.ToolCallAuditSink = (audit, token) =>
+                {
+                    observedAudit = audit;
+                    return Task.CompletedTask;
+                };
+                server.RegisterTool(
+                    "armada_identity",
+                    "Return the assigned participant",
+                    new { type = "object" },
+                    args =>
+                    {
+                        observedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
+                        return Task.FromResult((object)new { Participant = observedParticipant });
+                    });
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+                using HttpRequestMessage spoofed = CreateRequest(
+                    "/mcp", 1, "tools/call", new { name = "armada_identity", arguments = new { } });
+                spoofed.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                    "Bearer", "test-token");
+                spoofed.Headers.TryAddWithoutValidation(ArmadaMcpHttpServer.ParticipantHeaderName, "attacker");
+                using HttpResponseMessage spoofedResponse = await client.SendAsync(spoofed).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, spoofedResponse.StatusCode);
+
+                using HttpRequestMessage valid = CreateRequest(
+                    "/mcp", 2, "tools/call", new { name = "armada_identity", arguments = new { } });
+                valid.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                    "Bearer", "test-token");
+                using HttpResponseMessage validResponse = await client.SendAsync(valid).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, validResponse.StatusCode);
+                AssertEqual("armada-lead", observedParticipant);
+                AssertNotNull(observedAudit, "The successful tool call must reach the audit sink.");
+                AssertEqual("armada-lead", observedAudit!.ParticipantKey);
+                AssertEqual("armada_identity", observedAudit.ToolName);
+                AssertTrue(observedAudit.Succeeded);
+            }).ConfigureAwait(false);
+
+            await RunTest("RequiredAuditFailureBlocksToolHandler", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                bool handlerRan = false;
+                server.RequireToolCallAudit = true;
+                server.ToolCallAuditSink = (audit, token) =>
+                    Task.FromException(new InvalidOperationException("audit unavailable"));
+                server.RegisterTool(
+                    "armada_guarded",
+                    "Must not run without its durable audit",
+                    new { type = "object" },
+                    args =>
+                    {
+                        handlerRan = true;
+                        return Task.FromResult((object)new { Status = "unexpected" });
+                    });
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+                JsonElement response = await PostLegacyAsync(
+                    client,
+                    "/rpc",
+                    30,
+                    "tools/call",
+                    new { name = "armada_guarded", arguments = new { } }).ConfigureAwait(false);
+                AssertTrue(response.TryGetProperty("error", out _), "audit failure should be a JSON-RPC error");
+                AssertFalse(handlerRan, "the tool handler must not run before its required audit exists");
+            }).ConfigureAwait(false);
         }
 
         private static void RegisterStatusTool(ArmadaMcpHttpServer server)

@@ -1,6 +1,7 @@
 namespace Armada.Server.Mcp
 {
     using System.Globalization;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -45,6 +46,11 @@ namespace Armada.Server.Mcp
         /// </summary>
         public const string ParticipantHeaderName = "X-Armada-Participant";
 
+        /// <summary>
+        /// Gets the participant identity assigned to the current MCP request.
+        /// </summary>
+        public static string? CurrentParticipantKey => _RequestParticipantKey.Value;
+
         // Set by the middleware below and read inside the tool handler. An AsyncLocal
         // flows down the request's async chain, which is what a stateless transport
         // leaves us: the header is the only place the caller's identity exists.
@@ -86,6 +92,30 @@ namespace Armada.Server.Mcp
         /// </para>
         /// </summary>
         public Func<string, CancellationToken, Task<IReadOnlyList<string>>>? PendingWakeProvider { get; set; }
+
+        /// <summary>
+        /// Optional bearer token required for every request. Leave null only for a private listener.
+        /// </summary>
+        public string? BearerToken { get; set; } = null;
+
+        /// <summary>
+        /// Optional server-assigned participant identity. When set, the server rejects a different
+        /// request header and does not trust the caller to select its Armada identity.
+        /// </summary>
+        public string? FixedParticipantKey { get; set; } = null;
+
+        /// <summary>
+        /// Optional audit sink. It receives each tool outcome and, when required,
+        /// a Started record before the handler runs.
+        /// </summary>
+        public Func<McpToolCallAudit, CancellationToken, Task>? ToolCallAuditSink { get; set; } = null;
+
+        /// <summary>
+        /// When true, a durable Started audit must succeed before a tool handler can run.
+        /// Outcome audit failures also fail the response. The Started record then shows
+        /// that the outcome is incomplete.
+        /// </summary>
+        public bool RequireToolCallAudit { get; set; } = false;
 
         /// <summary>
         /// Tools that must not receive the appended wake banner, because they already
@@ -184,8 +214,32 @@ namespace Armada.Server.Mcp
             // tool handler can read it without depending on SDK transport internals.
             application.Use(async (context, next) =>
             {
-                _RequestParticipantKey.Value = ReadParticipantHeader(context);
-                await next(context).ConfigureAwait(false);
+                if (!IsAuthorized(context))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await context.Response.WriteAsync("Unauthorized").ConfigureAwait(false);
+                    return;
+                }
+
+                string? suppliedParticipant = ReadParticipantHeader(context);
+                if (!String.IsNullOrEmpty(FixedParticipantKey)
+                    && !String.IsNullOrEmpty(suppliedParticipant)
+                    && !String.Equals(FixedParticipantKey, suppliedParticipant, StringComparison.Ordinal))
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    await context.Response.WriteAsync("The participant identity is assigned by the server.").ConfigureAwait(false);
+                    return;
+                }
+
+                _RequestParticipantKey.Value = FixedParticipantKey ?? suppliedParticipant;
+                try
+                {
+                    await next(context).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _RequestParticipantKey.Value = null;
+                }
             });
 
             application.MapMcp("/mcp");
@@ -269,11 +323,38 @@ namespace Armada.Server.Mcp
                 ? null
                 : JsonSerializer.SerializeToElement(request.Params.Arguments, _JsonOptions);
 
+            if (RequireToolCallAudit)
+            {
+                try
+                {
+                    await WriteToolAuditAsync(
+                        request.Params.Name,
+                        arguments,
+                        "Started",
+                        false,
+                        null,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    throw new McpProtocolException(
+                        "The required tool-call audit is unavailable: " + ex.Message,
+                        McpErrorCode.InternalError);
+                }
+            }
+
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 object result = await registration.Handler(arguments).ConfigureAwait(false);
                 CallToolResult toolResult = ConvertToolResult(result);
+                await WriteToolAuditAsync(
+                    request.Params.Name,
+                    arguments,
+                    "Succeeded",
+                    true,
+                    null,
+                    cancellationToken).ConfigureAwait(false);
                 return await AppendPendingWakesAsync(
                     request.Params.Name,
                     toolResult,
@@ -285,7 +366,62 @@ namespace Armada.Server.Mcp
             }
             catch (Exception ex)
             {
+                await WriteToolAuditAsync(
+                    request.Params.Name,
+                    arguments,
+                    "Failed",
+                    false,
+                    ex.Message,
+                    cancellationToken).ConfigureAwait(false);
                 throw new McpProtocolException(ex.Message, McpErrorCode.InternalError);
+            }
+        }
+
+        private bool IsAuthorized(HttpContext context)
+        {
+            if (String.IsNullOrEmpty(BearerToken)) return true;
+            string authorization = context.Request.Headers.Authorization.ToString();
+            const string prefix = "Bearer ";
+            if (!authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+            string supplied = authorization.Substring(prefix.Length).Trim();
+            byte[] expectedBytes = Encoding.UTF8.GetBytes(BearerToken!);
+            byte[] suppliedBytes = Encoding.UTF8.GetBytes(supplied);
+            return expectedBytes.Length == suppliedBytes.Length
+                && CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes);
+        }
+
+        private async Task WriteToolAuditAsync(
+            string toolName,
+            JsonElement? arguments,
+            string phase,
+            bool succeeded,
+            string? error,
+            CancellationToken cancellationToken)
+        {
+            Func<McpToolCallAudit, CancellationToken, Task>? sink = ToolCallAuditSink;
+            if (sink == null) return;
+            try
+            {
+                string? argumentsJson = arguments?.GetRawText();
+                if (argumentsJson != null && argumentsJson.Length > 8192)
+                    argumentsJson = argumentsJson.Substring(0, 8192);
+                McpToolCallAudit audit = new McpToolCallAudit
+                {
+                    ToolName = toolName,
+                    ParticipantKey = _RequestParticipantKey.Value,
+                    ArgumentsJson = argumentsJson,
+                    Phase = phase,
+                    Succeeded = succeeded,
+                    Error = error,
+                    CompletedUtc = DateTime.UtcNow
+                };
+                await sink(audit, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (RequireToolCallAudit) throw;
+                // Auditing is best effort at the transport layer. The restricted gateway sink
+                // writes to Armada's durable event store and reports its own failures.
             }
         }
 

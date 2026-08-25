@@ -266,6 +266,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());
             runner.AddSuite(new SiblingLeaseRegistryTests());
+            runner.AddSuite(new LeadCycleCoordinatorTests());
+            runner.AddSuite(new McpLeadCycleToolsTests());
             runner.AddSuite(new ConsumerVesselResolverTests());
             runner.AddSuite(new VoyageCheckArmingPlanTests());
             runner.AddSuite(new CheckRunSummaryViewTests());
@@ -280,6 +282,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());
             runner.AddSuite(new McpStdioServerTests());
             runner.AddSuite(new ArmadaMcpHttpServerTests());
+            runner.AddSuite(new GrokMcpToolPolicyTests());
+            runner.AddSuite(new GrokLeadSettingsTests());
             runner.AddSuite(new VoyageDispatchServiceTests());
             runner.AddSuite(new ContextPackStagingHardFailTests());
             runner.AddSuite(new McpVoyageToolsTests());

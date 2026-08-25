@@ -211,6 +211,21 @@ on a trusted interface. Captain prompts must keep dispatch, administration,
 deployment, restore, purge, and server-control actions outside mission scope.
 The operator normally owns those actions.
 
+### Restricted Grok lead listener
+
+Armada can start a second MCP listener for a Grok Bot lead. It is disabled by
+default. It has a fixed participant identity, bearer authentication, and an
+explicit least-privilege tool catalog. It is not an authenticated view of the
+full catalog.
+
+Keep its default `127.0.0.1` bind and put a TLS reverse proxy or secure tunnel
+in front of it. Do not expose the normal MCP listener. The bearer secret comes
+from the environment variable named by
+`GrokLead.BearerTokenEnvironmentVariable`; it does not belong in settings.
+
+See [Grok Bot Lead Integration](autonomy/grok-bot-lead.md) for the catalog,
+cycle protocol, fallback behavior, and proof-of-concept gates.
+
 ## Catalog Availability
 
 Some families register only when their backing service is available. Examples

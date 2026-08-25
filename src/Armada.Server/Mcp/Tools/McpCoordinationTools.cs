@@ -62,7 +62,10 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "authorName is required and must not be empty" };
 
                     string roomKey = String.IsNullOrWhiteSpace(request.RoomKey) ? CoordinationService.DefaultRoomKey : request.RoomKey!;
-                    string authorId = String.IsNullOrWhiteSpace(request.AuthorId) ? request.AuthorName! : request.AuthorId!;
+                    string? authenticatedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
+                    string authorId = !String.IsNullOrWhiteSpace(authenticatedParticipant)
+                        ? authenticatedParticipant!
+                        : (String.IsNullOrWhiteSpace(request.AuthorId) ? request.AuthorName! : request.AuthorId!);
 
                     try
                     {
@@ -111,18 +114,19 @@ namespace Armada.Server.Mcp.Tools
                     string roomKey = String.IsNullOrWhiteSpace(request.RoomKey) ? CoordinationService.DefaultRoomKey : request.RoomKey!;
                     int limit = request.Limit.HasValue && request.Limit.Value > 0 ? request.Limit.Value : 50;
                     int activeWithinMinutes = request.ActiveWithinMinutes.HasValue && request.ActiveWithinMinutes.Value > 0 ? request.ActiveWithinMinutes.Value : 15;
+                    string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
 
                     try
                     {
                         List<CoordinationMessage> messages = await coordination.ReadMessagesAsync(
                             roomKey, request.AfterUtc, limit,
                             token: System.Threading.CancellationToken.None,
-                            visibleToParticipantKey: String.IsNullOrWhiteSpace(request.ParticipantKey) ? null : request.ParticipantKey).ConfigureAwait(false);
+                            visibleToParticipantKey: String.IsNullOrWhiteSpace(participantKey) ? null : participantKey).ConfigureAwait(false);
 
                         List<Signal> unreadWakes = new List<Signal>();
-                        if (!String.IsNullOrWhiteSpace(request.ParticipantKey))
+                        if (!String.IsNullOrWhiteSpace(participantKey))
                         {
-                            try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(request.ParticipantKey!).ConfigureAwait(false); }
+                            try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(participantKey!).ConfigureAwait(false); }
                             catch (NotSupportedException) { }
                         }
                         List<CoordinationParticipant> participants = await coordination.EnumerateParticipantsAsync(roomKey, activeWithinMinutes).ConfigureAwait(false);
@@ -137,7 +141,7 @@ namespace Armada.Server.Mcp.Tools
                         }
 
                         List<CoordinationMessageView> views = BuildMessageViews(
-                            messages, request.ParticipantKey, request.IncludeFullContent == true);
+                            messages, participantKey, request.IncludeFullContent == true);
                         int truncatedCount = views.Count(view => view.Truncated);
 
                         return (object)new
@@ -173,7 +177,8 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     CoordinationHeartbeatArgs request = JsonSerializer.Deserialize<CoordinationHeartbeatArgs>(args!.Value, _JsonOptions)!;
-                    if (String.IsNullOrWhiteSpace(request.ParticipantKey))
+                    string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
+                    if (String.IsNullOrWhiteSpace(participantKey))
                         return (object)new { Error = "participantKey is required" };
                     if (String.IsNullOrWhiteSpace(request.DisplayName))
                         return (object)new { Error = "displayName is required" };
@@ -184,12 +189,12 @@ namespace Armada.Server.Mcp.Tools
                     {
                         CoordinationParticipant participant = await coordination.HeartbeatAsync(
                             roomKey,
-                            request.ParticipantKey!,
+                            participantKey!,
                             request.DisplayName!,
                             ArmadaConstants.DefaultTenantId).ConfigureAwait(false);
 
                         List<Signal> unreadWakes = new List<Signal>();
-                        try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(request.ParticipantKey!).ConfigureAwait(false); }
+                        try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(participantKey!).ConfigureAwait(false); }
                         catch (NotSupportedException) { }
 
                         return (object)new { Participant = participant, UnreadWakes = unreadWakes };
@@ -224,6 +229,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     ClaimArgs request = JsonSerializer.Deserialize<ClaimArgs>(args!.Value, _JsonOptions)!;
                     string action = String.IsNullOrWhiteSpace(request.Action) ? "list" : request.Action!.Trim().ToLowerInvariant();
+                    string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
 
                     try
                     {
@@ -231,7 +237,7 @@ namespace Armada.Server.Mcp.Tools
                         {
                             if (String.IsNullOrWhiteSpace(request.SubjectId) || String.IsNullOrWhiteSpace(request.SubjectType))
                                 return (object)new { Error = "subjectType and subjectId are required for action=claim" };
-                            if (String.IsNullOrWhiteSpace(request.ParticipantKey) || String.IsNullOrWhiteSpace(request.DisplayName))
+                            if (String.IsNullOrWhiteSpace(participantKey) || String.IsNullOrWhiteSpace(request.DisplayName))
                                 return (object)new { Error = "participantKey and displayName are required for action=claim - name your session" };
 
                             CoordinationClaimSubjectEnum subjectType;
@@ -239,7 +245,7 @@ namespace Armada.Server.Mcp.Tools
                                 return (object)new { Error = "subjectType must be vessel or objective" };
 
                             CoordinationClaim claim = await coordination.ClaimAsync(
-                                request.ParticipantKey!, request.DisplayName!, subjectType, request.SubjectId!,
+                                participantKey!, request.DisplayName!, subjectType, request.SubjectId!,
                                 request.Note, request.TtlHours ?? 4, request.RoomKey).ConfigureAwait(false);
                             return (object)claim;
                         }
@@ -248,6 +254,13 @@ namespace Armada.Server.Mcp.Tools
                         {
                             if (String.IsNullOrWhiteSpace(request.ClaimId))
                                 return (object)new { Error = "claimId is required for action=release" };
+                            CoordinationClaim? existing = await database.CoordinationClaims.ReadAsync(request.ClaimId!).ConfigureAwait(false);
+                            if (existing != null
+                                && !String.IsNullOrWhiteSpace(ArmadaMcpHttpServer.CurrentParticipantKey)
+                                && !String.Equals(existing.ParticipantKey, participantKey, StringComparison.Ordinal))
+                            {
+                                return (object)new { Error = "An authenticated participant can release only its own claim." };
+                            }
                             CoordinationClaim? released = await coordination.ReleaseClaimAsync(request.ClaimId!).ConfigureAwait(false);
                             if (released == null) return (object)new { Status = "not_found", ClaimId = request.ClaimId! };
                             return (object)released;

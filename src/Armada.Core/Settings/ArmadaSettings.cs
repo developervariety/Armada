@@ -107,6 +107,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Restricted Grok Bot lead settings. Disabled by default.
+        /// </summary>
+        public GrokLeadSettings GrokLead
+        {
+            get => _GrokLead;
+            set => _GrokLead = value ?? new GrokLeadSettings();
+        }
+
+        /// <summary>
         /// Whether the WebSocket endpoint (/ws) is enabled on the Admiral port.
         /// When true, clients can connect to ws://host:port/ws for real-time events.
         /// </summary>
@@ -1153,6 +1162,7 @@ namespace Armada.Core.Settings
 
         private int _AdmiralPort = Constants.DefaultAdmiralPort;
         private int _McpPort = Constants.DefaultMcpPort;
+        private GrokLeadSettings _GrokLead = new GrokLeadSettings();
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _LaunchProcessIdGraceSeconds = 30;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;

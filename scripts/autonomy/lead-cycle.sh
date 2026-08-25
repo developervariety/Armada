@@ -32,6 +32,10 @@
 #   AUTONOMY_LEAD_REPO        Armada checkout holding the bootstrap prompt
 #                             (default: derived from this script's location)
 #   AUTONOMY_ARMADA_MCP_URL   Armada MCP URL (default http://127.0.0.1:7891/mcp)
+#   AUTONOMY_LEAD_SERVER_LEASE
+#                             use Armada's durable cross-runner lease (default 1)
+#   AUTONOMY_LEAD_STANDBY_FALLBACK
+#                             request legacy fallback while Grok is primary (default 0)
 #   AUTONOMY_SKIP_PREFLIGHT   set to 1 to run even when the Admiral looks down
 #
 # Usage:
@@ -55,6 +59,9 @@ WORKDIR="${AUTONOMY_LEAD_WORKDIR:-$HOME/.armada/autonomy-lead}"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 REPO="${AUTONOMY_LEAD_REPO:-$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd -P)}"
 MCP_URL="${AUTONOMY_ARMADA_MCP_URL:-http://127.0.0.1:7891/mcp}"
+SERVER_LEASE_ENABLED="${AUTONOMY_LEAD_SERVER_LEASE:-1}"
+STANDBY_FALLBACK="${AUTONOMY_LEAD_STANDBY_FALLBACK:-0}"
+SERVER_CYCLE_ID=""
 
 LOG_DIR="$WORKDIR/logs"
 RUN_DIR="$WORKDIR/run"
@@ -96,6 +103,12 @@ validate() {
         http://*|https://*) ;;
         *) fail "AUTONOMY_ARMADA_MCP_URL must use http or https" ;;
     esac
+    case "$SERVER_LEASE_ENABLED" in 0|1) ;; *) fail "AUTONOMY_LEAD_SERVER_LEASE must be 0 or 1" ;; esac
+    case "$STANDBY_FALLBACK" in 0|1) ;; *) fail "AUTONOMY_LEAD_STANDBY_FALLBACK must be 0 or 1" ;; esac
+    if [ "$SERVER_LEASE_ENABLED" = "1" ]; then
+        command -v curl >/dev/null 2>&1 || fail "curl is required when the Armada server lease is enabled"
+        command -v jq >/dev/null 2>&1 || fail "jq is required when the Armada server lease is enabled"
+    fi
     case "$MCP_URL" in
         *\"*|*\\*|*[[:space:]]*) fail "AUTONOMY_ARMADA_MCP_URL contains unsupported characters" ;;
     esac
@@ -119,6 +132,100 @@ validate() {
             [ "$key_lines" -eq 1 ] || fail "provider key file must contain exactly one line: $API_KEY_FILE"
             ;;
     esac
+}
+
+mcp_call() {
+    local tool="$1"
+    local arguments_json="$2"
+    local request response json_rpc tool_text
+    request=$(jq -cn --arg tool "$tool" --argjson arguments "$arguments_json" \
+        '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$tool,arguments:$arguments}}')
+    response=$(curl -fsS -m 15 \
+        -X POST "$MCP_URL" \
+        -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' \
+        -H "X-Armada-Participant: $LEAD_KEY" \
+        --data-binary "$request") || return 1
+
+    if printf '%s' "$response" | jq -e . >/dev/null 2>&1; then
+        json_rpc="$response"
+    else
+        json_rpc=$(printf '%s\n' "$response" \
+            | awk '/^data:/ { sub(/^data:[[:space:]]*/, ""); value=$0 } END { print value }')
+    fi
+    [ -n "$json_rpc" ] || return 1
+    printf '%s' "$json_rpc" | jq -e '.error == null' >/dev/null 2>&1 || return 1
+    tool_text=$(printf '%s' "$json_rpc" \
+        | jq -r '[.result.content[]? | select(.type == "text") | .text][0] // empty')
+    [ -n "$tool_text" ] || return 1
+    printf '%s\n' "$tool_text"
+}
+
+begin_server_cycle() {
+    [ "$SERVER_LEASE_ENABLED" = "1" ] || return 0
+    local result acquired reason
+    result=$(mcp_call armada_lead_cycle_begin \
+        "$(jq -cn --argjson fallback "$STANDBY_FALLBACK" '{standbyFallback:($fallback == 1)}')") \
+        || fail "could not acquire the Armada lead-cycle lease"
+    acquired=$(printf '%s' "$result" | jq -r '.Acquired // .acquired // false')
+    if [ "$acquired" != "true" ]; then
+        reason=$(printf '%s' "$result" | jq -r '.RefusalReason // .refusalReason // "cycle refused"')
+        echo "skipped: $reason"
+        printf '%s skipped server-lease-refused reason=%s\n' \
+            "$(date -u +%Y%m%dT%H%M%SZ)" "$reason" > "$LAST_FILE"
+        exit 0
+    fi
+    SERVER_CYCLE_ID=$(printf '%s' "$result" | jq -r '.CycleId // .cycleId // empty')
+    [ -n "$SERVER_CYCLE_ID" ] || fail "Armada acquired a lead cycle without returning its ID"
+}
+
+close_server_cycle() {
+    local runtime_status="$1"
+    [ "$SERVER_LEASE_ENABLED" = "1" ] || return "$runtime_status"
+    [ -n "$SERVER_CYCLE_ID" ] || return "$runtime_status"
+
+    local current active current_id reason
+    if ! current=$(mcp_call armada_lead_cycle_status '{}'); then
+        if [ "$runtime_status" -eq 0 ]; then
+            echo "lead cycle could not confirm its server-side completion state" >&2
+            return 3
+        fi
+        return "$runtime_status"
+    fi
+    active=$(printf '%s' "$current" | jq -r '.Active // .active // false')
+    current_id=$(printf '%s' "$current" | jq -r '.CycleId // .cycleId // empty')
+    if [ "$active" != "true" ] || [ "$current_id" != "$SERVER_CYCLE_ID" ]; then
+        SERVER_CYCLE_ID=""
+        return "$runtime_status"
+    fi
+
+    if [ "$runtime_status" -eq 0 ]; then
+        reason="legacy runtime exited without posting its server-side completion handoff"
+        mcp_call armada_lead_cycle_fail \
+            "$(jq -cn --arg cycleId "$SERVER_CYCLE_ID" --arg reason "$reason" '{cycleId:$cycleId,reason:$reason}')" \
+            >/dev/null 2>&1 || true
+        SERVER_CYCLE_ID=""
+        echo "lead cycle violated its completion contract: $reason" >&2
+        return 3
+    fi
+
+    reason="legacy runtime exited with status $runtime_status"
+    mcp_call armada_lead_cycle_fail \
+        "$(jq -cn --arg cycleId "$SERVER_CYCLE_ID" --arg reason "$reason" '{cycleId:$cycleId,reason:$reason}')" \
+        >/dev/null 2>&1 || true
+    SERVER_CYCLE_ID=""
+    return "$runtime_status"
+}
+
+cleanup_cycle() {
+    rm -f "$PID_FILE"
+    if [ "$SERVER_LEASE_ENABLED" = "1" ] && [ -n "$SERVER_CYCLE_ID" ]; then
+        local reason="legacy launcher exited before the lead cycle closed"
+        mcp_call armada_lead_cycle_fail \
+            "$(jq -cn --arg cycleId "$SERVER_CYCLE_ID" --arg reason "$reason" '{cycleId:$cycleId,reason:$reason}')" \
+            >/dev/null 2>&1 || true
+        SERVER_CYCLE_ID=""
+    fi
 }
 
 is_alive() {
@@ -377,6 +484,14 @@ build_prompt() {
 Your participantKey is $LEAD_KEY. Use that exact key for every heartbeat, board
 read, claim, and addressed note. Do not use an interactive operator's key.
 
+This launch already acquired Armada lead cycle ${SERVER_CYCLE_ID:-without-server-lease}.
+When a cycle ID starts with lcy_, call armada_lead_cycle_heartbeat during long
+work. After you post the board handoff, release your claims, and stop helpers,
+make armada_lead_cycle_complete with that cycle ID and the same handoff your
+final Armada action. If you must stop early, call armada_lead_cycle_fail with a
+clear reason. The launcher marks a successful process as failed if it leaves its
+server lease open.
+
 Nobody is watching this cycle. That changes three things:
 - You cannot ask a question and wait. When a decision belongs to the owner,
   post it to the board as a named OWNER DECISION and continue with other work.
@@ -475,6 +590,9 @@ cmd_run() {
         fi
     fi
 
+    begin_server_cycle
+    trap cleanup_cycle EXIT
+
     # GNU coreutils on the admiral host; gtimeout where Homebrew supplies it.
     # A cycle with no cap could run until the provider gives up, so refuse to
     # pretend: run uncapped only after saying so out loud.
@@ -502,7 +620,6 @@ cmd_run() {
     # silently gets no repository instructions.
     cd "$REPO" || fail "cannot enter the Armada checkout at $REPO"
     echo $$ > "$PID_FILE"
-    trap 'rm -f "$PID_FILE"' EXIT
 
     echo "lead cycle $stamp starting key=$LEAD_KEY runtime=$runtime timeout=${TIMEOUT_MIN}m"
 
@@ -546,6 +663,11 @@ cmd_run() {
                 "$(cat "$prompt_file")" > "$raw" 2>&1
             ;;
     esac
+    status=$?
+    set -e
+
+    set +e
+    close_server_cycle "$status"
     status=$?
     set -e
 

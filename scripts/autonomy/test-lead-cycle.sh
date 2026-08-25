@@ -8,6 +8,7 @@ LEAD_CYCLE="$SCRIPT_DIR/lead-cycle.sh"
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd -P)
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/armada-lead-test.XXXXXX")
 WORKDIR="$TEST_ROOT/state"
+REAL_CURL=$(command -v curl)
 
 cleanup() { rm -rf "$TEST_ROOT"; }
 trap cleanup EXIT INT TERM
@@ -83,6 +84,41 @@ echo '{"type":"step_finish","part":{"type":"step-finish","reason":"stop","cost":
 EOF
 chmod +x "$TEST_ROOT/bin/opencode"
 
+cat > "$TEST_ROOT/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+url=""
+payload=""
+take_payload=0
+for arg in "$@"; do
+    if [ "$take_payload" = "1" ]; then payload="$arg"; take_payload=0; continue; fi
+    [ "$arg" = "--data-binary" ] && { take_payload=1; continue; }
+    case "$arg" in http://fake-mcp/*) url="$arg" ;; esac
+done
+if [ -z "$url" ]; then exec "$LEAD_TEST_REAL_CURL" "$@"; fi
+tool=$(printf '%s' "$payload" | jq -r '.params.name // empty')
+printf '%s\n' "$tool" >> "$LEAD_TEST_MCP_CALLS"
+case "${LEAD_TEST_MCP_MODE:-refuse}:$tool" in
+    refuse:armada_lead_cycle_begin)
+        text='{"Acquired":false,"Mode":"GrokPrimary","RefusalReason":"The legacy lead is standby while Grok Bot is primary."}'
+        ;;
+    acquire-open:armada_lead_cycle_begin)
+        text='{"Acquired":true,"CycleId":"lcy_test-cycle","Mode":"LegacyPrimary","DeadlineUtc":"2099-01-01T00:00:00Z"}'
+        ;;
+    acquire-open:armada_lead_cycle_status)
+        text='{"Mode":"LegacyPrimary","Active":true,"CycleId":"lcy_test-cycle","Runner":"Legacy","ParticipantKey":"probe-lead"}'
+        ;;
+    acquire-open:armada_lead_cycle_fail)
+        text='{"Failed":true,"CycleId":"lcy_test-cycle"}'
+        ;;
+    *)
+        text='{}'
+        ;;
+esac
+jq -cn --arg text "$text" '{jsonrpc:"2.0",id:1,result:{content:[{type:"text",text:$text}]}}'
+EOF
+chmod +x "$TEST_ROOT/bin/curl"
+
 printf '%s\n' 'fake-vilao-key' > "$TEST_ROOT/vilao.key"
 chmod 600 "$TEST_ROOT/vilao.key"
 
@@ -98,6 +134,8 @@ export LEAD_TEST_OPENCODE_CONFIG_PATH="$TEST_ROOT/opencode-config-path.txt"
 export LEAD_TEST_OPENCODE_ARGS="$TEST_ROOT/opencode-args.txt"
 export LEAD_TEST_OPENCODE_PROMPT="$TEST_ROOT/opencode-prompt.txt"
 export LEAD_TEST_OPENCODE_CWD="$TEST_ROOT/opencode-cwd.txt"
+export LEAD_TEST_REAL_CURL="$REAL_CURL"
+export LEAD_TEST_MCP_CALLS="$TEST_ROOT/mcp-calls.txt"
 
 run_lead() {
     PATH="$TEST_ROOT/bin:$PATH" \
@@ -107,6 +145,7 @@ run_lead() {
     AUTONOMY_LEAD_RUNTIME="${RUNTIME_OVERRIDE:-claude}" \
     AUTONOMY_LEAD_API_KEY_FILE="$TEST_ROOT/vilao.key" \
     AUTONOMY_LEAD_TIMEOUT_MIN=5 \
+    AUTONOMY_LEAD_SERVER_LEASE="${SERVER_LEASE_OVERRIDE:-0}" \
     AUTONOMY_SKIP_PREFLIGHT="${PREFLIGHT_OVERRIDE:-1}" \
     "$LEAD_CYCLE" "$@"
 }
@@ -290,6 +329,7 @@ WAKE_OUT=$(printf 'woken by a mission failure' | \
     AUTONOMY_LEAD_RUNTIME=claude \
     AUTONOMY_LEAD_API_KEY_FILE="$TEST_ROOT/vilao.key" \
     AUTONOMY_LEAD_TIMEOUT_MIN=5 \
+    AUTONOMY_LEAD_SERVER_LEASE=0 \
     AUTONOMY_SKIP_PREFLIGHT=1 \
     "$SCRIPT_DIR/lead-wake.sh" --print --continue --setting-sources project,local --strict-mcp-config 2>&1)
 printf '%s' "$WAKE_OUT" | grep -Fq "REFUSED" && fail "the wake shim tried to parse runtime flags: $WAKE_OUT"
@@ -306,6 +346,33 @@ printf '%s' "$PREFLIGHT_OUT" | grep -Fq "skipped: the Admiral is not answering" 
 [ ! -s "$LEAD_TEST_PROMPT" ] || fail "the runtime was started despite a failed preflight"
 grep -Fq "admiral-unreachable" "$WORKDIR/run/last-result" \
     || fail "the skipped cycle was not recorded"
+
+# --- shared server lease -------------------------------------------------
+# The local pid/flock remains a fast host guard. The durable server lease is
+# the cross-runner guard that prevents a Grok cycle and a legacy cycle from
+# acting at the same time.
+: > "$LEAD_TEST_PROMPT"
+: > "$LEAD_TEST_MCP_CALLS"
+LEASE_REFUSAL=$(SERVER_LEASE_OVERRIDE=1 LEAD_TEST_MCP_MODE=refuse \
+    AUTONOMY_ARMADA_MCP_URL=http://fake-mcp/mcp run_lead run)
+printf '%s' "$LEASE_REFUSAL" | grep -Fq "legacy lead is standby" \
+    || fail "the launcher did not report the server lease refusal"
+[ ! -s "$LEAD_TEST_PROMPT" ] || fail "the runtime started after the server refused its cycle"
+grep -Fxq 'armada_lead_cycle_begin' "$LEAD_TEST_MCP_CALLS" \
+    || fail "the launcher did not request the shared server lease"
+
+: > "$LEAD_TEST_PROMPT"
+: > "$LEAD_TEST_MCP_CALLS"
+if SERVER_LEASE_OVERRIDE=1 LEAD_TEST_MCP_MODE=acquire-open \
+    AUTONOMY_ARMADA_MCP_URL=http://fake-mcp/mcp run_lead run >/dev/null 2>&1; then
+    fail "a runtime that left its server cycle open was reported as successful"
+fi
+grep -Fq 'lcy_test-cycle' "$LEAD_TEST_PROMPT" \
+    || fail "the acquired server cycle ID was not injected into the runtime prompt"
+grep -Fxq 'armada_lead_cycle_status' "$LEAD_TEST_MCP_CALLS" \
+    || fail "the launcher did not verify that the runtime closed its server cycle"
+grep -Fxq 'armada_lead_cycle_fail' "$LEAD_TEST_MCP_CALLS" \
+    || fail "the launcher did not fail and release an abandoned server cycle"
 
 # --- status ---------------------------------------------------------------
 # Capture first: `grep -q` closes the pipe on its first match, the upstream takes

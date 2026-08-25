@@ -59,6 +59,7 @@ namespace Armada.Server
 
         private Webserver _App = null!;
         private ArmadaMcpHttpServer _McpServer = null!;
+        private ArmadaMcpHttpServer? _GrokMcpServer;
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
@@ -120,6 +121,7 @@ namespace Armada.Server
         private MissionLandingHandler _MissionLanding = null!;
         private IRemoteTriggerService _RemoteTriggerService = null!;
         private IAgentWakeProcessHost _AgentWakeProcessHost = null!;
+        private LeadCycleCoordinator _LeadCycleCoordinator = null!;
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
@@ -511,6 +513,7 @@ namespace Armada.Server
                 _WebSocketHub);
 
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
+            _LeadCycleCoordinator = new LeadCycleCoordinator(_Database, _Settings.GrokLead);
             _CoordinationService.BoardWakeEmitter = async (participantKey, text, token) =>
             {
                 // participantKey null targets the registered AgentWake session.
@@ -565,6 +568,8 @@ namespace Armada.Server
 
             await _McpServer.StartAsync(_TokenSource.Token).ConfigureAwait(false);
             _Logging.Info(_Header + "MCP server started on port " + _Settings.McpPort);
+
+            await StartGrokMcpServerAsync().ConfigureAwait(false);
 
             _RemoteTunnel.Start(_TokenSource.Token);
             _Logging.Info(_Header + "remote tunnel manager started");
@@ -716,6 +721,7 @@ namespace Armada.Server
             _TokenSource.Cancel();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
+            _GrokMcpServer?.StopAsync().GetAwaiter().GetResult();
             _McpServer?.StopAsync().GetAwaiter().GetResult();
             try
             {
@@ -791,6 +797,9 @@ namespace Armada.Server
 
             // Status, health, doctor, settings, server control
             new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            new LeadControlRoutes(_LeadCycleCoordinator, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Fleets
@@ -1340,6 +1349,85 @@ namespace Armada.Server
                 longRunningJobs: _LongRunningJobs,
                 coordinationService: _CoordinationService,
                 dispatchHold: _DispatchHold);
+
+            McpLeadCycleTools.Register(
+                _McpServer.RegisterTool,
+                _Database,
+                _CoordinationService,
+                _LeadCycleCoordinator,
+                LeadRunnerTypeEnum.Legacy,
+                _Settings.GrokLead.ParticipantKey);
+        }
+
+        private async Task StartGrokMcpServerAsync()
+        {
+            if (!_Settings.GrokLead.Enabled) return;
+
+            string? bearerToken = Environment.GetEnvironmentVariable(
+                _Settings.GrokLead.BearerTokenEnvironmentVariable);
+            if (String.IsNullOrWhiteSpace(bearerToken))
+            {
+                throw new InvalidOperationException(
+                    "The restricted Grok MCP listener is enabled, but "
+                    + _Settings.GrokLead.BearerTokenEnvironmentVariable
+                    + " is empty.");
+            }
+
+            ArmadaMcpHttpServer server = new ArmadaMcpHttpServer(
+                _Settings.GrokLead.Hostname,
+                _Settings.GrokLead.Port)
+            {
+                ServerName = ArmadaConstants.ProductName + " Grok Lead",
+                ServerVersion = ArmadaConstants.ProductVersion,
+                BearerToken = bearerToken.Trim(),
+                FixedParticipantKey = _Settings.GrokLead.ParticipantKey,
+                RequireToolCallAudit = true
+            };
+            server.WakeBannerExcludedTools.Add("armada_coordination_read");
+            server.WakeBannerExcludedTools.Add("armada_coordination_heartbeat");
+            server.PendingWakeProvider = async (participantKey, token) =>
+            {
+                List<Signal> wakes = await _CoordinationService
+                    .EnumerateUnreadWakesAsync(participantKey, token).ConfigureAwait(false);
+                return wakes.Select(wake => wake.Payload ?? String.Empty).ToList();
+            };
+            server.ToolCallAuditSink = WriteGrokMcpAuditAsync;
+
+            GrokMcpToolRegistrar.Register(
+                server.RegisterTool,
+                _Database,
+                _Admiral,
+                _Settings,
+                _Logging,
+                _CoordinationService,
+                _IncidentService,
+                _ObjectiveService,
+                _ObjectiveScheduler,
+                _RemoteTriggerService,
+                _LeadCycleCoordinator);
+
+            await server.StartAsync(_TokenSource.Token).ConfigureAwait(false);
+            _GrokMcpServer = server;
+            _Logging.Info(
+                _Header + "restricted Grok MCP server started on "
+                + _Settings.GrokLead.Hostname + ":" + _Settings.GrokLead.Port + ".");
+        }
+
+        private async Task WriteGrokMcpAuditAsync(
+            McpToolCallAudit audit,
+            CancellationToken token)
+        {
+            LeadCycleStatus status = await _LeadCycleCoordinator.GetStatusAsync(token).ConfigureAwait(false);
+            ArmadaEvent armadaEvent = new ArmadaEvent(
+                "grok_mcp.tool_" + audit.Phase.ToLowerInvariant(),
+                "Grok lead tool " + audit.ToolName + " audit phase is " + audit.Phase + ".")
+            {
+                EntityType = status.Active ? "lead_cycle" : "grok_mcp",
+                EntityId = status.Active ? status.CycleId : _Settings.GrokLead.ParticipantKey,
+                Payload = JsonSerializer.Serialize(audit, _JsonOptions),
+                CreatedUtc = audit.CompletedUtc
+            };
+            await _Database.Events.CreateAsync(armadaEvent, token).ConfigureAwait(false);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

@@ -1050,6 +1050,29 @@ Two things start a cycle, and they are complementary:
 cycle is running is refused, not queued, so one participant key never gets two
 process owners.
 
+The launcher also acquires Armada's durable `autonomy:lead-cycle` lease. This
+prevents overlap with an external Grok lead. The systemd service requests
+standby fallback. In `GrokPrimary` mode, Armada refuses that request until the
+configured Grok inactivity period expires. The default is 130 minutes. In
+`LegacyPrimary` mode, the existing lead runs normally.
+
+The timer checks fallback eligibility once per hour. Therefore, a timer-only
+fallback can start after the 130-minute threshold, not exactly at that time.
+An AgentWake start uses the same shared check.
+
+The Grok listener and its shared cycle controls are disabled by default. See
+[Grok Bot Lead Integration](autonomy/grok-bot-lead.md) before you enable them.
+
+The shared lifecycle tools are:
+
+- `armada_lead_cycle_status` reads the current mode and lease;
+- `armada_lead_cycle_begin` requests one bounded cycle;
+- `armada_lead_cycle_heartbeat` renews the active lease;
+- `armada_lead_cycle_complete` verifies the board handoff and released claims,
+  records completion, and releases the lease;
+- `armada_lead_cycle_fail` records an early stop or failure and releases the
+  lease.
+
 The timer and AgentWake must use the same state directory. The default is
 `$HOME/.armada/autonomy-lead`. The Admiral container can write this bind mount,
 and the host timer can read the same lock and log files. Do not use

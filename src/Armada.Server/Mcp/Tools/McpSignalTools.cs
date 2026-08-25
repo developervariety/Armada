@@ -152,7 +152,7 @@ namespace Armada.Server.Mcp.Tools
                         MissionId = resolvedMissionId,
                         VoyageId = resolvedVoyageId,
                         Message = request.Message,
-                        CreatedBy = request.CreatedBy
+                        CreatedBy = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.CreatedBy
                     };
 
                     Signal signal = new Signal(signalType, JsonSerializer.Serialize(payload, _JsonOptions));
@@ -182,6 +182,18 @@ namespace Armada.Server.Mcp.Tools
                     Signal? signal = await database.Signals.ReadAsync(request.SignalId).ConfigureAwait(false);
                     if (signal == null)
                         return (object)new { Status = "not_found", SignalId = request.SignalId };
+
+                    string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey;
+                    if (!String.IsNullOrWhiteSpace(participantKey))
+                    {
+                        string prefix = "[to=" + participantKey + "]";
+                        if (signal.Type != SignalTypeEnum.Wake
+                            || String.IsNullOrEmpty(signal.Payload)
+                            || !signal.Payload.StartsWith(prefix, StringComparison.Ordinal))
+                        {
+                            return (object)new { Error = "An authenticated participant can acknowledge only its own Wake signal." };
+                        }
+                    }
 
                     if (signal.Read)
                         return (object)new { Status = "already_read", SignalId = request.SignalId };
