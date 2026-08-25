@@ -60,10 +60,11 @@ namespace Armada.Core.Services
             if (obj.Status != ObjectiveStatusEnum.Scoped && obj.Status != ObjectiveStatusEnum.Planned)
                 return false;
 
-            // Any linked voyage means this objective was already dispatched (or is awaiting
-            // reconcile). Re-dispatch is owned by AutonomousRecoveryOrchestrator, not the scheduler.
-            if (obj.VoyageIds.Count > 0)
-                return false;
+            // Linked voyages do not exclude a row here. Linking a voyage promotes the objective to
+            // InProgress, so a Scoped or Planned row that still carries voyage ids is one an
+            // operator has requeued after those voyages ended. Whether any of them is still live
+            // is a database question, answered by the scheduler before it dispatches; a pure
+            // exclusion on the ids would drop every requeue silently, before any skip reason exists.
 
             foreach (string blockerId in obj.BlockedByObjectiveIds)
             {

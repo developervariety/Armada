@@ -516,11 +516,17 @@ namespace Armada.Server
                     throw new ObjectiveSkippedException("active_voyage");
                 }
 
-                _Logging.Debug(_Header + "objective " + objective.Id + " skipped: linked voyages exist but reconcile has not completed.");
-                await EmitObjectiveEventAsync("objective_scheduler.skipped_pending_reconcile",
-                    "Autonomous scheduler skipped objective " + objective.Id + ": linked voyages exist; waiting for reconcile.",
+                // Every linked voyage has ended. Linking a voyage promotes the objective to
+                // InProgress, so a Scoped or Planned row that still carries ended voyages is one an
+                // operator requeued after they failed, were cancelled, or landed. Holding it here
+                // would keep it undispatchable for ever: reconcile only completes InProgress rows,
+                // so nothing else would ever release it.
+                _Logging.Info(_Header + "objective " + objective.Id + " is a requeue: " + objective.VoyageIds.Count
+                    + " linked voyage(s) have all ended; dispatching a new voyage.");
+                await EmitObjectiveEventAsync("objective_scheduler.requeue_after_ended_voyages",
+                    "Autonomous scheduler is dispatching requeued objective " + objective.Id + ": its "
+                    + objective.VoyageIds.Count + " linked voyage(s) have all ended.",
                     objective, null, token).ConfigureAwait(false);
-                throw new ObjectiveSkippedException("pending_reconcile");
             }
 
             if (objective.VesselIds.Count != 1)

@@ -201,6 +201,59 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageIds = new List<string> { activeVoyage.Id }
                 }).ConfigureAwait(false);
 
+                // The ceiling is raised so the live voyage does not fill the fleet lane first:
+                // the point is that the per-row check names the live voyage as the reason.
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 3
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "Scheduler must not dispatch while a linked voyage is still live.");
+                AssertContains("dispatched=0", scheduler.LastResultSummary ?? string.Empty, "Sweep summary should show zero dispatches.");
+                AssertContains("active_voyage", scheduler.LastSkipReason ?? string.Empty, "A live linked voyage must be named as the skip reason, not dropped silently.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A Scoped row whose linked voyages have all ended is a requeue and dispatches again", async () =>
+            {
+                // Linking a voyage promotes the objective to InProgress, so Scoped-with-voyages only
+                // exists after an operator requeued it. Reconcile completes only InProgress rows,
+                // so nothing else would ever release this row: holding it is a permanent silent skip.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("requeue-vessel", "https://github.com/test/requeue.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                Objective requeued = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Requeued after a failed voyage",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { failedVoyage.Id }
+                }).ConfigureAwait(false);
+
                 ArmadaSettings settings = new ArmadaSettings
                 {
                     AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
@@ -215,8 +268,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await scheduler.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual(0, admiral.DispatchVoyageCallCount, "Scheduler must not dispatch when linked voyage ids already exist.");
-                AssertContains("dispatched=0", scheduler.LastResultSummary ?? string.Empty, "Sweep summary should show zero dispatches.");
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "A requeued objective whose voyages have all ended must dispatch again.");
+                AssertContains("dispatched=1", scheduler.LastResultSummary ?? string.Empty, "Sweep summary should count the requeue dispatch.");
+                AssertNotNull(requeued.Id, "Objective fixture should have an id.");
             }).ConfigureAwait(false);
 
             await RunTest("SweepAsync_EligibleObjectiveWithTwoVessels_RecordsObjectiveSkippedReason", async () =>

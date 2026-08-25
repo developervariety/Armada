@@ -157,6 +157,8 @@ Everything above governs **mission-level** scheduling (which pending mission an 
 
 The sweep dispatches an objective only when it is `AutoDispatchEnabled` **and** every objective in its `BlockedByObjectiveIds` has reached `Completed`. `blockedByObjectiveIds` is the declarative, objective-level equivalent of wiring `dependsOnMissionId` by hand at dispatch time -- prefer it when you want an unattended objective graph to unblock and dispatch itself in dependency order. The scheduler will not exceed the fleet-wide `maxConcurrentVoyages` ceiling or the per-vessel `maxConcurrentVoyagesPerVessel` ceiling. Operator-dispatched linked voyages count toward both limits.
 
+A row is considered only while its `Status` is `Scoped` or `Planned`. Linking a voyage promotes the row to `InProgress`, so a `Scoped` or `Planned` row that still carries `VoyageIds` is one an operator has **requeued** after those voyages ended. The sweep does not hold such a row: when every linked voyage has ended (`Complete`, `Failed`, `Cancelled`) it dispatches a new voyage and records an `objective_scheduler.requeue_after_ended_voyages` event; the old ids stay on the row as history. When a linked voyage is still `Open` or `InProgress` the row is skipped and the reason is named as `active_voyage` in `lastSkipReason`. A requeue therefore needs only the status reset — clearing `VoyageIds` by hand is not required and loses the history.
+
 `maxConcurrentVoyages` is a safety ceiling, not a throughput target. A lead must
 keep enough verified objectives auto-enabled to use the ceiling. Prefer
 independent vessels and lanes. Keep `maxConcurrentVoyagesPerVessel=1` unless

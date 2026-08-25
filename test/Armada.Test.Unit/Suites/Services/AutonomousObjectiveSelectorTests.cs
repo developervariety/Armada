@@ -136,25 +136,28 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectEligible_PlannedWithVoyageIds_Excluded", () =>
+            await RunTest("A Planned row that still carries voyage ids is a requeue and stays eligible", () =>
             {
+                // Linking a voyage promotes the row to InProgress, so Planned-with-voyages only
+                // exists after an operator reset it. Whether a voyage is still live is decided
+                // against the database by the scheduler, not by this pure selector.
                 Objective obj = MakeObjective(
                     "obj-voyage-planned",
                     status: ObjectiveStatusEnum.Planned,
-                    voyageIds: new List<string> { "vyg_existing" });
+                    voyageIds: new List<string> { "vyg_ended" });
                 List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
-                AssertEqual(0, result.Count, "Planned objective with linked voyage ids must not be re-dispatched");
+                AssertEqual(1, result.Count, "A requeued Planned objective must reach the scheduler's live-voyage check");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectEligible_ScopedWithVoyageIds_Excluded", () =>
+            await RunTest("A Scoped row that still carries voyage ids is a requeue and stays eligible", () =>
             {
                 Objective obj = MakeObjective(
                     "obj-voyage-scoped",
                     status: ObjectiveStatusEnum.Scoped,
-                    voyageIds: new List<string> { "vyg_existing" });
+                    voyageIds: new List<string> { "vyg_ended" });
                 List<Objective> result = AutonomousObjectiveSelector.SelectEligible(new List<Objective> { obj });
-                AssertEqual(0, result.Count, "Scoped objective with linked voyage ids must not be re-dispatched");
+                AssertEqual(1, result.Count, "A requeued Scoped objective must reach the scheduler's live-voyage check");
                 return Task.CompletedTask;
             });
 
