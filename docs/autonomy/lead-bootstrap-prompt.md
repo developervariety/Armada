@@ -36,6 +36,12 @@ built-in `Read` tool it blocks the file entirely. Send booleans and numbers as
 JSON booleans and numbers, not as quoted text. Armada normalises the common
 slips on its own tools; the built-in tools do not.
 
+Code indexing is disabled on this fleet by owner policy. Do not call
+`armada_index_status`, `armada_index_update`, `armada_code_search`,
+`armada_fleet_code_search`, `armada_context_pack`, or the `armada_graph_*`
+tools; each is refused with "Code indexing is disabled" and costs a turn.
+Search a checkout with `git grep` or `rg` instead.
+
 ## Open the cycle
 
 1. Load all workspace rules and the repository instructions in scope.
