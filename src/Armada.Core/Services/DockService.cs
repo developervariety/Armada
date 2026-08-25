@@ -826,26 +826,66 @@ namespace Armada.Core.Services
                 }
 
                 // The shared sibling worktree is populated once by the first dock and reused by every
-                // concurrent dock on the vessel. Re-copying on each reuse both wastes IO on large
-                // extraction trees and, worse, briefly overwrites files a sibling-reading captain in
-                // another dock may be mid-read on. Skip when the destination is already populated;
-                // ProvisionSiblingReposAsync rebuilds the sibling from scratch when it goes stale.
-                if (Directory.Exists(destDir) && Directory.EnumerateFileSystemEntries(destDir).Any())
-                {
-                    _Logging.Debug(_Header + "extraction artifacts already present at " + destDir + "; skipping re-copy (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
-                    continue;
-                }
-
+                // concurrent dock on the vessel, so the copy must converge on the source rather than
+                // stop at "something is there". A destination first filled when the source held a
+                // subset would otherwise keep that subset for ever: nothing else ever refreshes it,
+                // and a captain reads the stale tree while the executor reads the host's full one.
+                // The comparison is a signature of the SOURCE recorded beside the copy at copy time.
+                // A refresh is built in a temporary directory and swapped in by rename, so a
+                // sibling-reading captain in another dock never sees a half-written tree.
                 try
                 {
+                    ArtifactTreeSignature sourceSignature = ArtifactTreeSignature.Measure(sourceDir);
+                    bool populated = Directory.Exists(destDir) && Directory.EnumerateFileSystemEntries(destDir).Any();
+                    if (populated)
+                    {
+                        ArtifactTreeSignature? recorded = ArtifactTreeSignature.ReadManifest(destDir);
+                        if (recorded != null && recorded.Matches(sourceSignature))
+                        {
+                            _Logging.Debug(_Header + "extraction artifacts at " + destDir + " are current (" + sourceSignature.FileCount
+                                + " files, " + sourceSignature.TotalBytes + " bytes); skipping re-copy (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
+                            continue;
+                        }
+
+                        ArtifactTreeSignature before = ArtifactTreeSignature.Measure(destDir);
+                        RefreshDirectoryAtomically(sourceDir, destDir);
+                        sourceSignature.WriteManifest(destDir);
+                        _Logging.Info(_Header + "refreshed stale extraction artifacts at " + destDir + ": " + before.FileCount + " files / " + before.TotalBytes
+                            + " bytes -> " + sourceSignature.FileCount + " files / " + sourceSignature.TotalBytes + " bytes"
+                            + (recorded == null ? " (no manifest recorded by the previous copy)" : String.Empty)
+                            + " (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
+                        continue;
+                    }
+
                     CopyDirectoryRecursive(sourceDir, destDir);
-                    _Logging.Info(_Header + "provisioned extraction artifacts from " + sourceDir + " to " + destDir);
+                    sourceSignature.WriteManifest(destDir);
+                    _Logging.Info(_Header + "provisioned extraction artifacts from " + sourceDir + " to " + destDir
+                        + " (" + sourceSignature.FileCount + " files, " + sourceSignature.TotalBytes + " bytes)");
                 }
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "failed to copy extraction artifacts (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + "): " + ex.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// Replace destDir with a fresh copy of sourceDir without a reader ever seeing a partial
+        /// tree: the copy is built beside the destination, the old tree is renamed out of the way,
+        /// the new tree is renamed into place, and only then is the old tree deleted.
+        /// </summary>
+        private static void RefreshDirectoryAtomically(string sourceDir, string destDir)
+        {
+            string parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(destDir)) ?? destDir;
+            string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(destDir));
+            string stamp = Guid.NewGuid().ToString("N");
+            string staging = Path.Combine(parent, name + ".refresh-" + stamp);
+            string retired = Path.Combine(parent, name + ".stale-" + stamp);
+
+            CopyDirectoryRecursive(sourceDir, staging);
+            Directory.Move(destDir, retired);
+            Directory.Move(staging, destDir);
+            try { Directory.Delete(retired, true); } catch { }
         }
 
         /// <summary>
@@ -864,6 +904,72 @@ namespace Armada.Core.Services
                     Directory.CreateDirectory(destFileDir);
                 }
                 File.Copy(sourceFile, destFile, overwrite: true);
+            }
+        }
+
+        /// <summary>
+        /// A cheap identity for an extraction-artifact tree: file count, total bytes, and the newest
+        /// write time. Recorded beside a copy at copy time so a later provisioning can tell whether
+        /// the source has moved since, without re-reading every file's content.
+        /// </summary>
+        private sealed class ArtifactTreeSignature
+        {
+            private const string _ManifestSuffix = ".armada-artifact-manifest";
+
+            public long FileCount { get; set; }
+            public long TotalBytes { get; set; }
+            public long NewestWriteUtcTicks { get; set; }
+
+            public static ArtifactTreeSignature Measure(string directory)
+            {
+                ArtifactTreeSignature signature = new ArtifactTreeSignature();
+                foreach (string file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+                {
+                    FileInfo info = new FileInfo(file);
+                    signature.FileCount++;
+                    signature.TotalBytes += info.Length;
+                    long ticks = info.LastWriteTimeUtc.Ticks;
+                    if (ticks > signature.NewestWriteUtcTicks) signature.NewestWriteUtcTicks = ticks;
+                }
+                return signature;
+            }
+
+            public bool Matches(ArtifactTreeSignature other)
+            {
+                if (other == null) return false;
+                return FileCount == other.FileCount
+                    && TotalBytes == other.TotalBytes
+                    && NewestWriteUtcTicks == other.NewestWriteUtcTicks;
+            }
+
+            public void WriteManifest(string destDir)
+            {
+                File.WriteAllText(ManifestPath(destDir),
+                    FileCount + Environment.NewLine + TotalBytes + Environment.NewLine + NewestWriteUtcTicks + Environment.NewLine);
+            }
+
+            public static ArtifactTreeSignature? ReadManifest(string destDir)
+            {
+                string path = ManifestPath(destDir);
+                if (!File.Exists(path)) return null;
+                string[] lines = File.ReadAllLines(path);
+                if (lines.Length < 3) return null;
+                ArtifactTreeSignature signature = new ArtifactTreeSignature();
+                if (!Int64.TryParse(lines[0], out long fileCount)) return null;
+                if (!Int64.TryParse(lines[1], out long totalBytes)) return null;
+                if (!Int64.TryParse(lines[2], out long newest)) return null;
+                signature.FileCount = fileCount;
+                signature.TotalBytes = totalBytes;
+                signature.NewestWriteUtcTicks = newest;
+                return signature;
+            }
+
+            // The manifest sits BESIDE the copied tree, never inside it, so a consumer that counts
+            // the tree's entries measures the artifacts alone.
+            private static string ManifestPath(string destDir)
+            {
+                string trimmed = Path.TrimEndingDirectorySeparator(destDir);
+                return trimmed + _ManifestSuffix;
             }
         }
 

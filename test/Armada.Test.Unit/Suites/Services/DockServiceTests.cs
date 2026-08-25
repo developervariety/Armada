@@ -1098,6 +1098,152 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // The shared sibling worktree is reused by every later dock on the vessel. When the
+            // source tree has grown since the first copy, the reuse must converge on the source;
+            // a copy that stops at "already populated" keeps the first dock's subset for ever.
+            await RunTest("ProvisionAsync refreshes a stale sibling artifact copy when the source has grown since the first dock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    string artifactSourceRoot = Path.Combine(Path.GetTempPath(), "armada_test_sibling_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        string firstAssembly = Path.Combine(artifactSourceRoot, "output", "extracted-artifacts", "Assembly.One");
+                        Directory.CreateDirectory(firstAssembly);
+                        await File.WriteAllTextAsync(Path.Combine(firstAssembly, "A.cs"), "class A { }").ConfigureAwait(false);
+
+                        Vessel siblingVessel = new Vessel("ExampleSibling", "https://github.com/test/example-sibling.git");
+                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSibling.git");
+                        siblingVessel.WorkingDirectory = artifactSourceRoot;
+                        siblingVessel = await testDb.Driver.Vessels.CreateAsync(siblingVessel).ConfigureAwait(false);
+
+                        List<SiblingRepo> siblings = new List<SiblingRepo>
+                        {
+                            new SiblingRepo
+                            {
+                                VesselRef = siblingVessel.Id,
+                                RepoUrl = "https://github.com/test/example-sibling.git",
+                                RelativePath = "../ExampleSibling",
+                                BranchStrategy = SiblingBranchStrategyEnum.MatchBranchElseDefault,
+                                DefaultBranch = "main",
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
+                            }
+                        };
+
+                        Vessel vessel = new Vessel("service-a", "https://github.com/test/service-a.git");
+                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "service-a.git");
+                        vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-a")).ConfigureAwait(false);
+                        RecordingGitService git = new RecordingGitService();
+                        DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                        Dock? first = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_first", "msn_first").ConfigureAwait(false);
+                        AssertNotNull(first, "First dock should be provisioned");
+                        string siblingWorktree = Path.GetFullPath(Path.Combine(first!.WorktreePath!, "../ExampleSibling"));
+                        string copiedFirst = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "Assembly.One", "A.cs");
+                        AssertTrue(File.Exists(copiedFirst), "The first dock copies the subset that exists at that time");
+
+                        // The source grows after the first copy: a second assembly appears.
+                        string secondAssembly = Path.Combine(artifactSourceRoot, "output", "extracted-artifacts", "Assembly.Two");
+                        Directory.CreateDirectory(secondAssembly);
+                        await File.WriteAllTextAsync(Path.Combine(secondAssembly, "B.cs"), "class B { }").ConfigureAwait(false);
+
+                        Dock? second = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_second", "msn_second").ConfigureAwait(false);
+                        AssertNotNull(second, "Second dock should be provisioned");
+                        string copiedSecond = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "Assembly.Two", "B.cs");
+                        AssertTrue(File.Exists(copiedSecond), "A later dock must see the grown source tree, not the first dock's subset");
+                        AssertTrue(File.Exists(copiedFirst), "The refresh keeps every file the source still has");
+                        AssertTrue(!Directory.GetDirectories(Path.Combine(siblingWorktree, "output")).Any(d => d.Contains(".refresh-") || d.Contains(".stale-")),
+                            "The atomic refresh leaves no staging or retired directory behind");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(artifactSourceRoot)) { try { Directory.Delete(artifactSourceRoot, true); } catch { } }
+                        if (Directory.Exists(settings.DocksDirectory)) { try { Directory.Delete(settings.DocksDirectory, true); } catch { } }
+                        if (Directory.Exists(settings.ReposDirectory)) { try { Directory.Delete(settings.ReposDirectory, true); } catch { } }
+                        if (Directory.Exists(settings.LogDirectory)) { try { Directory.Delete(settings.LogDirectory, true); } catch { } }
+                    }
+                }
+            });
+
+            await RunTest("ProvisionAsync leaves a current sibling artifact copy untouched", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    string artifactSourceRoot = Path.Combine(Path.GetTempPath(), "armada_test_sibling_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        string assembly = Path.Combine(artifactSourceRoot, "output", "extracted-artifacts", "Assembly.One");
+                        Directory.CreateDirectory(assembly);
+                        await File.WriteAllTextAsync(Path.Combine(assembly, "A.cs"), "class A { }").ConfigureAwait(false);
+
+                        Vessel siblingVessel = new Vessel("ExampleSibling", "https://github.com/test/example-sibling.git");
+                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSibling.git");
+                        siblingVessel.WorkingDirectory = artifactSourceRoot;
+                        siblingVessel = await testDb.Driver.Vessels.CreateAsync(siblingVessel).ConfigureAwait(false);
+
+                        List<SiblingRepo> siblings = new List<SiblingRepo>
+                        {
+                            new SiblingRepo
+                            {
+                                VesselRef = siblingVessel.Id,
+                                RepoUrl = "https://github.com/test/example-sibling.git",
+                                RelativePath = "../ExampleSibling",
+                                BranchStrategy = SiblingBranchStrategyEnum.MatchBranchElseDefault,
+                                DefaultBranch = "main",
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
+                            }
+                        };
+
+                        Vessel vessel = new Vessel("service-a", "https://github.com/test/service-a.git");
+                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "service-a.git");
+                        vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-a")).ConfigureAwait(false);
+                        RecordingGitService git = new RecordingGitService();
+                        DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                        Dock? first = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_first", "msn_first").ConfigureAwait(false);
+                        AssertNotNull(first, "First dock should be provisioned");
+                        string siblingWorktree = Path.GetFullPath(Path.Combine(first!.WorktreePath!, "../ExampleSibling"));
+                        string copied = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "Assembly.One", "A.cs");
+                        AssertTrue(File.Exists(copied), "The first dock copies the tree");
+                        DateTime firstWrite = File.GetLastWriteTimeUtc(copied);
+                        await Task.Delay(50).ConfigureAwait(false);
+
+                        Dock? second = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_second", "msn_second").ConfigureAwait(false);
+                        AssertNotNull(second, "Second dock should be provisioned");
+                        AssertEqual(firstWrite, File.GetLastWriteTimeUtc(copied), "A current copy must not be rewritten on reuse");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(artifactSourceRoot)) { try { Directory.Delete(artifactSourceRoot, true); } catch { } }
+                        if (Directory.Exists(settings.DocksDirectory)) { try { Directory.Delete(settings.DocksDirectory, true); } catch { } }
+                        if (Directory.Exists(settings.ReposDirectory)) { try { Directory.Delete(settings.ReposDirectory, true); } catch { } }
+                        if (Directory.Exists(settings.LogDirectory)) { try { Directory.Delete(settings.LogDirectory, true); } catch { } }
+                    }
+                }
+            });
+
             await RunTest("ProvisionAsync skips artifact copy when extraction source directory is absent", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
