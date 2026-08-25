@@ -688,6 +688,18 @@ Incident closure is evidence-driven. Produce a newer passing check, successful
 rescue, shipped release, verified deployment, or completed rollback. Do not
 close an incident only because a captain reported success.
 
+### A rescue of a stage inside a voyage re-enters review
+
+A Worker that fails its gate inside a voyage has already cost that voyage its
+TestEngineer and Judge: the pipeline cancels them as blocked dependents when the
+Worker fails. Its rescue is therefore dispatched as a rescue VOYAGE — the Worker
+revision, then a TestEngineer where the vessel pipeline defines one, then a
+Judge — exactly as a Judge rejection is, and with Build and UnitTest Checks
+armed. Before this rule a Worker gate failure produced a STANDALONE rescue
+mission that passed its own gate and landed through `LocalMerge` with no
+reviewer ever reading the final code. A standalone mission that has no voyage
+never had review stages and keeps a standalone rescue.
+
 ### A rescue brief keeps the reviewer's instructions, not only its diagnosis
 
 The rescue brief embeds the failed mission's reviewer feedback under a size cap.

@@ -828,6 +828,71 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, admiral.DispatchedMissions.Count, "A real-signal-gate rejection must not spawn a rescue Judge on green work.");
             }).ConfigureAwait(false);
 
+            // A Worker that fails its gate INSIDE a voyage has already cost that voyage its
+            // TestEngineer and Judge (cancelled as blocked dependents). Its rescue must therefore
+            // re-enter review, or the revision lands through LocalMerge with no reviewer ever
+            // reading the final code. Measured live: a standalone rescue landed unreviewed.
+            await RunTest("ReviseRetestRejudge_WorkerGateFailureInsideVoyage_ChainsReJudgeOntoTheRescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_wk", "usr_auto_wk").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_wk", "usr_auto_wk").ConfigureAwait(false);
+                Voyage parent = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent voyage", "Tested pipeline")
+                {
+                    TenantId = "ten_auto_wk",
+                    UserId = "usr_auto_wk",
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "DoD gate failed: classification=TestFail; unit-test command exited 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.VoyageId = parent.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one Worker rescue should be dispatched as the loop root.");
+                Mission worker = admiral.DispatchedMissions[0];
+                AssertEqual("Worker", worker.Persona, "The dispatched root must be a Worker rescue.");
+                AssertTrue(!String.IsNullOrEmpty(worker.VoyageId), "A Worker that failed inside a voyage must be rescued inside a rescue voyage, never as a standalone mission.");
+                AssertTrue(!String.Equals(worker.VoyageId, parent.Id, StringComparison.Ordinal), "The rescue runs in its own voyage, not in the halted parent.");
+
+                List<Mission> loopMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                Mission? judge = loopMissions.FirstOrDefault(item => String.Equals(item.Persona, "Judge", StringComparison.Ordinal));
+                AssertTrue(judge != null, "A Judge stage must be chained onto the Worker rescue so the revision cannot land unreviewed.");
+                AssertEqual(MissionStatusEnum.Pending, judge!.Status, "The Judge stage waits on the revision via the pipeline handoff.");
+                AssertTrue(!String.IsNullOrEmpty(judge.DependsOnMissionId), "The Judge stage depends on the rescue chain.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReviseRetestRejudge_StandaloneWorkerFailure_KeepsAStandaloneRescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_sa", "usr_auto_sa").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_sa", "usr_auto_sa").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "DoD gate failed: classification=TestFail; unit-test command exited 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.VoyageId = null;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one rescue should be dispatched.");
+                Mission worker = admiral.DispatchedMissions[0];
+                AssertEqual("Worker", worker.Persona, "The rescue of a standalone Worker is a Worker.");
+                AssertTrue(String.IsNullOrEmpty(worker.VoyageId), "A standalone mission never had review stages; its rescue stays standalone.");
+            }).ConfigureAwait(false);
+
             await RunTest("ReviseRetestRejudge_JudgeFailure_ChainsReJudgeOntoWorkerRevisionBeforeLanding", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

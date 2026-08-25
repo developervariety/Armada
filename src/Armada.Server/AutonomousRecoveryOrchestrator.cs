@@ -1197,12 +1197,16 @@ namespace Armada.Server
                 RecoveryAttempts = attemptNumber
             };
 
-            // A reviewer rejection (for example a Judge NEEDS_REVISION) is recovered by a Worker
-            // revision. That revision must be re-verified before it lands rather than landing with
-            // no review. Chain a re-Judge (and re-TestEngineer where the vessel pipeline defines
-            // one) onto the revision so the revised branch is re-reviewed first.
-            bool chainReReview = IsReviewerPersona(failedMission.Persona)
-                && String.Equals(rescuePersona, "Worker", StringComparison.Ordinal);
+            // A Worker revision must be re-verified before it lands rather than landing with no
+            // review. That holds for a reviewer rejection (a Judge NEEDS_REVISION recovered by a
+            // Worker) AND for a Worker that failed its gate inside a voyage: the pipeline cancelled
+            // that voyage's TestEngineer and Judge when the Worker failed, so a standalone rescue
+            // would be the only stage left, pass its own gate, and land through LocalMerge with no
+            // reviewer ever reading the final code. Chain a re-Judge (and re-TestEngineer where the
+            // vessel pipeline defines one) onto the revision in both cases. A standalone mission
+            // with no voyage never had review stages and keeps its standalone rescue.
+            bool chainReReview = String.Equals(rescuePersona, "Worker", StringComparison.Ordinal)
+                && (IsReviewerPersona(failedMission.Persona) || !String.IsNullOrEmpty(failedMission.VoyageId));
 
             if (!chainReReview)
                 return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
