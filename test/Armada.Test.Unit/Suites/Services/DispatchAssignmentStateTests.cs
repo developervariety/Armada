@@ -383,6 +383,75 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A fan-out worker depends on a planner stage but never inherits its branch. When an
+            // earlier assignment attempt wrote the captain's own branch name and then aborted, the
+            // retry must not read that leftover as "continues the upstream branch": it must cut a
+            // fresh branch and the base guard must not fire. Measured live: four stages of one
+            // voyage failed stage_base_missing on branches cut from the default branch by design.
+            await RunTest("TryAssign_FanOutWorkerWithLeftoverOwnBranchName_CutsFreshBranchAndPassesBaseGuard", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.IsAncestorResult = false;
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    Vessel vessel = new Vessel("fanout-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("fanout-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Mission planner = new Mission("Architect plan", "Emits the plan.");
+                    planner.VesselId = vessel.Id;
+                    planner.Persona = "Architect";
+                    planner.Status = MissionStatusEnum.WorkProduced;
+                    planner.BranchName = "armada/planner-captain/msn_planner";
+                    planner.CommitHash = "6df8bf4b9d68000000000000000000000000abcd";
+                    planner = await testDb.Driver.Missions.CreateAsync(planner).ConfigureAwait(false);
+                    planner.Status = MissionStatusEnum.WorkProduced;
+                    planner.BranchName = "armada/planner-captain/msn_planner";
+                    planner.CommitHash = "6df8bf4b9d68000000000000000000000000abcd";
+                    await testDb.Driver.Missions.UpdateAsync(planner).ConfigureAwait(false);
+
+                    // The Architect handoff marks each spawned block as prepared; the fixture carries the same marker.
+                    Mission worker = new Mission("Block worker", "Implements one block of the plan." + Environment.NewLine + "<!-- ARMADA:ARCHITECT-HANDOFF -->");
+                    worker.VesselId = vessel.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.Pending;
+                    worker.DependsOnMissionId = planner.Id;
+                    // The leftover of an aborted attempt: the previous captain's own branch name.
+                    worker.BranchName = "armada/previous-captain/" + "msn_stale_attempt";
+                    worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+                    worker.BranchName = "armada/previous-captain/msn_stale_attempt";
+                    worker.DependsOnMissionId = planner.Id;
+                    await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                    Mission? plannerStored = await testDb.Driver.Missions.ReadAsync(planner.Id).ConfigureAwait(false);
+                    AssertNotNull(plannerStored, "Planner must be stored");
+                    AssertEqual(MissionStatusEnum.WorkProduced, plannerStored!.Status, "Planner fixture must read back as WorkProduced (id " + planner.Id + ", worker depends on " + worker.DependsOnMissionId + ")");
+
+                    bool assigned = await missionService.TryAssignAsync(worker, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "Worker must still exist");
+                    AssertTrue(assigned, "A fan-out worker with a leftover branch name must still be assignable; state=" + readBack!.AssignmentState + " status=" + readBack.Status + " reason: " + (readBack.FailureReason ?? "(none)"));
+                    AssertTrue(readBack.Status != MissionStatusEnum.Failed, "The base guard must not fire on a fan-out worker: " + (readBack.FailureReason ?? "(none)"));
+                    AssertTrue(!String.Equals(readBack.BranchName, "armada/previous-captain/msn_stale_attempt", StringComparison.Ordinal),
+                        "The leftover branch name must be replaced by a fresh captain branch, was " + readBack.BranchName);
+                    AssertTrue(!String.IsNullOrEmpty(readBack.BranchName) && readBack.BranchName!.Contains(captain.Name), "The fresh branch is the assigned captain's own");
+                }
+            });
+
             await RunTest("TryAssign_MissionWithUnknownDependency_ShowsWaitingForDependency", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

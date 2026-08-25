@@ -318,6 +318,7 @@ namespace Armada.Core.Services
             // below: cross-vessel deps cannot share a branch (different repos), so the downstream
             // mission must always start on a fresh branch in its own vessel.
             bool dependencyIsCrossVessel = false;
+            string? dependencyBranchName = null;
 
             // Captured for the stage-base check after provisioning: a stage must be cut from the
             // commit its predecessor actually produced, and proving that needs the hash here.
@@ -338,6 +339,7 @@ namespace Armada.Core.Services
                     && !String.IsNullOrEmpty(mission.VesselId)
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
                 upstreamCommitHash = dependency.CommitHash;
+                dependencyBranchName = dependency.BranchName;
 
                 if (!IsDependencySatisfyingStatus(dependency.Status))
                 {
@@ -540,13 +542,23 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            // Downstream pipeline stages continue on the upstream branch prepared during handoff.
-            // Standalone missions still get a fresh captain/mission branch. Cross-vessel deps
+            // Downstream pipeline stages continue on the upstream branch prepared during handoff,
+            // which copies the upstream mission's branch name onto the dependent. Standalone
+            // missions and fan-out workers get a fresh captain/mission branch. Cross-vessel deps
             // (different repos) cannot share a branch, so the downstream mission always starts
             // on a fresh branch in its own vessel even when DependsOnMissionId is populated.
+            // Continuation is decided by EQUALITY with the dependency's branch, never by the name
+            // merely being present: an earlier attempt writes the captain's own branch name before
+            // provisioning, and when that attempt aborts (a claim race, a provisioning fault) the
+            // name can survive on the row. Read as "inherited", it made a fan-out worker on a
+            // branch cut from the default branch look like a stage that lost its predecessor's
+            // commit, and the base guard failed four stages of one voyage for doing what the
+            // pipeline intends.
             bool preserveInheritedBranch = !String.IsNullOrEmpty(mission.DependsOnMissionId)
                 && !String.IsNullOrEmpty(mission.BranchName)
-                && !dependencyIsCrossVessel;
+                && !dependencyIsCrossVessel
+                && !String.IsNullOrEmpty(dependencyBranchName)
+                && String.Equals(mission.BranchName, dependencyBranchName, StringComparison.Ordinal);
             string branchName = preserveInheritedBranch
                 ? mission.BranchName!
                 : BuildMissionBranchName(captain, mission);
