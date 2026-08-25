@@ -129,8 +129,12 @@ live-hardware boundary.
 
 Before exit:
 
-1. Post one handoff note with the roster, in-flight voyages, helper outcomes,
-   queue changes, unresolved evidence, and the next action.
+1. Post EXACTLY ONE handoff note with the roster, in-flight voyages, helper
+   outcomes, queue changes, unresolved evidence, and the next action. Never
+   post it twice: not a tagged copy, not a summary after the final heartbeat,
+   not a restatement when a directed Wake arrives during exit. A fact you
+   learn after posting goes on the objective or incident record, not into a
+   second note. Three copies of one handoff per cycle is the measured failure.
 2. Stop or cull every launcher-managed helper. Do not leave one polling.
 3. Release your claims.
 4. Heartbeat once more, handle any final directed Wake, acknowledge it when
