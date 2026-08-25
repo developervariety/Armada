@@ -688,6 +688,25 @@ Incident closure is evidence-driven. Produce a newer passing check, successful
 rescue, shipped release, verified deployment, or completed rollback. Do not
 close an incident only because a captain reported success.
 
+### A rescue brief keeps the reviewer's instructions, not only its diagnosis
+
+The rescue brief embeds the failed mission's reviewer feedback under a size cap.
+The cap exists because an uncapped gate log once tripped a provider's content
+filter and opened a self-perpetuating loop; it stays. What changed is the shape
+of the cut. A Judge report is written diagnosis first and instructions last
+(Completeness, Correctness, Tests, Failure Modes, Suggested Follow-ups,
+Verdict, then the `[ARMADA:VERDICT]` line), so a head-first cut kept the table
+of what failed and dropped every line that said what to do. Four rescues in one
+shift each needed an operator to re-send the tail by Mail.
+
+An over-cap Judge report now keeps `## Suggested Follow-ups`, `## Verdict` and
+the verdict line whole, fills the remaining budget from the head, and places
+the truncation marker where the omitted middle was, naming the sections it
+dropped. An under-cap report is embedded whole. Text without those headers, such
+as a gate log, keeps the head-first cut, because its signal is at the top. When
+a rescue brief still reads `truncated`, the marker names what is missing; the
+full report remains on the failed mission's `ReviewComment`.
+
 ### A rescue is judged by what it changed
 
 A rescue that starts, logs, and exits satisfies every liveness measure Armada

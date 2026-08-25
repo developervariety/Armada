@@ -1590,6 +1590,12 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildRescueDescription_LargeEmbeddedFailureLog_StaysUnderCap).ConfigureAwait(false);
             await RunTest("BuildRescueDescription reduces older handoff blocks so the newest survives",
                 BuildRescueDescription_OlderHandoffBlocks_AreReducedSoTheNewestSurvives).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription keeps an over-cap Judge report's Follow-ups and Verdict whole",
+                BuildRescueDescription_OverCapJudgeReport_KeepsTheVerdictAndFollowUpsWhole).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription embeds an under-cap Judge report whole",
+                BuildRescueDescription_UnderCapJudgeReport_IsEmbeddedWhole).ConfigureAwait(false);
+            await RunTest("TruncateReviewerFeedbackForBrief keeps the head-first cut for text without Judge sections",
+                TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(
@@ -1846,6 +1852,116 @@ namespace Armada.Test.Unit.Suites.Services
                 "Rescue brief must mark the diagnostics truncation.");
             AssertFalse(brief.Contains(new string('W', 18000)),
                 "Rescue brief must not carry the full diagnostics blob verbatim.");
+            await Task.CompletedTask;
+        }
+
+        // A Judge report shaped the way the Judge persona is told to write it: findings first,
+        // the actionable Suggested Follow-ups and Verdict last, then the standalone verdict line.
+        private static string BuildJudgeReport(int completenessChars, int correctnessChars)
+        {
+            return "## Completeness" + "\n" + new string('c', completenessChars) + "\n\n"
+                + "## Correctness" + "\n" + new string('r', correctnessChars) + "\n\n"
+                + "## Tests" + "\n" + "Ran the suite in the foreground: 0 failed." + "\n\n"
+                + "## Failure Modes" + "\n" + "Reviewed the absence paths." + "\n\n"
+                + "## Suggested Follow-ups" + "\n" + "- src/Fixture.cs:12 -- record the sha256 of both copies." + "\n\n"
+                + "## Verdict" + "\n" + "NEEDS_REVISION: the disclosure is missing; add the two hashes and the identity statement." + "\n\n"
+                + "[ARMADA:VERDICT] NEEDS_REVISION";
+        }
+
+        public async Task BuildRescueDescription_OverCapJudgeReport_KeepsTheVerdictAndFollowUpsWhole()
+        {
+            // The report is four times the reviewer-feedback cap. A head-first cut would keep the
+            // Completeness padding and drop every actionable line; the rescue brief must instead
+            // carry the Suggested Follow-ups, the Verdict and the verdict line whole, and name the
+            // sections it omitted.
+            string report = BuildJudgeReport(4000, 4000);
+            AssertTrue(report.Length > AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars * 3,
+                "Precondition: the report must be well over the cap. Actual length: " + report.Length);
+
+            Mission failed = new Mission
+            {
+                Id = "msn_test_judge_over",
+                Title = "test mission",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = "title: decompile the update manager",
+                ReviewComment = report,
+            };
+            Incident incident = new Incident
+            {
+                Id = "inc_test_judge_over",
+                Title = "test incident",
+                Summary = "test summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+            };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+            AssertTrue(brief.Contains("## Suggested Follow-ups" + "\n" + "- src/Fixture.cs:12 -- record the sha256 of both copies."),
+                "The Suggested Follow-ups section must survive whole.");
+            AssertTrue(brief.Contains("## Verdict" + "\n" + "NEEDS_REVISION: the disclosure is missing; add the two hashes and the identity statement."),
+                "The Verdict section must survive whole.");
+            AssertTrue(brief.Contains("[ARMADA:VERDICT] NEEDS_REVISION"),
+                "The standalone verdict line must survive.");
+            AssertTrue(brief.Contains("## Completeness"),
+                "The head of the report is still filled from the top.");
+            AssertTrue(brief.Contains("reviewer feedback truncated") && brief.Contains("the sections Correctness, Tests, Failure Modes"),
+                "The marker must sit where the middle was and name the omitted sections. Brief: " + brief);
+            AssertFalse(brief.Contains(new string('r', 4000)),
+                "The omitted Correctness padding must not be carried verbatim.");
+
+            int feedbackStart = brief.IndexOf("Reviewer feedback to address:", StringComparison.Ordinal);
+            int feedbackEnd = brief.IndexOf("Objective:", StringComparison.Ordinal);
+            AssertTrue(feedbackStart > 0 && feedbackEnd > feedbackStart, "The brief keeps its section order.");
+            int feedbackLength = feedbackEnd - feedbackStart;
+            AssertTrue(feedbackLength <= AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars + 400,
+                "The embedded feedback must stay near the cap. Actual length: " + feedbackLength);
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_UnderCapJudgeReport_IsEmbeddedWhole()
+        {
+            string report = BuildJudgeReport(120, 120);
+            AssertTrue(report.Length < AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars,
+                "Precondition: the report must fit the cap.");
+
+            Mission failed = new Mission
+            {
+                Id = "msn_test_judge_under",
+                Title = "test mission",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = "title: decompile the update manager",
+                ReviewComment = report,
+            };
+            Incident incident = new Incident
+            {
+                Id = "inc_test_judge_under",
+                Title = "test incident",
+                Summary = "test summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+            };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+            AssertTrue(brief.Contains(report), "An under-cap report is embedded verbatim.");
+            AssertFalse(brief.Contains("reviewer feedback truncated"), "No truncation marker for an under-cap report.");
+            await Task.CompletedTask;
+        }
+
+        public async Task TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut()
+        {
+            // A gate log or a free-form review has no Judge sections; its signal is at the top,
+            // so the existing head-first cut and marker stay exactly as they were.
+            string log = String.Join("\n", Enumerable.Range(0, 400).Select(i => "warning CS0618: line " + i));
+            string cut = AutonomousRecoveryOrchestrator.TruncateReviewerFeedbackForBrief(log, AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars);
+            string expected = AutonomousRecoveryOrchestrator.TruncateForBrief(log, AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars);
+
+            AssertEqual(expected, cut, "Text without Judge sections uses the head-first cut unchanged.");
+            AssertTrue(cut.StartsWith("warning CS0618: line 0", StringComparison.Ordinal), "The head is kept.");
+            AssertTrue(cut.Contains("remainder in admiral log"), "The existing marker is kept.");
             await Task.CompletedTask;
         }
 

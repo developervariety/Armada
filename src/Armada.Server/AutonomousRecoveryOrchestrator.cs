@@ -1693,7 +1693,7 @@ namespace Armada.Server
             {
                 sb.AppendLine();
                 sb.AppendLine("Reviewer feedback to address:");
-                sb.AppendLine(TruncateForBrief(failedMission.ReviewComment.Trim(), _MaxRescueReviewerFeedbackChars));
+                sb.AppendLine(TruncateReviewerFeedbackForBrief(failedMission.ReviewComment.Trim(), _MaxRescueReviewerFeedbackChars));
             }
             sb.AppendLine();
             sb.AppendLine("Objective:");
@@ -1767,6 +1767,119 @@ namespace Armada.Server
                 + "--- (ACTIONABLE DIAGNOSTICS truncated; full failure log in admiral log) ---"
                 + Environment.NewLine
                 + diagnosticsTruncated;
+        }
+
+        // The section headers that carry a Judge report's actionable content. A Judge
+        // writes its findings first and its instructions last, so a head-first cut of
+        // an over-cap report keeps the diagnosis and drops the deliverable.
+        private static readonly string[] _ReviewerFeedbackTailHeaders =
+        {
+            "## Suggested Follow-ups",
+            "## Verdict"
+        };
+
+        // Truncate reviewer feedback for the rescue brief. A Judge report has a fixed
+        // shape (Completeness, Correctness, Tests, Failure Modes, Suggested Follow-ups,
+        // Verdict, then the [ARMADA:VERDICT] line) and the part a rescue captain must
+        // act on is at the END. When the report exceeds the cap, the tail sections are
+        // kept whole first, the remaining budget is filled from the head, and the marker
+        // sits where the omitted middle was and names the sections it dropped. Text
+        // without those headers (a gate log, a free-form review) keeps the head-first
+        // cut, because its signal is wherever it starts.
+        internal static string TruncateReviewerFeedbackForBrief(string source, int maxChars)
+        {
+            if (String.IsNullOrEmpty(source) || source.Length <= maxChars)
+                return source ?? String.Empty;
+
+            int tailStart = IndexOfAny(source, _ReviewerFeedbackTailHeaders);
+            if (tailStart <= 0)
+                return TruncateForBrief(source, maxChars);
+
+            string tail = source.Substring(tailStart).TrimEnd();
+            string head = source.Substring(0, tailStart).TrimEnd();
+
+            // Every section header the cut will hide: those in the head past the budget.
+            // Computed before the head is cut so the marker can name them.
+            int headBudget = maxChars - tail.Length - _OmittedSectionsMarkerReserve;
+            if (headBudget < _MinimumHeadChars)
+            {
+                // The tail alone is at or over the cap. Keep the END of the tail: the
+                // Verdict and the [ARMADA:VERDICT] line are the last things written.
+                int keep = Math.Max(0, maxChars - _OmittedSectionsMarkerReserve);
+                string kept = tail.Length > keep ? tail.Substring(tail.Length - keep) : tail;
+                int newline = kept.IndexOf(Environment.NewLine, StringComparison.Ordinal);
+                if (newline > 0 && newline < kept.Length - 1)
+                    kept = kept.Substring(newline + Environment.NewLine.Length);
+                return "--- (reviewer feedback truncated: " + (source.Length - kept.Length) + " of " + source.Length
+                    + " chars omitted before this point, including "
+                    + DescribeSectionHeaders(source.Substring(0, source.Length - kept.Length))
+                    + "; remainder in admiral log) ---"
+                    + Environment.NewLine
+                    + kept;
+            }
+
+            string headKept;
+            string omitted;
+            if (head.Length <= headBudget)
+            {
+                headKept = head;
+                omitted = String.Empty;
+            }
+            else
+            {
+                int cut = head.LastIndexOf(Environment.NewLine, headBudget, StringComparison.Ordinal);
+                if (cut <= 0)
+                    cut = headBudget;
+                headKept = head.Substring(0, cut).TrimEnd();
+                omitted = head.Substring(cut);
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.Append(headKept);
+            if (omitted.Length > 0)
+            {
+                sb.Append(Environment.NewLine);
+                sb.Append("--- (reviewer feedback truncated: ")
+                  .Append(omitted.Length).Append(" of ").Append(source.Length)
+                  .Append(" chars omitted here, including ")
+                  .Append(DescribeSectionHeaders(omitted))
+                  .Append("; the sections below are kept whole; remainder in admiral log) ---");
+            }
+            sb.Append(Environment.NewLine);
+            sb.Append(Environment.NewLine);
+            sb.Append(tail);
+            return sb.ToString();
+        }
+
+        // Room reserved for the omitted-sections marker inside the reviewer-feedback cap,
+        // and the smallest head worth keeping before the tail-only fallback applies.
+        private const int _OmittedSectionsMarkerReserve = 220;
+        private const int _MinimumHeadChars = 200;
+
+        // Name the "## " section headers inside an omitted block, in order, so the rescue
+        // captain knows which parts of the report it is not seeing. "no section headers"
+        // when the omitted text carried none.
+        internal static string DescribeSectionHeaders(string omitted)
+        {
+            List<string> names = new List<string>();
+            if (!String.IsNullOrEmpty(omitted))
+            {
+                string[] lines = omitted.Split('\n');
+                foreach (string raw in lines)
+                {
+                    string line = raw.Trim();
+                    if (line.StartsWith("## ", StringComparison.Ordinal))
+                    {
+                        string name = line.Substring(3).Trim();
+                        if (name.Length > 0 && !names.Contains(name))
+                            names.Add(name);
+                    }
+                }
+            }
+
+            if (names.Count == 0)
+                return "no section headers";
+            return "the sections " + String.Join(", ", names);
         }
 
         // Truncate a block to a target size on a line boundary and append a marker.
