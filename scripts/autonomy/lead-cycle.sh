@@ -244,6 +244,28 @@ prepare_mcp_config() {
     printf '%s\n' "$path"
 }
 
+# Claude Code keeps a per-project auto-memory folder for every cwd it runs in. The
+# workspace rule allows that folder exactly one line: a pointer to AI-Memory. An unseeded
+# folder fills with notes that the next cycle loads as context and that nobody curates,
+# so the pointer is written before the runtime starts. An existing MEMORY.md is never
+# overwritten. The projects root is overridable for tests; AI_MEMORY_ROOT, when set, names the
+# repository's path on this host in the pointer text.
+seed_memory_pointer() {
+    local cwd="$1"
+    local root="${AUTONOMY_CLAUDE_PROJECTS_ROOT:-$HOME/.claude/projects}"
+    local memory_repo="${AI_MEMORY_ROOT:-}"
+    local key
+    key=$(printf '%s' "$cwd" | sed 's#[/.]#-#g')
+    local dir="$root/$key/memory"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    [ -e "$dir/MEMORY.md" ] && return 0
+    if [ -n "$memory_repo" ]; then
+        printf '%s\n' "Durable memory for every AI tool lives in the AI-Memory repository (on this host: $memory_repo). Write nothing else here." > "$dir/MEMORY.md"
+    else
+        printf '%s\n' "Durable memory for every AI tool lives in the AI-Memory repository; the operator knows its path on this host. Write nothing else here." > "$dir/MEMORY.md"
+    fi
+}
+
 prepare_settings() {
     local path="$WORKDIR/lead-settings.json"
     # An unattended run has nobody to answer a permission prompt, so the policy
@@ -618,6 +640,7 @@ cmd_run() {
     # WorkingDirectory, but a wake or a hand-run does not, and the runtime loads its
     # project rules relative to the working directory -- a cycle started from $HOME
     # silently gets no repository instructions.
+    seed_memory_pointer "$REPO"
     cd "$REPO" || fail "cannot enter the Armada checkout at $REPO"
     echo $$ > "$PID_FILE"
 

@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 SPAWN_HELPER="$SCRIPT_DIR/spawn-helper.sh"
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/armada-autonomy-test.XXXXXX")
+export AUTONOMY_CLAUDE_PROJECTS_ROOT="$TEST_ROOT/claude-projects"
 STATE_ROOT="$TEST_ROOT/state"
 CAPTURE_FILE="$TEST_ROOT/capture.txt"
 PROMPT_FILE="$TEST_ROOT/task.md"

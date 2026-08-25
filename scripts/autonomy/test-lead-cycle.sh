@@ -140,6 +140,7 @@ export LEAD_TEST_MCP_CALLS="$TEST_ROOT/mcp-calls.txt"
 run_lead() {
     PATH="$TEST_ROOT/bin:$PATH" \
     AUTONOMY_LEAD_WORKDIR="${WORKDIR_OVERRIDE:-$WORKDIR}" \
+    AUTONOMY_CLAUDE_PROJECTS_ROOT="$TEST_ROOT/claude-projects" \
     AUTONOMY_LEAD_REPO="$REPO_ROOT" \
     AUTONOMY_LEAD_KEY="${LEAD_KEY_OVERRIDE:-probe-lead}" \
     AUTONOMY_LEAD_RUNTIME="${RUNTIME_OVERRIDE:-claude}" \
@@ -169,6 +170,17 @@ chmod 600 "$TEST_ROOT/vilao.key"
 # --- one successful cycle -------------------------------------------------
 run_lead run >/dev/null
 [ -s "$LEAD_TEST_PROMPT" ] || fail "the runtime received no prompt"
+
+# The runner seeds the per-project auto-memory folder for the checkout it runs in with the
+# one-line AI-Memory pointer, and never overwrites a pointer that is already there.
+memory_key=$(printf '%s' "$REPO_ROOT" | sed 's#[/.]#-#g')
+memory_pointer="$TEST_ROOT/claude-projects/$memory_key/memory/MEMORY.md"
+[ -f "$memory_pointer" ] || fail "runner did not seed the memory pointer at $memory_pointer"
+[ "$(wc -l < "$memory_pointer" | tr -d ' ')" = "1" ] || fail "memory pointer must be exactly one line"
+grep -q 'AI-Memory' "$memory_pointer" || fail "memory pointer must name AI-Memory"
+printf 'custom pointer\n' > "$memory_pointer"
+run_lead run >/dev/null
+[ "$(cat "$memory_pointer")" = "custom pointer" ] || fail "runner overwrote an existing memory pointer"
 
 grep -Fq "Your participantKey is probe-lead." "$LEAD_TEST_PROMPT" \
     || fail "the cycle did not inject its participant key"
@@ -324,6 +336,7 @@ grep -Fq "[WHAT WOKE YOU]" "$LEAD_TEST_PROMPT" && fail "an empty wake section wa
 WAKE_OUT=$(printf 'woken by a mission failure' | \
     PATH="$TEST_ROOT/bin:$PATH" \
     AUTONOMY_LEAD_WORKDIR="$WORKDIR" \
+    AUTONOMY_CLAUDE_PROJECTS_ROOT="$TEST_ROOT/claude-projects" \
     AUTONOMY_LEAD_REPO="$REPO_ROOT" \
     AUTONOMY_LEAD_KEY=probe-lead \
     AUTONOMY_LEAD_RUNTIME=claude \

@@ -83,6 +83,28 @@ validate_helper_class() {
 # enforced here rather than asserted in prose. Deny wins over allow, so the deny
 # list is the real boundary; a research helper cannot write even if its task text
 # talks it into trying.
+# Claude Code keeps a per-project auto-memory folder for every cwd it runs in. The
+# workspace rule allows that folder exactly one line: a pointer to AI-Memory. An unseeded
+# folder fills with notes that the next cycle loads as context and that nobody curates,
+# so the pointer is written before the runtime starts. An existing MEMORY.md is never
+# overwritten. The projects root is overridable for tests; AI_MEMORY_ROOT, when set, names the
+# repository's path on this host in the pointer text.
+seed_memory_pointer() {
+    local cwd="$1"
+    local root="${AUTONOMY_CLAUDE_PROJECTS_ROOT:-$HOME/.claude/projects}"
+    local memory_repo="${AI_MEMORY_ROOT:-}"
+    local key
+    key=$(printf '%s' "$cwd" | sed 's#[/.]#-#g')
+    local dir="$root/$key/memory"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    [ -e "$dir/MEMORY.md" ] && return 0
+    if [ -n "$memory_repo" ]; then
+        printf '%s\n' "Durable memory for every AI tool lives in the AI-Memory repository (on this host: $memory_repo). Write nothing else here." > "$dir/MEMORY.md"
+    else
+        printf '%s\n' "Durable memory for every AI tool lives in the AI-Memory repository; the operator knows its path on this host. Write nothing else here." > "$dir/MEMORY.md"
+    fi
+}
+
 prepare_helper_settings() {
     local class="$1"
     local path="$WORKDIR/helper-settings-$class.json"
@@ -309,6 +331,7 @@ EOF
     fi
 
     prompt="$prompt$contract"
+    seed_memory_pointer "$helper_cwd"
     cd "$helper_cwd"
 
     case "$(printf '%s' "$runtime" | tr '[:upper:]' '[:lower:]')" in
