@@ -64,6 +64,9 @@ namespace Armada.Test.Unit
                 AssertTrue(judge.Contains("merge-base --is-ancestor"), "judge prompt requires accepted work to be an ancestor of the tip");
                 AssertTrue(judge.Contains("ABSENT from this base"), "judge prompt names absence of accepted work as a regression");
                 AssertTrue(judge.Contains("cherry-picked forward"), "judge prompt accepts cherry-picked presence in the diff as the alternative to ancestry");
+                AssertTrue(judge.Contains("FINAL RESPONSE"), "judge prompt carves out deliverables that live in a stage's final response");
+                AssertTrue(judge.Contains("[CLAUDE.MD-PROPOSAL]"), "judge prompt names the protected-path proposal block as a final-response deliverable");
+                AssertTrue(judge.Contains("verify it in that stage's mission output"), "judge prompt says where a final-response deliverable is verified");
 
                 string withLens = MissionPromptBuilder.BuildJudgeLensDirective("CORRECTNESS");
                 AssertTrue(withLens.Contains("DELIVERY-EVIDENCE RULE"), "the primary-lens directive keeps the delivery-evidence rule");

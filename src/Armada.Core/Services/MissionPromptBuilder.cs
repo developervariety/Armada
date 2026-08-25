@@ -429,7 +429,11 @@ namespace Armada.Core.Services
             " ancestor of the tip (`git merge-base --is-ancestor <sha> <tip>`) OR its changes appear in" +
             " the diff against the base (cherry-picked forward). When neither holds, the work is ABSENT" +
             " from this base -- a regression no green suite can show -- so name it in Completeness and" +
-            " do not pass the stage on the strength of what remains.";
+            " do not pass the stage on the strength of what remains. The diff rule covers code, test," +
+            " data and document deliverables. A deliverable the brief places in a stage's FINAL RESPONSE" +
+            " -- a [CLAUDE.MD-PROPOSAL] block for a protected path, a report, a quoted proof -- can" +
+            " never be in the diff; verify it in that stage's mission output and treat its absence from" +
+            " the diff as correct, never as NOT DELIVERED.";
 
         internal const string JudgeLensAndBoundedRule =
             " Review through THREE distinct lenses, not one identical pass: (1) CORRECTNESS -- does it do" +
