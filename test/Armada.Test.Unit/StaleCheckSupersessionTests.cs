@@ -159,6 +159,33 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            // A dispatched voyage runs as Open; only a rescue is created InProgress. The first live
+            // observation of this service showed it skipping an Open voyage whose analyst had
+            // committed on top of the Worker's green, so this pins both live statuses.
+            await RunTest("StaleGreenOnOpenVoyage_IsSupersededLikeInProgress", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = await SeedVoyageAsync(testDb, VoyageStatusEnum.Open).ConfigureAwait(false);
+                    await SeedStageAsync(testDb, voyage, "Worker", MissionStatusEnum.WorkProduced, CommitA, earlier).ConfigureAwait(false);
+                    await SeedStageAsync(testDb, voyage, "PortingReferenceAnalyst", MissionStatusEnum.WorkProduced, CommitB, later).ConfigureAwait(false);
+                    CheckRun green = await SeedCheckAsync(testDb, voyage, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, CommitA).ConfigureAwait(false);
+
+                    StaleCheckSupersessionService svc = new StaleCheckSupersessionService(testDb.Driver, CreateLogging());
+                    AssertTrue(StaleCheckSupersessionService.IsLiveVoyageStatus(VoyageStatusEnum.Open), "Open is a live status");
+                    AssertTrue(StaleCheckSupersessionService.IsLiveVoyageStatus(VoyageStatusEnum.InProgress), "InProgress is a live status");
+                    AssertFalse(StaleCheckSupersessionService.IsLiveVoyageStatus(VoyageStatusEnum.Complete), "Complete is not");
+                    AssertFalse(StaleCheckSupersessionService.IsLiveVoyageStatus(VoyageStatusEnum.Failed), "Failed is not");
+                    AssertFalse(StaleCheckSupersessionService.IsLiveVoyageStatus(VoyageStatusEnum.Cancelled), "Cancelled is not");
+
+                    AssertEqual(1, await svc.SupersedeAsync().ConfigureAwait(false), "the stale green on an Open voyage is superseded by the fleet sweep");
+                    List<CheckRun> after = await ReadChecksAsync(testDb, voyage).ConfigureAwait(false);
+                    AssertEqual(2, after.Count, "a replacement was armed");
+                    AssertEqual(CheckRunStatusEnum.Canceled, after.First(run => run.Id == green.Id).Status, "the stale green is Canceled");
+                    AssertEqual(CheckRunStatusEnum.Pending, after.First(run => run.Id != green.Id).Status, "the replacement is Pending");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("GreenAtTheReviewedTip_IsLeftAlone", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

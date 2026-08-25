@@ -118,7 +118,13 @@ namespace Armada.Core.Services
         public async Task<int> SupersedeAsync(CancellationToken token = default)
         {
             int superseded = 0;
-            List<Voyage> live = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
+
+            // A dispatched voyage runs as Open; only a rescue voyage is created InProgress. Both are
+            // live, and the objective scheduler counts both as active. Reading one of the two would
+            // silently skip every ordinary voyage while appearing to work on rescues.
+            List<Voyage> live = new List<Voyage>();
+            live.AddRange(await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false));
+            live.AddRange(await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false));
 
             foreach (Voyage voyage in live)
             {
@@ -130,15 +136,25 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// True when a voyage is still running, so its Checks are subject to supersession.
+        /// </summary>
+        /// <param name="status">The voyage status.</param>
+        /// <returns>True for Open and InProgress.</returns>
+        public static bool IsLiveVoyageStatus(VoyageStatusEnum status)
+        {
+            return status == VoyageStatusEnum.Open || status == VoyageStatusEnum.InProgress;
+        }
+
+        /// <summary>
         /// Supersede the stale greens attached to one voyage.
         /// </summary>
-        /// <param name="voyage">A voyage that is still in progress.</param>
+        /// <param name="voyage">A voyage that is still live (Open or InProgress).</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The number of records superseded.</returns>
         public async Task<int> SupersedeForVoyageAsync(Voyage voyage, CancellationToken token = default)
         {
             if (voyage == null) throw new ArgumentNullException(nameof(voyage));
-            if (voyage.Status != VoyageStatusEnum.InProgress) return 0;
+            if (!IsLiveVoyageStatus(voyage.Status)) return 0;
 
             List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
             Mission? work = SelectWorkUnderReview(missions);
