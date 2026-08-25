@@ -65,12 +65,15 @@ namespace Armada.Test.Unit
                 return Task.CompletedTask;
             });
 
-            await RunTest("EmptyString_ForPlainStringProperty_IsKept", () =>
+            await RunTest("EmptyString_ForOptionalPlainString_IsDropped_ForRequiredString_IsKept", () =>
             {
-                JsonElement args = JsonSerializer.SerializeToElement(new { participantKey = "k", roomKey = "" }, _JsonOpts);
+                // The live failure shape: afterUtc and roomKey are plain optional strings with no
+                // format, sent as "" by a client that meant to omit them.
+                JsonElement args = JsonSerializer.SerializeToElement(new { participantKey = "", roomKey = "" }, _JsonOpts);
                 JsonElement? result = McpToolArgumentNormalizer.Normalize(args, _Schema, _JsonOpts);
-                AssertTrue(result!.Value.TryGetProperty("roomKey", out JsonElement room), "a plain string property keeps its empty value");
-                AssertEqual("", room.GetString(), "value unchanged");
+                AssertFalse(result!.Value.TryGetProperty("roomKey", out _), "an optional plain string sent as \"\" is omitted");
+                AssertTrue(result!.Value.TryGetProperty("participantKey", out JsonElement key), "a REQUIRED string keeps its empty value for the handler to reject");
+                AssertEqual("", key.GetString(), "required value unchanged");
                 return Task.CompletedTask;
             });
 

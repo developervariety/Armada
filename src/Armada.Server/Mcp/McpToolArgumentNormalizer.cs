@@ -15,9 +15,10 @@ namespace Armada.Server.Mcp
     /// deserialise into typed argument classes, where an empty string is not a valid
     /// nullable DateTime, enum, or boolean, so the whole call fails on a parameter the caller
     /// did not care about. The normaliser applies three rules, each keyed by the schema:
-    /// an empty string for a non-string property, or for a string property that carries an
-    /// enum list or a format (date-time, uri), is treated as omitted; a string spelling of a boolean or number for a
-    /// boolean, integer, or number property is converted; everything else is passed through
+    /// an empty string for a property the schema does not list as required -- or for any
+    /// non-string, enum-constrained, or formatted property -- is treated as omitted; a string
+    /// spelling of a boolean or number for a boolean, integer, or number property is converted;
+    /// everything else is passed through
     /// untouched. A value that cannot be converted is left as it was, so the handler's own
     /// error still names it.
     /// </para>
@@ -42,6 +43,18 @@ namespace Armada.Server.Mcp
             foreach (JsonProperty property in properties.EnumerateObject())
                 schemaByName[property.Name] = property.Value;
 
+            HashSet<string> required = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (inputSchema.Value.TryGetProperty("required", out JsonElement requiredList)
+                && requiredList.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement entry in requiredList.EnumerateArray())
+                {
+                    if (entry.ValueKind != JsonValueKind.String) continue;
+                    string? name = entry.GetString();
+                    if (!String.IsNullOrWhiteSpace(name)) required.Add(name);
+                }
+            }
+
             bool changed = false;
             List<KeyValuePair<string, JsonElement?>> normalized = new List<KeyValuePair<string, JsonElement?>>();
             foreach (JsonProperty argument in arguments.Value.EnumerateObject())
@@ -52,7 +65,7 @@ namespace Armada.Server.Mcp
                     continue;
                 }
 
-                JsonElement? value = NormalizeValue(argument.Value, propertySchema, out bool valueChanged);
+                JsonElement? value = NormalizeValue(argument.Value, propertySchema, required.Contains(argument.Name), out bool valueChanged);
                 changed |= valueChanged;
                 normalized.Add(new KeyValuePair<string, JsonElement?>(argument.Name, value));
             }
@@ -96,7 +109,7 @@ namespace Armada.Server.Mcp
             return Normalize(arguments, schema);
         }
 
-        private static JsonElement? NormalizeValue(JsonElement value, JsonElement propertySchema, out bool changed)
+        private static JsonElement? NormalizeValue(JsonElement value, JsonElement propertySchema, bool isRequired, out bool changed)
         {
             changed = false;
             string? type = ReadType(propertySchema);
@@ -115,10 +128,14 @@ namespace Armada.Server.Mcp
 
                 if (text.Length == 0)
                 {
-                    if (!isString || hasEnum || hasFormat)
+                    if (!isRequired || !isString || hasEnum || hasFormat)
                     {
-                        // An empty string for a non-string, enum-constrained, or formatted (date-time,
-                        // uri, ...) property means "omitted".
+                        // An empty string for an OPTIONAL property means "omitted", whatever its type:
+                        // no Armada tool gives an empty optional string a meaning of its own, and the
+                        // clients that send one mean to leave it out. A required string keeps its
+                        // empty value so the handler's own "is required" error still names it. A
+                        // non-string, enum-constrained, or formatted value is dropped even when required,
+                        // because "" can never deserialise into it.
                         changed = true;
                         return null;
                     }
