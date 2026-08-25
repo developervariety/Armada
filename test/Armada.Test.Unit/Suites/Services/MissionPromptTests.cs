@@ -2220,6 +2220,43 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, MissionSubjectExtractor.ExtractTerms("   ").Count, "blank text yields no terms");
             });
 
+            await RunTest("Architect marker segment with front-matter takes its title from the title line", () =>
+            {
+                string segment =
+                    "id: M1\n" +
+                    "title: fix(bundlesources): fail closed on malformed vehicle-info rows\n" +
+                    "preferredModel: mid\n" +
+                    "dependsOnMissionId: M2\n" +
+                    "description: |\n" +
+                    "  **Goal:** reject the four malformed-row cases.\n" +
+                    "  Note: the export has 6 ISO rows.\n";
+
+                MissionService.SplitArchitectMarkerSegment(segment, out string title, out string description);
+
+                AssertEqual("fix(bundlesources): fail closed on malformed vehicle-info rows", title, "the title comes from the title: line, never from id: M1");
+                AssertFalse(description.Contains("title:"), "the title line leaves the description");
+                AssertContains("dependsOnMissionId: M2", description, "the remaining front-matter stays for the dependency extractor");
+                AssertContains("**Goal:** reject the four malformed-row cases.", description, "the body survives");
+
+                (string body, string? dependency) = MissionService.ExtractArchitectFrontMatter(description);
+                AssertEqual("M2", dependency, "the dependency still resolves after the split");
+                AssertFalse(body.Contains("id: M1"), "the id line is stripped with the front-matter");
+            });
+
+            await RunTest("Architect marker segment without a title line keeps the first line as the title", () =>
+            {
+                MissionService.SplitArchitectMarkerSegment("Add API endpoint\nImplement endpoint", out string title, out string description);
+                AssertEqual("Add API endpoint", title, "first line is the title");
+                AssertEqual("Implement endpoint", description, "rest is the description");
+
+                MissionService.SplitArchitectMarkerSegment("Only a title", out string t2, out string d2);
+                AssertEqual("Only a title", t2, "single line is the title");
+                AssertEqual("", d2, "no description");
+
+                MissionService.SplitArchitectMarkerSegment("Verify: the count moved\nthen land", out string t3, out _);
+                AssertEqual("Verify: the count moved", t3, "a prose first line with a colon but no title: key is still the title");
+            });
+
             await RunTest("Architect front-matter dependency is captured and stripped from the brief", () =>
             {
                 string block =

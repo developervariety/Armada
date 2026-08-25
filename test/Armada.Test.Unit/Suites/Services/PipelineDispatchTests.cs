@@ -904,6 +904,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("Implement endpoint", apiJudge!.Description ?? String.Empty, "Primary judge stage should inherit architect-split mission scope");
                     AssertContains("Document endpoint", docsTest.Description ?? String.Empty, "Cloned test stage should inherit architect-split mission scope");
                     AssertContains("Document endpoint", docsJudge.Description ?? String.Empty, "Cloned judge stage should inherit architect-split mission scope");
+                    AssertContains(MissionService.ArchitectDerivedBriefPreamble, apiWorker!.Description ?? String.Empty, "every Architect-derived Worker brief carries the plan-block label rule");
+                    AssertContains(MissionService.ArchitectDerivedBriefPreamble, docsJudge.Description ?? String.Empty, "the cloned Judge brief carries the same rule");
 
                     apiWorker = await testDb.Driver.Missions.ReadAsync(apiWorker!.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.InProgress, apiWorker!.Status, "Primary worker should auto-dispatch after architect completion");

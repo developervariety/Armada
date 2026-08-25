@@ -5984,21 +5984,7 @@ namespace Armada.Core.Services
 
                 if (String.IsNullOrEmpty(segment)) continue;
 
-                int newlineIndex = segment.IndexOf('\n');
-                string title;
-                string description;
-
-                if (newlineIndex >= 0)
-                {
-                    title = segment.Substring(0, newlineIndex).Trim();
-                    description = segment.Substring(newlineIndex + 1).Trim();
-                }
-                else
-                {
-                    title = segment.Trim();
-                    description = "";
-                }
-
+                SplitArchitectMarkerSegment(segment, out string title, out string description);
                 TryAddParsedArchitectMission(results, seenTitles, title, description);
             }
         }
@@ -6088,9 +6074,91 @@ namespace Armada.Core.Services
             {
                 ParsedArchitectMission parsed = new ParsedArchitectMission();
                 parsed.Title = normalizedTitle;
-                parsed.Description = normalizedDescription;
+                parsed.Description = ArchitectDerivedBriefPreamble + "\n\n" + normalizedDescription;
                 parsed.DependsOnReference = dependencyReference;
                 results.Add(parsed);
+            }
+        }
+
+        /// <summary>
+        /// The one rule every Architect-derived brief carries, in front of the block's own text.
+        /// Block ids (M1, M2, ...) exist so the plan can declare ordering; they mean nothing to a
+        /// reader of the repository, and a Judge fails a stage that writes one into committed
+        /// content. Without this line the Worker's only name for its work was the block id, and
+        /// it copied it into the commit message.
+        /// </summary>
+        internal const string ArchitectDerivedBriefPreamble =
+            "PLAN-BLOCK LABELS ARE DISPATCH ARTIFACTS. The block ids in this plan (M1, M2, ...) exist" +
+            " only to order the plan. Never write one into a commit message, source comment, test name," +
+            " log string, or document; name the behaviour instead. Do not rewrite, amend or squash an" +
+            " earlier stage's commit to remove one -- later stages verify ancestry of that commit.";
+
+        /// <summary>
+        /// Splits one <c>[ARMADA:MISSION]</c> segment into its title and description. A segment
+        /// that opens with YAML front-matter (<c>id:</c>, <c>title:</c>, <c>preferredModel:</c>, ...)
+        /// takes its title from the <c>title:</c> line and leaves the remaining front-matter in
+        /// the description for <see cref="ExtractArchitectFrontMatter"/> to consume. A segment
+        /// without a <c>title:</c> line keeps the first line as the title, as before. Without the
+        /// front-matter case, the first line <c>id: M1</c> became the mission title and the real
+        /// title was discarded with the front-matter.
+        /// </summary>
+        /// <param name="segment">The segment text after the opening marker.</param>
+        /// <param name="title">The block title.</param>
+        /// <param name="description">The remaining block text.</param>
+        internal static void SplitArchitectMarkerSegment(string segment, out string title, out string description)
+        {
+            string trimmed = (segment ?? "").Trim();
+            string[] lines = trimmed.Split('\n');
+
+            int titleLine = -1;
+            string? frontMatterTitle = null;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i].Trim();
+                if (line.Length == 0) break;
+                int colon = line.IndexOf(':');
+                if (colon <= 0) break;
+                string key = line.Substring(0, colon);
+                bool keyShape = true;
+                foreach (char ch in key)
+                {
+                    if (!Char.IsLetterOrDigit(ch) && ch != '_') { keyShape = false; break; }
+                }
+                if (!keyShape) break;
+
+                if (String.Equals(key, "title", StringComparison.OrdinalIgnoreCase))
+                {
+                    frontMatterTitle = line.Substring(colon + 1).Trim();
+                    titleLine = i;
+                }
+
+                // The description key opens the body; nothing after it is front-matter.
+                if (String.Equals(key, "description", StringComparison.OrdinalIgnoreCase)) break;
+            }
+
+            if (!String.IsNullOrWhiteSpace(frontMatterTitle))
+            {
+                List<string> rest = new List<string>();
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (i == titleLine) continue;
+                    rest.Add(lines[i]);
+                }
+                title = frontMatterTitle!;
+                description = String.Join("\n", rest).Trim();
+                return;
+            }
+
+            int newlineIndex = trimmed.IndexOf('\n');
+            if (newlineIndex >= 0)
+            {
+                title = trimmed.Substring(0, newlineIndex).Trim();
+                description = trimmed.Substring(newlineIndex + 1).Trim();
+            }
+            else
+            {
+                title = trimmed;
+                description = "";
             }
         }
 
@@ -6246,7 +6314,8 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(key)) return false;
 
-            return String.Equals(key, "title", StringComparison.OrdinalIgnoreCase) ||
+            return String.Equals(key, "id", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(key, "title", StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(key, "preferredModel", StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(key, "dependsOnMissionId", StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(key, "description", StringComparison.OrdinalIgnoreCase);
