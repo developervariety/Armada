@@ -129,6 +129,16 @@ live-hardware boundary.
 
 Before exit:
 
+**Rows another participant owns are read-only to you.** An objective whose
+`Owner` is set to another participant key, or that a live participant has
+claimed on the board, is theirs. On such a row you may add `EvidenceLinks` and
+post a board note addressed to the owner. You must not rewrite its title,
+description, criteria, constraints or tags, must not link or unlink voyages
+and missions, must not change `AutoDispatchEnabled`, `Status` or
+`BacklogState`, and must not file a duplicate objective for the same recovery.
+A failed voyage on an owner's row is the owner's call, and their row is the
+record of it.
+
 1. Compose ONE handoff note with the roster, in-flight voyages, helper
    status, owner decisions, and remaining work, and pass it to
    `armada_lead_cycle_complete` as its `handoff`. That tool posts it to the
