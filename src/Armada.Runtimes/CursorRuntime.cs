@@ -159,6 +159,11 @@ namespace Armada.Runtimes
 
             args.Add("--force");
             args.Add("--trust");
+            // A workspace-level .cursor/mcp.json is discovered by cursor-agent but its servers
+            // stay "not loaded (needs approval)" in a non-interactive --print run, so the dock's
+            // Armada MCP server never reaches the captain without this flag. --trust covers the
+            // workspace only; MCP approval is a separate gate.
+            args.Add("--approve-mcps");
             args.Add("--output-format");
             args.Add("stream-json");
 

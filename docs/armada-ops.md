@@ -1110,6 +1110,13 @@ cycle instead of starting one. Process delivery (`Both`) started four cycles
 for every timer tick and most of them re-triaged work an operator had already
 closed.
 
+**Cursor captains need `--approve-mcps`.** cursor-agent discovers a workspace
+`.cursor/mcp.json` but leaves its servers "not loaded (needs approval)" in a
+non-interactive `--print` run; `--trust` covers the workspace only. The runtime
+passes `--approve-mcps` so the dock's Armada server loads. Proof is a Research
+smoke mission whose report lists the Armada server by name; the file on disk
+proves nothing by itself.
+
 **One board, whatever the key says.** Every coordination tool resolves a blank
 room key, `fleet`, and the literal word `default` to the one shared room
 (`CoordinationRoom.NormalizeKey`). A client that reads "omit for the default
