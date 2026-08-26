@@ -35,7 +35,7 @@ namespace Armada.Server
         /// <summary>
         /// The key of the default fleet-wide room, created on first use.
         /// </summary>
-        public static readonly string DefaultRoomKey = "fleet";
+        public static readonly string DefaultRoomKey = CoordinationRoom.DefaultKey;
 
         /// <summary>
         /// Display name of the default fleet-wide room.
@@ -81,6 +81,12 @@ namespace Armada.Server
         public async Task<CoordinationRoom> EnsureRoomAsync(string key, string? name = null, string? description = null, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(key)) throw new ArgumentException("Room key must not be empty.", nameof(key));
+            key = CoordinationRoom.NormalizeKey(key);
+            if (key == DefaultRoomKey)
+            {
+                if (String.IsNullOrWhiteSpace(name)) name = DefaultRoomName;
+                if (String.IsNullOrWhiteSpace(description)) description = DefaultRoomDescription;
+            }
 
             CoordinationRoom? room = await _Database.CoordinationRooms.ReadByKeyAsync(key, token).ConfigureAwait(false);
             if (room != null) return room;

@@ -44,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
                         content = new { type = "string", description = "Note content. Must not be empty." },
                         authorName = new { type = "string", description = "Your session or operator display name, for example 'claude-session-1'." },
                         authorId = new { type = "string", description = "Optional stable identifier for your session. Defaults to authorName when omitted." },
-                        roomKey = new { type = "string", description = "Room key. Omit for the default fleet room." },
+                        roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." },
                         voyageId = new { type = "string", description = "Optional related voyage ID (vyg_ prefix)." },
                         missionId = new { type = "string", description = "Optional related mission ID (msn_ prefix)." },
                         vesselId = new { type = "string", description = "Optional related vessel ID (vsl_ prefix)." },
@@ -97,7 +97,7 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        roomKey = new { type = "string", description = "Room key. Omit for the default fleet room." },
+                        roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." },
                         limit = new { type = "integer", description = "Maximum number of notes to return (default 50)." },
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
                         activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
@@ -170,7 +170,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         participantKey = new { type = "string", description = "Stable identifier for your session." },
                         displayName = new { type = "string", description = "Display name shown to other sessions." },
-                        roomKey = new { type = "string", description = "Room key. Omit for the default fleet room." }
+                        roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." }
                     },
                     required = new[] { "participantKey", "displayName" }
                 },
@@ -221,7 +221,7 @@ namespace Armada.Server.Mcp.Tools
                         displayName = new { type="string", description = "Display name for the board. Required for claim." },
                         ttlHours = new { type = "number", description = "Hours until expiry without heartbeat. Default 4, clamped 0.5-72." },
                         claimId = new { type = "string", description = "Claim ID (ccl_ prefix). Required for release." },
-                        roomKey = new { type = "string", description = "Room key. Omit for the default fleet room." }
+                        roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." }
                     },
                     required = new[] { "action" }
                 },

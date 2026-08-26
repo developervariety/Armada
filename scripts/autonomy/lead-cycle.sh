@@ -508,16 +508,18 @@ read, claim, and addressed note. Do not use an interactive operator's key.
 
 This launch already acquired Armada lead cycle ${SERVER_CYCLE_ID:-without-server-lease}.
 When a cycle ID starts with lcy_, call armada_lead_cycle_heartbeat during long
-work. After you post the board handoff, release your claims, and stop helpers,
-make armada_lead_cycle_complete with that cycle ID and the same handoff your
-final Armada action. If you must stop early, call armada_lead_cycle_fail with a
+work. When your pass is done, release your claims, stop helpers, and make
+armada_lead_cycle_complete with that cycle ID and your handoff text your final
+Armada action: that tool posts the handoff to the board itself, once. Do not
+post the handoff with armada_coordination_post, do not re-post on a failed
+call, and never pass roomKey. If you must stop early, call armada_lead_cycle_fail with a
 clear reason. The launcher marks a successful process as failed if it leaves its
 server lease open.
 
 Nobody is watching this cycle. That changes three things:
 - You cannot ask a question and wait. When a decision belongs to the owner,
   post it to the board as a named OWNER DECISION and continue with other work.
-- Run ONE bounded pass, post a handoff, release every claim, stop every helper
+- Run ONE bounded pass, hand off through armada_lead_cycle_complete, release every claim, stop every helper
   you started, and exit. Do not start a polling loop; the next cycle is started
   for you.
 - Prefer work that is reversible and provable. Do not enable AgentWake process

@@ -129,12 +129,14 @@ live-hardware boundary.
 
 Before exit:
 
-1. Post EXACTLY ONE handoff note with the roster, in-flight voyages, helper
-   outcomes, queue changes, unresolved evidence, and the next action. Never
-   post it twice: not a tagged copy, not a summary after the final heartbeat,
-   not a restatement when a directed Wake arrives during exit. A fact you
-   learn after posting goes on the objective or incident record, not into a
-   second note. Three copies of one handoff per cycle is the measured failure.
+1. Compose ONE handoff note with the roster, in-flight voyages, helper
+   status, owner decisions, and remaining work, and pass it to
+   `armada_lead_cycle_complete` as its `handoff`. That tool posts it to the
+   board once, itself. Do NOT post the handoff with `armada_coordination_post`,
+   do not re-post it when a tool call fails, and never pass `roomKey` to any
+   coordination tool. If a `armada_lead_cycle_begin` answer starts with
+   `operator-present`, an operator session is active: exit at once and post
+   nothing.
 2. Stop or cull every launcher-managed helper. Do not leave one polling.
 3. Release your claims.
 4. Heartbeat once more, handle any final directed Wake, acknowledge it when

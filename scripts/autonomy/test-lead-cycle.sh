@@ -186,7 +186,7 @@ grep -Fq "Your participantKey is probe-lead." "$LEAD_TEST_PROMPT" \
     || fail "the cycle did not inject its participant key"
 grep -Fq "[AUTONOMOUS CYCLE CONTRACT]" "$LEAD_TEST_PROMPT" \
     || fail "the unattended contract was not injected"
-grep -Fq "post a handoff, release every claim" "$LEAD_TEST_PROMPT" \
+grep -Fq "hand off through armada_lead_cycle_complete, release every claim" "$LEAD_TEST_PROMPT" \
     || fail "the bounded-exit contract was not injected"
 grep -Fq "You are the autonomous lead operator" "$LEAD_TEST_PROMPT" \
     || fail "the bootstrap prompt body was not included"

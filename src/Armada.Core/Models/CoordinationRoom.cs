@@ -8,6 +8,30 @@ namespace Armada.Core.Models
     /// </summary>
     public class CoordinationRoom
     {
+        /// <summary>
+        /// Key of the one shared room every operator session and captain reads. Every
+        /// board tool falls back to it when no room key is given.
+        /// </summary>
+        public const string DefaultKey = "fleet";
+
+        /// <summary>
+        /// Resolve a caller-supplied room key to the key that is stored. A missing key,
+        /// the default key in any casing, and the literal word "default" all mean the
+        /// shared room: clients read "omit for the default room" and send the word, and
+        /// a stored second room under that spelling splits the board in two, so the
+        /// alias is resolved here, at the only seam every room lookup goes through.
+        /// </summary>
+        /// <param name="key">Caller-supplied key, or null.</param>
+        /// <returns>The key to store or look up.</returns>
+        public static string NormalizeKey(string? key)
+        {
+            if (String.IsNullOrWhiteSpace(key)) return DefaultKey;
+            string trimmed = key.Trim();
+            if (String.Equals(trimmed, DefaultKey, StringComparison.OrdinalIgnoreCase)) return DefaultKey;
+            if (String.Equals(trimmed, "default", StringComparison.OrdinalIgnoreCase)) return DefaultKey;
+            return trimmed;
+        }
+
         #region Public-Members
 
         /// <summary>

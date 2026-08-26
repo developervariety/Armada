@@ -158,6 +158,18 @@ namespace Armada.Core.Services
                 };
             }
 
+            List<string> presentOperators = await GetPresentOperatorKeysAsync(participantKey, token).ConfigureAwait(false);
+            if (presentOperators.Count > 0)
+            {
+                return new LeadCycleStartResult
+                {
+                    Acquired = false,
+                    Mode = mode,
+                    RefusalReason = OperatorPresentRefusalPrefix + String.Join(",", presentOperators)
+                        + " seen within " + _Settings.OperatorPresenceMinutes + " minutes"
+                };
+            }
+
             string cycleId = Constants.IdGenerator.GenerateKSortable("lcy_", 24);
             TimeSpan ttl = TimeSpan.FromMinutes(_Settings.CycleLeaseMinutes);
             bool acquired = await _Database.CoordinationLeases.TryAcquireAsync(
@@ -209,6 +221,62 @@ namespace Armada.Core.Services
                 Mode = mode,
                 DeadlineUtc = deadlineUtc
             };
+        }
+
+        /// <summary>
+        /// Prefix of the refusal reason returned while an operator session is present.
+        /// </summary>
+        public const string OperatorPresentRefusalPrefix = "operator-present: ";
+
+        /// <summary>
+        /// Participant keys beginning with this prefix are helpers the lead started itself,
+        /// so their presence never counts as an operator watching the fleet.
+        /// </summary>
+        public const string HelperParticipantKeyPrefix = "helper-";
+
+        /// <summary>
+        /// Select the participants whose recent heartbeat means an operator is present:
+        /// every key except the lead's own and its helpers, seen within the window.
+        /// </summary>
+        /// <param name="participants">Board participants of the shared room.</param>
+        /// <param name="leadParticipantKey">The lead's own key.</param>
+        /// <param name="nowUtc">The reference time.</param>
+        /// <param name="presenceMinutes">The window; 0 disables the gate and selects nobody.</param>
+        /// <returns>Present operator keys, sorted.</returns>
+        public static List<string> PresentOperatorKeys(
+            IEnumerable<CoordinationParticipant> participants,
+            string leadParticipantKey,
+            DateTime nowUtc,
+            int presenceMinutes)
+        {
+            List<string> present = new List<string>();
+            if (participants == null || presenceMinutes <= 0) return present;
+            DateTime threshold = nowUtc.AddMinutes(-presenceMinutes);
+            foreach (CoordinationParticipant participant in participants)
+            {
+                string key = (participant.ParticipantKey ?? String.Empty).Trim();
+                if (key.Length == 0) continue;
+                if (String.Equals(key, (leadParticipantKey ?? String.Empty).Trim(), StringComparison.Ordinal)) continue;
+                if (key.StartsWith(HelperParticipantKeyPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (participant.LastSeenUtc < threshold) continue;
+                if (!present.Contains(key)) present.Add(key);
+            }
+            present.Sort(StringComparer.Ordinal);
+            return present;
+        }
+
+        private async Task<List<string>> GetPresentOperatorKeysAsync(string participantKey, CancellationToken token)
+        {
+            if (_Settings.OperatorPresenceMinutes <= 0) return new List<string>();
+            CoordinationRoom? room = await _Database.CoordinationRooms.ReadByKeyAsync(CoordinationRoom.DefaultKey, token).ConfigureAwait(false);
+            if (room == null) return new List<string>();
+            List<CoordinationParticipant> participants = await _Database.CoordinationParticipants
+                .EnumerateByRoomAsync(room.Id, _Settings.OperatorPresenceMinutes, token).ConfigureAwait(false);
+            List<string> leadKeys = new List<string> { participantKey.Trim() };
+            if (!String.IsNullOrWhiteSpace(_Settings.ParticipantKey)) leadKeys.Add(_Settings.ParticipantKey.Trim());
+            List<string> present = PresentOperatorKeys(participants, participantKey, DateTime.UtcNow, _Settings.OperatorPresenceMinutes);
+            present.RemoveAll(key => leadKeys.Contains(key));
+            return present;
         }
 
         /// <summary>

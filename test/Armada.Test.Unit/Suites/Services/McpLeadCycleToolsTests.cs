@@ -22,7 +22,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Completion requires board handoff and released claims", async () =>
+            await RunTest("Completion requires released claims and posts the handoff itself", async () =>
             {
                 TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 using (testDb)
@@ -52,16 +52,6 @@ namespace Armada.Test.Unit.Suites.Services
                         handoff
                     }));
 
-                    string withoutBoard = JsonSerializer.Serialize(
-                        await handlers["armada_lead_cycle_complete"](completionArgs));
-                    AssertContains("Post the same handoff", withoutBoard);
-
-                    await coordination.PostMessageAsync(
-                        CoordinationService.DefaultRoomKey,
-                        CoordinationAuthorTypeEnum.Operator,
-                        settings.ParticipantKey,
-                        "Armada Lead",
-                        handoff).ConfigureAwait(false);
                     CoordinationClaim claim = await coordination.ClaimAsync(
                         settings.ParticipantKey,
                         "Armada Lead",
@@ -72,10 +62,16 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("Release all claims", withClaim);
 
                     await coordination.ReleaseClaimAsync(claim.Id).ConfigureAwait(false);
+                    // Nothing was posted: the gate posts the handoff itself, once, and completes.
                     string completed = JsonSerializer.Serialize(
                         await handlers["armada_lead_cycle_complete"](completionArgs));
                     AssertContains("\"Completed\":true", completed);
+                    AssertContains("posted_by_gate", completed);
                     AssertFalse((await coordinator.GetStatusAsync().ConfigureAwait(false)).Active);
+                    List<CoordinationMessage> board = await coordination.ReadMessagesAsync(
+                        CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    AssertEqual(1, board.Count(message => message.AuthorId == settings.ParticipantKey && message.Content == handoff),
+                        "the gate posted the handoff exactly once");
                 }
             }).ConfigureAwait(false);
         }

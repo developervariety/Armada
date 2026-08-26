@@ -92,6 +92,19 @@ namespace Armada.Core.Settings
             set => _StandbyFallbackAfterMinutes = Math.Max(60, Math.Min(1440, value));
         }
 
+        /// <summary>
+        /// Minutes within which a board heartbeat from any participant other than the lead
+        /// itself, or one of its own helpers, counts as an operator being present. While an
+        /// operator is present, armada_lead_cycle_begin refuses with an operator-present
+        /// reason, so the unattended lead runs only when nobody is watching. 0 disables the
+        /// gate. Clamped to 0 through 1440 minutes.
+        /// </summary>
+        public int OperatorPresenceMinutes
+        {
+            get => _OperatorPresenceMinutes;
+            set => _OperatorPresenceMinutes = Math.Max(0, Math.Min(1440, value));
+        }
+
         #endregion
 
         #region Private-Members
@@ -102,6 +115,7 @@ namespace Armada.Core.Settings
         private string _BearerTokenEnvironmentVariable = "ARMADA_GROK_MCP_TOKEN";
         private int _CycleLeaseMinutes = 40;
         private int _StandbyFallbackAfterMinutes = 130;
+        private int _OperatorPresenceMinutes = 30;
 
         #endregion
     }

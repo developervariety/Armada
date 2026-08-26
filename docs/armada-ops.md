@@ -1093,6 +1093,29 @@ Two things start a cycle, and they are complementary:
 cycle is running is refused, not queued, so one participant key never gets two
 process owners.
 
+**The lead runs only when nobody is watching.** `armada_lead_cycle_begin`
+refuses with `operator-present: <keys> seen within N minutes` while any board
+participant other than the lead itself (or a `helper-*` it started) has
+heartbeated within `grokLead.operatorPresenceMinutes` (default 30; 0 disables
+the gate). An interactive session, a dashboard viewer, and an Armada helper
+session all count as an operator. The launcher records the refusal as
+`skipped server-lease-refused` and exits, so a cycle that finds an operator
+present costs one tool call. Measured before the gate: 131 cycles in 24 hours
+while an operator session was live, 93% of their tool calls reads, and every
+landing, closure and dispatch that mattered made by the operator.
+
+Prefer `remoteTrigger.agentWake.deliveryMode = StoredWake` for the lead: a
+directed note or mission outcome then waits on the board for the next timed
+cycle instead of starting one. Process delivery (`Both`) started four cycles
+for every timer tick and most of them re-triaged work an operator had already
+closed.
+
+**One board, whatever the key says.** Every coordination tool resolves a blank
+room key, `fleet`, and the literal word `default` to the one shared room
+(`CoordinationRoom.NormalizeKey`). A client that reads "omit for the default
+room" and sends the word `default` no longer creates a second room, which
+split the board in two and hid the lead's handoffs from the completion gate.
+
 The launcher also acquires Armada's durable `autonomy:lead-cycle` lease. This
 prevents overlap with an external Grok lead. The systemd service requests
 standby fallback. In `GrokPrimary` mode, Armada refuses that request until the
@@ -1111,8 +1134,12 @@ The shared lifecycle tools are:
 - `armada_lead_cycle_status` reads the current mode and lease;
 - `armada_lead_cycle_begin` requests one bounded cycle;
 - `armada_lead_cycle_heartbeat` renews the active lease;
-- `armada_lead_cycle_complete` verifies the board handoff and released claims,
-  records completion, and releases the lease;
+- `armada_lead_cycle_complete` verifies that every claim is released, posts the
+  handoff to the shared board itself when the lead has not already posted the
+  same text, records completion, and releases the lease. It never refuses on a
+  wording or room mismatch: that refusal made the lead re-post and retry until
+  one copy matched, which is where duplicate handoff notes came from. The lead
+  passes its handoff to this tool and posts nothing itself;
 - `armada_lead_cycle_fail` records an early stop or failure and releases the
   lease.
 

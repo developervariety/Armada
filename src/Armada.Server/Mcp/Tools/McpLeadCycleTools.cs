@@ -125,22 +125,39 @@ namespace Armada.Server.Mcp.Tools
                         status.StartedUtc,
                         200,
                         visibleToParticipantKey: participantKey).ConfigureAwait(false);
-                    string handoff = request.Handoff ?? String.Empty;
-                    bool handoffPosted = messages.Any(message =>
-                        String.Equals(message.AuthorId, participantKey, StringComparison.Ordinal)
-                        && String.Equals(message.Content.Trim(), handoff.Trim(), StringComparison.Ordinal));
-                    if (!handoffPosted)
+                    string handoff = (request.Handoff ?? String.Empty).Trim();
+                    if (handoff.Length == 0)
                     {
                         return (object)new
                         {
-                            Error = "Post the same handoff to the coordination board before completing the lead cycle.",
+                            Error = "A handoff is required to complete the lead cycle.",
                             CycleId = request.CycleId
                         };
+                    }
+                    bool handoffPosted = messages.Any(message =>
+                        String.Equals(message.AuthorId, participantKey, StringComparison.Ordinal)
+                        && HandoffMatches(message.Content, handoff));
+                    if (!handoffPosted)
+                    {
+                        // The gate posts the handoff itself. Refusing here made the lead re-post
+                        // and retry until one copy matched, which is where duplicate handoffs
+                        // came from; the cycle's own final note is the one that must exist.
+                        await coordination.PostMessageAsync(
+                            CoordinationService.DefaultRoomKey,
+                            CoordinationAuthorTypeEnum.Operator,
+                            participantKey,
+                            participantKey,
+                            handoff).ConfigureAwait(false);
                     }
                     bool completed = await coordinator.CompleteAsync(
                         request.CycleId,
                         handoff).ConfigureAwait(false);
-                    return (object)new { Completed = completed, CycleId = request.CycleId };
+                    return (object)new
+                    {
+                        Completed = completed,
+                        CycleId = request.CycleId,
+                        HandoffPosted = handoffPosted ? "already_on_board" : "posted_by_gate"
+                    };
                 });
 
             register(
@@ -180,6 +197,29 @@ namespace Armada.Server.Mcp.Tools
                 required = new[] { "cycleId" }
             };
         }
+        /// <summary>
+        /// True when a board note carries the handoff: the same text once whitespace runs
+        /// are collapsed, or the handoff with a "[ARMADA:LEAD-HANDOFF] Cycle ...:" prefix.
+        /// </summary>
+        /// <param name="content">Board note content.</param>
+        /// <param name="handoff">Handoff text.</param>
+        /// <returns>True when they match.</returns>
+        internal static bool HandoffMatches(string? content, string? handoff)
+        {
+            string left = CollapseWhitespace(content);
+            string right = CollapseWhitespace(handoff);
+            if (left.Length == 0 || right.Length == 0) return false;
+            if (String.Equals(left, right, StringComparison.Ordinal)) return true;
+            return left.EndsWith(right, StringComparison.Ordinal)
+                && left.StartsWith("[ARMADA:LEAD-HANDOFF]", StringComparison.Ordinal);
+        }
+
+        private static string CollapseWhitespace(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text)) return String.Empty;
+            return System.Text.RegularExpressions.Regex.Replace(text.Trim(), @"\s+", " ");
+        }
+
 
         private static LeadCycleUpdateArgs DeserializeUpdate(JsonElement? args)
         {
