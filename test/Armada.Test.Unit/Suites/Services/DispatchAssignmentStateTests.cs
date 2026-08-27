@@ -456,6 +456,71 @@ namespace Armada.Test.Unit.Suites.Services
             // in one pass must not both provision a dock for the one idle captain: the second must
             // wait for an idle captain without spending the provisioning cost. Measured live: 12
             // aborted claims in one day, each after a full dock and sibling provisioning.
+            await RunTest("TryAssign_StartRefThatDoesNotResolve_FailsByNameAndReleasesTheCaptain_ResolvableRefCutsTheBranch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    Vessel vessel = new Vessel("start-ref-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("start-ref-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Mission gone = new Mission("Continue from a ref that is gone", "Continues the slice.");
+                    gone.VesselId = vessel.Id;
+                    gone.Persona = "Worker";
+                    gone.Status = MissionStatusEnum.Pending;
+                    gone.StartFromRef = "recover/gone";
+                    gone = await testDb.Driver.Missions.CreateAsync(gone).ConfigureAwait(false);
+                    gone.StartFromRef = "recover/gone";
+                    await testDb.Driver.Missions.UpdateAsync(gone).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(gone, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(gone.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "Mission must still exist");
+                    AssertFalse(assigned, "An unresolvable start ref must not assign.");
+                    AssertEqual(MissionStatusEnum.Failed, readBack!.Status, "The mission fails rather than falling back to the default branch: " + (readBack.FailureReason ?? "(none)"));
+                    AssertTrue((readBack.FailureReason ?? "").StartsWith("start_from_ref_missing", StringComparison.Ordinal), "The failure is named: " + (readBack.FailureReason ?? "(none)"));
+                    AssertContains("recover/gone", readBack.FailureReason ?? "", "The failure names the ref.");
+                    AssertNull(readBack.CaptainId, "No captain stays attached to a failed assignment.");
+                    AssertEqual(0, git.ForceUpdateBranchRefCalls.Count, "No branch is cut for a ref that does not resolve.");
+                    Captain? captainAfter = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, captainAfter!.State, "The captain is released.");
+
+                    // The same mission shape with a ref that resolves is cut at that commit before provisioning.
+                    git.RevisionShaResult = "abc1234";
+                    Mission good = new Mission("Continue from the accepted tip", "Continues the slice.");
+                    good.VesselId = vessel.Id;
+                    good.Persona = "Worker";
+                    good.Status = MissionStatusEnum.Pending;
+                    good.StartFromRef = "recover/accepted-tip-abc1234";
+                    good = await testDb.Driver.Missions.CreateAsync(good).ConfigureAwait(false);
+                    good.StartFromRef = "recover/accepted-tip-abc1234";
+                    await testDb.Driver.Missions.UpdateAsync(good).ConfigureAwait(false);
+
+                    bool assignedGood = await missionService.TryAssignAsync(good, vessel).ConfigureAwait(false);
+
+                    Mission? goodBack = await testDb.Driver.Missions.ReadAsync(good.Id).ConfigureAwait(false);
+                    AssertNotNull(goodBack, "Mission must still exist");
+                    AssertTrue(assignedGood, "A resolvable start ref assigns; state=" + goodBack!.AssignmentState + " status=" + goodBack.Status + " reason: " + (goodBack.FailureReason ?? "(none)"));
+                    AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "The mission branch is cut once.");
+                    AssertEqual(vessel.LocalPath + ":" + goodBack.BranchName + ":abc1234", git.ForceUpdateBranchRefCalls[0], "The branch is cut at the start ref's commit before provisioning.");
+                }
+            });
+
             await RunTest("TryAssign_TwoMissionsOneIdleCaptainConcurrently_OnlyOneProvisions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1248,6 +1313,8 @@ namespace Armada.Test.Unit.Suites.Services
                 _DelayMs = delayMs;
             }
 
+            public Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default) => Task.FromResult<string?>(null);
+
             public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
             {
                 await Task.Delay(_DelayMs, CancellationToken.None).ConfigureAwait(false);
@@ -1291,6 +1358,8 @@ namespace Armada.Test.Unit.Suites.Services
             /// <summary>Allow provisioning to proceed.</summary>
             public void Release() => _ReleaseSource.TrySetResult();
 
+            public Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default) => Task.FromResult<string?>(null);
+
             public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
             {
                 _EnteredSource.TrySetResult();
@@ -1324,6 +1393,8 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 _Inner = inner;
             }
+
+            public Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default) => Task.FromResult<string?>(null);
 
             public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
             {

@@ -28,6 +28,14 @@ namespace Armada.Core.Services.Interfaces
         Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default);
 
         /// <summary>
+        /// Cut <paramref name="branchName"/> in the vessel repository at <paramref name="startFromRef"/>
+        /// so the worktree provisioned next attaches to it instead of the default branch. Returns the
+        /// resolved commit, or null when the ref does not resolve. A branch that already exists is left
+        /// where it is: that is a retry of an assignment, never a reason to move a captain's work.
+        /// </summary>
+        Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default);
+
+        /// <summary>
         /// Reclaim a dock by removing the worktree.
         /// </summary>
         /// <param name="dockId">Dock identifier.</param>

@@ -94,6 +94,11 @@ namespace Armada.Core.Models
         public string? SuggestedPipelineId { get; set; } = null;
 
         /// <summary>
+        /// Optional commit or ref the next dispatched voyage starts from. An empty string clears it.
+        /// </summary>
+        public string? StartFromRef { get; set; } = null;
+
+        /// <summary>
         /// Suggested playbook selections.
         /// </summary>
         public List<SelectedPlaybook>? SuggestedPlaybooks { get; set; } = null;

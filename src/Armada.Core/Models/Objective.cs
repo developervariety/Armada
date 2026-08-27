@@ -126,6 +126,13 @@ namespace Armada.Core.Models
         public string? SuggestedPipelineId { get; set; } = null;
 
         /// <summary>
+        /// Optional commit or ref in the vessel repository that the first stage of the next
+        /// dispatched voyage starts from instead of the vessel default branch. Used to requeue
+        /// an objective on top of accepted work. Dispatch refuses when the ref does not resolve.
+        /// </summary>
+        public string? StartFromRef { get; set; } = null;
+
+        /// <summary>
         /// Optional ordered playbook suggestions for follow-through.
         /// </summary>
         public List<SelectedPlaybook> SuggestedPlaybooks { get; set; } = new List<SelectedPlaybook>();

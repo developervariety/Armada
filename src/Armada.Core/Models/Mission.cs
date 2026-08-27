@@ -309,6 +309,12 @@ namespace Armada.Core.Models
         public int LandingRetryCount { get; set; } = 0;
 
         /// <summary>
+        /// Optional commit or ref the mission branch is cut from at assignment instead of the
+        /// vessel default branch. Set on a first-stage mission from the objective's StartFromRef.
+        /// </summary>
+        public string? StartFromRef { get; set; } = null;
+
+        /// <summary>
         /// Comma-separated captain ids already tried on this mission whose runs were
         /// unusable (for example a Judge that exited with empty output and no verdict).
         /// In-place re-runs append the failing captain so the next dispatch routes to a

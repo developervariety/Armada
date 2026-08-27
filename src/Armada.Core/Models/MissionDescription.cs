@@ -100,6 +100,14 @@ namespace Armada.Core.Models
         /// </summary>
         public List<SelectedPlaybook>? SelectedPlaybooks { get; set; } = null;
 
+        /// <summary>
+        /// Optional git ref (branch, tag or commit) in the vessel repository that the FIRST stage's
+        /// branch is cut from instead of the vessel default branch. Later stages continue that branch
+        /// as usual. Null means the default branch. Ignored on a description that depends on another
+        /// mission, because a dependent stage continues its predecessor's branch.
+        /// </summary>
+        public string? StartFromRef { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

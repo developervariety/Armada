@@ -681,6 +681,11 @@ namespace Armada.Core.Database.Mysql
                     71,
                     "Add last_process_alive_utc to captains",
                     TableQueries.MigrationV71Statements
+                ),
+                new SchemaMigration(
+                    72,
+                    "Add start_from_ref to objectives and missions",
+                    TableQueries.MigrationV72Statements
                 )
             };
         }

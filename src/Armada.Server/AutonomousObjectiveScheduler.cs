@@ -416,6 +416,17 @@ namespace Armada.Server
                     {
                         RecordSkip(skipReasons, skipped.Reason);
                     }
+                    catch (StartFromRefMissingException missing)
+                    {
+                        // A ref that does not resolve is the objective's fault, not the fleet's.
+                        // Report it by name so an operator can correct the row; a generic
+                        // dispatch_error would send them looking at the captains.
+                        RecordSkip(skipReasons, "start_from_ref_missing");
+                        _Logging.Warn(_Header + "objective " + objective.Id + " skipped: " + missing.Message);
+                        await EmitObjectiveEventAsync("objective_scheduler.start_from_ref_missing",
+                            "Autonomous scheduler skipped objective " + objective.Id + ": " + missing.Message,
+                            objective, null, token).ConfigureAwait(false);
+                    }
                     catch (Exception ex)
                     {
                         RecordSkip(skipReasons, "dispatch_error");
@@ -606,7 +617,8 @@ namespace Armada.Server
             string missionDescription = BuildMissionDescription(objective);
             MissionDescription md = new MissionDescription(objective.Title, missionDescription)
             {
-                CodeContextMode = _Settings.CodeIndex.Enabled ? "auto" : "off"
+                CodeContextMode = _Settings.CodeIndex.Enabled ? "auto" : "off",
+                StartFromRef = objective.StartFromRef
             };
 
             List<MissionDescription> missionDescriptions = new List<MissionDescription> { md };

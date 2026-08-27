@@ -1142,6 +1142,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v72 statements for adding start_from_ref to objectives and missions.
+        /// </summary>
+        public static readonly string[] MigrationV72Statements = new string[]
+        {
+            @"ALTER TABLE objectives ADD COLUMN start_from_ref VARCHAR(512) NULL;",
+            @"ALTER TABLE missions ADD COLUMN start_from_ref VARCHAR(512) NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

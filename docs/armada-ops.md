@@ -202,6 +202,27 @@ Use bounded read-only helpers to prepare future lanes; use captains and voyages
 for repository writes. When throughput looks low, inspect both the scheduler
 ceiling and how many objectives have `AutoDispatchEnabled=true`.
 
+#### Start ref: continue from an accepted tip
+
+An objective can carry `startFromRef` (a branch, tag or commit in the vessel
+repository, set through `create_objective` / `update_objective`). When the
+scheduler or an operator dispatches a voyage for it, the FIRST stage's branch is
+cut from that ref instead of the vessel default branch; later stages continue
+the branch as usual. Use it to re-dispatch a row from a `recover/<name>-<sha>`
+ref that holds an accepted Worker or TestEngineer tip, so the new voyage does
+not rebuild what a Judge already accepted.
+
+The ref is resolved twice, and both failures are loud. At dispatch, a ref that
+does not resolve refuses the whole dispatch before any voyage row exists; the
+scheduler reports it as `start_from_ref_missing` (never `dispatch_error`) and
+writes an `objective_scheduler.start_from_ref_missing` event. At assignment,
+the branch is cut at the ref in the bare repository before the dock is
+provisioned; if the ref has gone by then, the mission fails with
+`start_from_ref_missing` and no captain is launched. There is no fallback to
+the default branch: a captain working on the wrong base reads as a captain
+defect two stages later. A dependent mission ignores the field, because it
+continues its predecessor's branch.
+
 #### Model pinning
 
 `preferredModel` normally takes a complexity tier (`mid` or `high`; the

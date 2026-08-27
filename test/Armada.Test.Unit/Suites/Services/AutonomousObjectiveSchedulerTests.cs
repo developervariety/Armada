@@ -587,6 +587,89 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("dispatch_error", scheduler.LastSkipReason ?? string.Empty, "A genuine dispatch fault keeps its name.");
             }).ConfigureAwait(false);
 
+            await RunTest("An objective's start ref reaches the dispatch description", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("start-ref-vessel", "https://github.com/test/start.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Continue from the accepted tip",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    StartFromRef = "recover/accepted-tip-abc1234"
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "The objective dispatches.");
+                AssertNotNull(admiral.LastMissionDescriptions, "The dispatch carried descriptions.");
+                AssertEqual("recover/accepted-tip-abc1234", admiral.LastMissionDescriptions![0].StartFromRef, "The objective's start ref reaches the first-stage description.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A start ref that does not resolve is reported as start_from_ref_missing, not dispatch_error", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("gone-ref-vessel", "https://github.com/test/gone.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Continue from a ref that is gone",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    StartFromRef = "recover/gone"
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                admiral.ThrowOnDispatch = new StartFromRefMissingException("start_from_ref_missing: ref 'recover/gone' does not resolve in the repository of vessel gone-ref-vessel.");
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings, new DispatchHold());
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertContains("start_from_ref_missing", scheduler.LastSkipReason ?? string.Empty, "The skip is named after the ref, not the fleet.");
+                AssertFalse((scheduler.LastSkipReason ?? string.Empty).Contains("dispatch_error"), "A bad ref is not a dispatch error.");
+
+                List<ArmadaEvent> events = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.start_from_ref_missing")
+                    .ConfigureAwait(false);
+                AssertEqual(1, events.Count, "The skip is recorded as an objective event.");
+                AssertContains(objective.Id, events[0].Message ?? string.Empty, "The event names the objective.");
+                AssertContains("recover/gone", events[0].Message ?? string.Empty, "The event names the ref.");
+            }).ConfigureAwait(false);
+
             await RunTest("A sweep that dispatches nothing says why", async () =>
             {
                 // A multi-vessel objective is eligible by every rule the selector checks,
@@ -979,6 +1062,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
             public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
             public Func<int, bool>? OnIsProcessExitHandled { get; set; }
+            public List<MissionDescription>? LastMissionDescriptions { get; set; }
 
             public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, CancellationToken token = default)
                 => throw new NotImplementedException();
@@ -993,6 +1077,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 if (ThrowOnDispatch != null) throw ThrowOnDispatch;
                 DispatchVoyageCallCount++;
+                LastMissionDescriptions = missionDescriptions;
                 Voyage voyage = new Voyage
                 {
                     TenantId = Constants.DefaultTenantId,

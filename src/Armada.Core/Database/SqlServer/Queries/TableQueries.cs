@@ -820,6 +820,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     "Add last_process_alive_utc to captains",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('captains') AND name = 'last_process_alive_utc')
                     ALTER TABLE captains ADD last_process_alive_utc NVARCHAR(450) NULL;"
+                ),
+                new SchemaMigration(
+                    75,
+                    "Add start_from_ref to objectives and missions",
+                    @"IF COL_LENGTH('objectives', 'start_from_ref') IS NULL ALTER TABLE objectives ADD start_from_ref NVARCHAR(512) NULL;",
+                    @"IF COL_LENGTH('missions', 'start_from_ref') IS NULL ALTER TABLE missions ADD start_from_ref NVARCHAR(512) NULL;"
                 )
             };
         }

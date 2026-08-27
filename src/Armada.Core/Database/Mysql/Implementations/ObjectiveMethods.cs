@@ -34,9 +34,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO objectives
-                        (id, tenant_id, user_id, title, description, status, kind, category, priority, `rank`, auto_dispatch_enabled, backlog_state, effort, owner, target_version, due_utc, parent_objective_id, blocked_by_objective_ids_json, refinement_summary, suggested_pipeline_id, suggested_playbooks_json, tags_json, acceptance_criteria_json, non_goals_json, rollout_constraints_json, evidence_links_json, fleet_ids_json, vessel_ids_json, planning_session_ids_json, refinement_session_ids_json, voyage_ids_json, mission_ids_json, check_run_ids_json, release_ids_json, deployment_ids_json, incident_ids_json, source_provider, source_type, source_id, source_url, source_updated_utc, created_utc, last_update_utc, completed_utc)
+                        (id, tenant_id, user_id, title, description, status, kind, category, priority, `rank`, auto_dispatch_enabled, start_from_ref, backlog_state, effort, owner, target_version, due_utc, parent_objective_id, blocked_by_objective_ids_json, refinement_summary, suggested_pipeline_id, suggested_playbooks_json, tags_json, acceptance_criteria_json, non_goals_json, rollout_constraints_json, evidence_links_json, fleet_ids_json, vessel_ids_json, planning_session_ids_json, refinement_session_ids_json, voyage_ids_json, mission_ids_json, check_run_ids_json, release_ids_json, deployment_ids_json, incident_ids_json, source_provider, source_type, source_id, source_url, source_updated_utc, created_utc, last_update_utc, completed_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @title, @description, @status, @kind, @category, @priority, @rank, @auto_dispatch_enabled, @backlog_state, @effort, @owner, @target_version, @due_utc, @parent_objective_id, @blocked_by_objective_ids_json, @refinement_summary, @suggested_pipeline_id, @suggested_playbooks_json, @tags_json, @acceptance_criteria_json, @non_goals_json, @rollout_constraints_json, @evidence_links_json, @fleet_ids_json, @vessel_ids_json, @planning_session_ids_json, @refinement_session_ids_json, @voyage_ids_json, @mission_ids_json, @check_run_ids_json, @release_ids_json, @deployment_ids_json, @incident_ids_json, @source_provider, @source_type, @source_id, @source_url, @source_updated_utc, @created_utc, @last_update_utc, @completed_utc);";
+                        (@id, @tenant_id, @user_id, @title, @description, @status, @kind, @category, @priority, @rank, @auto_dispatch_enabled, @start_from_ref, @backlog_state, @effort, @owner, @target_version, @due_utc, @parent_objective_id, @blocked_by_objective_ids_json, @refinement_summary, @suggested_pipeline_id, @suggested_playbooks_json, @tags_json, @acceptance_criteria_json, @non_goals_json, @rollout_constraints_json, @evidence_links_json, @fleet_ids_json, @vessel_ids_json, @planning_session_ids_json, @refinement_session_ids_json, @voyage_ids_json, @mission_ids_json, @check_run_ids_json, @release_ids_json, @deployment_ids_json, @incident_ids_json, @source_provider, @source_type, @source_id, @source_url, @source_updated_utc, @created_utc, @last_update_utc, @completed_utc);";
                     BindObjective(cmd, objective);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -65,6 +65,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         priority = @priority,
                         `rank` = @rank,
                         auto_dispatch_enabled = @auto_dispatch_enabled,
+                        start_from_ref = @start_from_ref,
                         backlog_state = @backlog_state,
                         effort = @effort,
                         owner = @owner,
@@ -310,6 +311,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@priority", objective.Priority.ToString());
             cmd.Parameters.AddWithValue("@rank", objective.Rank);
             cmd.Parameters.AddWithValue("@auto_dispatch_enabled", objective.AutoDispatchEnabled ? 1 : 0);
+            cmd.Parameters.AddWithValue("@start_from_ref", (object?)objective.StartFromRef ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@backlog_state", objective.BacklogState.ToString());
             cmd.Parameters.AddWithValue("@effort", objective.Effort.ToString());
             cmd.Parameters.AddWithValue("@owner", (object?)objective.Owner ?? DBNull.Value);
@@ -367,6 +369,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 DueUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["due_utc"]),
                 ParentObjectiveId = MysqlDatabaseDriver.NullableString(reader["parent_objective_id"]),
                 RefinementSummary = MysqlDatabaseDriver.NullableString(reader["refinement_summary"]),
+                StartFromRef = MysqlDatabaseDriver.NullableString(reader["start_from_ref"]),
                 SuggestedPipelineId = MysqlDatabaseDriver.NullableString(reader["suggested_pipeline_id"]),
                 SourceProvider = MysqlDatabaseDriver.NullableString(reader["source_provider"]),
                 SourceType = MysqlDatabaseDriver.NullableString(reader["source_type"]),

@@ -237,6 +237,7 @@ namespace Armada.Core.Services
             // unambiguous error and no partial state is left behind.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
             await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             // Create missions
             foreach (MissionDescription md in missionDescriptions)
@@ -251,6 +252,8 @@ namespace Armada.Core.Services
                 mission.Mode = MissionModes.Parse(md.Mode);
                 if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                     mission.DependsOnMissionId = md.DependsOnMissionId;
+                else
+                    mission.StartFromRef = NormalizeStartFromRef(md.StartFromRef);
                 mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
@@ -351,6 +354,7 @@ namespace Armada.Core.Services
             // Validate prestaged files for every mission before persisting any pipeline stage.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
             await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             foreach (MissionDescription md in missionDescriptions)
             {
@@ -407,6 +411,11 @@ namespace Armada.Core.Services
                         // when a downstream stage is provisioned from the shared branch.
                         mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                         bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
+
+                        // Only the first stage of a chain is cut from the start ref; every later
+                        // stage continues the branch the first stage produced.
+                        if (isFirstChainMission && String.IsNullOrEmpty(md.DependsOnMissionId))
+                            mission.StartFromRef = NormalizeStartFromRef(md.StartFromRef);
 
                         mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                         mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
@@ -479,6 +488,7 @@ namespace Armada.Core.Services
             // Validate request-shaped inputs before creating any durable voyage state.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
             await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
             bool isMultiStage = pipeline != null
@@ -569,6 +579,11 @@ namespace Armada.Core.Services
                             // from the upstream dock to appear in a new worktree.
                             mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                             bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
+
+                            // Only the first stage of a chain is cut from the start ref; every later
+                            // stage continues the branch the first stage produced.
+                            if (isFirstChainMission && String.IsNullOrEmpty(md.DependsOnMissionId))
+                                mission.StartFromRef = NormalizeStartFromRef(md.StartFromRef);
 
                             mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                             List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
@@ -804,6 +819,37 @@ namespace Armada.Core.Services
                         String.Join("; ", errors),
                         nameof(missionDescriptions));
                 }
+            }
+        }
+
+        private static string? NormalizeStartFromRef(string? startFromRef)
+        {
+            return String.IsNullOrWhiteSpace(startFromRef) ? null : startFromRef.Trim();
+        }
+
+        /// <summary>
+        /// Refuse a dispatch whose start ref does not resolve in the vessel repository. The check
+        /// runs before the voyage row exists, so a bad ref leaves no half-created voyage behind and
+        /// the scheduler can report it as a named skip rather than a dispatch error. A dependent
+        /// description is not checked: it continues its predecessor's branch and its ref is ignored.
+        /// </summary>
+        private async Task ValidateStartFromRefsOrThrowAsync(Vessel vessel, List<MissionDescription> missionDescriptions, CancellationToken token)
+        {
+            string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+
+            foreach (MissionDescription md in missionDescriptions)
+            {
+                string? startFromRef = NormalizeStartFromRef(md.StartFromRef);
+                if (startFromRef == null || !String.IsNullOrEmpty(md.DependsOnMissionId)) continue;
+
+                string? sha = await _Git.GetRevisionShaAsync(repoPath, startFromRef, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(sha))
+                {
+                    throw new StartFromRefMissingException(
+                        "start_from_ref_missing: ref '" + startFromRef + "' does not resolve in the repository of vessel " + vessel.Name + ".");
+                }
+
+                _Logging.Info(_Header + "start ref " + startFromRef + " resolves to " + sha + " in vessel " + vessel.Name);
             }
         }
 

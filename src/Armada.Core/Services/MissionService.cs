@@ -590,6 +590,34 @@ namespace Armada.Core.Services
             mission.AssignmentState = MissionAssignmentStateEnum.Provisioning;
             mission.LastUpdateUtc = DateTime.UtcNow;
 
+            // A first-stage mission with a start ref is cut from that ref, not from the default
+            // branch. The ref is resolved in the vessel repository here, before provisioning, so the
+            // worktree attaches to a branch that already sits at the requested commit. An
+            // unresolvable ref fails the mission by name; it never falls back to the default branch,
+            // because a captain working on the wrong base reads as a captain defect two stages later.
+            if (!preserveInheritedBranch
+                && String.IsNullOrEmpty(mission.DependsOnMissionId)
+                && !String.IsNullOrWhiteSpace(mission.StartFromRef))
+            {
+                string? startCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(startCommit))
+                {
+                    _Logging.Warn(_Header + "mission " + mission.Id + " start ref '" + mission.StartFromRef + "' does not resolve in vessel " + vessel.Id + "; failing assignment");
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Failed;
+                    mission.FailureReason = "start_from_ref_missing: ref '" + mission.StartFromRef + "' does not resolve in the vessel repository.";
+                    mission.CaptainId = null;
+                    mission.BranchName = null;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    return false;
+                }
+
+                _Logging.Info(_Header + "mission " + mission.Id + " branch " + branchName + " cut from start ref " + mission.StartFromRef + " at " + startCommit);
+            }
+
             // Persist Provisioning before the dock call. Provisioning can take seconds (worktree
             // creation, sibling checkouts), and without this write the mission row kept advertising
             // its pre-assignment state for that whole window -- so neither an operator nor the

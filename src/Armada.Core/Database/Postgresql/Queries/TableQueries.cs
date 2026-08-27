@@ -912,6 +912,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(79, "Add addressed-to-participant column to coordination messages for session work handoffs",
                     @"ALTER TABLE coordination_messages ADD COLUMN to_participant_key TEXT;",
                     @"CREATE INDEX IF NOT EXISTS idx_coordination_messages_to_key ON coordination_messages(to_participant_key);"
+                ),
+                new SchemaMigration(80, "Add start_from_ref to objectives and missions",
+                    @"ALTER TABLE objectives ADD COLUMN IF NOT EXISTS start_from_ref TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS start_from_ref TEXT;"
                 )
             };
         }

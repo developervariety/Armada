@@ -51,6 +51,32 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
+        public async Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+            if (String.IsNullOrEmpty(startFromRef)) throw new ArgumentNullException(nameof(startFromRef));
+
+            string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+            string? commit = await _Git.GetRevisionShaAsync(repoPath, startFromRef, token).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(commit))
+            {
+                _Logging.Warn(_Header + "start ref " + startFromRef + " does not resolve in " + repoPath + "; branch " + branchName + " not created");
+                return null;
+            }
+
+            if (await _Git.BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false))
+            {
+                _Logging.Info(_Header + "branch " + branchName + " already exists in " + repoPath + "; leaving it where it is (start ref " + startFromRef + " = " + commit + ")");
+                return commit;
+            }
+
+            _Logging.Info(_Header + "cutting branch " + branchName + " from start ref " + startFromRef + " (" + commit + ") in " + repoPath);
+            await _Git.ForceUpdateBranchRefAsync(repoPath, branchName, commit, token).ConfigureAwait(false);
+            return commit;
+        }
+
+        /// <inheritdoc />
         public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));

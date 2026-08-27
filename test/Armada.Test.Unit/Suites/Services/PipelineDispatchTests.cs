@@ -264,6 +264,107 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A start ref is stamped on the first stage only, and an unresolvable ref refuses the dispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService, git: git);
+
+                    Vessel vessel = new Vessel("start-ref-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("StartRefPipeline");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    // The accepted tip resolves in the vessel repository; the ref that is gone does not.
+                    git.RevisionShaResult = "abc1234";
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Continue the slice", "Continue from the accepted tip") { StartFromRef = " recover/accepted-tip-abc1234 " }
+                    };
+
+                    Voyage voyage = await admiralService.DispatchVoyageAsync("Start ref voyage", "Test", vessel.Id, missions, pipeline.Id).ConfigureAwait(false);
+                    List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(3, voyageMissions.Count, "three stages");
+
+                    Mission worker = voyageMissions.First(m => m.Persona == "Worker");
+                    Mission testEngineer = voyageMissions.First(m => m.Persona == "TestEngineer");
+                    Mission judge = voyageMissions.First(m => m.Persona == "Judge");
+                    AssertEqual("recover/accepted-tip-abc1234", worker.StartFromRef, "the first stage carries the trimmed start ref");
+                    AssertNull(testEngineer.StartFromRef, "a later stage continues the branch; it carries no start ref");
+                    AssertNull(judge.StartFromRef, "a later stage continues the branch; it carries no start ref");
+
+                    Mission? reread = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    AssertEqual("recover/accepted-tip-abc1234", reread!.StartFromRef, "the start ref survives a round trip through the database");
+
+                    // An unresolvable ref is refused by name before any voyage row exists.
+                    List<MissionDescription> bad = new List<MissionDescription>
+                    {
+                        new MissionDescription("Continue the slice", "Continue from a ref that is gone") { StartFromRef = "recover/gone" }
+                    };
+                    git.RevisionShaResult = null;
+                    StartFromRefMissingException? refused = null;
+                    try
+                    {
+                        await admiralService.DispatchVoyageAsync("Bad start ref voyage", "Test", vessel.Id, bad, pipeline.Id).ConfigureAwait(false);
+                    }
+                    catch (StartFromRefMissingException ex)
+                    {
+                        refused = ex;
+                    }
+                    AssertNotNull(refused, "a ref that does not resolve refuses the dispatch");
+                    AssertContains("start_from_ref_missing", refused!.Message, "the refusal is named");
+                    AssertContains("recover/gone", refused.Message, "the refusal names the ref");
+                }
+            });
+
+            await RunTest("PrepareBranchFromRefAsync cuts the branch at the resolved ref, leaves an existing branch alone, and refuses an unknown ref", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    DockService dockService = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("prepare-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    git.RevisionShas[vessel.LocalPath + "|recover/tip-abc1234"] = "abc1234";
+
+                    string? unknown = await dockService.PrepareBranchFromRefAsync(vessel, "armada/captain/msn_1", "recover/missing").ConfigureAwait(false);
+                    AssertNull(unknown, "an unknown ref resolves to nothing");
+                    AssertEqual(0, git.ForceUpdateBranchRefCalls.Count, "no branch is written for an unknown ref");
+
+                    string? cut = await dockService.PrepareBranchFromRefAsync(vessel, "armada/captain/msn_1", "recover/tip-abc1234").ConfigureAwait(false);
+                    AssertEqual("abc1234", cut, "the resolved commit is returned");
+                    AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "the branch is written once");
+                    AssertEqual(vessel.LocalPath + ":armada/captain/msn_1:abc1234", git.ForceUpdateBranchRefCalls[0], "the branch is cut at the resolved commit in the vessel repository");
+
+                    git.ExistingBranches.Add("armada/captain/msn_1");
+                    string? retry = await dockService.PrepareBranchFromRefAsync(vessel, "armada/captain/msn_1", "recover/tip-abc1234").ConfigureAwait(false);
+                    AssertEqual("abc1234", retry, "a retry still reports the commit");
+                    AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "an existing branch is left where it is");
+                }
+            });
+
             await RunTest("Dispatch with same-order stages creates sibling missions with identical dependency", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
