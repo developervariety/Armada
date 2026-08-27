@@ -168,6 +168,23 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
+        /// <summary>
+        /// True when a mission has left the running states: its work was produced or it reached a
+        /// terminal state. A process-exit or health-check observation for such a mission is stale
+        /// and must never transition it again.
+        /// </summary>
+        /// <param name="status">Mission status.</param>
+        /// <returns>True for WorkProduced, PullRequestOpen, Complete, Failed, LandingFailed and Cancelled.</returns>
+        public static bool IsPostWorkOrTerminal(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Complete
+                || status == MissionStatusEnum.Failed
+                || status == MissionStatusEnum.Cancelled
+                || status == MissionStatusEnum.WorkProduced
+                || status == MissionStatusEnum.LandingFailed
+                || status == MissionStatusEnum.PullRequestOpen;
+        }
+
         /// <inheritdoc />
         public async Task<Voyage> DispatchVoyageAsync(
             string title,
@@ -1292,12 +1309,7 @@ namespace Armada.Core.Services
 
             // If the mission is already in a terminal state, nothing to do — the health check
             // or another handler already processed this completion/failure.
-            if (mission.Status == MissionStatusEnum.Complete ||
-                mission.Status == MissionStatusEnum.Failed ||
-                mission.Status == MissionStatusEnum.Cancelled ||
-                mission.Status == MissionStatusEnum.WorkProduced ||
-                mission.Status == MissionStatusEnum.LandingFailed ||
-                mission.Status == MissionStatusEnum.PullRequestOpen)
+            if (IsPostWorkOrTerminal(mission.Status))
             {
                 _Logging.Debug(_Header + "mission " + missionId + " already in terminal/post-work state " + mission.Status + " — skipping process exit handling");
                 return;
@@ -1491,13 +1503,7 @@ namespace Armada.Core.Services
             }
 
             // Check for terminal mission state (e.g. server restart between completion and release)
-            if (mission != null &&
-                (mission.Status == MissionStatusEnum.Complete ||
-                 mission.Status == MissionStatusEnum.Failed ||
-                 mission.Status == MissionStatusEnum.Cancelled ||
-                 mission.Status == MissionStatusEnum.WorkProduced ||
-                 mission.Status == MissionStatusEnum.LandingFailed ||
-                 mission.Status == MissionStatusEnum.PullRequestOpen))
+            if (mission != null && IsPostWorkOrTerminal(mission.Status))
             {
                 _Logging.Warn(_Header + "captain " + captain.Id + " has terminal/post-work mission " + captain.CurrentMissionId + " (status: " + mission.Status + ") - releasing to Idle");
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
@@ -1584,6 +1590,26 @@ namespace Armada.Core.Services
 
             if (!isAlive)
             {
+                // The process is gone. Re-read the mission before acting on that: the exit
+                // callback's completion handling may have finished since this check loaded the
+                // captain, and a mission that already produced its work must not be failed by a
+                // stale observation of its process.
+                Mission? currentMission = String.IsNullOrEmpty(captain.CurrentMissionId)
+                    ? null
+                    : await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+                if (currentMission != null && IsPostWorkOrTerminal(currentMission.Status))
+                {
+                    _Logging.Warn(_Header + "captain " + captain.Id + " process " + processId + " is gone but mission " + missionId
+                        + " is already " + currentMission.Status + " -- ignoring the stale process observation and releasing the captain");
+                    await EmitEventAsync("captain.process_exit_ignored",
+                        "Process " + processId + " observation ignored: mission " + missionId + " is already " + currentMission.Status,
+                        entityType: "captain", entityId: captain.Id,
+                        captainId: captain.Id, missionId: missionId,
+                        vesselId: currentMission.VesselId, voyageId: currentMission.VoyageId, token: token).ConfigureAwait(false);
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    return;
+                }
+
                 if (exitCode == 0)
                 {
                     // Clean exit = mission complete

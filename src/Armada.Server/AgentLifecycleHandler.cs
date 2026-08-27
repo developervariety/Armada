@@ -92,9 +92,18 @@ namespace Armada.Server
         private Dictionary<int, string> _ProcessToMission = new Dictionary<int, string>();
 
         /// <summary>
-        /// Tracks process IDs whose exit has been received via the OnProcessExited callback.
-        /// Used by the health check to avoid racing with the async exit handler.
-        /// Entries are pruned after 5 minutes.
+        /// Process IDs whose exit handling is still running. An entry is added when the exit
+        /// callback fires and removed only when the completion or failure handling finishes.
+        /// It is never pruned by age: a completion that takes longer than any timer (a gate, a
+        /// branch advance, a dock that provisions siblings) must still hold the marker, or the
+        /// health check reads a finished process as a crash while its completion is being written.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<int, byte> _InFlightProcessExits = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
+
+        /// <summary>
+        /// Process IDs whose exit handling has completed, with the completion time. Kept for
+        /// <see cref="HandledExitRetention"/> so a health check that runs right after completion
+        /// still recognises the PID, then pruned to bound memory and to survive PID reuse.
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<int, DateTime> _HandledProcessExits = new System.Collections.Concurrent.ConcurrentDictionary<int, DateTime>();
 
@@ -145,6 +154,16 @@ namespace Armada.Server
             _WebSocketHub = webSocketHub;
             _EmitEventAsync = emitEventAsync ?? throw new ArgumentNullException(nameof(emitEventAsync));
         }
+
+        #endregion
+
+        #region Public-Members
+
+        /// <summary>
+        /// How long a COMPLETED exit stays recognisable to the health check. An exit whose handling
+        /// is still in flight is recognised regardless of this value.
+        /// </summary>
+        public TimeSpan HandledExitRetention { get; set; } = TimeSpan.FromMinutes(5);
 
         #endregion
 
@@ -215,8 +234,9 @@ namespace Armada.Server
         /// <returns>True if the exit callback has already fired for this PID.</returns>
         public bool IsProcessExitHandled(int processId)
         {
-            // Prune stale entries older than 5 minutes
-            DateTime cutoff = DateTime.UtcNow.AddMinutes(-5);
+            if (_InFlightProcessExits.ContainsKey(processId)) return true;
+
+            DateTime cutoff = DateTime.UtcNow - HandledExitRetention;
             foreach (System.Collections.Generic.KeyValuePair<int, DateTime> kvp in _HandledProcessExits)
             {
                 if (kvp.Value < cutoff)
@@ -1104,11 +1124,10 @@ namespace Armada.Server
             }
             _MissionHeartbeatWrites.TryRemove(missionId, out _);
 
-            // Track this PID as handled BEFORE the async work begins.
-            // The health check consults this set to avoid racing with the async exit handler
-            // (e.g. triggering recovery for a process that exited cleanly but whose completion
-            // handler hasn't finished yet).
-            _HandledProcessExits[processId] = DateTime.UtcNow;
+            // Mark this PID as in flight BEFORE the async work begins. The health check consults
+            // the marker so it never treats a process that exited cleanly, but whose completion
+            // handler is still running, as a crash. The marker is released by the handler itself.
+            _InFlightProcessExits[processId] = 0;
 
             string capturedCaptainId = captainId;
             string capturedMissionId = missionId;
@@ -1135,12 +1154,17 @@ namespace Armada.Server
         /// </summary>
         public async Task HandleAgentProcessExitedAsync(int processId, int? exitCode, string captainId, string missionId)
         {
+            _InFlightProcessExits[processId] = 0;
             try
             {
                 await _Admiral.HandleProcessExitAsync(processId, exitCode, captainId, missionId).ConfigureAwait(false);
             }
             finally
             {
+                // Record completion before releasing the in-flight marker, so there is no instant
+                // at which the health check can see neither.
+                _HandledProcessExits[processId] = DateTime.UtcNow;
+                _InFlightProcessExits.TryRemove(processId, out _);
                 DiscardUnclaimedMissionOutput(missionId);
             }
         }

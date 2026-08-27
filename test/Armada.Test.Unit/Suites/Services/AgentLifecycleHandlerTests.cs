@@ -30,6 +30,46 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("IsProcessExitHandled holds while exit handling is in flight, beyond the retention window", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    StubAdmiralService admiral = new StubAdmiralService();
+                    admiral.OnHandleProcessExit = (processId, exitCode, captainId, missionId) => release.Task;
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, admiral);
+                    handler.HandledExitRetention = TimeSpan.FromMilliseconds(1);
+
+                    Task handling = handler.HandleAgentProcessExitedAsync(4242, 0, "cpt_test", "msn_test");
+                    await Task.Delay(50).ConfigureAwait(false);
+
+                    // The completion handler is still running well past the retention window: the
+                    // health check must still see the exit as handled, or it reads the finished
+                    // process as a crash and fails a mission that is being completed.
+                    AssertTrue(handler.IsProcessExitHandled(4242), "in-flight exit stays handled regardless of retention");
+
+                    release.SetResult(true);
+                    await handling.ConfigureAwait(false);
+                    await Task.Delay(20).ConfigureAwait(false);
+
+                    AssertFalse(handler.IsProcessExitHandled(4242), "after completion the marker expires with the retention window");
+                }
+            });
+
+            await RunTest("IsProcessExitHandled recognises a completed exit within the retention window and not a foreign PID", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    handler.HandledExitRetention = TimeSpan.FromMinutes(5);
+
+                    await handler.HandleAgentProcessExitedAsync(4343, 0, "cpt_test", "msn_test").ConfigureAwait(false);
+
+                    AssertTrue(handler.IsProcessExitHandled(4343), "a just-completed exit is recognised within retention");
+                    AssertFalse(handler.IsProcessExitHandled(4344), "a PID that never exited through the handler is not handled");
+                }
+            });
+
             await RunTest("ValidateModelAsync returns null and forwards model to runtime", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -741,12 +781,12 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null)
+        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
             AgentRuntimeFactory runtimeFactory = new AgentRuntimeFactory(logging);
-            IAdmiralService admiral = new StubAdmiralService();
+            IAdmiralService admiral = admiralOverride ?? new StubAdmiralService();
             IMessageTemplateService templateService = new MessageTemplateService(logging);
 
             return new AgentLifecycleHandler(
@@ -1052,8 +1092,11 @@ namespace Armada.Test.Unit.Suites.Services
                 throw new NotImplementedException();
             }
 
+            public Func<int, int?, string, string, Task>? OnHandleProcessExit { get; set; }
+
             public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
             {
+                if (OnHandleProcessExit != null) return OnHandleProcessExit(processId, exitCode, captainId, missionId);
                 return Task.CompletedTask;
             }
         }
