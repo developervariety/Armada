@@ -2,6 +2,7 @@ namespace Armada.Runtimes
 {
     using Armada.Core.Models;
     using System.Diagnostics;
+    using System.IO;
     using SyslogLogging;
 
     /// <summary>
@@ -69,7 +70,26 @@ namespace Armada.Runtimes
         /// </summary>
         protected override string GetCommand()
         {
-            return ResolveExecutable(_ExecutablePath);
+            // Resolve Cursor's official Windows installer location (%LOCALAPPDATA%\cursor-agent\)
+            // when the standard PATH/npm resolution misses, so users of the official installer
+            // do not need to hand-create a wrapper at %APPDATA%\npm\cursor-agent.cmd.
+            string resolved = ResolveExecutable(_ExecutablePath);
+            if (!String.Equals(resolved, _ExecutablePath, StringComparison.Ordinal))
+                return resolved;
+
+            if (OperatingSystem.IsWindows() &&
+                String.Equals(_ExecutablePath, "cursor-agent", StringComparison.OrdinalIgnoreCase))
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (!String.IsNullOrEmpty(localAppData))
+                {
+                    string installCmd = Path.Combine(localAppData, "cursor-agent", "cursor-agent.cmd");
+                    if (File.Exists(installCmd))
+                        return installCmd;
+                }
+            }
+
+            return resolved;
         }
 
         /// <summary>
