@@ -30,6 +30,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Rescue briefs: a Judge's narration preamble is dropped before any size budget applies; a Judge report's Suggested Follow-ups and Verdict stay whole in an over-cap brief; a documentation-only rescue under a Research objective is the work, not an `ineffective_rescue`.
 - Architect handoff: a front-matter block is titled from its title line, and every spawned brief carries the plan-block-label rule.
 - A stale sibling extraction-artifact copy in a shared sibling worktree is refreshed atomically instead of skipped.
+- A dock that reuses a shared sibling worktree behind its branch tip (another dock holds a lease, so the worktree cannot move) logs both commits and emits `dock.sibling_stale`, instead of measuring the older tree silently. The per-dock sibling layout that would remove the condition is an open decision.
 
 ### Captain lifecycle
 - The handled-exit marker is kept until completion handling (DoD gate, handoff, dock provisioning) finishes. The captain health check re-reads the mission and ignores a vanished PID for a post-work or terminal mission (`captain.process_exit_ignored`) instead of synthesising exit code -1, failing the finished stage and cancelling the Judge with no incident.

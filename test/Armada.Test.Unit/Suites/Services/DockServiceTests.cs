@@ -622,6 +622,71 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync reports a reused shared sibling that is behind its branch tip as dock.sibling_stale, and stays quiet when it is current", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    // The stub reports every worktree HEAD as abc123; the branch tip starts there too.
+                    git.RevisionShaResult = "abc123";
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibA.git",
+                            RelativePath = "../SibA",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("sib-stale-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captainOne = await testDb.Driver.Captains.CreateAsync(new Captain("captain-stale-1")).ConfigureAwait(false);
+                    Captain captainTwo = await testDb.Driver.Captains.CreateAsync(new Captain("captain-stale-2")).ConfigureAwait(false);
+                    Captain captainThree = await testDb.Driver.Captains.CreateAsync(new Captain("captain-stale-3")).ConfigureAwait(false);
+
+                    Dock? first = await service.ProvisionAsync(vessel, captainOne, "armada/captain-stale-1/msn_one", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(first, "first dock should be provisioned");
+
+                    // A populated checkout is what later docks reuse; an empty shell is rebuilt.
+                    string siblingPath = Path.GetFullPath(Path.Combine(first!.WorktreePath!, "../SibA"));
+                    File.WriteAllText(Path.Combine(siblingPath, "checkout.marker"), "populated checkout");
+
+                    Dock? second = await service.ProvisionAsync(vessel, captainTwo, "armada/captain-stale-2/msn_two", "msn_two").ConfigureAwait(false);
+                    AssertNotNull(second, "second dock should be provisioned");
+
+                    List<ArmadaEvent> quiet = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_stale").ConfigureAwait(false);
+                    AssertEqual(0, quiet.Count, "a reused sibling at the branch tip raises no event");
+
+                    // The sibling vessel lands a commit while the first two docks hold leases: the
+                    // shared worktree cannot move, so the third dock reads the older tree.
+                    git.RevisionShaResult = "fff9999";
+                    Dock? third = await service.ProvisionAsync(vessel, captainThree, "armada/captain-stale-3/msn_three", "msn_three").ConfigureAwait(false);
+                    AssertNotNull(third, "third dock should be provisioned");
+
+                    List<ArmadaEvent> stale = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_stale").ConfigureAwait(false);
+                    AssertEqual(1, stale.Count, "a reused sibling behind its branch tip is reported once");
+                    AssertEqual(third!.Id, stale[0].EntityId, "the event is attached to the dock that received the stale tree");
+                    AssertContains(third.Id, stale[0].Message ?? String.Empty, "the message names the dock");
+                    AssertContains("abc123", stale[0].Payload ?? String.Empty, "the payload carries the worktree HEAD");
+                    AssertContains("fff9999", stale[0].Payload ?? String.Empty, "the payload carries the branch tip");
+                }
+            });
+
             await RunTest("ReclaimAsync preserves the dock branch in the bare before destroying the worktree", async () =>
             {
                 // Regression: a mission that fails its DoD gate still has real committed work, but
@@ -2026,6 +2091,8 @@ namespace Armada.Test.Unit.Suites.Services
             public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public int CloneBareCalls { get; private set; }
             public int BranchExistsCalls { get; private set; }
+            public string? RevisionShaResult { get; set; } = null;
+            public Task<string?> GetRevisionShaAsync(string repoPath, string revision, CancellationToken token = default) => Task.FromResult(RevisionShaResult);
 
             public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
             {

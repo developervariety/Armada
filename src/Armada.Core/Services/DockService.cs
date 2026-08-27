@@ -785,6 +785,7 @@ namespace Armada.Core.Services
                         _Logging.Info(_Header + "reusing existing sibling worktree " + siblingWorktreePath + " for vessel " + vessel.Id);
                     }
 
+                    await ReportStaleSharedSiblingAsync(vessel, dockId, sibling, siblingRepoPath, siblingWorktreePath, siblingBranch, token).ConfigureAwait(false);
                     await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
                     await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
                     continue;
@@ -813,6 +814,84 @@ namespace Armada.Core.Services
                 }
             }
         }
+
+        /// <summary>
+        /// A shared sibling worktree that another dock still leases cannot move, so a dock created
+        /// after the sibling vessel landed a commit reads the older tree. Nothing else says so: the
+        /// gate measures the host checkout, the captain measures the dock, and the difference
+        /// surfaces as parity failures that read as the captain's defect. Compare the reused
+        /// worktree with the branch tip and make a mismatch loud: a warning naming both commits
+        /// and a <c>dock.sibling_stale</c> event attached to the dock that received the stale tree.
+        /// </summary>
+        private async Task ReportStaleSharedSiblingAsync(Vessel vessel, string dockId, SiblingRepo sibling, string siblingRepoPath, string siblingWorktreePath, string branch, CancellationToken token)
+        {
+            string? worktreeHead;
+            string? branchTip;
+            try
+            {
+                worktreeHead = await _Git.GetHeadCommitHashAsync(siblingWorktreePath, token).ConfigureAwait(false);
+                branchTip = await _Git.GetRevisionShaAsync(siblingRepoPath, "refs/heads/" + branch, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not compare shared sibling " + siblingWorktreePath + " with branch " + branch + " for dock " + dockId + ": " + ex.Message);
+                return;
+            }
+
+            if (String.IsNullOrEmpty(worktreeHead) || String.IsNullOrEmpty(branchTip))
+            {
+                _Logging.Warn(_Header + "could not compare shared sibling " + siblingWorktreePath + " with branch " + branch + " for dock " + dockId
+                    + " (worktree HEAD " + (worktreeHead ?? "unknown") + ", tip " + (branchTip ?? "unknown") + ")");
+                return;
+            }
+
+            // One side is abbreviated; the tip is current when either hash is a prefix of the other.
+            bool current = worktreeHead.StartsWith(branchTip, StringComparison.OrdinalIgnoreCase)
+                || branchTip.StartsWith(worktreeHead, StringComparison.OrdinalIgnoreCase);
+            if (current)
+            {
+                _Logging.Info(_Header + "shared sibling " + siblingWorktreePath + " is at the " + branch + " tip (" + branchTip + ") for dock " + dockId);
+                return;
+            }
+
+            string message = "Dock " + dockId + " reuses shared sibling " + sibling.RelativePath + " at " + worktreeHead
+                + " while " + branch + " is at " + branchTip + "; the worktree is leased by another dock and cannot move";
+            _Logging.Warn(_Header + message);
+
+            try
+            {
+                ArmadaEvent staleEvent = new ArmadaEvent("dock.sibling_stale", message);
+                staleEvent.TenantId = vessel.TenantId;
+                staleEvent.UserId = vessel.UserId;
+                staleEvent.EntityType = "dock";
+                staleEvent.EntityId = dockId;
+                staleEvent.VesselId = vessel.Id;
+                staleEvent.Payload = JsonSerializer.Serialize(new
+                {
+                    DockId = dockId,
+                    VesselId = vessel.Id,
+                    SiblingRelativePath = sibling.RelativePath,
+                    SiblingWorktreePath = siblingWorktreePath,
+                    WorktreeHead = worktreeHead,
+                    Branch = branch,
+                    BranchTip = branchTip
+                });
+                await _Database.Events.CreateAsync(staleEvent, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record dock.sibling_stale for dock " + dockId + ": " + ex.Message);
+            }
+        }
+
 
         /// <summary>
         /// Copies git-ignored extraction artifact directories from the sibling vessel's host
