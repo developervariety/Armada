@@ -196,6 +196,13 @@ Before a lead auto-enables a lane, confirm:
 
 Prefer parallel voyages on different vessels. Treat repositories as one lane
 when either suite builds or tests the other through a sibling-project reference.
+Every dock is provisioned as `docks/<Vessel>/<mission>/<Vessel>` with its
+declared siblings beside that checkout (`docks/<Vessel>/<mission>/<Sibling>`), so
+a sibling is pinned at provisioning and is never shared between docks. A dock
+that re-provisions the same mission (a retry) reuses its own sibling; when that
+sibling is behind the branch tip the admiral logs both commits and records
+`dock.sibling_stale`.
+
 Declare that relation with `buildParticipant: true` on the sibling entry of the
 vessel that builds the other; the scheduler then applies the per-vessel ceiling
 to every vessel in the lane and reports a refused dispatch as

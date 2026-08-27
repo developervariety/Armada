@@ -287,6 +287,11 @@ namespace Armada.Core.Services
                     category.TotalBytes += bytes;
                     category.TotalItems++;
 
+                    // A nested dock (docks/<Vessel>/<dock>/<Vessel>) is judged by its checkout and
+                    // reclaimed as a whole directory; a flat dock from the earlier layout IS its checkout.
+                    string nestedCheckout = Path.Combine(full, vesselName);
+                    string checkout = LooksLikeWorktree(nestedCheckout) ? nestedCheckout : full;
+
                     if (siblingPaths.Contains(full))
                     {
                         RecordAction(report, category, full, "protected", "shared sibling worktree");
@@ -294,7 +299,7 @@ namespace Armada.Core.Services
                         continue;
                     }
 
-                    if (protectedPaths.Contains(full))
+                    if (protectedPaths.Contains(full) || protectedPaths.Contains(checkout))
                     {
                         RecordAction(report, category, full, "protected", "active dock or preserved for a live mission");
                         category.ProtectedItems++;
@@ -311,13 +316,13 @@ namespace Armada.Core.Services
                         continue;
                     }
 
-                    if (!LooksLikeWorktree(full))
+                    if (!LooksLikeWorktree(checkout))
                     {
                         category.ProtectedItems++;
                         continue;
                     }
 
-                    DateTime lastWrite = SafeGetLastWriteTimeUtc(full);
+                    DateTime lastWrite = SafeGetLastWriteTimeUtc(checkout);
                     if (lastWrite > cutoff)
                     {
                         category.ProtectedItems++;

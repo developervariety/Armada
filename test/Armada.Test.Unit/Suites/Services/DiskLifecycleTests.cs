@@ -101,6 +101,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Scan judges a nested dock by its checkout: an old nested orphan is reclaimable, an active nested dock is protected", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    Vessel vessel = await CreateVesselWithSiblingAsync(testDb, layout).ConfigureAwait(false);
+                    string vesselDir = Path.Combine(layout.Settings.DocksDirectory, "ExampleVessel");
+
+                    // Nested orphan: docks/ExampleVessel/msn_nested_orphan/ExampleVessel/.git, old.
+                    string orphanRoot = Path.Combine(vesselDir, "msn_nested_orphan");
+                    string orphanCheckout = Path.Combine(orphanRoot, "ExampleVessel");
+                    Directory.CreateDirectory(orphanCheckout);
+                    File.WriteAllText(Path.Combine(orphanCheckout, ".git"), "gitdir: /tmp/nowhere\n");
+                    Directory.CreateDirectory(Path.Combine(orphanRoot, "ExampleSibling"));
+                    File.SetLastWriteTimeUtc(orphanCheckout, DateTime.UtcNow.AddDays(-2));
+                    File.SetLastWriteTimeUtc(orphanRoot, DateTime.UtcNow.AddDays(-2));
+
+                    // Nested active dock: the dock row names the CHECKOUT, one level below the root.
+                    string activeRoot = Path.Combine(vesselDir, "msn_nested_active");
+                    string activeCheckout = Path.Combine(activeRoot, "ExampleVessel");
+                    Directory.CreateDirectory(activeCheckout);
+                    File.WriteAllText(Path.Combine(activeCheckout, ".git"), "gitdir: /tmp/nowhere\n");
+                    File.SetLastWriteTimeUtc(activeCheckout, DateTime.UtcNow.AddDays(-2));
+                    await CreateActiveDockAsync(testDb, vessel.Id, activeCheckout).ConfigureAwait(false);
+
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, logging);
+                    DiskLifecycleReport report = await service.ScanAsync().ConfigureAwait(false);
+
+                    AssertTrue(
+                        report.Actions.Any(a => a.Category == "docks" && a.Path == orphanRoot && a.Disposition == "dry-run-reclaim"),
+                        "An old nested orphan is reclaimable as a whole directory (its root).");
+                    AssertTrue(
+                        report.Actions.Any(a => a.Category == "docks" && a.Path == activeRoot && a.Disposition == "protected"),
+                        "A nested dock whose checkout is an active dock is protected by its root.");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Scan protects a gate-leased dock and a WorkProduced-mission dock from the orphan sweep", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

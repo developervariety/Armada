@@ -88,7 +88,12 @@ namespace Armada.Core.Services
             // Use per-mission dock path when missionId is provided (eliminates path-reuse races).
             // Falls back to per-captain path for backward compatibility.
             string dockDirName = !String.IsNullOrEmpty(missionId) ? missionId : captain.Name;
-            string worktreePath = Path.Combine(_Settings.DocksDirectory, vessel.Name, dockDirName);
+            // Each dock owns a directory of its own and its checkout sits one level below it, so a
+            // sibling declared as ../<Sibling> resolves BESIDE THIS DOCK'S CHECKOUT and is never
+            // shared with another dock. A shared sibling could not move while any dock leased it,
+            // so a dock created after a sibling landing read the older tree.
+            string dockRoot = Path.Combine(_Settings.DocksDirectory, vessel.Name, dockDirName);
+            string worktreePath = Path.Combine(dockRoot, vessel.Name);
             string normalizedRepoPath = Path.GetFullPath(repoPath);
             SemaphoreSlim repoLock = _RepoProvisionLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
             bool repoLockAcquired = false;
@@ -175,17 +180,27 @@ namespace Armada.Core.Services
                     {
                         if (siblingRepo == null || String.IsNullOrWhiteSpace(siblingRepo.RelativePath)) continue;
                         siblingDirPaths.Add(Path.GetFullPath(Path.Combine(worktreePath, siblingRepo.RelativePath)));
+                        // The earlier layout shared one sibling checkout per vessel directly under
+                        // the vessel's dock directory; a dock from before the change may still lease it.
+                        siblingDirPaths.Add(Path.GetFullPath(Path.Combine(vesselDockDir, "dock", siblingRepo.RelativePath)));
                     }
 
                     foreach (string existingDir in Directory.GetDirectories(vesselDockDir))
                     {
                         string dirName = Path.GetFileName(existingDir);
 
-                        // Skip the current captain's directory -- handled below
-                        if (dirName == captain.Name) continue;
+                        // Skip this dock's own directory -- handled below
+                        if (dirName == dockDirName || dirName == captain.Name) continue;
+
+                        // A nested dock keeps its checkout at <dir>/<VesselName>; a flat dock from
+                        // the earlier layout IS the checkout. Judge each by its checkout and remove
+                        // the whole directory.
+                        string nestedCheckout = Path.Combine(existingDir, vessel.Name);
+                        bool nested = Directory.Exists(Path.Combine(nestedCheckout, ".git")) || File.Exists(Path.Combine(nestedCheckout, ".git"));
+                        string checkoutDir = nested ? nestedCheckout : existingDir;
 
                         // Skip directories belonging to active docks
-                        if (activeDockPaths.Contains(existingDir))
+                        if (activeDockPaths.Contains(existingDir) || activeDockPaths.Contains(checkoutDir))
                         {
                             _Logging.Info(_Header + "skipping cleanup of " + existingDir + ": still in use by an active dock");
                             continue;
@@ -200,23 +215,28 @@ namespace Armada.Core.Services
 
                         // Only clean up directories that look like git worktrees or repos
                         // and are not associated with any active dock.
-                        string dotGitPath = Path.Combine(existingDir, ".git");
+                        string dotGitPath = Path.Combine(checkoutDir, ".git");
                         if (File.Exists(dotGitPath) || Directory.Exists(dotGitPath))
                         {
                             // Only attempt git worktree remove if the path is actually registered
-                            bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, existingDir, token).ConfigureAwait(false);
+                            bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, checkoutDir, token).ConfigureAwait(false);
                             if (isRegistered)
                             {
-                                _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + existingDir);
+                                _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + checkoutDir);
                                 try
                                 {
-                                    await _Git.RemoveWorktreeAsync(existingDir, token).ConfigureAwait(false);
+                                    await _Git.RemoveWorktreeAsync(checkoutDir, token).ConfigureAwait(false);
                                 }
                                 catch { }
                             }
                             else
                             {
-                                _Logging.Debug(_Header + "removing unregistered worktree directory: " + existingDir);
+                                _Logging.Debug(_Header + "removing unregistered worktree directory: " + checkoutDir);
+                            }
+
+                            if (nested)
+                            {
+                                await RemoveNestedSiblingWorktreesAsync(vessel, checkoutDir, token).ConfigureAwait(false);
                             }
 
                             if (Directory.Exists(existingDir))
@@ -232,6 +252,23 @@ namespace Armada.Core.Services
                             catch { }
                         }
                     }
+                }
+
+                // A flat dock from the earlier layout can sit where this dock's root goes (the same
+                // mission re-provisioned across the layout change). Remove it before nesting.
+                if (Directory.Exists(dockRoot)
+                    && (File.Exists(Path.Combine(dockRoot, ".git")) || Directory.Exists(Path.Combine(dockRoot, ".git"))))
+                {
+                    _Logging.Info(_Header + "removing flat-layout dock directory at " + dockRoot);
+                    try
+                    {
+                        await _Git.RemoveWorktreeAsync(dockRoot, token).ConfigureAwait(false);
+                    }
+                    catch (Exception flatEx)
+                    {
+                        _Logging.Warn(_Header + "git worktree remove failed for " + dockRoot + ": " + flatEx.Message);
+                    }
+                    await ForceRemoveDirectoryAsync(dockRoot, token).ConfigureAwait(false);
                 }
 
                 // Clean up stale worktree directory if it exists from a previous run
@@ -394,6 +431,7 @@ namespace Armada.Core.Services
             }
 
             await RemoveSiblingReposForDockAsync(dock, token).ConfigureAwait(false);
+            TryRemoveEmptyDockRoot(dock.WorktreePath);
 
             TryDeleteDockStartCommitFile(dock.Id);
 
@@ -499,6 +537,7 @@ namespace Armada.Core.Services
             }
 
             await RemoveSiblingReposForDockAsync(dock, token).ConfigureAwait(false);
+            TryRemoveEmptyDockRoot(dock.WorktreePath);
 
             TryDeleteDockStartCommitFile(dock.Id);
         }
@@ -1153,6 +1192,70 @@ namespace Armada.Core.Services
         /// Tear down any sibling worktrees provisioned for a dock. Reads the parent vessel's declared
         /// siblings and removes each one at its relative path. No-op for vessels without siblings.
         /// </summary>
+        /// <summary>
+        /// A nested dock keeps its checkout at docks/&lt;Vessel&gt;/&lt;dock&gt;/&lt;Vessel&gt;; a flat dock from
+        /// the earlier layout keeps it at docks/&lt;Vessel&gt;/&lt;dock&gt;. The last path segment tells them apart.
+        /// </summary>
+        private static bool IsNestedDock(Vessel vessel, string? worktreePath)
+        {
+            if (String.IsNullOrEmpty(worktreePath) || String.IsNullOrEmpty(vessel.Name)) return false;
+            string leaf = Path.GetFileName(Path.GetFullPath(worktreePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            return String.Equals(leaf, vessel.Name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Remove the sibling worktrees that sit beside a stale nested checkout so the sibling
+        /// repositories do not keep dangling registrations for a directory about to be deleted.
+        /// </summary>
+        private async Task RemoveNestedSiblingWorktreesAsync(Vessel vessel, string checkoutDir, CancellationToken token)
+        {
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            {
+                if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath)) continue;
+                string siblingPath = Path.GetFullPath(Path.Combine(checkoutDir, sibling.RelativePath));
+                if (!Directory.Exists(siblingPath)) continue;
+                try
+                {
+                    await _Git.RemoveWorktreeAsync(siblingPath, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Debug(_Header + "could not unregister stale sibling worktree " + siblingPath + ": " + ex.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A nested dock's root (docks/&lt;Vessel&gt;/&lt;dock&gt;/) holds the checkout and its siblings. Once
+        /// both are gone the root is an empty shell; remove it so the vessel's dock directory does not
+        /// fill with empty folders. Only an EMPTY directory exactly two levels below the docks directory
+        /// is removed, so a flat-layout dock, a populated root and the vessel directory are never touched.
+        /// </summary>
+        private void TryRemoveEmptyDockRoot(string? worktreePath)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) return;
+            try
+            {
+                string? root = Path.GetDirectoryName(Path.GetFullPath(worktreePath));
+                if (root == null || !Directory.Exists(root)) return;
+                string relative = Path.GetRelativePath(Path.GetFullPath(_Settings.DocksDirectory), root);
+                if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)) return;
+                string[] segments = relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+                if (segments.Length != 2) return;
+                if (Directory.EnumerateFileSystemEntries(root).Any()) return;
+                Directory.Delete(root);
+                _Logging.Debug(_Header + "removed empty dock root " + root);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not remove dock root for " + worktreePath + ": " + ex.Message);
+            }
+        }
+
         private async Task RemoveSiblingReposForDockAsync(Dock dock, CancellationToken token)
         {
             if (dock == null || String.IsNullOrEmpty(dock.WorktreePath)) return;
@@ -1178,6 +1281,8 @@ namespace Armada.Core.Services
             // Tearing them down on one dock's teardown while another dock's captain is still reading
             // them erases that captain's cross-repo source view. Belt-and-braces: skip removal when
             // any other dock row is still active, and the per-target lease then decides atomically.
+            // A nested dock's siblings are its own; only a flat-layout dock shares them.
+            bool sharedLayout = !IsNestedDock(vessel, dock.WorktreePath);
             try
             {
                 List<Dock> vesselDocks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
@@ -1185,7 +1290,7 @@ namespace Armada.Core.Services
                 {
                     if (otherDock == null) continue;
                     if (String.Equals(otherDock.Id, dock.Id, StringComparison.Ordinal)) continue;
-                    if (otherDock.Active)
+                    if (sharedLayout && otherDock.Active)
                     {
                         _Logging.Info(_Header + "keeping shared sibling worktrees for vessel " + vessel.Id
                             + ": dock " + otherDock.Id + " is still active");

@@ -562,6 +562,66 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync nests each dock and gives it its own sibling checkout; reclaiming one dock leaves the other's sibling and removes its own root", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibA.git",
+                            RelativePath = "../SibA",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("nested-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captainOne = await testDb.Driver.Captains.CreateAsync(new Captain("captain-nested-1")).ConfigureAwait(false);
+                    Captain captainTwo = await testDb.Driver.Captains.CreateAsync(new Captain("captain-nested-2")).ConfigureAwait(false);
+
+                    Dock? first = await service.ProvisionAsync(vessel, captainOne, "armada/captain-nested-1/msn_one", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(first, "first dock should be provisioned");
+                    string firstRoot = Path.Combine(settings.DocksDirectory, vessel.Name, "msn_one");
+                    AssertEqual(Path.Combine(firstRoot, vessel.Name), first!.WorktreePath, "the checkout sits one level below the dock's own directory");
+                    string firstSibling = Path.GetFullPath(Path.Combine(first.WorktreePath!, "../SibA"));
+                    AssertEqual(Path.Combine(firstRoot, "SibA"), firstSibling, "the sibling resolves beside THIS dock's checkout");
+                    AssertTrue(Directory.Exists(firstSibling), "the first dock's sibling checkout exists");
+                    File.WriteAllText(Path.Combine(firstSibling, "pinned.marker"), "the tree this dock was provisioned against");
+
+                    Dock? second = await service.ProvisionAsync(vessel, captainTwo, "armada/captain-nested-2/msn_two", "msn_two").ConfigureAwait(false);
+                    AssertNotNull(second, "second dock should be provisioned");
+                    string secondSibling = Path.GetFullPath(Path.Combine(second!.WorktreePath!, "../SibA"));
+                    AssertTrue(!String.Equals(firstSibling, secondSibling, StringComparison.OrdinalIgnoreCase), "each dock has its own sibling checkout");
+                    AssertEqual(1, git.CreatedWorktrees.Count(x => String.Equals(x.WorktreePath, firstSibling, StringComparison.OrdinalIgnoreCase)), "the first sibling was created once");
+                    AssertEqual(1, git.CreatedWorktrees.Count(x => String.Equals(x.WorktreePath, secondSibling, StringComparison.OrdinalIgnoreCase)), "the second dock got a sibling checkout of its own instead of reusing the first");
+                    AssertTrue(File.Exists(Path.Combine(firstSibling, "pinned.marker")), "provisioning the second dock did not touch the first dock's sibling");
+
+                    List<ArmadaEvent> stale = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_stale").ConfigureAwait(false);
+                    AssertEqual(0, stale.Count, "nothing was reused, so nothing can be stale");
+
+                    await service.ReclaimAsync(first.Id).ConfigureAwait(false);
+                    AssertFalse(Directory.Exists(firstRoot), "reclaiming a dock removes its checkout, its siblings and its root directory");
+                    AssertTrue(Directory.Exists(secondSibling), "the other dock's sibling is untouched by the reclaim");
+                }
+            });
+
             await RunTest("ProvisionAsync reuses an existing sibling checkout instead of destroying a concurrent dock's build", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -622,7 +682,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ProvisionAsync reports a reused shared sibling that is behind its branch tip as dock.sibling_stale, and stays quiet when it is current", async () =>
+            await RunTest("ProvisionAsync reports a re-provisioned mission's reused sibling that is behind its branch tip as dock.sibling_stale, and stays quiet when it is current", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -662,21 +722,23 @@ namespace Armada.Test.Unit.Suites.Services
                     Dock? first = await service.ProvisionAsync(vessel, captainOne, "armada/captain-stale-1/msn_one", "msn_one").ConfigureAwait(false);
                     AssertNotNull(first, "first dock should be provisioned");
 
-                    // A populated checkout is what later docks reuse; an empty shell is rebuilt.
+                    // Siblings are per dock, so only a re-provisioning of the SAME mission (a retry)
+                    // finds a sibling checkout already in place. A populated checkout is reused; an
+                    // empty shell is rebuilt.
                     string siblingPath = Path.GetFullPath(Path.Combine(first!.WorktreePath!, "../SibA"));
                     File.WriteAllText(Path.Combine(siblingPath, "checkout.marker"), "populated checkout");
 
-                    Dock? second = await service.ProvisionAsync(vessel, captainTwo, "armada/captain-stale-2/msn_two", "msn_two").ConfigureAwait(false);
-                    AssertNotNull(second, "second dock should be provisioned");
+                    Dock? second = await service.ProvisionAsync(vessel, captainTwo, "armada/captain-stale-2/msn_one", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(second, "the retry should be provisioned");
 
                     List<ArmadaEvent> quiet = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_stale").ConfigureAwait(false);
                     AssertEqual(0, quiet.Count, "a reused sibling at the branch tip raises no event");
 
-                    // The sibling vessel lands a commit while the first two docks hold leases: the
-                    // shared worktree cannot move, so the third dock reads the older tree.
+                    // The sibling vessel lands a commit before the next retry: the reused checkout is
+                    // behind the tip and the retry reads the older tree.
                     git.RevisionShaResult = "fff9999";
-                    Dock? third = await service.ProvisionAsync(vessel, captainThree, "armada/captain-stale-3/msn_three", "msn_three").ConfigureAwait(false);
-                    AssertNotNull(third, "third dock should be provisioned");
+                    Dock? third = await service.ProvisionAsync(vessel, captainThree, "armada/captain-stale-3/msn_one", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(third, "the second retry should be provisioned");
 
                     List<ArmadaEvent> stale = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_stale").ConfigureAwait(false);
                     AssertEqual(1, stale.Count, "a reused sibling behind its branch tip is reported once");
@@ -1166,7 +1228,7 @@ namespace Armada.Test.Unit.Suites.Services
             // The shared sibling worktree is reused by every later dock on the vessel. When the
             // source tree has grown since the first copy, the reuse must converge on the source;
             // a copy that stops at "already populated" keeps the first dock's subset for ever.
-            await RunTest("ProvisionAsync refreshes a stale sibling artifact copy when the source has grown since the first dock", async () =>
+            await RunTest("ProvisionAsync gives a later dock the grown source tree in its own sibling copy and leaves the first dock's copy pinned", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -1225,8 +1287,19 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Dock? second = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_second", "msn_second").ConfigureAwait(false);
                         AssertNotNull(second, "Second dock should be provisioned");
-                        string copiedSecond = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "Assembly.Two", "B.cs");
-                        AssertTrue(File.Exists(copiedSecond), "A later dock must see the grown source tree, not the first dock's subset");
+                        string secondSiblingWorktree = Path.GetFullPath(Path.Combine(second!.WorktreePath!, "../ExampleSibling"));
+                        AssertTrue(!String.Equals(siblingWorktree, secondSiblingWorktree, StringComparison.OrdinalIgnoreCase), "Each dock owns its sibling copy");
+                        string copiedSecond = Path.Combine(secondSiblingWorktree, "output", "extracted-artifacts", "Assembly.Two", "B.cs");
+                        AssertTrue(File.Exists(copiedSecond), "A later dock sees the grown source tree in its own copy");
+                        AssertTrue(File.Exists(Path.Combine(secondSiblingWorktree, "output", "extracted-artifacts", "Assembly.One", "A.cs")), "The later copy carries every file the source has");
+                        AssertTrue(File.Exists(copiedFirst), "The first dock keeps the copy it was provisioned against");
+                        AssertFalse(Directory.Exists(Path.Combine(siblingWorktree, "output", "extracted-artifacts", "Assembly.Two")), "The first dock's copy is pinned: nothing moves under a dock that may be mid-gate");
+
+                        // A retry of the first mission reuses its populated sibling and refreshes the
+                        // stale artifact copy atomically.
+                        Dock? retry = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_first", "msn_first").ConfigureAwait(false);
+                        AssertNotNull(retry, "Retry dock should be provisioned");
+                        AssertTrue(File.Exists(Path.Combine(siblingWorktree, "output", "extracted-artifacts", "Assembly.Two", "B.cs")), "A retry refreshes its reused sibling copy to the grown source");
                         AssertTrue(File.Exists(copiedFirst), "The refresh keeps every file the source still has");
                         AssertTrue(!Directory.GetDirectories(Path.Combine(siblingWorktree, "output")).Any(d => d.Contains(".refresh-") || d.Contains(".stale-")),
                             "The atomic refresh leaves no staging or retired directory behind");

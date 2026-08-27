@@ -31,6 +31,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Rescue briefs: a Judge's narration preamble is dropped before any size budget applies; a Judge report's Suggested Follow-ups and Verdict stay whole in an over-cap brief; a documentation-only rescue under a Research objective is the work, not an `ineffective_rescue`.
 - Architect handoff: a front-matter block is titled from its title line, and every spawned brief carries the plan-block-label rule.
 - A stale sibling extraction-artifact copy in a shared sibling worktree is refreshed atomically instead of skipped.
+- Each dock now owns its directory: the checkout sits at `docks/<Vessel>/<mission>/<Vessel>` and every declared sibling (`../EcuLink`) resolves beside THAT checkout, so a sibling is pinned at provisioning and is never shared with another dock. A dock created after a sibling landing therefore reads the new tip while a running dock keeps the tree its gate started on. The stale-dock sweep, reclaim and the disk-lifecycle orphan scan understand both the nested and the earlier flat shape; a flat leftover at a dock's root is removed before nesting; an empty root is removed on reclaim.
 - A dock that reuses a shared sibling worktree behind its branch tip (another dock holds a lease, so the worktree cannot move) logs both commits and emits `dock.sibling_stale`, instead of measuring the older tree silently. The per-dock sibling layout that would remove the condition is an open decision.
 
 ### Captain lifecycle
