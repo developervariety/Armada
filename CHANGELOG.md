@@ -8,6 +8,48 @@ All notable changes to Armada are documented in this file.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Objectives and the scheduler
+- An objective can carry a `StartFromRef` (`startFromRef` on `create_objective` / `update_objective`): the first stage of a voyage dispatched for it is cut from that ref instead of the vessel default branch, so a requeue from a `recover/<name>-<sha>` ref continues accepted work instead of rebuilding it. A ref that does not resolve refuses the dispatch before any voyage row exists (`start_from_ref_missing`, reported as the scheduler skip reason and an `objective_scheduler.start_from_ref_missing` event), and a ref that has gone by assignment time fails the mission by name. There is no fallback to the default branch.
+- A requeued objective whose linked voyages have all ended dispatches again instead of sitting in `Dispatched` for ever.
+- A scheduler pause is attributed to its session (`pausedBy`, `pauseReason`); the autonomy layer may clear only a stale pause whose owner has been absent longer than the configured threshold.
+- An engaged dispatch hold is reported as `dispatch_hold`, once per sweep, never as `dispatch_error`; a sweep that dispatches nothing names the constraint with counts (`vessel_count`, `vessel_concurrency`, `objective_skipped`, `no_eligible_objectives`).
+- Incident links are annotations: linking an objective to an incident no longer copies the incident's voyage and mission onto the objective, which had silently removed the objective from auto-dispatch.
+- Campaign status projects roots the same way as lanes; slices are opt-in and the lane rollup is the contract.
+
+### Checks and the Judge gate
+- A Judge PASS is held when a green Check measured an older commit than the reviewed tip; the check executor supersedes the stale record (`check.superseded`, Canceled, naming its successor) and arms a fresh one at the tip. A failed Check for an older commit is treated the same way, as stale rather than as a rejection, on Open voyages as well as InProgress ones.
+- Rescue voyages ARM their Build and UnitTest Checks instead of running them at rescue dispatch against the default branch, and the scheduler counts rescue voyages toward its ceilings.
+- A single deterministic assertion failure classifies as `TestFail`, not `Infra`, even when the output also carries a NuGet warning or the word "dependency".
+- Judge rules: accepted work must be an ancestor of the reviewed tip or present in the diff; delivery is proven by the diff under review, not by presence at the tip; a deliverable that lives in a stage's final response is never NOT DELIVERED for being absent from the tree; a citation inaccuracy inside a remark is a Suggested Follow-up, not a NEEDS_REVISION.
+
+### Dispatch, assignment and rescue
+- Branch continuation is decided by equality with the dependency's branch name, never by a name merely being present on the row, so a leftover name from an aborted assignment no longer fails a fan-out worker with `stage_base_missing`.
+- A planner stage that committed code fails before any fan-out worker is created, instead of every worker failing two stages later.
+- A selected captain is reserved in-process before provisioning, so two assignment passes cannot both provision a dock for one idle captain.
+- A Worker that failed inside a voyage is rescued through a rescue voyage, never as a standalone mission.
+- Rescue briefs: a Judge's narration preamble is dropped before any size budget applies; a Judge report's Suggested Follow-ups and Verdict stay whole in an over-cap brief; a documentation-only rescue under a Research objective is the work, not an `ineffective_rescue`.
+- Architect handoff: a front-matter block is titled from its title line, and every spawned brief carries the plan-block-label rule.
+- A stale sibling extraction-artifact copy in a shared sibling worktree is refreshed atomically instead of skipped.
+
+### Captain lifecycle
+- The handled-exit marker is kept until completion handling (DoD gate, handoff, dock provisioning) finishes. The captain health check re-reads the mission and ignores a vanished PID for a post-work or terminal mission (`captain.process_exit_ignored`) instead of synthesising exit code -1, failing the finished stage and cancelling the Judge with no incident.
+- The Cursor runtime passes `--approve-mcps` so the dock's Armada MCP server loads in `--print` runs.
+- The one-line AI-Memory pointer is seeded in the runtime's auto-memory folder before launch.
+
+### Storage
+- PostgreSQL: the request-history truncation flags are BOOLEAN and the request-history tables are created when absent (migration 81). Every request-history capture had failed with 42804 because the live columns were INTEGER while the model binds a bool, so no request was recorded.
+
+### MCP surface
+- Tool-call arguments are normalised against the tool schema once at the transport seam; an empty string for any optional argument is treated as omitted, and string-spelled booleans and numbers are converted.
+- The six oversized list tools preview long free-text fields and long primitive arrays, and the default list page size fits a tool result.
+- Directed wakes are delivered on any MCP tool result for a session that sends `X-Armada-Participant`; the effective AgentWake participant may acknowledge an unaddressed Wake; long broadcast notes are previewed on a board read while directed mail always arrives whole.
+- The inbox lists open incidents and hides failed missions whose voyage has halted.
+
+### Autonomous lead
+- The operator's blocking poll is replaced by a WebSocket subscription watcher and bounded autonomous lead cycles: prompts are passed on stdin, the cycle runs under a scoped permission policy, the whole cycle is logged with a 30-minute cap, it runs from the Armada checkout whoever started it, survives a redeploy, and is routed through the configured Fable captain.
+- A delegate helper class with permission-enforced limits; the lead posts its handoff from the completion gate exactly once, defaults the room key to `fleet`, refuses a cycle while an operator holds the work, and treats rows another participant owns as read-only.
+- A Grok lead integration foundation with its evaluation notes.
+
 ### Coordination board (chatroom)
 - A shared coordination board keeps concurrent operator sessions on the same page: rooms hold short notes about who is doing what, so a session that reads the board before dispatching no longer mistakes another session's voyage for unowned work or double-dispatches a rescue
 - Three entities back it - rooms keyed by a unique slug, messages carrying an author type (Operator / Captain / System) plus optional voyage, mission, vessel, and incident references, and per-room participant presence refreshed by heartbeats - with full SQLite and PostgreSQL implementations and migrations v75/v76; MySQL and SQL Server follow the existing stub convention for planning sessions

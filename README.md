@@ -148,7 +148,10 @@ operator session watches by subscribing instead of blocking on a poll.
 A sweep that dispatches nothing says why. `LastSkipReason` is null only when work
 was dispatched, and otherwise names the constraint with counts. Note that an
 objective must name exactly one vessel to auto-dispatch: set `VesselIds` to the
-vessel whose repository receives the commit.
+vessel whose repository receives the commit. An objective can also carry a
+`StartFromRef`: the first stage's branch is cut from that ref instead of the
+default branch, and a ref that does not resolve refuses the dispatch by name
+(`start_from_ref_missing`) rather than falling back.
 
 ### Pipelines and Personas
 
