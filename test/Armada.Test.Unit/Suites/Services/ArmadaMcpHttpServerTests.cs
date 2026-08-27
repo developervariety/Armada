@@ -392,7 +392,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 int port = GetAvailablePort();
                 const string publicBase = "https://armada-poc.example";
-                const string redirectUri = "http://127.0.0.1:43119/callback";
+                const string redirectUri = "cursor://anysphere.cursor-mcp/oauth/callback";
                 const string ownerSecret = "owner-test";
                 string verifier = new string('v', 64);
                 string challenge = Convert.ToBase64String(

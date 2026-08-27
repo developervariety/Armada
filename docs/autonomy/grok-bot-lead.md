@@ -288,9 +288,10 @@ Example Armada settings for an isolated test:
 the same environment secret as the owner secret on the approval page. Do not
 put this value in Grok chat, a URL, or `settings.json`. The proof flow supports
 dynamic client registration, authorization code with PKCE S256, 15-minute
-access tokens, and rotating refresh tokens. A server restart revokes all OAuth
-clients and grants. This is useful for a temporary proof only. Use an
-established identity provider or authorization gateway for production.
+access tokens, rotating refresh tokens, and exact native-app redirect URI
+matching. A server restart revokes all OAuth clients and grants. This is useful
+for a temporary proof only. Use an established identity provider or
+authorization gateway for production.
 
 This setting does not create a public route, a credential, a tunnel, a Grok
 Bot, or a routine.

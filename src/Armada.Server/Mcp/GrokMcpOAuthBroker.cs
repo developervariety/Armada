@@ -128,7 +128,9 @@ namespace Armada.Server.Mcp
             if (request?.RedirectUris == null || request.RedirectUris.Length == 0
                 || request.RedirectUris.Length > 10
                 || request.RedirectUris.Any(uri => !IsSafeRedirectUri(uri)))
-                return OAuthError("invalid_redirect_uri", "A valid HTTPS or loopback redirect URI is required.");
+                return OAuthError(
+                    "invalid_redirect_uri",
+                    "A valid HTTPS, loopback, or private-use native-app redirect URI is required.");
             if (request.TokenEndpointAuthMethod != null
                 && !String.Equals(request.TokenEndpointAuthMethod, "none", StringComparison.Ordinal))
                 return OAuthError("invalid_client_metadata", "Only public PKCE clients are supported.");
@@ -306,11 +308,23 @@ namespace Armada.Server.Mcp
 
         private static bool IsSafeRedirectUri(string value)
         {
-            if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) || !String.IsNullOrEmpty(uri.Fragment)) return false;
-            return uri.Scheme == Uri.UriSchemeHttps
-                || (uri.Scheme == Uri.UriSchemeHttp && IPAddress.TryParse(uri.Host, out IPAddress? address)
-                    && IPAddress.IsLoopback(address))
-                || (uri.Scheme == Uri.UriSchemeHttp && String.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase));
+            if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
+                || !String.IsNullOrEmpty(uri.Fragment)
+                || !String.IsNullOrEmpty(uri.UserInfo))
+                return false;
+            if (uri.Scheme == Uri.UriSchemeHttps) return true;
+            if (uri.Scheme == Uri.UriSchemeHttp)
+            {
+                return (IPAddress.TryParse(uri.Host, out IPAddress? address) && IPAddress.IsLoopback(address))
+                    || String.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // RFC 8252 permits private-use URI schemes for native applications.
+            // The registered value is matched exactly at authorization time, and
+            // this broker requires PKCE S256 before it issues a token.
+            return !String.Equals(uri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase)
+                && !String.Equals(uri.Scheme, "data", StringComparison.OrdinalIgnoreCase)
+                && !String.Equals(uri.Scheme, "javascript", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool VerifyPkce(string verifier, string expectedChallenge)
