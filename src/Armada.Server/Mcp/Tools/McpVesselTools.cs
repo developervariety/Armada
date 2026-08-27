@@ -127,7 +127,8 @@ namespace Armada.Server.Mcp.Tools
                                         type = "array",
                                         items = new { type = "string" },
                                         description = "Relative paths copied from the sibling vessel's working directory into the dock after provisioning, to materialise git-ignored extraction artifacts the consumer's build probes expect. Requires vesselRef to resolve to a vessel with a working directory. OMIT to keep the entry's existing paths; pass an empty array to clear them."
-                                    }
+                                    },
+                                    buildParticipant = new { type = "boolean", description = "True when this vessel's Build or UnitTest can touch the sibling (a consumer that builds it through a project reference); the scheduler then treats the two vessels as one lane. OMIT to keep the entry's existing value; defaults to false for a new entry." },
                                 },
                                 required = new[] { "relativePath" }
                             }
@@ -310,7 +311,8 @@ namespace Armada.Server.Mcp.Tools
                                         type = "array",
                                         items = new { type = "string" },
                                         description = "Relative paths copied from the sibling vessel's working directory into the dock after provisioning, to materialise git-ignored extraction artifacts the consumer's build probes expect. Requires vesselRef to resolve to a vessel with a working directory. OMIT to keep the entry's existing paths; pass an empty array to clear them."
-                                    }
+                                    },
+                                    buildParticipant = new { type = "boolean", description = "True when this vessel's Build or UnitTest can touch the sibling (a consumer that builds it through a project reference); the scheduler then treats the two vessels as one lane. OMIT to keep the entry's existing value; defaults to false for a new entry." },
                                 },
                                 required = new[] { "relativePath" }
                             }
@@ -618,13 +620,16 @@ namespace Armada.Server.Mcp.Tools
 
             for (int i = 0; i < incoming.Count; i++)
             {
-                if (SubObjectMentions(incomingRaw, i, "extractionArtifactPaths")) continue;
+                bool keepArtifactPaths = !SubObjectMentions(incomingRaw, i, "extractionArtifactPaths");
+                bool keepBuildParticipant = !SubObjectMentions(incomingRaw, i, "buildParticipant");
+                if (!keepArtifactPaths && !keepBuildParticipant) continue;
 
                 string relativePath = incoming[i].RelativePath ?? String.Empty;
                 foreach (Armada.Core.Models.SiblingRepo prior in existing)
                 {
                     if (!String.Equals(prior.RelativePath ?? String.Empty, relativePath, StringComparison.Ordinal)) continue;
-                    incoming[i].ExtractionArtifactPaths = prior.ExtractionArtifactPaths;
+                    if (keepArtifactPaths) incoming[i].ExtractionArtifactPaths = prior.ExtractionArtifactPaths;
+                    if (keepBuildParticipant) incoming[i].BuildParticipant = prior.BuildParticipant;
                     break;
                 }
             }
