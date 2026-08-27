@@ -38,6 +38,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The one-line AI-Memory pointer is seeded in the runtime's auto-memory folder before launch.
 
 ### Storage
+- PostgreSQL and SQL Server: token-usage records bind `Estimated` as an integer and `CreatedUtc` as an ISO-8601 string, matching the columns; every insert and every summary read had failed, so the Activity page's Token Usage tab showed nothing. A duplicate token-usage route registration is removed.
 - PostgreSQL: the request-history truncation flags are BOOLEAN and the request-history tables are created when absent (migration 81). Every request-history capture had failed with 42804 because the live columns were INTEGER while the model binds a bool, so no request was recorded.
 
 ### MCP surface
