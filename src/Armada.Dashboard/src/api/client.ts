@@ -177,7 +177,14 @@ const PLANNING_SUMMARIZE_TIMEOUT_MS = 3 * 60 * 1000;
 
 async function request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (authToken) headers['X-Token'] = authToken;
+  if (authToken) {
+    // Send both credential forms. The admiral's auth chain tries Authorization: Bearer
+    // first, then the session-token header, so either token class authenticates: a
+    // dashboard session token from /authenticate resolves at step two, and a
+    // bearer/API token resolves at step one.
+    headers['X-Token'] = authToken;
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
 
   const controller = new AbortController();
   const timeoutMs = opts?.timeout ?? 30000;
