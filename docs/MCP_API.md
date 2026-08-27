@@ -228,6 +228,13 @@ in front of it. Do not expose the normal MCP listener. The bearer secret comes
 from the environment variable named by
 `GrokLead.BearerTokenEnvironmentVariable`; it does not belong in settings.
 
+For a temporary Grok Bot connection proof, set `GrokLead.OAuthPublicBaseUrl` to
+the public HTTPS origin. The listener then publishes MCP protected-resource
+metadata and an in-memory authorization-code flow with PKCE. The owner enters
+the same environment secret on the Armada approval page. Do not put the secret
+in chat or in the connector URL. All OAuth clients and grants are removed when
+the server restarts. This POC authorization server is not for production use.
+
 See [Grok Bot Lead Integration](autonomy/grok-bot-lead.md) for the catalog,
 cycle protocol, fallback behavior, and proof-of-concept gates.
 

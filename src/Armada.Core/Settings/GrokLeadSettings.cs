@@ -75,6 +75,18 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Public HTTPS origin used for the optional MCP OAuth proof flow. Leave this
+        /// empty to disable OAuth discovery and keep static bearer authentication only.
+        /// This proof flow stores clients and grants in memory and is not a production
+        /// identity provider.
+        /// </summary>
+        public string? OAuthPublicBaseUrl
+        {
+            get => _OAuthPublicBaseUrl;
+            set => _OAuthPublicBaseUrl = String.IsNullOrWhiteSpace(value) ? null : value.Trim().TrimEnd('/');
+        }
+
+        /// <summary>
         /// Initial operating mode when no durable mode-change event exists.
         /// </summary>
         public LeadOperatingModeEnum DefaultMode { get; set; } = LeadOperatingModeEnum.LegacyPrimary;
@@ -119,6 +131,7 @@ namespace Armada.Core.Settings
         private int _Port = 7892;
         private string _ParticipantKey = "armada-lead";
         private string _BearerTokenEnvironmentVariable = "ARMADA_GROK_MCP_TOKEN";
+        private string? _OAuthPublicBaseUrl = null;
         private int _CycleLeaseMinutes = 40;
         private int _StandbyFallbackAfterMinutes = 130;
         private int _OperatorPresenceMinutes = 30;

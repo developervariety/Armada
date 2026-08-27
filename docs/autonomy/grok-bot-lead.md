@@ -6,10 +6,12 @@ Armada now has a disabled-by-default foundation for a Grok Bot lead. It does
 not expose the full Armada MCP catalog. It adds a separate, authenticated,
 least-privilege MCP listener and one shared server-side cycle lease.
 
-Do not enable `GrokLead` in production yet. xAI documents custom remote MCP
-connectors, public reachability, and connector authentication. A live Grok Bot
-test must still prove the exact header fields and Armada Streamable HTTP
-exchange before production use.
+Do not enable `GrokLead` in production yet. A live Grok Bot test reached the
+restricted endpoint, but the secret stored in the Grok vault did not appear as
+an HTTP `Authorization` header. The result was a correct 401 response and zero
+tools. This disproves static bearer interoperability through that connector
+flow. The branch now includes an optional MCP OAuth proof flow for the next
+test.
 
 `grok-bot-cli` does not remove this blocker. Its documented commands create and
 update Bots and groups, send messages, and read threads. It uses the signed-in
@@ -62,8 +64,8 @@ Official pages:
 
 The following facts remain unverified for the Armada connection:
 
-- whether the current Grok Bot connector UI sends both the bearer header and
-  `X-Armada-Participant` on every request;
+- whether the current Grok Bot connector completes standard MCP OAuth with
+  Armada and then sends the access token on every request;
 - Streamable HTTP and SSE compatibility with Armada;
 - routine retry rules and a fixed daily routine limit;
 - routine webhooks for completion, approval, and failure;
@@ -260,7 +262,8 @@ boundary, timeout, log renderer, AgentWake path, and systemd schedule.
 
 The restricted listener binds to `127.0.0.1:7892` by default. Keep this bind.
 Put a TLS reverse proxy or an authenticated tunnel in front of it. Publish only
-one path to this listener. Do not proxy port 7891 or the normal `/mcp` endpoint.
+the restricted MCP and OAuth proof routes on this listener. Do not proxy port
+7891 or the normal MCP listener.
 
 Example Armada settings for an isolated test:
 
@@ -273,6 +276,7 @@ Example Armada settings for an isolated test:
     "Port": 7892,
     "ParticipantKey": "armada-lead",
     "BearerTokenEnvironmentVariable": "ARMADA_GROK_MCP_TOKEN",
+    "OAuthPublicBaseUrl": "https://mcp.example.com",
     "DefaultMode": "LegacyPrimary",
     "CycleLeaseMinutes": 40,
     "StandbyFallbackAfterMinutes": 130
@@ -280,8 +284,16 @@ Example Armada settings for an isolated test:
 }
 ```
 
-This setting only starts the loopback listener. It does not create a public
-route, a credential, a tunnel, a Grok Bot, or a routine.
+`OAuthPublicBaseUrl` enables the in-memory OAuth connection proof. Armada uses
+the same environment secret as the owner secret on the approval page. Do not
+put this value in Grok chat, a URL, or `settings.json`. The proof flow supports
+dynamic client registration, authorization code with PKCE S256, 15-minute
+access tokens, and rotating refresh tokens. A server restart revokes all OAuth
+clients and grants. This is useful for a temporary proof only. Use an
+established identity provider or authorization gateway for production.
+
+This setting does not create a public route, a credential, a tunnel, a Grok
+Bot, or a routine.
 
 `ReadOnly` defaults to `true`. In this mode, the restricted listener advertises
 only read tools and `armada_lead_cycle_status`. Set it to `false` only after the
@@ -297,7 +309,8 @@ The external boundary must enforce:
 - no caching;
 - no logging of the Authorization value;
 - secret rotation and immediate revocation;
-- denial of every path except the restricted MCP path.
+- denial of every path except `/mcp`, the OAuth discovery paths, and the three
+  OAuth endpoints when the OAuth proof is enabled.
 
 Armada must enforce these controls even when the proxy is wrong:
 
@@ -338,14 +351,18 @@ an audit event, and a recovery test.
 4. Add a notification hook to a test-only phone channel. Confirm completion,
    owner-decision, approval, authentication-failure, model-failure, and timeout
    messages. A notification is not permission to continue.
-5. Add an xAI custom MCP connector in Grok Bot. Use the documented secure
-   secret input for the bearer value. Do not put the value in chat.
+5. Add an xAI custom MCP connector in Grok Bot. Static bearer storage did not
+   attach the required HTTP header in the tested connector flow. Remove the
+   failed connector and add it again without a static secret so that it starts
+   MCP OAuth discovery.
 6. In an isolated direct-Bot test, enable the loopback listener and provide
    `ARMADA_GROK_MCP_TOKEN` through the service secret environment.
 7. Put a temporary TLS tunnel in front of port 7892. Confirm that port 7891 and
    all Armada REST routes are unreachable through it.
-8. Record the exact connector fields and the actual HTTP requests. Stop if the
-   client cannot send both required headers or cannot use Streamable HTTP.
+8. Approve the connection in the browser page that Armada opens. Enter the POC
+   owner secret only on that Armada page. Record the exact connector fields and
+   HTTP results. The fixed participant identity is assigned by Armada, so the
+   external client does not need to send `X-Armada-Participant`.
 9. Run ten read-only manual cycles. Test phone steering, stop messages,
    completion notifications, failures, lease expiry, and audit correlation.
 10. Run scheduled read-only routines for seven days. Keep the hourly legacy

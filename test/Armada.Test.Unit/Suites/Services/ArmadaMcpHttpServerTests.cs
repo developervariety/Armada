@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Net;
     using System.Net.Http;
     using System.Net.Sockets;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
     using Armada.Server.Mcp;
@@ -387,6 +388,128 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(HttpStatusCode.OK, validResponse.StatusCode);
             }).ConfigureAwait(false);
 
+            await RunTest("OAuthDiscoveryAndPkceGrant_AuthorizeMcpRequest", async () =>
+            {
+                int port = GetAvailablePort();
+                const string publicBase = "https://armada-poc.example";
+                const string redirectUri = "http://127.0.0.1:43119/callback";
+                const string ownerSecret = "owner-test";
+                string verifier = new string('v', 64);
+                string challenge = Convert.ToBase64String(
+                    SHA256.HashData(Encoding.ASCII.GetBytes(verifier)))
+                    .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.BearerToken = "backup-test";
+                server.OAuthBroker = new GrokMcpOAuthBroker(publicBase, ownerSecret);
+                RegisterStatusTool(server);
+                await server.StartAsync().ConfigureAwait(false);
+
+                CookieContainer cookies = new CookieContainer();
+                using HttpClient client = new HttpClient(new HttpClientHandler
+                {
+                    CookieContainer = cookies,
+                    AllowAutoRedirect = false
+                })
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                using HttpResponseMessage unauthorized = await client.SendAsync(
+                    CreateRequest("/mcp", 1, "tools/list", new { })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+                AssertContains("oauth-protected-resource/mcp", unauthorized.Headers.WwwAuthenticate.Single().ToString());
+
+                JsonElement metadata = JsonSerializer.Deserialize<JsonElement>(
+                    await client.GetStringAsync("/.well-known/oauth-protected-resource/mcp").ConfigureAwait(false));
+                AssertEqual(publicBase + "/mcp", metadata.GetProperty("resource").GetString());
+
+                using HttpResponseMessage registrationResponse = await client.PostAsync(
+                    "/oauth/register",
+                    new StringContent(JsonSerializer.Serialize(new
+                    {
+                        redirect_uris = new[] { redirectUri },
+                        client_name = "Grok test",
+                        token_endpoint_auth_method = "none"
+                    }), Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, registrationResponse.StatusCode);
+                JsonElement registration = JsonSerializer.Deserialize<JsonElement>(
+                    await registrationResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+                string clientId = registration.GetProperty("client_id").GetString()!;
+
+                string authorizePath = "/oauth/authorize?response_type=code&client_id=" + Uri.EscapeDataString(clientId)
+                    + "&redirect_uri=" + Uri.EscapeDataString(redirectUri)
+                    + "&state=test-state&scope=armada%3Aread&resource=" + Uri.EscapeDataString(publicBase + "/mcp")
+                    + "&code_challenge=" + Uri.EscapeDataString(challenge) + "&code_challenge_method=S256";
+                using HttpResponseMessage authorizationResponse = await client.GetAsync(authorizePath).ConfigureAwait(false);
+                string approvalPage = await authorizationResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string csrf = ExtractHiddenValue(approvalPage, "csrf");
+                using HttpRequestMessage approvalRequest = new HttpRequestMessage(HttpMethod.Post, "/oauth/authorize")
+                {
+                    Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                    {
+                        ["client_id"] = clientId,
+                        ["redirect_uri"] = redirectUri,
+                        ["state"] = "test-state",
+                        ["scope"] = "armada:read",
+                        ["resource"] = publicBase + "/mcp",
+                        ["code_challenge"] = challenge,
+                        ["code_challenge_method"] = "S256",
+                        ["csrf"] = csrf,
+                        ["owner_secret"] = ownerSecret,
+                        ["decision"] = "approve"
+                    })
+                };
+                approvalRequest.Headers.TryAddWithoutValidation("Cookie", "armada_oauth_csrf=" + csrf);
+                using HttpResponseMessage approval = await client.SendAsync(approvalRequest).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Redirect, approval.StatusCode);
+                string code = ParseQueryValue(approval.Headers.Location!, "code");
+
+                using HttpResponseMessage tokenResponse = await client.PostAsync(
+                    "/oauth/token",
+                    new FormUrlEncodedContent(new Dictionary<string, string>
+                    {
+                        ["grant_type"] = "authorization_code",
+                        ["client_id"] = clientId,
+                        ["code"] = code,
+                        ["redirect_uri"] = redirectUri,
+                        ["code_verifier"] = verifier,
+                        ["resource"] = publicBase + "/mcp"
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, tokenResponse.StatusCode);
+                JsonElement tokens = JsonSerializer.Deserialize<JsonElement>(
+                    await tokenResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+
+                using HttpRequestMessage authorized = CreateRequest("/mcp", 2, "tools/list", new { });
+                authorized.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                    "Bearer", tokens.GetProperty("access_token").GetString());
+                using HttpResponseMessage authorizedResponse = await client.SendAsync(authorized).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, authorizedResponse.StatusCode);
+
+                string firstRefreshToken = tokens.GetProperty("refresh_token").GetString()!;
+                using HttpResponseMessage refreshResponse = await client.PostAsync(
+                    "/oauth/token",
+                    new FormUrlEncodedContent(new Dictionary<string, string>
+                    {
+                        ["grant_type"] = "refresh_token",
+                        ["client_id"] = clientId,
+                        ["refresh_token"] = firstRefreshToken,
+                        ["resource"] = publicBase + "/mcp"
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, refreshResponse.StatusCode);
+
+                using HttpResponseMessage replayResponse = await client.PostAsync(
+                    "/oauth/token",
+                    new FormUrlEncodedContent(new Dictionary<string, string>
+                    {
+                        ["grant_type"] = "refresh_token",
+                        ["client_id"] = clientId,
+                        ["refresh_token"] = firstRefreshToken,
+                        ["resource"] = publicBase + "/mcp"
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, replayResponse.StatusCode);
+            }).ConfigureAwait(false);
+
             await RunTest("FixedParticipantRejectsSpoofingAndFeedsAudit", async () =>
             {
                 int port = GetAvailablePort();
@@ -633,6 +756,27 @@ namespace Armada.Test.Unit.Suites.Services
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();
             return port;
+        }
+
+        private static string ExtractHiddenValue(string html, string name)
+        {
+            string marker = "name=\"" + name + "\" value=\"";
+            int start = html.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) throw new InvalidDataException("Hidden form value not found: " + name);
+            start += marker.Length;
+            int end = html.IndexOf('"', start);
+            return WebUtility.HtmlDecode(html.Substring(start, end - start));
+        }
+
+        private static string ParseQueryValue(Uri location, string name)
+        {
+            foreach (string pair in location.Query.TrimStart('?').Split('&'))
+            {
+                string[] parts = pair.Split('=', 2);
+                if (String.Equals(Uri.UnescapeDataString(parts[0]), name, StringComparison.Ordinal))
+                    return Uri.UnescapeDataString(parts.Length == 2 ? parts[1] : "");
+            }
+            throw new InvalidDataException("Query value not found: " + name);
         }
     }
 }
