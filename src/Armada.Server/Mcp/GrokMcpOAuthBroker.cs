@@ -197,8 +197,8 @@ namespace Armada.Server.Mcp
                 return Results.BadRequest("The authorization request expired or failed CSRF validation.");
 
             if (!String.Equals(form["decision"].ToString(), "approve", StringComparison.Ordinal))
-                return AuthorizationRedirect(request, "access_denied", null);
-            if (!ConstantTimeEquals(_OwnerSecret, form["owner_secret"].ToString()))
+                return AuthorizationRedirect(context, request, "access_denied", null);
+            if (!ConstantTimeEquals(_OwnerSecret, form["owner_secret"].ToString().Trim()))
             {
                 SetBrowserSecurityHeaders(context.Response);
                 return Results.Content("Authorization failed. Return to Grok and try the connection again.", "text/plain", Encoding.UTF8, 403);
@@ -208,7 +208,7 @@ namespace Armada.Server.Mcp
             _Codes[Hash(code)] = new AuthorizationCode(
                 request.ClientId, request.RedirectUri, request.CodeChallenge, request.Resource,
                 DateTimeOffset.UtcNow.Add(_AuthorizationCodeLifetime));
-            return AuthorizationRedirect(request, null, code);
+            return AuthorizationRedirect(context, request, null, code);
         }
 
         private async Task<IResult> TokenAsync(HttpContext context)
@@ -290,14 +290,30 @@ namespace Armada.Server.Mcp
             return null;
         }
 
-        private IResult AuthorizationRedirect(AuthorizationRequest request, string? error, string? code)
+        private IResult AuthorizationRedirect(
+            HttpContext context,
+            AuthorizationRequest request,
+            string? error,
+            string? code)
         {
             string separator = request.RedirectUri.Contains('?', StringComparison.Ordinal) ? "&" : "?";
             string location = request.RedirectUri + separator;
             if (error != null) location += "error=" + Uri.EscapeDataString(error);
             else location += "code=" + Uri.EscapeDataString(code!);
             if (!String.IsNullOrEmpty(request.State)) location += "&state=" + Uri.EscapeDataString(request.State);
-            return Results.Redirect(location);
+            Uri redirectUri = new Uri(request.RedirectUri);
+            if (redirectUri.Scheme == Uri.UriSchemeHttps || redirectUri.Scheme == Uri.UriSchemeHttp)
+                return Results.Redirect(location);
+
+            // Safari can refuse to open a native application from a redirect that follows
+            // a form POST. Show a user-activated handoff link as a reliable fallback.
+            SetBrowserSecurityHeaders(context.Response);
+            string html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Return to Grok Bot</title>"
+                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head><body><main>"
+                + "<h1>Armada authorization approved</h1><p>Select the button to return to Grok Bot.</p>"
+                + "<p><a href=\"" + H(location) + "\">Return to Grok Bot</a></p>"
+                + "</main></body></html>";
+            return Results.Content(html, "text/html", Encoding.UTF8);
         }
 
         private string ReadResource(IFormCollection form)

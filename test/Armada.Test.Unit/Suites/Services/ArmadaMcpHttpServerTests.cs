@@ -456,14 +456,17 @@ namespace Armada.Test.Unit.Suites.Services
                         ["code_challenge"] = challenge,
                         ["code_challenge_method"] = "S256",
                         ["csrf"] = csrf,
-                        ["owner_secret"] = ownerSecret,
+                        ["owner_secret"] = ownerSecret + "\n",
                         ["decision"] = "approve"
                     })
                 };
                 approvalRequest.Headers.TryAddWithoutValidation("Cookie", "armada_oauth_csrf=" + csrf);
                 using HttpResponseMessage approval = await client.SendAsync(approvalRequest).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Redirect, approval.StatusCode);
-                string code = ParseQueryValue(approval.Headers.Location!, "code");
+                AssertEqual(HttpStatusCode.OK, approval.StatusCode);
+                string handoffPage = await approval.Content.ReadAsStringAsync().ConfigureAwait(false);
+                Uri callback = new Uri(WebUtility.HtmlDecode(ExtractLinkTarget(handoffPage)));
+                AssertEqual("cursor", callback.Scheme);
+                string code = ParseQueryValue(callback, "code");
 
                 using HttpResponseMessage tokenResponse = await client.PostAsync(
                     "/oauth/token",
@@ -777,6 +780,16 @@ namespace Armada.Test.Unit.Suites.Services
                     return Uri.UnescapeDataString(parts.Length == 2 ? parts[1] : "");
             }
             throw new InvalidDataException("Query value not found: " + name);
+        }
+
+        private static string ExtractLinkTarget(string html)
+        {
+            const string marker = "<a href=\"";
+            int start = html.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) throw new InvalidDataException("OAuth handoff link was not found.");
+            start += marker.Length;
+            int end = html.IndexOf('"', start);
+            return html.Substring(start, end - start);
         }
     }
 }
