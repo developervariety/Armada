@@ -2,6 +2,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
     using Npgsql;
@@ -16,6 +17,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #region Private-Members
 
         private readonly NpgsqlDataSource _DataSource;
+        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
         #endregion
 
@@ -199,8 +201,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@output_tokens", record.OutputTokens);
             cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
             cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
-            cmd.Parameters.AddWithValue("@estimated", record.Estimated);
-            cmd.Parameters.AddWithValue("@created_utc", record.CreatedUtc);
+            cmd.Parameters.AddWithValue("@estimated", record.Estimated ? 1 : 0);
+            cmd.Parameters.AddWithValue("@created_utc", ToIso8601(record.CreatedUtc));
         }
 
         private static TokenUsageRecord RecordFromReader(NpgsqlDataReader reader)
@@ -221,7 +223,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
                 TotalTokens = Convert.ToInt64(reader["total_tokens"]),
                 Estimated = Convert.ToBoolean(reader["estimated"]),
-                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc)
+                CreatedUtc = FromIso8601(reader["created_utc"].ToString()!)
             };
         }
 
@@ -230,6 +232,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (value == null || value == DBNull.Value) return null;
             string str = value.ToString()!;
             return string.IsNullOrEmpty(str) ? null : str;
+        }
+
+        private static string ToIso8601(DateTime dt)
+        {
+            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+        }
+
+        private static DateTime FromIso8601(string value)
+        {
+            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
         }
 
         private static void ApplyQueryFilters(TokenUsageQuery? query, List<string> conditions, List<NpgsqlParameter> parameters)
@@ -274,12 +286,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(new NpgsqlParameter("@from_utc", ToIso8601(query.FromUtc.Value)));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(new NpgsqlParameter("@to_utc", ToIso8601(query.ToUtc.Value)));
             }
         }
 
