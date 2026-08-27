@@ -916,6 +916,56 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(80, "Add start_from_ref to objectives and missions",
                     @"ALTER TABLE objectives ADD COLUMN IF NOT EXISTS start_from_ref TEXT;",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS start_from_ref TEXT;"
+                ),
+                // The request-history tables were created by an earlier build whose DDL no longer
+                // appears in this list, with INTEGER truncation flags. Npgsql binds a .NET bool, so
+                // every detail insert failed with 42804 and no request was ever recorded. Create
+                // the tables for a fresh database and convert the flags where they already exist;
+                // the USING clause reads the column as text so it is valid for an integer column
+                // (live) and for a boolean one (fresh) alike.
+                new SchemaMigration(81, "Request history tables: create if missing and make the truncation flags BOOLEAN",
+                    @"CREATE TABLE IF NOT EXISTS request_history (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        credential_id TEXT,
+                        principal_display TEXT,
+                        auth_method TEXT,
+                        method TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        route_template TEXT,
+                        query_string TEXT,
+                        status_code INTEGER NOT NULL,
+                        duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        request_size_bytes INTEGER NOT NULL DEFAULT 0,
+                        response_size_bytes INTEGER NOT NULL DEFAULT 0,
+                        request_content_type TEXT,
+                        response_content_type TEXT,
+                        is_success BOOLEAN NOT NULL DEFAULT FALSE,
+                        client_ip TEXT,
+                        correlation_id TEXT,
+                        created_utc TEXT NOT NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS request_history_detail (
+                        request_history_id TEXT PRIMARY KEY,
+                        path_params_json TEXT,
+                        query_params_json TEXT,
+                        request_headers_json TEXT,
+                        response_headers_json TEXT,
+                        request_body_text TEXT,
+                        response_body_text TEXT,
+                        request_body_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+                        response_body_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+                        FOREIGN KEY (request_history_id) REFERENCES request_history(id) ON DELETE CASCADE
+                    );",
+                    @"ALTER TABLE request_history_detail
+                        ALTER COLUMN request_body_truncated DROP DEFAULT,
+                        ALTER COLUMN request_body_truncated TYPE BOOLEAN USING (request_body_truncated::text IN ('1', 't', 'true')),
+                        ALTER COLUMN request_body_truncated SET DEFAULT FALSE;",
+                    @"ALTER TABLE request_history_detail
+                        ALTER COLUMN response_body_truncated DROP DEFAULT,
+                        ALTER COLUMN response_body_truncated TYPE BOOLEAN USING (response_body_truncated::text IN ('1', 't', 'true')),
+                        ALTER COLUMN response_body_truncated SET DEFAULT FALSE;"
                 )
             };
         }

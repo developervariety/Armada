@@ -18,7 +18,7 @@ namespace Armada.Test.Unit.Suites.Database
         public override string Name => "Postgres Boolean Column Types";
 
         private static readonly Regex _ColumnPattern = new Regex(
-            @"^\s*(?<name>(?:is_|has_|allow_|enable_|require_)\w+|active)\s+(?<type>[A-Za-z]+)",
+            @"^\s*(?<name>(?:is_|has_|allow_|enable_|require_)\w+|\w+_truncated|active)\s+(?<type>[A-Za-z]+)",
             RegexOptions.Compiled);
 
         protected override async Task RunTestsAsync()
@@ -55,6 +55,22 @@ namespace Armada.Test.Unit.Suites.Database
                 }
 
                 AssertEqual(String.Empty, String.Join("; ", offenders));
+            });
+
+            await RunTest("Migration 81 makes both request_history_detail truncation flags BOOLEAN and creates the tables when absent", () =>
+            {
+                SchemaMigration? migration = PostgresTableQueries.GetMigrations().FirstOrDefault(m => m.Version == 81);
+                AssertNotNull(migration, "migration 81 present");
+                string all = String.Join("\n", migration!.Statements);
+                AssertTrue(all.Contains("CREATE TABLE IF NOT EXISTS request_history ("), "the summary table is created for a fresh database");
+                AssertTrue(all.Contains("CREATE TABLE IF NOT EXISTS request_history_detail ("), "the detail table is created for a fresh database");
+                foreach (string column in new[] { "request_body_truncated", "response_body_truncated" })
+                {
+                    AssertTrue(Regex.IsMatch(all, @"ALTER COLUMN " + column + @" TYPE BOOLEAN USING \(" + column + @"::text IN"),
+                        column + " is converted to BOOLEAN through a text comparison that is valid for an integer and a boolean source column");
+                    AssertTrue(all.Contains(column + " BOOLEAN NOT NULL DEFAULT FALSE"), column + " is declared BOOLEAN in the fresh-database DDL");
+                }
+                return Task.CompletedTask;
             });
 
             await RunTest("Migration 75 converts the ported INTEGER boolean columns", () =>
