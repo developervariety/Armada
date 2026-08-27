@@ -96,8 +96,12 @@ namespace Armada.Runtimes
             {
                 args.Add("--dangerously-bypass-approvals-and-sandbox");
             }
-            else if (OperatingSystem.IsWindows() && String.Equals(ApprovalMode, "full-auto", StringComparison.OrdinalIgnoreCase))
+            else if (String.Equals(ApprovalMode, "full-auto", StringComparison.OrdinalIgnoreCase)
+                && (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()))
             {
+                // Armada already confines captains to an isolated dock worktree. In Linux
+                // containers Codex's nested bubblewrap sandbox can fail on user namespace
+                // and loopback setup even when the captain itself is correctly isolated.
                 args.Add("--dangerously-bypass-approvals-and-sandbox");
             }
             else if (String.Equals(ApprovalMode, "full-auto", StringComparison.OrdinalIgnoreCase))
