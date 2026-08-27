@@ -375,6 +375,9 @@ namespace Armada.Test.Unit.Suites.Services
                     "/mcp", 1, "tools/list", new { });
                 using HttpResponseMessage missingResponse = await client.SendAsync(missingRequest).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.Unauthorized, missingResponse.StatusCode);
+                AssertEqual(
+                    "Bearer realm=\"Armada MCP\"",
+                    missingResponse.Headers.WwwAuthenticate.Single().ToString());
 
                 using HttpRequestMessage validRequest = CreateRequest(
                     "/mcp", 2, "tools/list", new { });

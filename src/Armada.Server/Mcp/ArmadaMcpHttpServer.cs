@@ -217,6 +217,7 @@ namespace Armada.Server.Mcp
                 if (!IsAuthorized(context))
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.Headers.WWWAuthenticate = "Bearer realm=\"Armada MCP\"";
                     await context.Response.WriteAsync("Unauthorized").ConfigureAwait(false);
                     return;
                 }
