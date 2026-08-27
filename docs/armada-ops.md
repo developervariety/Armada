@@ -196,6 +196,11 @@ Before a lead auto-enables a lane, confirm:
 
 Prefer parallel voyages on different vessels. Treat repositories as one lane
 when either suite builds or tests the other through a sibling-project reference.
+Declare that relation with `buildParticipant: true` on the sibling entry of the
+vessel that builds the other; the scheduler then applies the per-vessel ceiling
+to every vessel in the lane and reports a refused dispatch as
+`lane_busy:<vesselA>+<vesselB>`. A read-only sibling (a decompiled or
+extraction-artifact tree) stays `false` and forms no lane.
 Armada-owned Checks serialize on the host interlock, but a captain can still run
 a suite directly in its dock.
 Use bounded read-only helpers to prepare future lanes; use captains and voyages

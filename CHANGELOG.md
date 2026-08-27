@@ -15,6 +15,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - An engaged dispatch hold is reported as `dispatch_hold`, once per sweep, never as `dispatch_error`; a sweep that dispatches nothing names the constraint with counts (`vessel_count`, `vessel_concurrency`, `objective_skipped`, `no_eligible_objectives`).
 - Incident links are annotations: linking an objective to an incident no longer copies the incident's voyage and mission onto the objective, which had silently removed the objective from auto-dispatch.
 - Campaign status projects roots the same way as lanes; slices are opt-in and the lane rollup is the contract.
+- Scheduling lanes are derived from sibling declarations: a sibling entry with `buildParticipant: true` (a consumer that builds the sibling through a project reference) joins the two vessels into one lane, and `maxConcurrentVoyagesPerVessel` is applied to the whole lane. A skip is reported as `lane_busy:<vesselA>+<vesselB>` with an `objective_scheduler.skipped_lane_busy` event; a read-only sibling (decompiled or artifact tree) joins no lane. Hand-set blockers were the only serialiser for a cross-vessel wave before.
 
 ### Checks and the Judge gate
 - A Judge PASS is held when a green Check measured an older commit than the reviewed tip; the check executor supersedes the stale record (`check.superseded`, Canceled, naming its successor) and arms a fresh one at the tip. A failed Check for an older commit is treated the same way, as stale rather than as a rejection, on Open voyages as well as InProgress ones.

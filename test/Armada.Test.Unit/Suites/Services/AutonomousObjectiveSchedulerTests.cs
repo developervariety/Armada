@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Threading;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Database;
@@ -496,6 +497,130 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(1, admiral.DispatchVoyageCallCount, "One vessel must consume only one scheduler lane.");
                 AssertContains("vessel_concurrency=1", scheduler.LastResultSummary ?? String.Empty, "Summary should name the vessel-limited objective.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Two vessels joined by a build-participating sibling are one lane: the second objective waits with lane_busy", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel producer = await testDb.Driver.Vessels.CreateAsync(new Vessel("lane-producer", "https://github.com/test/lane-producer.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Vessel consumer = new Vessel("lane-consumer", "https://github.com/test/lane-consumer.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                };
+                consumer.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                {
+                    new SiblingRepo
+                    {
+                        VesselRef = producer.Id,
+                        RelativePath = "../Producer",
+                        BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                        DefaultBranch = "main",
+                        BuildParticipant = true,
+                        ExtractionArtifactPaths = null
+                    }
+                });
+                consumer = await testDb.Driver.Vessels.CreateAsync(consumer).ConfigureAwait(false);
+
+                foreach (Vessel vessel in new[] { producer, consumer })
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Lane objective on " + vessel.Name,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "A lane holds one voyage at per-vessel ceiling 1, whichever vessel owns the objective.");
+                AssertContains("lane_busy:", scheduler.LastResultSummary ?? String.Empty, "The skip names the lane, not a lone vessel.");
+                AssertContains(producer.Id, scheduler.LastResultSummary ?? String.Empty, "The lane name carries the producer.");
+                AssertContains(consumer.Id, scheduler.LastResultSummary ?? String.Empty, "The lane name carries the consumer.");
+                List<ArmadaEvent> laneEvents = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_lane_busy")
+                    .ConfigureAwait(false);
+                AssertEqual(1, laneEvents.Count, "The lane skip is recorded as an objective event.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A read-only sibling declaration forms no lane: both vessels dispatch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel producer = await testDb.Driver.Vessels.CreateAsync(new Vessel("lane-producer", "https://github.com/test/lane-producer.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Vessel consumer = new Vessel("lane-consumer", "https://github.com/test/lane-consumer.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                };
+                consumer.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                {
+                    new SiblingRepo
+                    {
+                        VesselRef = producer.Id,
+                        RelativePath = "../Producer",
+                        BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                        DefaultBranch = "main",
+                        BuildParticipant = false,
+                        ExtractionArtifactPaths = new List<string> { "output/decompiled-src" }
+                    }
+                });
+                consumer = await testDb.Driver.Vessels.CreateAsync(consumer).ConfigureAwait(false);
+
+                foreach (Vessel vessel in new[] { producer, consumer })
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Lane objective on " + vessel.Name,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(2, admiral.DispatchVoyageCallCount, "A decompiled or artifact sibling must not make a research vessel wait for the port it reads.");
+                AssertFalse((scheduler.LastResultSummary ?? String.Empty).Contains("lane_busy"), "No lane skip is reported for a read-only sibling.");
             }).ConfigureAwait(false);
 
             // An engaged dispatch hold is the hold working, not a fault. It is read once per tick and

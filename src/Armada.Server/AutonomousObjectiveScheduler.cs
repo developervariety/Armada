@@ -335,6 +335,7 @@ namespace Armada.Server
                 List<Objective> eligible = AutonomousObjectiveSelector.SelectEligible(snapshot);
 
                 ActiveVoyageSummary active = await CountActiveDispatchedAsync(snapshot, token).ConfigureAwait(false);
+                Dictionary<string, HashSet<string>> lanes = await BuildLanesAsync(token).ConfigureAwait(false);
                 ActiveDispatchedCount = active.Total;
                 int capacity = MaxConcurrentVoyages - active.Total;
 
@@ -383,15 +384,23 @@ namespace Armada.Server
                     if (objective.VesselIds.Count == 1)
                     {
                         string candidateVesselId = objective.VesselIds[0];
-                        active.ByVessel.TryGetValue(candidateVesselId, out int activeOnVessel);
+                        // The per-vessel ceiling applies to the LANE: every vessel joined to this
+                        // one by a build-participating sibling declaration. A wave that writes a
+                        // consumer's call sites is a writer on the consumer too, and the ceiling
+                        // could not see that when it counted the owning vessel alone.
+                        HashSet<string> lane = LaneOf(lanes, candidateVesselId);
+                        int activeOnVessel = CountActiveInLane(active, lane);
                         if (activeOnVessel >= MaxConcurrentVoyagesPerVessel)
                         {
                             vesselConcurrencySkips++;
-                            RecordSkip(skipReasons, "vessel_concurrency");
+                            bool sharedLane = lane.Count > 1;
+                            string laneName = String.Join("+", lane.OrderBy(v => v, StringComparer.Ordinal));
+                            RecordSkip(skipReasons, sharedLane ? "lane_busy:" + laneName : "vessel_concurrency");
                             await EmitObjectiveEventAsync(
-                                "objective_scheduler.skipped_vessel_concurrency",
-                                "Autonomous scheduler skipped objective " + objective.Id + ": vessel "
-                                    + candidateVesselId + " already has " + activeOnVessel
+                                sharedLane ? "objective_scheduler.skipped_lane_busy" : "objective_scheduler.skipped_vessel_concurrency",
+                                "Autonomous scheduler skipped objective " + objective.Id + ": "
+                                    + (sharedLane ? "lane " + laneName : "vessel " + candidateVesselId)
+                                    + " already has " + activeOnVessel
                                     + " active objective voyage(s); per-vessel limit is "
                                     + MaxConcurrentVoyagesPerVessel + ".",
                                 objective,
@@ -504,6 +513,97 @@ namespace Armada.Server
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Two vessels are one lane when either declares the other as a sibling its build or tests
+        /// can touch (<see cref="SiblingRepo.BuildParticipant"/>); lanes are the transitive closure
+        /// of that relation. A read-only sibling (a decompiled or artifact tree) joins no lane, so a
+        /// research objective on a glossary vessel never waits for a voyage on the port it reads.
+        /// </summary>
+        private async Task<Dictionary<string, HashSet<string>>> BuildLanesAsync(CancellationToken token)
+        {
+            Dictionary<string, HashSet<string>> lanes = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            List<Vessel> vessels;
+            try
+            {
+                vessels = await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read vessels for lane derivation; counting each vessel alone: " + ex.Message);
+                return lanes;
+            }
+
+            Dictionary<string, string> parent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string> idByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Vessel vessel in vessels)
+            {
+                if (vessel == null || String.IsNullOrEmpty(vessel.Id)) continue;
+                parent[vessel.Id] = vessel.Id;
+                if (!String.IsNullOrEmpty(vessel.Name)) idByName[vessel.Name] = vessel.Id;
+            }
+
+            foreach (Vessel vessel in vessels)
+            {
+                if (vessel == null || String.IsNullOrEmpty(vessel.Id)) continue;
+                foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+                {
+                    if (sibling == null || !sibling.BuildParticipant || String.IsNullOrWhiteSpace(sibling.VesselRef)) continue;
+                    string? otherId = parent.ContainsKey(sibling.VesselRef) ? sibling.VesselRef
+                        : (idByName.TryGetValue(sibling.VesselRef, out string? byName) ? byName : null);
+                    if (otherId == null)
+                    {
+                        _Logging.Warn(_Header + "vessel " + vessel.Id + " declares build-participating sibling " + sibling.VesselRef + " which is not a known vessel; ignored for lanes");
+                        continue;
+                    }
+                    parent[FindLaneRoot(parent, vessel.Id)] = FindLaneRoot(parent, otherId);
+                }
+            }
+
+            foreach (string vesselId in parent.Keys.ToList())
+            {
+                string root = FindLaneRoot(parent, vesselId);
+                if (!lanes.TryGetValue(root, out HashSet<string>? members))
+                {
+                    members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    lanes[root] = members;
+                }
+                members.Add(vesselId);
+            }
+
+            Dictionary<string, HashSet<string>> byVessel = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (HashSet<string> members in lanes.Values)
+            {
+                foreach (string member in members) byVessel[member] = members;
+            }
+            return byVessel;
+        }
+
+        private static string FindLaneRoot(Dictionary<string, string> parent, string vesselId)
+        {
+            string current = vesselId;
+            while (parent.TryGetValue(current, out string? next) && !String.Equals(next, current, StringComparison.OrdinalIgnoreCase))
+            {
+                current = next;
+            }
+            return current;
+        }
+
+        private static HashSet<string> LaneOf(Dictionary<string, HashSet<string>> lanes, string vesselId)
+        {
+            if (lanes.TryGetValue(vesselId, out HashSet<string>? lane)) return lane;
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase) { vesselId };
+        }
+
+        private static int CountActiveInLane(ActiveVoyageSummary active, HashSet<string> lane)
+        {
+            int count = 0;
+            foreach (string vesselId in lane)
+            {
+                if (active.ByVessel.TryGetValue(vesselId, out int activeOnVessel)) count += activeOnVessel;
+            }
+            return count;
         }
 
         private async Task<ActiveVoyageSummary> CountActiveDispatchedAsync(List<Objective> snapshot, CancellationToken token)

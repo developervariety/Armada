@@ -61,6 +61,14 @@ namespace Armada.Core.Models
         /// </summary>
         public List<string>? ExtractionArtifactPaths { get; set; } = null;
 
+        /// <summary>
+        /// True when the declaring vessel's Build or UnitTest can touch this sibling (a consumer that
+        /// builds the sibling through a project reference), so a voyage on either vessel is a writer
+        /// for both. Vessels joined this way form one scheduling lane. False for a sibling that is
+        /// read only, such as a decompiled or extraction-artifact tree.
+        /// </summary>
+        public bool BuildParticipant { get; set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories
