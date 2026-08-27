@@ -218,6 +218,11 @@ default. It has a fixed participant identity, bearer authentication, and an
 explicit least-privilege tool catalog. It is not an authenticated view of the
 full catalog.
 
+`GrokLead.ReadOnly` defaults to `true`. In this mode, the listener advertises
+only read operations and `armada_lead_cycle_status`. It does not advertise
+coordination writes or cycle state changes. Use this mode for the first remote
+connection and transport test.
+
 Keep its default `127.0.0.1` bind and put a TLS reverse proxy or secure tunnel
 in front of it. Do not expose the normal MCP listener. The bearer secret comes
 from the environment variable named by

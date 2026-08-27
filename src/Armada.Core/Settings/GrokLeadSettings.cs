@@ -17,6 +17,12 @@ namespace Armada.Core.Settings
         public bool Enabled { get; set; } = false;
 
         /// <summary>
+        /// Advertise only read operations and lead-cycle status. Use this for a
+        /// connection proof before the Bot can start cycles or change coordination state.
+        /// </summary>
+        public bool ReadOnly { get; set; } = true;
+
+        /// <summary>
         /// Address used by the restricted listener. Keep this on loopback behind a TLS reverse proxy.
         /// </summary>
         public string Hostname

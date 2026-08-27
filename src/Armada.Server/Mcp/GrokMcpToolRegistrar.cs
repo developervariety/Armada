@@ -42,6 +42,15 @@ namespace Armada.Server.Mcp
             "armada_mark_signal_read"
         };
 
+        private static readonly HashSet<string> _LifecycleTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "armada_lead_cycle_status",
+            "armada_lead_cycle_begin",
+            "armada_lead_cycle_heartbeat",
+            "armada_lead_cycle_complete",
+            "armada_lead_cycle_fail"
+        };
+
         #endregion
 
         #region Public-Methods
@@ -93,7 +102,7 @@ namespace Armada.Server.Mcp
                     return;
                 }
 
-                if (!_ReversibleTools.Contains(name)) return;
+                if (!_ReversibleTools.Contains(name) || settings.GrokLead.ReadOnly) return;
                 register(
                     name,
                     description,
@@ -124,8 +133,15 @@ namespace Armada.Server.Mcp
             McpVoyageTools.Register(candidate, database, admiral, settings);
             McpSignalTools.Register(candidate, database, () => remoteTriggerService.GetAgentWakeStatus().EffectiveParticipantKey);
             McpAgentWakeTools.Register(candidate, remoteTriggerService);
+            RegisterToolDelegate lifecycleRegister = (name, description, inputSchema, handler) =>
+            {
+                if (!_LifecycleTools.Contains(name)) return;
+                if (settings.GrokLead.ReadOnly
+                    && !String.Equals(name, "armada_lead_cycle_status", StringComparison.Ordinal)) return;
+                register(name, description, inputSchema, handler);
+            };
             McpLeadCycleTools.Register(
-                register,
+                lifecycleRegister,
                 database,
                 coordination,
                 coordinator,
@@ -149,6 +165,22 @@ namespace Armada.Server.Mcp
         public static IReadOnlyCollection<string> ReversibleToolNames()
         {
             return _ReversibleTools.ToList();
+        }
+
+        /// <summary>
+        /// Return the exact tool names advertised for the selected gateway mode.
+        /// </summary>
+        /// <param name="readOnly">True to omit all coordination and lifecycle writes.</param>
+        /// <returns>Advertised tool names.</returns>
+        public static IReadOnlyCollection<string> AllowedToolNames(bool readOnly)
+        {
+            HashSet<string> tools = new HashSet<string>(_ReadOnlyTools, StringComparer.Ordinal);
+            tools.Add("armada_lead_cycle_status");
+            if (readOnly) return tools.ToList();
+
+            tools.UnionWith(_ReversibleTools);
+            tools.UnionWith(_LifecycleTools);
+            return tools.ToList();
         }
 
         #endregion
