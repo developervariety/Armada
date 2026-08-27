@@ -45,6 +45,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Directed wakes are delivered on any MCP tool result for a session that sends `X-Armada-Participant`; the effective AgentWake participant may acknowledge an unaddressed Wake; long broadcast notes are previewed on a board read while directed mail always arrives whole.
 - The inbox lists open incidents and hides failed missions whose voyage has halted.
 
+### Dashboard
+- Login: the form uses email autofill semantics, sends bearer and session auth headers, and its layout is repaired; the chat view preserves its reading position.
+
 ### Autonomous lead
 - The operator's blocking poll is replaced by a WebSocket subscription watcher and bounded autonomous lead cycles: prompts are passed on stdin, the cycle runs under a scoped permission policy, the whole cycle is logged with a 30-minute cap, it runs from the Armada checkout whoever started it, survives a redeploy, and is routed through the configured Fable captain.
 - A delegate helper class with permission-enforced limits; the lead posts its handoff from the completion gate exactly once, defaults the room key to `fleet`, refuses a cycle while an operator holds the work, and treats rows another participant owns as read-only.
