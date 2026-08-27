@@ -317,8 +317,14 @@ namespace Armada.Server
                         landingFailureReason = "Error pushing/creating PR: " + ex.Message;
                     }
                 }
-                else if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))
+                else if (effectivePush && vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))
                 {
+                    // effectivePush gate: this clause is the LocalMerge / legacy-AutoPush
+                    // landing path. Without the gate, vessels with WorkingDirectory set
+                    // would silently bypass LandingMode=MergeQueue (the merge-queue clause
+                    // below this one is unreachable once we enter here). Per the README's
+                    // configuration model, LandingMode is the master selector -- MergeQueue
+                    // means "do not local-merge; enqueue for staged review-then-land".
                     // Check if the mission actually produced mergeable changes.
                     // Pipeline stages like Architect may complete without code changes (they output
                     // mission markers to stdout instead). Skip merge if no changes were made.
