@@ -204,7 +204,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
             cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
             cmd.Parameters.AddWithValue("@estimated", record.Estimated);
-            cmd.Parameters.AddWithValue("@created_utc", record.CreatedUtc);
+            cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(record.CreatedUtc));
         }
 
         private static TokenUsageRecord RecordFromReader(SqlDataReader reader)
@@ -225,7 +225,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
                 TotalTokens = Convert.ToInt64(reader["total_tokens"]),
                 Estimated = Convert.ToBoolean(reader["estimated"]),
-                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc)
+                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!)
             };
         }
 
@@ -276,12 +276,12 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(new SqlParameter("@from_utc", SqlServerDatabaseDriver.ToIso8601(query.FromUtc.Value)));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(new SqlParameter("@to_utc", SqlServerDatabaseDriver.ToIso8601(query.ToUtc.Value)));
             }
         }
 
