@@ -59,7 +59,7 @@ namespace Armada.Server.Mcp.Tools
                         unreadOnly = new { type = "boolean", description = "Return only unread signals (signals only)" },
                         includeDescription = new { type = "boolean", description = "Include full Description on voyages (default false; returns descriptionLength hint when false). Mission enumeration always returns lightweight mission summaries; use mission-specific tools for details/logs/diffs." },
                         includeContext = new { type = "boolean", description = "Include ProjectContext and StyleGuide on vessels (default false; returns length hints when false)" },
-                        includeTestOutput = new { type = "boolean", description = "Include TestOutput on merge queue entries (default false; returns testOutputLength hint when false)" },
+                        includeTestOutput = new { type = "boolean", description = "Include TestOutput on merge queue entries and Output on checks (default false; returns testOutputLength / outputLength hints when false)" },
                         includePayload = new { type = "boolean", description = "Include full Payload on events (default false; returns payloadLength hint when false)" },
                         includeMessage = new { type = "boolean", description = "Include full Message on signals (default false; returns messageLength hint when false)" }
                     },
@@ -320,7 +320,34 @@ namespace Armada.Server.Mcp.Tools
                         case "check":
                         case "check_runs":
                         case "check_run":
-                            return (object)await database.CheckRuns.EnumerateAsync(request.ToCheckRunQuery()).ConfigureAwait(false);
+                            EnumerationResult<CheckRun> checkRuns = await database.CheckRuns.EnumerateAsync(request.ToCheckRunQuery()).ConfigureAwait(false);
+                            if (request.IncludeTestOutput != true)
+                            {
+                                // A Check's Output is a whole build or test log: one 14-row page measured
+                                // 26.8 MB, a single record 3.3 MB. The browse path withholds it and says
+                                // how much it withheld; get_check_run returns it whole. Summary, the
+                                // structured test and coverage summaries and the artifact list are small
+                                // and stay.
+                                object projectedChecks = new
+                                {
+                                    checkRuns.Success,
+                                    checkRuns.PageNumber,
+                                    checkRuns.PageSize,
+                                    checkRuns.TotalPages,
+                                    checkRuns.TotalRecords,
+                                    Objects = checkRuns.Objects.Select(c => new
+                                    {
+                                        c.Id, c.TenantId, c.UserId, c.WorkflowProfileId, c.VesselId, c.MissionId, c.VoyageId, c.DeploymentId,
+                                        c.Label, c.Type, c.Source, c.Status, c.ProviderName, c.ExternalId, c.ExternalUrl, c.EnvironmentName,
+                                        c.Command, c.WorkingDirectory, c.BranchName, c.CommitHash, c.ExitCode, c.Summary, c.TestSummary,
+                                        c.CoverageSummary, c.Artifacts, c.DurationMs, c.StartedUtc, c.CompletedUtc, c.CreatedUtc, c.LastUpdateUtc,
+                                        OutputLength = c.Output?.Length ?? 0
+                                    }).ToList(),
+                                    checkRuns.TotalMs
+                                };
+                                return (object)projectedChecks;
+                            }
+                            return (object)checkRuns;
                         case "releases":
                         case "release":
                             return (object)await database.Releases.EnumerateAsync(request.ToReleaseQuery()).ConfigureAwait(false);

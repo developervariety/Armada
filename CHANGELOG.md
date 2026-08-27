@@ -43,6 +43,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### MCP surface
 - Tool-call arguments are normalised against the tool schema once at the transport seam; an empty string for any optional argument is treated as omitted, and string-spelled booleans and numbers are converted.
+- `armada_enumerate entityType=checks` withholds each check's command log by default and reports `OutputLength` beside the row; `includeTestOutput=true` returns it whole, and `get_check_run` is unchanged. One 14-row page had measured 26.8 MB on the surface the operator instructions tell operators to prefer.
 - The six oversized list tools preview long free-text fields and long primitive arrays, and the default list page size fits a tool result.
 - Directed wakes are delivered on any MCP tool result for a session that sends `X-Armada-Participant`; the effective AgentWake participant may acknowledge an unaddressed Wake; long broadcast notes are previewed on a board read while directed mail always arrives whole.
 - The inbox lists open incidents and hides failed missions whose voyage has halted.
