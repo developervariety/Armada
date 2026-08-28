@@ -62,11 +62,22 @@ Official pages:
 - [Grok Bot messages and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
 - [Approvals, security, and privacy](https://docs.x.ai/grok-bot/approvals-security-and-privacy)
 
+The live Grok Bot connection now verifies these Armada-specific facts:
+
+- Grok Bot follows Armada's MCP OAuth protected-resource discovery;
+- Grok Bot completes dynamic client registration, authorization code with PKCE,
+  and the native application callback;
+- Grok Bot exchanges the code for an access token;
+- Grok Bot lists the exact 11-tool read-only catalog over Armada's Streamable
+  HTTP MCP endpoint;
+- Armada assigns the stable `armada-lead-poc` identity. Grok does not need to
+  supply `X-Armada-Participant`.
+
 The following facts remain unverified for the Armada connection:
 
 - whether the current Grok Bot connector completes standard MCP OAuth with
   Armada and then sends the access token on every request;
-- Streamable HTTP and SSE compatibility with Armada;
+- a live Grok Bot tool call and its response body;
 - routine retry rules and a fixed daily routine limit;
 - routine webhooks for completion, approval, and failure;
 - access from the cloud computer to a private network without a public tunnel;
@@ -293,6 +304,17 @@ matching. A server restart revokes all OAuth clients and grants. This is useful
 for a temporary proof only. Use an established identity provider or
 authorization gateway for production.
 
+If the POC secret is stored in a text file on macOS, remove line endings when
+you copy it. A plain `pbcopy < file` command can put the final newline into the
+password field as a visible space.
+
+```sh
+tr -d '\r\n' < /path/to/token | pbcopy
+```
+
+The approval handler also removes surrounding whitespace before it compares
+the secret. It never removes or changes characters inside the secret.
+
 This setting does not create a public route, a credential, a tunnel, a Grok
 Bot, or a routine.
 
@@ -393,8 +415,9 @@ cycles.
 - Official Grok Build local-runner proof of concept: GO and preferred.
 - Read-only direct MCP proof of concept in an isolated environment: IN
   PROGRESS. The isolated server and temporary tunnel have passed direct HTTP
-  authentication, discovery, tool-call, and audit tests. The Grok Bot client
-  connection is the remaining gate.
+  authentication, discovery, tool-call, and audit tests. Grok Bot has passed
+  OAuth authentication and discovery of the exact 11-tool read-only catalog.
+  One live Grok Bot tool call and its durable Armada audit are the next gate.
 - Direct Grok Bot production replacement: NO-GO now.
 - Direct exposure of the existing full Armada MCP endpoint: NO-GO.
 - Removal of the old unattended lead: NO-GO. Keep it as the tested standby.

@@ -234,6 +234,9 @@ metadata and an in-memory authorization-code flow with PKCE. The owner enters
 the same environment secret on the Armada approval page. Do not put the secret
 in chat or in the connector URL. All OAuth clients and grants are removed when
 the server restarts. This POC authorization server is not for production use.
+The approval handler ignores whitespace before and after the secret. When you
+copy a file-backed secret on macOS, use `tr -d '\r\n' < /path/to/token | pbcopy`
+so a file-ending newline does not become a pasted space.
 
 See [Grok Bot Lead Integration](autonomy/grok-bot-lead.md) for the catalog,
 cycle protocol, fallback behavior, and proof-of-concept gates.
