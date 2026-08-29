@@ -70,6 +70,9 @@ The live Grok Bot connection now verifies these Armada-specific facts:
 - Grok Bot exchanges the code for an access token;
 - Grok Bot lists the exact 11-tool read-only catalog over Armada's Streamable
   HTTP MCP endpoint;
+- Grok Bot calls `armada_status` and receives the complete structured response;
+- Armada writes required `Started` and `Succeeded` audit events for that call
+  under the fixed `armada-lead-poc` participant identity;
 - Armada assigns the stable `armada-lead-poc` identity. Grok does not need to
   supply `X-Armada-Participant`.
 
@@ -77,7 +80,6 @@ The following facts remain unverified for the Armada connection:
 
 - whether the current Grok Bot connector completes standard MCP OAuth with
   Armada and then sends the access token on every request;
-- a live Grok Bot tool call and its response body;
 - routine retry rules and a fixed daily routine limit;
 - routine webhooks for completion, approval, and failure;
 - access from the cloud computer to a private network without a public tunnel;
@@ -416,8 +418,10 @@ cycles.
 - Read-only direct MCP proof of concept in an isolated environment: IN
   PROGRESS. The isolated server and temporary tunnel have passed direct HTTP
   authentication, discovery, tool-call, and audit tests. Grok Bot has passed
-  OAuth authentication and discovery of the exact 11-tool read-only catalog.
-  One live Grok Bot tool call and its durable Armada audit are the next gate.
+  OAuth authentication, discovery of the exact 11-tool read-only catalog, one
+  live status call, the structured response, fixed participant assignment, and
+  required durable `Started` and `Succeeded` audit records. Scheduled routine,
+  steering, failure, and recovery tests remain.
 - Direct Grok Bot production replacement: NO-GO now.
 - Direct exposure of the existing full Armada MCP endpoint: NO-GO.
 - Removal of the old unattended lead: NO-GO. Keep it as the tested standby.
