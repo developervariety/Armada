@@ -20,6 +20,12 @@ namespace Armada.Server.Mcp
     {
         #region Private-Members
 
+        private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
         private static readonly HashSet<string> _ReadOnlyTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "armada_status",
@@ -113,7 +119,7 @@ namespace Armada.Server.Mcp
                                 settings.GrokLead.ParticipantKey).ConfigureAwait(false);
                             VoyageDispatchArgs request = ParseControlledDispatch(
                                 args, settings.GrokLead.MaxControlledDispatchMissions);
-                            JsonElement normalized = JsonSerializer.SerializeToElement(request);
+                            JsonElement normalized = JsonSerializer.SerializeToElement(request, _JsonOptions);
                             return await handler(normalized).ConfigureAwait(false);
                         });
                     return;
@@ -249,7 +255,7 @@ namespace Armada.Server.Mcp
         internal static VoyageDispatchArgs ParseControlledDispatch(JsonElement? args, int maxMissions)
         {
             if (!args.HasValue) throw new ArgumentException("Dispatch arguments are required.", nameof(args));
-            VoyageDispatchArgs? request = JsonSerializer.Deserialize<VoyageDispatchArgs>(args.Value);
+            VoyageDispatchArgs? request = JsonSerializer.Deserialize<VoyageDispatchArgs>(args.Value, _JsonOptions);
             if (request == null) throw new ArgumentException("Dispatch arguments are invalid.", nameof(args));
             if (String.IsNullOrWhiteSpace(request.Title)
                 || String.IsNullOrWhiteSpace(request.VesselId)

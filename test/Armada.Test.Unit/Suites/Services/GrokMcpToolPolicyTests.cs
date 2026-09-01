@@ -105,7 +105,6 @@ namespace Armada.Test.Unit.Suites.Services
                     title = "POC dispatch",
                     vesselId = "vsl_test",
                     objectiveId = "obj_test",
-                    codeContextMode = "auto",
                     missions = new[] { new { title = "Read a file", description = "Run the harmless POC mission." } }
                 });
                 VoyageDispatchArgs request = GrokMcpToolRegistrar.ParseControlledDispatch(args, 3);
