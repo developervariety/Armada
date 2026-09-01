@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Grok Bot lead gateway
+- Added a disabled-by-default restricted MCP listener for a Grok Bot lead, with a fixed Armada participant identity, an explicit read-only tool catalog, server-side audit events, and the shared lead-cycle lease used by the legacy runner
+- Added an OAuth proof flow with protected-resource discovery, dynamic client registration, PKCE authorization, native-app callback handoff, rotating refresh tokens, and owner approval for the read-only scope
+- Added a deployment overlay with a loopback-only Armada listener and a Caddy HTTPS gateway that forwards only MCP and OAuth paths; the normal Armada MCP endpoint is not exposed through this gateway
+- Documented the `grok.skcc.network` read-only staging connection and the legacy unattended lead as the fallback while durable OAuth storage and write-mode review remain outstanding
+
 ### Coordination board (chatroom)
 - A shared coordination board keeps concurrent operator sessions on the same page: rooms hold short notes about who is doing what, so a session that reads the board before dispatching no longer mistakes another session's voyage for unowned work or double-dispatches a rescue
 - Three entities back it - rooms keyed by a unique slug, messages carrying an author type (Operator / Captain / System) plus optional voyage, mission, vessel, and incident references, and per-room participant presence refreshed by heartbeats - with full SQLite and PostgreSQL implementations and migrations v75/v76; MySQL and SQL Server follow the existing stub convention for planning sessions

@@ -2,16 +2,15 @@
 
 ## 1. Executive conclusion
 
-Armada now has a disabled-by-default foundation for a Grok Bot lead. It does
-not expose the full Armada MCP catalog. It adds a separate, authenticated,
-least-privilege MCP listener and one shared server-side cycle lease.
+Armada has a separate, authenticated, least-privilege MCP listener for a Grok
+Bot lead. It does not expose the full Armada MCP catalog. The listener uses one
+shared server-side cycle lease with the legacy runner.
 
-Do not enable `GrokLead` in production yet. A live Grok Bot test reached the
-restricted endpoint, but the secret stored in the Grok vault did not appear as
-an HTTP `Authorization` header. The result was a correct 401 response and zero
-tools. This disproves static bearer interoperability through that connector
-flow. The branch now includes an optional MCP OAuth proof flow for the next
-test.
+The current deployment is a read-only staging connection at
+`https://grok.skcc.network/mcp`. It uses the fixed `armada-lead-poc`
+participant and leaves the legacy unattended lead as the fallback. Do not
+enable Grok write tools until durable OAuth storage, owner approval handling,
+and the full failure and recovery test are complete.
 
 `grok-bot-cli` does not remove this blocker. Its documented commands create and
 update Bots and groups, send messages, and read threads. It uses the signed-in
@@ -75,6 +74,25 @@ The live Grok Bot connection now verifies these Armada-specific facts:
   under the fixed `armada-lead-poc` participant identity;
 - Armada assigns the stable `armada-lead-poc` identity. Grok does not need to
   supply `X-Armada-Participant`.
+
+### Read-only staging deployment
+
+The staging gateway runs on the Armada host with this path:
+
+```text
+Grok Bot -> Cloudflare HTTPS -> Caddy -> 127.0.0.1:7892 -> Armada
+```
+
+Caddy forwards only `/mcp`, the OAuth discovery documents, and the OAuth
+registration, authorization, and token paths. Port `7891` remains the normal
+private MCP listener. Port `7892` is published only on host loopback. Set the
+Cloudflare SSL/TLS mode to **Full (strict)**.
+
+The deployment overlay is [docker-compose.override.yml](../../deploy/grok/docker-compose.override.yml)
+and the Caddy policy is [Caddyfile](../../deploy/grok/Caddyfile). The OAuth
+proof broker keeps clients and tokens in memory. A container restart therefore
+requires Grok Bot to authenticate again. This is a known staging limitation,
+not a production identity solution.
 
 The following facts remain unverified for the Armada connection:
 
