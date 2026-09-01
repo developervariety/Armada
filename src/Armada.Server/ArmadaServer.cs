@@ -1378,6 +1378,12 @@ namespace Armada.Server
                 FixedParticipantKey = _Settings.GrokLead.ParticipantKey,
                 RequireToolCallAudit = true
             };
+            if (!String.IsNullOrEmpty(_Settings.GrokLead.OAuthPublicBaseUrl))
+            {
+                server.OAuthBroker = new GrokMcpOAuthBroker(
+                    _Settings.GrokLead.OAuthPublicBaseUrl,
+                    bearerToken.Trim());
+            }
             server.WakeBannerExcludedTools.Add("armada_coordination_read");
             server.WakeBannerExcludedTools.Add("armada_coordination_heartbeat");
             server.PendingWakeProvider = async (participantKey, token) =>

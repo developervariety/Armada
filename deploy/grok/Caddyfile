@@ -1,0 +1,14 @@
+grok.skcc.network {
+    @mcp path /mcp
+    @oauth path /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp /.well-known/oauth-authorization-server /oauth/register /oauth/authorize /oauth/token
+
+    handle @mcp {
+        reverse_proxy armada:7892
+    }
+
+    handle @oauth {
+        reverse_proxy armada:7892
+    }
+
+    respond 404
+}

@@ -22,6 +22,7 @@ namespace Armada.Test.Unit.Suites.Settings
             {
                 GrokLeadSettings settings = new GrokLeadSettings();
                 AssertFalse(settings.Enabled);
+                AssertTrue(settings.ReadOnly);
                 AssertEqual("127.0.0.1", settings.Hostname);
                 AssertEqual(7892, settings.Port);
                 AssertEqual("armada-lead", settings.ParticipantKey);
@@ -50,6 +51,7 @@ namespace Armada.Test.Unit.Suites.Settings
             {
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.GrokLead.Enabled = true;
+                settings.GrokLead.ReadOnly = false;
                 settings.GrokLead.Port = 8792;
                 settings.GrokLead.DefaultMode = LeadOperatingModeEnum.GrokPrimary;
                 JsonSerializerOptions options = new JsonSerializerOptions();
@@ -58,6 +60,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 ArmadaSettings? roundTrip = JsonSerializer.Deserialize<ArmadaSettings>(json, options);
                 AssertNotNull(roundTrip);
                 AssertTrue(roundTrip!.GrokLead.Enabled);
+                AssertFalse(roundTrip.GrokLead.ReadOnly);
                 AssertEqual(8792, roundTrip.GrokLead.Port);
                 AssertEqual(LeadOperatingModeEnum.GrokPrimary, roundTrip.GrokLead.DefaultMode);
                 return Task.CompletedTask;

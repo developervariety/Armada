@@ -58,6 +58,10 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The operator's blocking poll is replaced by a WebSocket subscription watcher and bounded autonomous lead cycles: prompts are passed on stdin, the cycle runs under a scoped permission policy, the whole cycle is logged with a 30-minute cap, it runs from the Armada checkout whoever started it, survives a redeploy, and is routed through the configured Fable captain.
 - A delegate helper class with permission-enforced limits; the lead posts its handoff from the completion gate exactly once, defaults the room key to `fleet`, refuses a cycle while an operator holds the work, and treats rows another participant owns as read-only.
 - A Grok lead integration foundation with its evaluation notes.
+- The Grok lead integration now has a restricted MCP listener with a fixed participant identity, an explicit read-only catalog, server-side tool-call audit events, and the shared lead-cycle lease used by the legacy runner.
+- Its OAuth proof flow supports protected-resource discovery, dynamic client registration, PKCE authorization, native-app callback handoff, rotating refresh tokens, and owner approval for the read-only scope.
+- A deployment overlay provides a loopback-only Armada listener and a Caddy HTTPS gateway that forwards only MCP and OAuth paths; the normal Armada MCP endpoint is not exposed through this gateway.
+- The `grok.skcc.network` read-only staging connection is documented, with the legacy unattended lead retained as fallback while durable OAuth storage and write-mode review remain outstanding.
 
 ### Coordination board (chatroom)
 - A shared coordination board keeps concurrent operator sessions on the same page: rooms hold short notes about who is doing what, so a session that reads the board before dispatching no longer mistakes another session's voyage for unowned work or double-dispatches a rescue

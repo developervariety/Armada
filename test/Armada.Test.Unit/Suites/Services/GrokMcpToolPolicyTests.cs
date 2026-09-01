@@ -65,6 +65,26 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, readOnly.Count, "A tool must have one policy class.");
                 return Task.CompletedTask;
             });
+
+            await RunTest("Read-only mode advertises no state-changing tools", () =>
+            {
+                IReadOnlyCollection<string> tools = GrokMcpToolRegistrar.AllowedToolNames(true);
+                AssertTrue(tools.Contains("armada_status"));
+                AssertTrue(tools.Contains("armada_lead_cycle_status"));
+                AssertFalse(tools.Contains("armada_coordination_post"));
+                AssertFalse(tools.Contains("armada_lead_cycle_begin"));
+                AssertFalse(tools.Contains("armada_lead_cycle_complete"));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Full mode includes reversible and lifecycle tools", () =>
+            {
+                IReadOnlyCollection<string> tools = GrokMcpToolRegistrar.AllowedToolNames(false);
+                AssertTrue(tools.Contains("armada_coordination_post"));
+                AssertTrue(tools.Contains("armada_lead_cycle_begin"));
+                AssertTrue(tools.Contains("armada_lead_cycle_complete"));
+                return Task.CompletedTask;
+            });
         }
     }
 }

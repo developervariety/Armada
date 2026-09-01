@@ -2,14 +2,15 @@
 
 ## 1. Executive conclusion
 
-Armada now has a disabled-by-default foundation for a Grok Bot lead. It does
-not expose the full Armada MCP catalog. It adds a separate, authenticated,
-least-privilege MCP listener and one shared server-side cycle lease.
+Armada has a separate, authenticated, least-privilege MCP listener for a Grok
+Bot lead. It does not expose the full Armada MCP catalog. The listener uses one
+shared server-side cycle lease with the legacy runner.
 
-Do not enable `GrokLead` in production yet. First prove that the current Grok
-Bot client can connect to a custom Streamable HTTP MCP server and can send a
-bearer credential. Cursor's public Grok Bot documentation does not verify these
-two functions.
+The current deployment is a read-only staging connection at
+`https://grok.skcc.network/mcp`. It uses the fixed `armada-lead-poc`
+participant and leaves the legacy unattended lead as the fallback. Do not
+enable Grok write tools until durable OAuth storage, owner approval handling,
+and the full failure and recovery test are complete.
 
 `grok-bot-cli` does not remove this blocker. Its documented commands create and
 update Bots and groups, send messages, and read threads. It uses the signed-in
@@ -24,41 +25,84 @@ permissions, overlap prevention, audit, and fallback.
 
 ## 2. Verified Grok Bot capabilities
 
-The following facts are from current Cursor documentation, which is the vendor
-documentation for this Grok Bot product:
+The following facts are from current xAI Grok Bot documentation:
 
-- A Bot can keep context, use connected plugins, use a cloud computer, and run
+- A Bot can keep context, use connectors or MCP, use a cloud computer, and run
   routines while the owner is away.
 - The owner can send another message to steer or stop work.
 - The iOS application uses the same account and cloud computer as desktop.
 - Usage is a weekly allowance measured by work, agent steps, and tokens. The
   vendor does not publish a fixed number of routines per day.
+- One Bot can own up to 50 routines. Grok Bot keeps the 20 most recent run
+  records for each routine.
+- A scheduled routine can run while the owner's laptop is closed. The owner can
+  run a test, enable or pause it, edit it, inspect recent success and failure
+  history, or delete it.
 - A routine can fail to run. The vendor tells the owner to check that it is
   enabled and that its schedule is correct. If it has no visible error for more
   than 24 hours, the owner must report a bug.
 - Secrets must use the secure secret card. They must not be put in chat or
   ordinary files.
-- The product is described as an early product.
+- All Bots for one owner share files, browser sessions, app logins, and command
+  line credentials on one account-scoped cloud computer. A Bot is not a
+  separate security boundary.
+- A custom MCP server must be reachable through the public internet. xAI
+  documents a tunnel as the method for a server on a local computer.
+- The owner can add a custom connector with its MCP URL and complete the
+  connector's required authentication. The owner infrastructure controls the
+  authentication and access policy.
 
 Official pages:
 
-- [Getting started with Grok Bot](https://cursor.com/help/grok-bot/getting-started)
-- [Grok Bot on mobile](https://cursor.com/help/grok-bot/mobile)
-- [Plans and billing](https://cursor.com/help/grok-bot/plans)
-- [Store secrets securely](https://cursor.com/help/grok-bot/secrets)
-- [Connect plugins](https://cursor.com/help/grok-bot/connect-plugins)
+- [Grok Bot overview](https://docs.x.ai/grok-bot/overview)
+- [Grok connectors](https://docs.x.ai/grok/connectors)
+- [Grok Bot skills and routines](https://docs.x.ai/grok-bot/skills-routines-and-automations)
+- [Grok Bot settings and notifications](https://docs.x.ai/grok-bot/settings-and-notifications)
+- [Grok Bot messages and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)
+- [Approvals, security, and privacy](https://docs.x.ai/grok-bot/approvals-security-and-privacy)
 
-The following facts are unverified in public vendor documentation:
+The live Grok Bot connection now verifies these Armada-specific facts:
 
-- custom remote MCP support;
-- custom request headers or bearer-token injection for MCP;
-- MCP OAuth support;
-- Streamable HTTP and SSE compatibility with Armada;
+- Grok Bot follows Armada's MCP OAuth protected-resource discovery;
+- Grok Bot completes dynamic client registration, authorization code with PKCE,
+  and the native application callback;
+- Grok Bot exchanges the code for an access token;
+- Grok Bot lists the exact 11-tool read-only catalog over Armada's Streamable
+  HTTP MCP endpoint;
+- Grok Bot calls `armada_status` and receives the complete structured response;
+- Armada writes required `Started` and `Succeeded` audit events for that call
+  under the fixed `armada-lead-poc` participant identity;
+- Armada assigns the stable `armada-lead-poc` identity. Grok does not need to
+  supply `X-Armada-Participant`.
+
+### Read-only staging deployment
+
+The staging gateway runs on the Armada host with this path:
+
+```text
+Grok Bot -> Cloudflare HTTPS -> Caddy -> 127.0.0.1:7892 -> Armada
+```
+
+Caddy forwards only `/mcp`, the OAuth discovery documents, and the OAuth
+registration, authorization, and token paths. Port `7891` remains the normal
+private MCP listener. Port `7892` is published only on host loopback. Set the
+Cloudflare SSL/TLS mode to **Full (strict)**.
+
+The deployment overlay is [docker-compose.override.yml](../../deploy/grok/docker-compose.override.yml)
+and the Caddy policy is [Caddyfile](../../deploy/grok/Caddyfile). The OAuth
+proof broker keeps clients and tokens in memory. A container restart therefore
+requires Grok Bot to authenticate again. This is a known staging limitation,
+not a production identity solution.
+
+The following facts remain unverified for the Armada connection:
+
+- whether the current Grok Bot connector completes standard MCP OAuth with
+  Armada and then sends the access token on every request;
 - routine retry rules and a fixed daily routine limit;
 - routine webhooks for completion, approval, and failure;
-- access from the cloud computer to a private tunnel;
+- access from the cloud computer to a private network without a public tunnel;
 - durable export of all shell, browser, network, and tool-call logs;
-- whether login state is isolated between Bots.
+- automatic retry rules for a failed routine.
 
 These are proof-of-concept gates. Do not infer them from the ability to connect
 a vendor plugin.
@@ -180,9 +224,11 @@ posts a handoff, completes the cycle, and reports in its phone thread.
   gateway. The normal MCP port stays private.
 - Authentication: one rotated high-entropy bearer secret plus the fixed
   server-side participant identity.
-- Risk: custom MCP and bearer behavior are not verified. Grok Bot's cloud
-  computer is outside Armada's operating-system controls. A routine can also
-  fail silently long enough for the legacy fallback threshold to expire.
+- Risk: the exact custom-header behavior and Armada transport exchange are not
+  yet verified in Grok Bot. The cloud computer is outside Armada's operating-
+  system controls. Its files, logins, and credentials are shared with the
+  owner's other Bots. A routine can also fail long enough for the legacy
+  fallback threshold to expire.
 - Recovery: the lease expires, the failed cycle remains in events, and the
   hourly legacy timer can take over after the configured inactivity period.
 - Audit: Armada records accepted tool calls, but Grok Bot's complete internal
@@ -247,7 +293,8 @@ boundary, timeout, log renderer, AgentWake path, and systemd schedule.
 
 The restricted listener binds to `127.0.0.1:7892` by default. Keep this bind.
 Put a TLS reverse proxy or an authenticated tunnel in front of it. Publish only
-one path to this listener. Do not proxy port 7891 or the normal `/mcp` endpoint.
+the restricted MCP and OAuth proof routes on this listener. Do not proxy port
+7891 or the normal MCP listener.
 
 Example Armada settings for an isolated test:
 
@@ -255,10 +302,12 @@ Example Armada settings for an isolated test:
 {
   "GrokLead": {
     "Enabled": true,
+    "ReadOnly": true,
     "Hostname": "127.0.0.1",
     "Port": 7892,
     "ParticipantKey": "armada-lead",
     "BearerTokenEnvironmentVariable": "ARMADA_GROK_MCP_TOKEN",
+    "OAuthPublicBaseUrl": "https://mcp.example.com",
     "DefaultMode": "LegacyPrimary",
     "CycleLeaseMinutes": 40,
     "StandbyFallbackAfterMinutes": 130
@@ -266,8 +315,32 @@ Example Armada settings for an isolated test:
 }
 ```
 
-This setting only starts the loopback listener. It does not create a public
-route, a credential, a tunnel, a Grok Bot, or a routine.
+`OAuthPublicBaseUrl` enables the in-memory OAuth connection proof. Armada uses
+the same environment secret as the owner secret on the approval page. Do not
+put this value in Grok chat, a URL, or `settings.json`. The proof flow supports
+dynamic client registration, authorization code with PKCE S256, 15-minute
+access tokens, rotating refresh tokens, and exact native-app redirect URI
+matching. A server restart revokes all OAuth clients and grants. This is useful
+for a temporary proof only. Use an established identity provider or
+authorization gateway for production.
+
+If the POC secret is stored in a text file on macOS, remove line endings when
+you copy it. A plain `pbcopy < file` command can put the final newline into the
+password field as a visible space.
+
+```sh
+tr -d '\r\n' < /path/to/token | pbcopy
+```
+
+The approval handler also removes surrounding whitespace before it compares
+the secret. It never removes or changes characters inside the secret.
+
+This setting does not create a public route, a credential, a tunnel, a Grok
+Bot, or a routine.
+
+`ReadOnly` defaults to `true`. In this mode, the restricted listener advertises
+only read tools and `armada_lead_cycle_status`. Set it to `false` only after the
+read-only connection, authentication, identity, audit, and recovery tests pass.
 
 The external boundary must enforce:
 
@@ -279,7 +352,8 @@ The external boundary must enforce:
 - no caching;
 - no logging of the Authorization value;
 - secret rotation and immediate revocation;
-- denial of every path except the restricted MCP path.
+- denial of every path except `/mcp`, the OAuth discovery paths, and the three
+  OAuth endpoints when the OAuth proof is enabled.
 
 Armada must enforce these controls even when the proxy is wrong:
 
@@ -320,15 +394,18 @@ an audit event, and a recovery test.
 4. Add a notification hook to a test-only phone channel. Confirm completion,
    owner-decision, approval, authentication-failure, model-failure, and timeout
    messages. A notification is not permission to continue.
-5. Separately test whether Grok Bot has a supported custom MCP or messaging
-   control surface. If it does not, keep it out of the production control path.
+5. Add an xAI custom MCP connector in Grok Bot. Static bearer storage did not
+   attach the required HTTP header in the tested connector flow. Remove the
+   failed connector and add it again without a static secret so that it starts
+   MCP OAuth discovery.
 6. In an isolated direct-Bot test, enable the loopback listener and provide
    `ARMADA_GROK_MCP_TOKEN` through the service secret environment.
 7. Put a temporary TLS tunnel in front of port 7892. Confirm that port 7891 and
    all Armada REST routes are unreachable through it.
-8. In Grok Bot, try to add the endpoint and secret. Record the exact connector
-   fields and the actual HTTP requests. Stop if the client cannot send bearer
-   authentication or cannot use Stateless Streamable HTTP.
+8. Approve the connection in the browser page that Armada opens. Enter the POC
+   owner secret only on that Armada page. Record the exact connector fields and
+   HTTP results. The fixed participant identity is assigned by Armada, so the
+   external client does not need to send `X-Armada-Participant`.
 9. Run ten read-only manual cycles. Test phone steering, stop messages,
    completion notifications, failures, lease expiry, and audit correlation.
 10. Run scheduled read-only routines for seven days. Keep the hourly legacy
@@ -356,18 +433,23 @@ cycles.
 
 - Hybrid phone and notification proof of concept: GO.
 - Official Grok Build local-runner proof of concept: GO and preferred.
-- Read-only direct MCP proof of concept in an isolated environment: GO after
-  the owner supplies a test Grok Bot account and approves a temporary tunnel.
+- Read-only direct MCP proof of concept in an isolated environment: IN
+  PROGRESS. The isolated server and temporary tunnel have passed direct HTTP
+  authentication, discovery, tool-call, and audit tests. Grok Bot has passed
+  OAuth authentication, discovery of the exact 11-tool read-only catalog, one
+  live status call, the structured response, fixed participant assignment, and
+  required durable `Started` and `Succeeded` audit records. Scheduled routine,
+  steering, failure, and recovery tests remain.
 - Direct Grok Bot production replacement: NO-GO now.
 - Direct exposure of the existing full Armada MCP endpoint: NO-GO.
 - Removal of the old unattended lead: NO-GO. Keep it as the tested standby.
 
 ## 8. Open owner decisions
 
-- Choose the first phone path: a Grok Build notification hook to a supported
-  phone channel, a Grok Bot thread through the unofficial macOS CLI bridge, or
-  direct Grok Bot custom MCP if the UI supports it.
-- Choose the TLS or tunnel product for the isolated test endpoint.
+- Choose whether direct Grok Bot custom MCP becomes the first phone path after
+  the connection test.
+- Choose a supported TLS gateway for production. A Cloudflare Quick Tunnel is
+  suitable only for this temporary test.
 - Choose the acceptable standby delay. The branch default is 130 minutes.
 - Decide whether the first direct trial is read-only or can use reversible
   coordination tools.

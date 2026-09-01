@@ -218,10 +218,25 @@ default. It has a fixed participant identity, bearer authentication, and an
 explicit least-privilege tool catalog. It is not an authenticated view of the
 full catalog.
 
+`GrokLead.ReadOnly` defaults to `true`. In this mode, the listener advertises
+only read operations and `armada_lead_cycle_status`. It does not advertise
+coordination writes or cycle state changes. Use this mode for the first remote
+connection and transport test.
+
 Keep its default `127.0.0.1` bind and put a TLS reverse proxy or secure tunnel
 in front of it. Do not expose the normal MCP listener. The bearer secret comes
 from the environment variable named by
 `GrokLead.BearerTokenEnvironmentVariable`; it does not belong in settings.
+
+For a temporary Grok Bot connection proof, set `GrokLead.OAuthPublicBaseUrl` to
+the public HTTPS origin. The listener then publishes MCP protected-resource
+metadata and an in-memory authorization-code flow with PKCE. The owner enters
+the same environment secret on the Armada approval page. Do not put the secret
+in chat or in the connector URL. All OAuth clients and grants are removed when
+the server restarts. This POC authorization server is not for production use.
+The approval handler ignores whitespace before and after the secret. When you
+copy a file-backed secret on macOS, use `tr -d '\r\n' < /path/to/token | pbcopy`
+so a file-ending newline does not become a pasted space.
 
 See [Grok Bot Lead Integration](autonomy/grok-bot-lead.md) for the catalog,
 cycle protocol, fallback behavior, and proof-of-concept gates.
