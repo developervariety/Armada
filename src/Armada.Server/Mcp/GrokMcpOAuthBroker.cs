@@ -16,7 +16,8 @@ namespace Armada.Server.Mcp
     /// </summary>
     internal sealed class GrokMcpOAuthBroker
     {
-        private const string _SCOPE = "armada:read";
+        private const string _ReadScope = "armada:read";
+        private const string _DispatchScope = "armada:dispatch";
         private const int _MAX_CLIENTS = 100;
         private static readonly TimeSpan _AuthorizationCodeLifetime = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan _AccessTokenLifetime = TimeSpan.FromMinutes(15);
@@ -25,12 +26,13 @@ namespace Armada.Server.Mcp
         private readonly string _PublicBaseUrl;
         private readonly string _Resource;
         private readonly string _OwnerSecret;
+        private readonly string _Scope;
         private readonly ConcurrentDictionary<string, ClientRegistration> _Clients = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, AuthorizationCode> _Codes = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, TokenGrant> _AccessTokens = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, TokenGrant> _RefreshTokens = new(StringComparer.Ordinal);
 
-        public GrokMcpOAuthBroker(string publicBaseUrl, string ownerSecret)
+        public GrokMcpOAuthBroker(string publicBaseUrl, string ownerSecret, bool controlledDispatch = false)
         {
             if (!Uri.TryCreate(publicBaseUrl, UriKind.Absolute, out Uri? publicUri)
                 || publicUri.Scheme != Uri.UriSchemeHttps
@@ -43,10 +45,11 @@ namespace Armada.Server.Mcp
             _PublicBaseUrl = publicBaseUrl.TrimEnd('/');
             _Resource = _PublicBaseUrl + "/mcp";
             _OwnerSecret = ownerSecret;
+            _Scope = controlledDispatch ? _DispatchScope : _ReadScope;
         }
 
         public string Challenge => "Bearer resource_metadata=\""
-            + _PublicBaseUrl + "/.well-known/oauth-protected-resource/mcp\", scope=\"" + _SCOPE + "\"";
+            + _PublicBaseUrl + "/.well-known/oauth-protected-resource/mcp\", scope=\"" + _Scope + "\"";
 
         public bool IsPublicPath(PathString path)
         {
@@ -89,7 +92,7 @@ namespace Armada.Server.Mcp
                 resource = _Resource,
                 authorization_servers = new[] { _PublicBaseUrl },
                 bearer_methods_supported = new[] { "header" },
-                scopes_supported = new[] { _SCOPE },
+                scopes_supported = new[] { _Scope },
                 resource_name = "Armada Grok lead proof"
             });
         }
@@ -106,7 +109,7 @@ namespace Armada.Server.Mcp
                 grant_types_supported = new[] { "authorization_code", "refresh_token" },
                 code_challenge_methods_supported = new[] { "S256" },
                 token_endpoint_auth_methods_supported = new[] { "none" },
-                scopes_supported = new[] { _SCOPE }
+                scopes_supported = new[] { _Scope }
             });
         }
 
@@ -171,8 +174,8 @@ namespace Armada.Server.Mcp
             ClientRegistration client = _Clients[request!.ClientId]!;
             string html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorize Armada</title>"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head><body>"
-                + "<main><h1>Authorize Armada read-only proof</h1><p>Client: " + H(client.Name) + "</p>"
-                + "<p>This grant can read the restricted Armada proof tools. It cannot change Armada state.</p>"
+                + "<main><h1>Authorize Armada Grok lead</h1><p>Client: " + H(client.Name) + "</p>"
+                + "<p>This grant allows the restricted Armada tools for scope " + H(_Scope) + ".</p>"
                 + "<form method=\"post\" action=\"/oauth/authorize\">"
                 + Hidden("client_id", request.ClientId) + Hidden("redirect_uri", request.RedirectUri)
                 + Hidden("state", request.State) + Hidden("scope", request.Scope)
@@ -258,7 +261,7 @@ namespace Armada.Server.Mcp
                 token_type = "Bearer",
                 expires_in = (int)_AccessTokenLifetime.TotalSeconds,
                 refresh_token = refreshToken,
-                scope = _SCOPE
+                scope = _Scope
             });
         }
 
@@ -283,10 +286,10 @@ namespace Armada.Server.Mcp
             if (!String.IsNullOrEmpty(request.Resource) && !String.Equals(request.Resource, _Resource, StringComparison.Ordinal))
                 return "The OAuth resource is not valid.";
             if (!String.IsNullOrEmpty(request.Scope)
-                && !request.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(_SCOPE, StringComparer.Ordinal))
+                && !request.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(_Scope, StringComparer.Ordinal))
                 return "The requested OAuth scope is not valid.";
             request.Resource = _Resource;
-            request.Scope = _SCOPE;
+            request.Scope = _Scope;
             return null;
         }
 

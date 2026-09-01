@@ -1382,7 +1382,8 @@ namespace Armada.Server
             {
                 server.OAuthBroker = new GrokMcpOAuthBroker(
                     _Settings.GrokLead.OAuthPublicBaseUrl,
-                    bearerToken.Trim());
+                    bearerToken.Trim(),
+                    _Settings.GrokLead.ControlledDispatchEnabled);
             }
             server.WakeBannerExcludedTools.Add("armada_coordination_read");
             server.WakeBannerExcludedTools.Add("armada_coordination_heartbeat");

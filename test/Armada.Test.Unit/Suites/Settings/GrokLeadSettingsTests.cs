@@ -23,6 +23,8 @@ namespace Armada.Test.Unit.Suites.Settings
                 GrokLeadSettings settings = new GrokLeadSettings();
                 AssertFalse(settings.Enabled);
                 AssertTrue(settings.ReadOnly);
+                AssertFalse(settings.ControlledDispatchEnabled);
+                AssertEqual(3, settings.MaxControlledDispatchMissions);
                 AssertEqual("127.0.0.1", settings.Hostname);
                 AssertEqual(7892, settings.Port);
                 AssertEqual("armada-lead", settings.ParticipantKey);
@@ -44,6 +46,10 @@ namespace Armada.Test.Unit.Suites.Settings
                 settings.StandbyFallbackAfterMinutes = 2000;
                 AssertEqual(60, settings.CycleLeaseMinutes);
                 AssertEqual(1440, settings.StandbyFallbackAfterMinutes);
+                settings.MaxControlledDispatchMissions = 0;
+                AssertEqual(1, settings.MaxControlledDispatchMissions);
+                settings.MaxControlledDispatchMissions = 100;
+                AssertEqual(10, settings.MaxControlledDispatchMissions);
                 return Task.CompletedTask;
             });
 
@@ -52,6 +58,8 @@ namespace Armada.Test.Unit.Suites.Settings
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.GrokLead.Enabled = true;
                 settings.GrokLead.ReadOnly = false;
+                settings.GrokLead.ControlledDispatchEnabled = true;
+                settings.GrokLead.MaxControlledDispatchMissions = 5;
                 settings.GrokLead.Port = 8792;
                 settings.GrokLead.DefaultMode = LeadOperatingModeEnum.GrokPrimary;
                 JsonSerializerOptions options = new JsonSerializerOptions();
@@ -61,6 +69,8 @@ namespace Armada.Test.Unit.Suites.Settings
                 AssertNotNull(roundTrip);
                 AssertTrue(roundTrip!.GrokLead.Enabled);
                 AssertFalse(roundTrip.GrokLead.ReadOnly);
+                AssertTrue(roundTrip.GrokLead.ControlledDispatchEnabled);
+                AssertEqual(5, roundTrip.GrokLead.MaxControlledDispatchMissions);
                 AssertEqual(8792, roundTrip.GrokLead.Port);
                 AssertEqual(LeadOperatingModeEnum.GrokPrimary, roundTrip.GrokLead.DefaultMode);
                 return Task.CompletedTask;

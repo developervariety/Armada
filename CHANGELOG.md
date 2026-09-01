@@ -62,6 +62,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Its OAuth proof flow supports protected-resource discovery, dynamic client registration, PKCE authorization, native-app callback handoff, rotating refresh tokens, and owner approval for the read-only scope.
 - A deployment overlay provides a loopback-only Armada listener and a Caddy HTTPS gateway that forwards only MCP and OAuth paths; the normal Armada MCP endpoint is not exposed through this gateway.
 - The `grok.skcc.network` read-only staging connection is documented, with the legacy unattended lead retained as fallback while durable OAuth storage and write-mode review remain outstanding.
+- Added a controlled-dispatch mode that keeps the normal `armada_dispatch` name but exposes a reduced schema: an active Grok cycle and objective are required, mission count is capped, code context is off, and staging files, playbooks, captain overrides, arbitrary pipeline IDs, and cross-dispatch dependencies are rejected.
+- Controlled dispatch uses the `armada:dispatch` OAuth scope and remains disabled by default. Cancel, purge, release, deployment, dispatch-hold, check-resolution, and service-control tools remain outside the Grok catalog.
 
 ### Coordination board (chatroom)
 - A shared coordination board keeps concurrent operator sessions on the same page: rooms hold short notes about who is doing what, so a session that reads the board before dispatching no longer mistakes another session's voyage for unowned work or double-dispatches a rescue

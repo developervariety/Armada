@@ -2,7 +2,9 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
     using Armada.Server.Mcp;
     using Armada.Test.Common;
 
@@ -83,6 +85,49 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(tools.Contains("armada_coordination_post"));
                 AssertTrue(tools.Contains("armada_lead_cycle_begin"));
                 AssertTrue(tools.Contains("armada_lead_cycle_complete"));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Controlled mode adds only the bounded dispatch tool", () =>
+            {
+                IReadOnlyCollection<string> tools = GrokMcpToolRegistrar.AllowedToolNames(false, true);
+                AssertTrue(tools.Contains("armada_dispatch"));
+                AssertFalse(tools.Contains("armada_cancel_voyage"));
+                AssertFalse(tools.Contains("armada_purge_voyage"));
+                AssertFalse(tools.Contains("armada_dispatch_hold"));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Controlled dispatch requires an objective and strips code context", () =>
+            {
+                JsonElement args = JsonSerializer.SerializeToElement(new
+                {
+                    title = "POC dispatch",
+                    vesselId = "vsl_test",
+                    objectiveId = "obj_test",
+                    codeContextMode = "auto",
+                    missions = new[] { new { title = "Read a file", description = "Run the harmless POC mission." } }
+                });
+                VoyageDispatchArgs request = GrokMcpToolRegistrar.ParseControlledDispatch(args, 3);
+                AssertEqual("off", request.CodeContextMode);
+                AssertEqual(1, request.Missions.Count);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Controlled dispatch rejects staging and captain overrides", () =>
+            {
+                JsonElement args = JsonSerializer.SerializeToElement(new
+                {
+                    title = "Unsafe dispatch",
+                    vesselId = "vsl_test",
+                    objectiveId = "obj_test",
+                    captainAssignments = Array.Empty<object>(),
+                    missions = new[] { new { title = "Write", description = "Do work." } }
+                });
+                bool rejected = false;
+                try { GrokMcpToolRegistrar.ParseControlledDispatch(args, 3); }
+                catch (ArgumentException) { rejected = true; }
+                AssertTrue(rejected);
                 return Task.CompletedTask;
             });
         }

@@ -12,6 +12,14 @@ participant and leaves the legacy unattended lead as the fallback. Do not
 enable Grok write tools until durable OAuth storage, owner approval handling,
 and the full failure and recovery test are complete.
 
+The controlled-dispatch stage is implemented but remains disabled on the live
+staging host. It requires `ReadOnly=false` and
+`ControlledDispatchEnabled=true`. The Bot must call
+`armada_lead_cycle_begin` before `armada_dispatch`; the server then accepts
+only the bounded dispatch contract and records the normal Armada dispatch
+events. The Bot must complete or fail the cycle after it releases claims and
+posts its handoff.
+
 `grok-bot-cli` does not remove this blocker. Its documented commands create and
 update Bots and groups, send messages, and read threads. It uses the signed-in
 macOS Grok Bot application. It does not document custom MCP registration,
@@ -303,6 +311,8 @@ Example Armada settings for an isolated test:
   "GrokLead": {
     "Enabled": true,
     "ReadOnly": true,
+    "ControlledDispatchEnabled": false,
+    "MaxControlledDispatchMissions": 3,
     "Hostname": "127.0.0.1",
     "Port": 7892,
     "ParticipantKey": "armada-lead",
@@ -320,8 +330,9 @@ the same environment secret as the owner secret on the approval page. Do not
 put this value in Grok chat, a URL, or `settings.json`. The proof flow supports
 dynamic client registration, authorization code with PKCE S256, 15-minute
 access tokens, rotating refresh tokens, and exact native-app redirect URI
-matching. A server restart revokes all OAuth clients and grants. This is useful
-for a temporary proof only. Use an established identity provider or
+matching. Controlled dispatch advertises `armada:dispatch` instead of the
+read-only scope. A server restart revokes all OAuth clients and grants. This is
+useful for a temporary proof only. Use an established identity provider or
 authorization gateway for production.
 
 If the POC secret is stored in a text file on macOS, remove line endings when

@@ -223,6 +223,16 @@ only read operations and `armada_lead_cycle_status`. It does not advertise
 coordination writes or cycle state changes. Use this mode for the first remote
 connection and transport test.
 
+For the next proof stage, set `ReadOnly` to `false` and
+`ControlledDispatchEnabled` to `true`. The listener then adds the existing
+`armada_dispatch` name with a reduced schema. The server requires an active
+Grok lead cycle and an objective, limits the mission count with
+`MaxControlledDispatchMissions` (default 3), forces code context off, and
+rejects staging files, playbooks, captain overrides, arbitrary pipeline IDs,
+and cross-dispatch dependencies. Only `WorkerOnly` and `Tested` pipeline names
+are accepted. This mode does not add cancel, purge, release, deployment,
+dispatch-hold, check-resolution, or service-control tools.
+
 Keep its default `127.0.0.1` bind and put a TLS reverse proxy or secure tunnel
 in front of it. Do not expose the normal MCP listener. The bearer secret comes
 from the environment variable named by

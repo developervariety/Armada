@@ -23,6 +23,22 @@ namespace Armada.Core.Settings
         public bool ReadOnly { get; set; } = true;
 
         /// <summary>
+        /// Enables the narrow, cycle-bound dispatch tool. This does not expose the
+        /// normal destructive or administrative MCP tools.
+        /// </summary>
+        public bool ControlledDispatchEnabled { get; set; } = false;
+
+        /// <summary>
+        /// Maximum number of missions accepted by one controlled Grok dispatch.
+        /// Clamped to 1 through 10.
+        /// </summary>
+        public int MaxControlledDispatchMissions
+        {
+            get => _MaxControlledDispatchMissions;
+            set => _MaxControlledDispatchMissions = Math.Max(1, Math.Min(10, value));
+        }
+
+        /// <summary>
         /// Address used by the restricted listener. Keep this on loopback behind a TLS reverse proxy.
         /// </summary>
         public string Hostname
@@ -129,6 +145,7 @@ namespace Armada.Core.Settings
 
         private string _Hostname = "127.0.0.1";
         private int _Port = 7892;
+        private int _MaxControlledDispatchMissions = 3;
         private string _ParticipantKey = "armada-lead";
         private string _BearerTokenEnvironmentVariable = "ARMADA_GROK_MCP_TOKEN";
         private string? _OAuthPublicBaseUrl = null;
