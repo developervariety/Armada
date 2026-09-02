@@ -2,7 +2,7 @@ import type { Captain } from '../types/models';
 
 /**
  * Per-captain provider credential fields used by captain forms. These override the
- * host-level ZYLOO_KEY environment variable when the captain's model is a zyloo/ model.
+ * host-level provider API-key environment variable when the captain's model needs an external key.
  */
 export interface CaptainCredentialFormFields {
   apiKey: string;

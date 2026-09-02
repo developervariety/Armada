@@ -138,7 +138,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("SelectModel_NonNativeModel_IsSelectedBeforeNativeOnlyModels", () =>
             {
                 // When an external-provider captain is idle for a model, that model wins the
-                // selection over native-only models: the zyloo luna captains (Codex runtime,
+                // selection over native-only models: the external luna captains (Codex runtime,
                 // own base URL) make gpt-5.6-luna the first worker model. OpenCode-runtime
                 // captains (deepseek, qwen) are treated as native.
                 List<Captain> captains = new List<Captain>
@@ -149,7 +149,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("gpt-5.6-luna")
                 };
                 captains[2].Runtime = Armada.Core.Enums.AgentRuntimeEnum.Codex;
-                captains[2].ApiBaseUrl = "https://api.zyloo.io/v1";
+                captains[2].ApiBaseUrl = "https://api.example.com/v1";
                 captains[3].Runtime = Armada.Core.Enums.AgentRuntimeEnum.Codex;
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
@@ -188,7 +188,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("gpt-5.6-luna")
                 };
                 captains[0].Runtime = Armada.Core.Enums.AgentRuntimeEnum.OpenCode;
-                captains[0].ApiBaseUrl = "https://api.zyloo.io/v1";
+                captains[0].ApiBaseUrl = "https://api.example.com/v1";
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
                 AssertEqual("opencode-go/deepseek-v4-flash", selected,

@@ -338,9 +338,9 @@ namespace Armada.Test.Unit.Suites.Services
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
 
                     Captain native = await CreateCaptainAsync(testDb.Driver, "native-sol", "gpt-5.6-sol").ConfigureAwait(false);
-                    Captain external = new Captain("zyloo-sol");
+                    Captain external = new Captain("external-sol");
                     external.Model = "gpt-5.6-sol";
-                    external.ApiBaseUrl = "https://api.zyloo.io/v1";
+                    external.ApiBaseUrl = "https://api.example.com/v1";
                     external.State = CaptainStateEnum.Idle;
                     await testDb.Driver.Captains.CreateAsync(external).ConfigureAwait(false);
 
