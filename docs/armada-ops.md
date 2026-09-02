@@ -816,8 +816,8 @@ provider models with a live provider call before putting them in a tier.
 
 ### Per-captain provider credentials
 
-A captain whose model is served by an external provider (a `provider/model` id such as `cun-ai/claude-fable-5`) normally uses
-the provider's host-level environment variable (for example `CUN_AI_KEY`). A captain may instead carry
+A captain whose model is served by an external provider (a `provider/model` id such as `example-provider/claude-fable-5`) normally uses
+the provider's host-level environment variable (for example `EXAMPLE_PROVIDER_KEY`). A captain may instead carry
 its own `apiKey` (and optional `apiBaseUrl`) on its record, which wins over
 the environment variable. This lets captains on separate provider subscriptions
 run side by side on one Admiral; burn down each subscription, then delete its

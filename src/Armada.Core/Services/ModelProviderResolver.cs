@@ -13,7 +13,7 @@ namespace Armada.Core.Services
     /// Resolution rules:
     /// <list type="bullet">
     /// <item>A model id with a registered provider prefix (for example
-    /// <c>cun-ai/claude-fable-5</c>) routes to that provider's endpoint.</item>
+    /// <c>example-provider/claude-fable-5</c>) routes to that provider's endpoint.</item>
     /// <item>A model id with an unregistered prefix is left alone so runtimes with
     /// their own namespaces (for example OpenCode's built-in providers) are untouched.</item>
     /// <item>A model id without a prefix routes only when the captain carries an
@@ -30,7 +30,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Split a model id into its provider namespace prefix and the remaining model
-        /// id. <c>cun-ai/claude-fable-5</c> becomes <c>cun-ai</c> and <c>claude-fable-5</c>;
+        /// id. <c>example-provider/claude-fable-5</c> becomes <c>example-provider</c> and <c>claude-fable-5</c>;
         /// <c>claude-fable-5</c> yields a null prefix.
         /// </summary>
         /// <param name="model">Model id to split.</param>

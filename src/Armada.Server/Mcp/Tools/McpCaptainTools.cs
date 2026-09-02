@@ -76,7 +76,7 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, OpenCode, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
                         model = new { type = "string", description = "AI model identifier; null means runtime default" },
-                        apiKey = new { type = "string", description = "Per-captain provider credential override for external-provider-served models (e.g. cun-ai); wins over the provider's host-level environment variable" },
+                        apiKey = new { type = "string", description = "Per-captain provider credential override for external-provider-served models (e.g. example-provider); wins over the provider's host-level environment variable" },
                         apiBaseUrl = new { type = "string", description = "Per-captain provider base URL override for external-provider-served models" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },

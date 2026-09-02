@@ -159,12 +159,12 @@ namespace Armada.Test.Runtimes.Suites
                     RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions
                     {
                         ConfigDirectory = "C:/mux/config",
-                        BaseUrl = "https://cun.ai/v1"
+                        BaseUrl = "https://example-provider/v1"
                     })
                 };
 
                 AssertEqual("C:/mux/config", runtime.AppliedEnvironmentValue(captain, "MUX_CONFIG_ROOT"));
-                AssertEqual("https://cun.ai/v1", runtime.AppliedEnvironmentValue(captain, "OPENAI_BASE_URL"));
+                AssertEqual("https://example-provider/v1", runtime.AppliedEnvironmentValue(captain, "OPENAI_BASE_URL"));
             });
         }
     }

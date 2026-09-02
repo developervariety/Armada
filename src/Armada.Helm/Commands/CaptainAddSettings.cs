@@ -37,9 +37,9 @@ namespace Armada.Helm.Commands
         public string? Model { get; set; }
 
         /// <summary>
-        /// Per-captain provider credential override for external-provider-served models (e.g. cun-ai).
+        /// Per-captain provider credential override for external-provider-served models (e.g. example-provider).
         /// </summary>
-        [Description("Per-captain provider credential override for external-provider-served models (e.g. cun-ai)")]
+        [Description("Per-captain provider credential override for external-provider-served models (e.g. example-provider)")]
         [CommandOption("--api-key")]
         public string? ApiKey { get; set; }
 

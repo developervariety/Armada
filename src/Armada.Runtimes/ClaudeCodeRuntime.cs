@@ -157,7 +157,7 @@ namespace Armada.Runtimes
             if (!String.IsNullOrEmpty(model))
             {
                 // A provider-prefixed model id resolves to the provider-facing id: the prefix is
-                // Armada's selection namespace (cun-ai/claude-fable-5), while the provider API
+                // Armada's selection namespace (example-provider/claude-fable-5), while the provider API
                 // serves the id after it (claude-fable-5). A custom-endpoint or native captain
                 // keeps its id verbatim.
                 ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, model, _ModelProviders);
@@ -580,7 +580,7 @@ namespace Armada.Runtimes
         ///
         /// The endpoint and credential are resolved per captain by
         /// <see cref="ModelProviderResolver"/>: a registered provider prefix (for example
-        /// <c>cun-ai/</c>) selects the provider, and a model without a prefix routes when the
+        /// <c>example-provider/</c>) selects the provider, and a model without a prefix routes when the
         /// captain carries its own base URL and key (custom-endpoint captain). The captain's
         /// own key and base URL win over the provider defaults, so captains on separate
         /// subscriptions run side by side.

@@ -62,14 +62,14 @@ namespace Armada.Test.Unit.Suites.Services
             return captain;
         }
 
-        private static ModelProvidersSettings RegistryWithCunAi()
+        private static ModelProvidersSettings RegistryWithExampleProvider()
         {
             ModelProvidersSettings registry = new ModelProvidersSettings();
-            registry.Providers["cun-ai"] = new ModelProviderSettings
+            registry.Providers["example-provider"] = new ModelProviderSettings
             {
-                Name = "cun-ai",
-                BaseUrl = "https://cun.ai",
-                ApiKeyEnv = "CUN_AI_KEY"
+                Name = "example-provider",
+                BaseUrl = "https://example-provider",
+                ApiKeyEnv = "EXAMPLE_PROVIDER_KEY"
             };
             return registry;
         }
@@ -77,17 +77,17 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Runs the suite.</summary>
         protected override async Task RunTestsAsync()
         {
-            string? originalCun = Environment.GetEnvironmentVariable("CUN_AI_KEY");
-            Environment.SetEnvironmentVariable("CUN_AI_KEY", "test-key-not-a-real-credential");
+            string? originalCun = Environment.GetEnvironmentVariable("EXAMPLE_PROVIDER_KEY");
+            Environment.SetEnvironmentVariable("EXAMPLE_PROVIDER_KEY", "test-key-not-a-real-credential");
 
             try
             {
                 await RunTest("ProviderModel_IsRoutedToTheProviderEndpoint", () =>
                 {
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithModel("cun-ai-1", "cun-ai/claude-fable-5"), RegistryWithCunAi());
+                    InvokeRouting(startInfo, CaptainWithModel("example-provider-1", "example-provider/claude-fable-5"), RegistryWithExampleProvider());
 
-                    AssertEqual("https://cun.ai", startInfo.Environment["ANTHROPIC_BASE_URL"],
+                    AssertEqual("https://example-provider", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "A provider-prefixed captain must be pointed at the provider's Anthropic-native endpoint");
                     AssertEqual("test-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "The provider key must be supplied as ANTHROPIC_API_KEY, the form providers document");
@@ -114,7 +114,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ProcessStartInfo provider = new ProcessStartInfo();
                     ProcessStartInfo native = new ProcessStartInfo();
 
-                    InvokeRouting(provider, CaptainWithModel("cun-ai-2", "cun-ai/claude-fable-5"), RegistryWithCunAi());
+                    InvokeRouting(provider, CaptainWithModel("example-provider-2", "example-provider/claude-fable-5"), RegistryWithExampleProvider());
                     InvokeRouting(native, CaptainWithModel("native-2", "claude-fable-5"));
 
                     AssertTrue(provider.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
@@ -130,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // be cleared for the routed child -- and left intact for everyone else.
                     ProcessStartInfo provider = new ProcessStartInfo();
                     provider.Environment["ANTHROPIC_AUTH_TOKEN"] = "inherited-native-token";
-                    InvokeRouting(provider, CaptainWithModel("cun-ai-3", "cun-ai/claude-fable-5"), RegistryWithCunAi());
+                    InvokeRouting(provider, CaptainWithModel("example-provider-3", "example-provider/claude-fable-5"), RegistryWithExampleProvider());
                     AssertFalse(provider.Environment.ContainsKey("ANTHROPIC_AUTH_TOKEN"),
                         "A stale inherited auth token must not override the provider API key");
 
@@ -147,11 +147,11 @@ namespace Armada.Test.Unit.Suites.Services
                     // Two subscriptions run side by side: a captain's own key must beat the
                     // host-level key that serves the other subscription.
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-keyed", "cun-ai/claude-fable-5", "captain-key-not-a-real-credential"), RegistryWithCunAi());
+                    InvokeRouting(startInfo, CaptainWithCredential("example-provider-keyed", "example-provider/claude-fable-5", "captain-key-not-a-real-credential"), RegistryWithExampleProvider());
 
                     AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "The per-captain key must win over the environment fallback");
-                    AssertEqual("https://cun.ai", startInfo.Environment["ANTHROPIC_BASE_URL"],
+                    AssertEqual("https://example-provider", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "The per-captain key must still use the default provider endpoint");
                     return Task.CompletedTask;
                 });
@@ -160,7 +160,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     // A captain without its own key keeps the single-key behavior.
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-env", "cun-ai/claude-fable-5", null), RegistryWithCunAi());
+                    InvokeRouting(startInfo, CaptainWithCredential("example-provider-env", "example-provider/claude-fable-5", null), RegistryWithExampleProvider());
 
                     AssertEqual("test-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "The host-level key must remain the fallback for captains without a key");
@@ -170,7 +170,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("CaptainApiBaseUrl_OverridesTheDefaultEndpoint", () =>
                 {
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-base", "cun-ai/claude-fable-5", "captain-key-not-a-real-credential", "https://proxy.example.test"), RegistryWithCunAi());
+                    InvokeRouting(startInfo, CaptainWithCredential("example-provider-base", "example-provider/claude-fable-5", "captain-key-not-a-real-credential", "https://proxy.example.test"), RegistryWithExampleProvider());
 
                     AssertEqual("https://proxy.example.test", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "A captain's base URL must override the default provider endpoint");
@@ -182,28 +182,28 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("CaptainApiKey_PresentWithoutEnvironmentKey_StillRoutes", () =>
                 {
                     // The per-captain key must work even when the host carries no provider key at all.
-                    Environment.SetEnvironmentVariable("CUN_AI_KEY", null);
+                    Environment.SetEnvironmentVariable("EXAMPLE_PROVIDER_KEY", null);
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("cun-ai-standalone", "cun-ai/claude-fable-5", "captain-key-not-a-real-credential"), RegistryWithCunAi());
+                    InvokeRouting(startInfo, CaptainWithCredential("example-provider-standalone", "example-provider/claude-fable-5", "captain-key-not-a-real-credential"), RegistryWithExampleProvider());
 
                     AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "A per-captain key must route without any host-level key present");
                     AssertTrue(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "The endpoint must be set when the per-captain key routes the captain");
-                    Environment.SetEnvironmentVariable("CUN_AI_KEY", "test-key-not-a-real-credential");
+                    Environment.SetEnvironmentVariable("EXAMPLE_PROVIDER_KEY", "test-key-not-a-real-credential");
                     return Task.CompletedTask;
                 });
 
                 await RunTest("MissingKey_LeavesTheCaptainOnTheNativeEndpoint", () =>
                 {
                     // Half-configuring the captain would fail every step and read as a provider outage.
-                    Environment.SetEnvironmentVariable("CUN_AI_KEY", null);
+                    Environment.SetEnvironmentVariable("EXAMPLE_PROVIDER_KEY", null);
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithModel("cun-ai-4", "cun-ai/claude-fable-5"), RegistryWithCunAi());
+                    InvokeRouting(startInfo, CaptainWithModel("example-provider-4", "example-provider/claude-fable-5"), RegistryWithExampleProvider());
 
                     AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "With no key the captain must not be redirected to a half-configured endpoint");
-                    Environment.SetEnvironmentVariable("CUN_AI_KEY", "test-key-not-a-real-credential");
+                    Environment.SetEnvironmentVariable("EXAMPLE_PROVIDER_KEY", "test-key-not-a-real-credential");
                     return Task.CompletedTask;
                 });
 
@@ -226,15 +226,15 @@ namespace Armada.Test.Unit.Suites.Services
                     // The custom-endpoint path: a native model name with no provider prefix routes
                     // to the captain's own endpoint when both the base URL and the key are set.
                     // This is how a fable judge is served by an Anthropic-compatible provider
-                    // such as cun-ai without renaming the model.
+                    // such as example-provider without renaming the model.
                     ProcessStartInfo startInfo = new ProcessStartInfo();
                     InvokeRouting(startInfo, CaptainWithCredential(
-                        "cun-ai-judge",
+                        "example-provider-judge",
                         "claude-fable-5",
                         "captain-key-not-a-real-credential",
-                        "https://cun.ai"));
+                        "https://example-provider"));
 
-                    AssertEqual("https://cun.ai", startInfo.Environment["ANTHROPIC_BASE_URL"],
+                    AssertEqual("https://example-provider", startInfo.Environment["ANTHROPIC_BASE_URL"],
                         "A custom-endpoint captain must be pointed at its own base URL");
                     AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ANTHROPIC_API_KEY"],
                         "The custom-endpoint captain's own key must be supplied");
@@ -258,7 +258,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("CustomEndpointCaptain_WithoutKey_IsLeftAlone", () =>
                 {
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithCredential("url-only", "claude-fable-5", null, "https://cun.ai"));
+                    InvokeRouting(startInfo, CaptainWithCredential("url-only", "claude-fable-5", null, "https://example-provider"));
 
                     AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "A base URL without a key must not redirect the captain");
@@ -272,9 +272,9 @@ namespace Armada.Test.Unit.Suites.Services
                     ProcessStartInfo startInfo = new ProcessStartInfo();
                     InvokeRouting(startInfo, CaptainWithCredential(
                         "unregistered",
-                        "cun-ai/claude-fable-5",
+                        "example-provider/claude-fable-5",
                         "captain-key-not-a-real-credential",
-                        "https://cun.ai"),
+                        "https://example-provider"),
                         null);
 
                     AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
@@ -287,7 +287,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // The built-in default registry is empty: no provider routes until the
                     // operator registers one in settings.json.
                     ProcessStartInfo startInfo = new ProcessStartInfo();
-                    InvokeRouting(startInfo, CaptainWithModel("no-registry", "cun-ai/claude-fable-5"));
+                    InvokeRouting(startInfo, CaptainWithModel("no-registry", "example-provider/claude-fable-5"));
 
                     AssertFalse(startInfo.Environment.ContainsKey("ANTHROPIC_BASE_URL"),
                         "With an empty default registry, no prefixed model routes");
@@ -297,12 +297,12 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("ResolvedModel_ApiModelId_StripsTheArmadaNamespacePrefix", () =>
                 {
                     // The prefix is Armada's selection namespace; the provider API serves the id
-                    // after it. cun.ai serves "claude-fable-5", not "cun-ai/claude-fable-5" --
+                    // after it. example-provider serves "claude-fable-5", not "example-provider/claude-fable-5" --
                     // passing the prefixed form yields "No available channel" from the provider.
                     ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(
-                        CaptainWithModel("cun-ai-5", "cun-ai/claude-fable-5"),
+                        CaptainWithModel("example-provider-5", "example-provider/claude-fable-5"),
                         null,
-                        RegistryWithCunAi());
+                        RegistryWithExampleProvider());
 
                     AssertNotNull(resolved, "A registered provider must resolve");
                     AssertEqual("claude-fable-5", resolved!.ApiModelId,
@@ -313,7 +313,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunTest("ResolvedModel_CustomEndpoint_ApiModelIdKeepsThePlainId", () =>
                 {
                     ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(
-                        CaptainWithCredential("custom-1", "claude-fable-5", "captain-key-not-a-real-credential", "https://cun.ai"),
+                        CaptainWithCredential("custom-1", "claude-fable-5", "captain-key-not-a-real-credential", "https://example-provider"),
                         null,
                         null);
 
@@ -325,7 +325,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
             finally
             {
-                Environment.SetEnvironmentVariable("CUN_AI_KEY", originalCun);
+                Environment.SetEnvironmentVariable("EXAMPLE_PROVIDER_KEY", originalCun);
             }
         }
     }

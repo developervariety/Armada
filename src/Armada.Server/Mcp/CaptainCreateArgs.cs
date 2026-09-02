@@ -30,7 +30,7 @@ namespace Armada.Server.Mcp
 
         /// <summary>
         /// Per-captain provider credential override for external-provider-served models
-        /// (for example cun-ai). Takes precedence over the provider's host-level
+        /// (for example example-provider). Takes precedence over the provider's host-level
         /// environment variable, so captains on separate subscriptions run side by side.
         /// </summary>
         public string? ApiKey { get; set; }

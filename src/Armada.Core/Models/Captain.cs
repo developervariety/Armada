@@ -81,7 +81,7 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Per-captain provider credential override used when this captain's model is served
-        /// by an external provider (for example cun-ai). Takes precedence over the
+        /// by an external provider (for example example-provider). Takes precedence over the
         /// provider's host-level environment variable, so captains on separate subscriptions
         /// can run side by side. Never logged.
         /// </summary>

@@ -4,11 +4,11 @@ namespace Armada.Core.Settings
 
     /// <summary>
     /// Connection and credential defaults for one external model provider (for example
-    /// cun-ai) that serves captain models outside the native runtimes.
+    /// example-provider) that serves captain models outside the native runtimes.
     /// </summary>
     /// <remarks>
     /// A provider is identified by the namespace prefix of a captain model id, for
-    /// example <c>cun-ai/claude-fable-5</c> names the <c>cun-ai</c> provider and model
+    /// example <c>example-provider/claude-fable-5</c> names the <c>example-provider</c> provider and model
     /// <c>claude-fable-5</c>. A registered provider lets a captain route to that
     /// endpoint without repeating the base URL or key on every captain record.
     /// </remarks>
@@ -17,7 +17,7 @@ namespace Armada.Core.Settings
         #region Public-Members
 
         /// <summary>
-        /// Human-readable display name for the provider, for example "cun-ai".
+        /// Human-readable display name for the provider, for example "example-provider".
         /// </summary>
         public string Name { get; set; } = String.Empty;
 

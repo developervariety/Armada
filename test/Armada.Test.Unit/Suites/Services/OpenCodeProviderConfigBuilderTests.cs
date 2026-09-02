@@ -8,21 +8,21 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Tests the credential-free inline OpenCode configuration used for external-provider
-    /// captains (for example cun-ai).
+    /// captains (for example example-provider).
     /// </summary>
     public class OpenCodeProviderConfigBuilderTests : TestSuite
     {
         /// <summary>Suite name.</summary>
         public override string Name => "OpenCode Provider Config Builder";
 
-        private static ModelProvidersSettings RegistryWithCunAi()
+        private static ModelProvidersSettings RegistryWithExampleProvider()
         {
             ModelProvidersSettings registry = new ModelProvidersSettings();
-            registry.Providers["cun-ai"] = new ModelProviderSettings
+            registry.Providers["example-provider"] = new ModelProviderSettings
             {
-                Name = "cun-ai",
-                OpenAiBaseUrl = "https://cun.ai/v1",
-                ApiKeyEnv = "CUN_AI_KEY"
+                Name = "example-provider",
+                OpenAiBaseUrl = "https://example-provider/v1",
+                ApiKeyEnv = "EXAMPLE_PROVIDER_KEY"
             };
             return registry;
         }
@@ -32,33 +32,33 @@ namespace Armada.Test.Unit.Suites.Services
         {
             await RunTest("IsProviderModel_RecognizesRegisteredPrefixes", () =>
             {
-                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("cun-ai/claude-fable-5", RegistryWithCunAi()),
+                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("example-provider/claude-fable-5", RegistryWithExampleProvider()),
                     "A registered provider prefix must be recognized");
-                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("  CUN-AI/claude-fable-5  ", RegistryWithCunAi()),
+                AssertTrue(OpenCodeProviderConfigBuilder.IsProviderModel("  EXAMPLE-PROVIDER/claude-fable-5  ", RegistryWithExampleProvider()),
                     "Prefix matching must ignore case and surrounding whitespace");
-                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("openai/gpt-5.6-sol", RegistryWithCunAi()),
+                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("openai/gpt-5.6-sol", RegistryWithExampleProvider()),
                     "Other providers must not receive the overlay");
-                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel(null, RegistryWithCunAi()),
+                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel(null, RegistryWithExampleProvider()),
                     "Missing models must not receive the overlay");
-                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("gpt-5.6-sol", RegistryWithCunAi()),
+                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("gpt-5.6-sol", RegistryWithExampleProvider()),
                     "A model without a provider prefix must not receive the overlay");
                 return Task.CompletedTask;
             });
 
             await RunTest("IsProviderModel_UnregisteredPrefix_NotRecognizedWithEmptyDefaults", () =>
             {
-                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("cun-ai/claude-fable-5", null),
+                AssertFalse(OpenCodeProviderConfigBuilder.IsProviderModel("example-provider/claude-fable-5", null),
                     "An unregistered provider must not be recognized with the empty default registry");
                 return Task.CompletedTask;
             });
 
             await RunTest("Build_EmitsProviderOverlay", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", null, null, RegistryWithCunAi());
+                string json = OpenCodeProviderConfigBuilder.Build("example-provider/claude-fable-5", null, null, RegistryWithExampleProvider());
 
                 AssertContains("\"npm\": \"@ai-sdk/openai-compatible\"", json, "The provider must use the OpenAI-compatible AI SDK adapter");
-                AssertContains("\"baseURL\": \"https://cun.ai/v1\"", json, "The provider's OpenAI-compatible endpoint must be used");
-                AssertContains("\"apiKey\": \"{env:CUN_AI_KEY}\"", json, "The configuration must reference the environment key without embedding a credential");
+                AssertContains("\"baseURL\": \"https://example-provider/v1\"", json, "The provider's OpenAI-compatible endpoint must be used");
+                AssertContains("\"apiKey\": \"{env:EXAMPLE_PROVIDER_KEY}\"", json, "The configuration must reference the environment key without embedding a credential");
                 AssertContains("\"id\": \"claude-fable-5\"", json, "The provider-facing id must omit the Armada namespace prefix");
 
                 AssertFalse(json.Contains("sk-", StringComparison.OrdinalIgnoreCase), "The generated configuration must never contain a provider secret");
@@ -67,27 +67,27 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Build_TrimsSurroundingWhitespace", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("  cun-ai/claude-fable-5  ", null, null, RegistryWithCunAi());
+                string json = OpenCodeProviderConfigBuilder.Build("  example-provider/claude-fable-5  ", null, null, RegistryWithExampleProvider());
 
                 AssertContains("\"id\": \"claude-fable-5\"", json, "The trimmed input must parse and emit the provider-facing id");
-                AssertFalse(json.Contains("cun-ai/claude-fable-5", StringComparison.Ordinal),
+                AssertFalse(json.Contains("example-provider/claude-fable-5", StringComparison.Ordinal),
                     "The Armada namespace prefix must not leak into the provider-facing id");
                 return Task.CompletedTask;
             });
 
             await RunTest("Build_EmbedsCaptainKey", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", "captain-key-not-a-real-credential", null, RegistryWithCunAi());
+                string json = OpenCodeProviderConfigBuilder.Build("example-provider/claude-fable-5", "captain-key-not-a-real-credential", null, RegistryWithExampleProvider());
 
                 AssertContains("\"apiKey\": \"captain-key-not-a-real-credential\"", json, "A per-captain key must be embedded in the overlay");
-                AssertFalse(json.Contains("{env:CUN_AI_KEY}", StringComparison.Ordinal),
+                AssertFalse(json.Contains("{env:EXAMPLE_PROVIDER_KEY}", StringComparison.Ordinal),
                     "A per-captain key must replace the environment reference");
                 return Task.CompletedTask;
             });
 
             await RunTest("Build_EmbedsCaptainBaseUrl", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", "captain-key-not-a-real-credential", "https://proxy.example.test/v1", RegistryWithCunAi());
+                string json = OpenCodeProviderConfigBuilder.Build("example-provider/claude-fable-5", "captain-key-not-a-real-credential", "https://proxy.example.test/v1", RegistryWithExampleProvider());
 
                 AssertContains("\"baseURL\": \"https://proxy.example.test/v1\"", json,
                     "A per-captain base URL must replace the provider default");
@@ -96,9 +96,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Build_UsesEnvironmentKeyReferenceWhenCaptainKeyAbsent", () =>
             {
-                string json = OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", null, null, RegistryWithCunAi());
+                string json = OpenCodeProviderConfigBuilder.Build("example-provider/claude-fable-5", null, null, RegistryWithExampleProvider());
 
-                AssertContains("\"apiKey\": \"{env:CUN_AI_KEY}\"", json,
+                AssertContains("\"apiKey\": \"{env:EXAMPLE_PROVIDER_KEY}\"", json,
                     "Without a captain key the overlay must reference the provider's environment variable");
                 return Task.CompletedTask;
             });
@@ -124,13 +124,13 @@ namespace Armada.Test.Unit.Suites.Services
                 // A registered provider without an ApiKeyEnv and no per-captain key cannot
                 // authenticate the overlay, so the build must refuse rather than ship a
                 // half-configured provider.
-                ModelProvidersSettings registry = RegistryWithCunAi();
-                registry.Providers["cun-ai"].ApiKeyEnv = String.Empty;
+                ModelProvidersSettings registry = RegistryWithExampleProvider();
+                registry.Providers["example-provider"].ApiKeyEnv = String.Empty;
 
                 bool threw = false;
                 try
                 {
-                    OpenCodeProviderConfigBuilder.Build("cun-ai/claude-fable-5", null, null, registry);
+                    OpenCodeProviderConfigBuilder.Build("example-provider/claude-fable-5", null, null, registry);
                 }
                 catch (ArgumentException)
                 {

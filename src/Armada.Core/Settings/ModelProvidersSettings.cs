@@ -5,7 +5,7 @@ namespace Armada.Core.Settings
 
     /// <summary>
     /// Registry of external model providers keyed by the model-id namespace prefix,
-    /// for example <c>cun-ai</c>. Runtimes resolve a captain's model against this
+    /// for example <c>example-provider</c>. Runtimes resolve a captain's model against this
     /// registry so provider behavior is configuration, not code.
     /// </summary>
     /// <remarks>
@@ -51,7 +51,7 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Find a registered provider by namespace prefix, case-insensitively.
         /// </summary>
-        /// <param name="providerId">Provider namespace prefix, for example "cun-ai".</param>
+        /// <param name="providerId">Provider namespace prefix, for example "example-provider".</param>
         /// <returns>The provider definition, or null when not registered.</returns>
         public ModelProviderSettings? Find(string? providerId)
         {

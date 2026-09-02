@@ -1061,7 +1061,7 @@ namespace Armada.Core.Settings
         /// <summary>
         /// External model provider registry used to route captain models to
         /// non-native endpoints. A provider is registered by model-id namespace
-        /// prefix, for example <c>cun-ai</c>.
+        /// prefix, for example <c>example-provider</c>.
         /// </summary>
         public ModelProvidersSettings ModelProviders
         {
