@@ -139,6 +139,10 @@ Use mission mode `Implementation` for work that must produce a commit. Use
 `Audit` or `Research` for report-only work. Read-only modes do not require a
 commit and must not receive implementation-only instructions.
 
+Autonomous (scheduler) dispatch has no per-mission `mode` argument, so it
+selects the mode from the objective `Kind`: a `Research` objective runs its
+missions read-only; every other Kind runs `Implementation`.
+
 Use the vessel's configured pipeline unless the approved work calls for a
 different existing pipeline. Use the full configured persona path. Do not
 remove review stages only to make a voyage faster.
