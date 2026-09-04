@@ -171,6 +171,7 @@ Focus: upstream v0.9.0 feature ports on top of the fork's delivery-management co
 
 ### Landing
 - A landing retry that fails now records the conflicted-file list in the mission's `FailureReason` (`IGitService.GetConflictedFilesAsync`), so the operator sees exactly which paths to fix
+- The `LocalMerge` post-landing working-directory sync guards on tracked changes only, not on a fully clean tree: an untracked captain scratch directory in the configured checkout no longer forces `working_directory_sync_failed` on otherwise-landed work, because a fast-forward preserves untracked files and the merge the sync calls already tolerated them. Only uncommitted tracked changes (or a wrong branch) still hold the sync (`IGitService.HasUncommittedTrackedChangesAsync`)
 
 ### Reliability
 - Background jobs left Accepted or Running past the stale threshold (a hung or dead worker) are reaped as failed on the health-loop cadence instead of reading as in-flight forever

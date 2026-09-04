@@ -521,6 +521,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullFastForwardOnlyAsync(workingDirectory, token);
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => _Inner.GetCurrentBranchAsync(workingDirectory, token);
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) => _Inner.HasUncommittedTrackedChangesAsync(workingDirectory, token);
             public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => _Inner.DiffAsync(worktreePath, baseBranch, token);
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => _Inner.GetHeadCommitHashAsync(worktreePath, token);
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => _Inner.GetChangedFilesSinceAsync(worktreePath, startCommit, token);
@@ -574,6 +575,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullFastForwardOnlyAsync(workingDirectory, token);
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => _Inner.GetCurrentBranchAsync(workingDirectory, token);
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) => _Inner.HasUncommittedTrackedChangesAsync(workingDirectory, token);
             public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => _Inner.DiffAsync(worktreePath, baseBranch, token);
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => _Inner.GetHeadCommitHashAsync(worktreePath, token);
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => _Inner.GetChangedFilesSinceAsync(worktreePath, startCommit, token);
@@ -630,6 +632,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullFastForwardOnlyAsync(workingDirectory, token);
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => _Inner.GetCurrentBranchAsync(workingDirectory, token);
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) => _Inner.HasUncommittedTrackedChangesAsync(workingDirectory, token);
             public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => _Inner.DiffAsync(worktreePath, baseBranch, token);
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => _Inner.GetHeadCommitHashAsync(worktreePath, token);
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => _Inner.GetChangedFilesSinceAsync(worktreePath, startCommit, token);

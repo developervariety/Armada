@@ -466,10 +466,13 @@ namespace Armada.Core.Services
 
             try
             {
-                bool isClean = await _Git.IsWorkingDirectoryCleanAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
+                // A fast-forward preserves untracked files, so an untracked captain scratch dir left
+                // in the configured checkout must not block the sync. Guard on TRACKED changes only,
+                // matching MergeBranchLocalAsync, which the sync calls and which itself tolerates them.
+                bool hasTrackedChanges = await _Git.HasUncommittedTrackedChangesAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
                 string? currentBranch = await _Git.GetCurrentBranchAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
 
-                if (isClean && String.Equals(currentBranch, targetBranch, StringComparison.Ordinal))
+                if (!hasTrackedChanges && String.Equals(currentBranch, targetBranch, StringComparison.Ordinal))
                 {
                     if (vessel.LandingMode == LandingModeEnum.LocalMerge)
                     {
@@ -503,8 +506,8 @@ namespace Armada.Core.Services
                 if (vessel.LandingMode == LandingModeEnum.LocalMerge)
                 {
                     mission.FailureReason = "working_directory_sync_failed: configured checkout is "
-                        + (isClean ? "on branch " + (currentBranch ?? "(unknown)") : "not clean")
-                        + "; expected a clean checkout on " + targetBranch;
+                        + (!hasTrackedChanges ? "on branch " + (currentBranch ?? "(unknown)") : "has uncommitted tracked changes")
+                        + "; expected a checkout with no tracked changes on " + targetBranch;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + mission.FailureReason);

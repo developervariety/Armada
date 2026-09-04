@@ -3147,6 +3147,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             /// <inheritdoc />
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(false);
 
             /// <inheritdoc />
             public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)

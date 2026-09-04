@@ -224,6 +224,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(true);
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult<string?>("main");
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(false);
             public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
             public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
 

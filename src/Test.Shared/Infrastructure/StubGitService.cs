@@ -170,6 +170,11 @@ namespace Test.Shared.Infrastructure
             return Task.FromResult(true);
         }
 
+        public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default)
+        {
+            return Task.FromResult(false);
+        }
+
         public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default)
         {
             PullCalls.Add(workingDirectory);

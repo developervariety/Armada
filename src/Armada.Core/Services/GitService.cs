@@ -510,6 +510,15 @@ namespace Armada.Core.Services
             return String.IsNullOrWhiteSpace(status);
         }
 
+        /// <inheritdoc />
+        public async Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
+
+            string status = (await RunGitAsync(workingDirectory, token, "status", "--porcelain", "--untracked-files=no").ConfigureAwait(false)).Trim();
+            return !String.IsNullOrWhiteSpace(status);
+        }
+
         /// <summary>
         /// Check if a pull request has been merged, routing to gh or glab based on the PR URL host.
         /// </summary>

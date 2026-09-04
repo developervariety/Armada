@@ -1260,6 +1260,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HasUncommittedTrackedChangesAsync Ignores Untracked Files", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string repoDir = Path.Combine(rootDir, "repo");
+
+                try
+                {
+                    Directory.CreateDirectory(repoDir);
+                    await RunGitAsync(repoDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    AssertFalse(await service.HasUncommittedTrackedChangesAsync(repoDir).ConfigureAwait(false), "A committed clean checkout has no tracked changes");
+
+                    // An untracked path (a captain scratch dir is the real case) must not read as a
+                    // tracked change: a fast-forward preserves it, so the post-landing sync proceeds.
+                    string scratchDir = Path.Combine(repoDir, "scratch-untracked");
+                    Directory.CreateDirectory(scratchDir);
+                    await File.WriteAllTextAsync(Path.Combine(scratchDir, "note.txt"), "captain scratch\n").ConfigureAwait(false);
+
+                    AssertFalse(await service.HasUncommittedTrackedChangesAsync(repoDir).ConfigureAwait(false), "Untracked files must not count as tracked changes");
+
+                    // A modification to a tracked file must read as a tracked change.
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "README.md"), "tracked modification\n").ConfigureAwait(false);
+
+                    AssertTrue(await service.HasUncommittedTrackedChangesAsync(repoDir).ConfigureAwait(false), "A modified tracked file must count as a tracked change");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("CreateWorktreeAsync Detached AllowsSecondWorktreeForCheckedOutBranch", async () =>
             {
                 GitService service = CreateService();

@@ -209,6 +209,17 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default);
 
         /// <summary>
+        /// Check whether the working directory has uncommitted changes to TRACKED files only.
+        /// Untracked files are ignored, because a fast-forward preserves them and they never block
+        /// a landing sync (git status --porcelain --untracked-files=no). Use this to guard an
+        /// operation that itself tolerates untracked files, so the guard is not stricter than it.
+        /// </summary>
+        /// <param name="workingDirectory">Path to the working directory.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if tracked files have uncommitted changes.</returns>
+        Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default);
+
+        /// <summary>
         /// Get the diff of all changes in a worktree against the base branch.
         /// </summary>
         /// <param name="worktreePath">Path to the worktree.</param>

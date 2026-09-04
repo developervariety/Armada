@@ -2565,6 +2565,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
             }
 
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default)
+                => _Inner.HasUncommittedTrackedChangesAsync(workingDirectory, token);
+
             public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => _Inner.CloneBareAsync(repoUrl, localPath, token);
 
             public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default) => _Inner.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token: token);
@@ -2661,6 +2664,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => _Inner.GetCurrentBranchAsync(workingDirectory, token);
 
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => _Inner.IsWorkingDirectoryCleanAsync(workingDirectory, token);
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) => _Inner.HasUncommittedTrackedChangesAsync(workingDirectory, token);
 
             public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => _Inner.CloneBareAsync(repoUrl, localPath, token);
 

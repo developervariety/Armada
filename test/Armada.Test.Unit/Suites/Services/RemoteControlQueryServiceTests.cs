@@ -243,6 +243,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) { throw new NotImplementedException(); }
+            public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) { throw new NotImplementedException(); }

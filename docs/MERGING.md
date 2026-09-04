@@ -139,6 +139,17 @@ When a mission's agent exits successfully, Armada sets the mission to `WorkProdu
 | `MergeQueue` | Enqueue the branch into Armada's merge queue for serialized testing and landing. |
 | `None` | No automated landing. The mission stays at `WorkProduced` for manual handling. |
 
+**Working-directory sync (`LocalMerge`).** After a `LocalMerge` lands on the bare
+repository, Armada fast-forwards the vessel's configured working checkout to the
+landed tip. The pre-sync check guards on **tracked** changes only
+(`IGitService.HasUncommittedTrackedChangesAsync`): untracked files, such as a
+captain scratch directory left in the checkout, do not block the sync, because a
+fast-forward preserves them and `MergeBranchLocalAsync` (which the sync calls)
+tolerates them too. A checkout with uncommitted **tracked** changes, or on the
+wrong branch, is left untouched and the mission records
+`working_directory_sync_failed` for the operator to reconcile by hand — the work
+is still on the target branch.
+
 ---
 
 ## Branch Cleanup Policy

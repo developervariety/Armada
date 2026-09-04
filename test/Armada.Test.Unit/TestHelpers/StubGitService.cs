@@ -194,6 +194,9 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default)
             => Task.FromResult(IsWorkingDirectoryCleanResult);
 
+        public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default)
+            => Task.FromResult(!IsWorkingDirectoryCleanResult);
+
         /// <summary>
         /// Revision SHAs keyed by "repoPath|revision", falling back to RevisionShaResult.
         /// </summary>
