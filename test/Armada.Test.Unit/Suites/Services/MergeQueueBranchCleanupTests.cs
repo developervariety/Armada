@@ -2447,6 +2447,65 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             });
+
+            await RunTest("ProcessEntryByIdAsync_StaleNonWorktreeDirAtIntegrationPath_IsRebuiltCleanAndLands", async () =>
+            {
+                // Models a disposable merge-queue integration directory that survived the
+                // best-effort cleanup as a dirty, non-worktree leftover (an interrupted checkout
+                // or a partially removed worktree). RemoveWorktreeAsync cannot remove a directory
+                // that is not a registered git worktree, and the failure is swallowed, so before
+                // the fix CreateWorktreeAsync tripped on the existing non-empty path and the whole
+                // landing failed with "contains tracked modifications" on a scratch worktree.
+                // PrepareIntegrationWorktreeAsync must delete the leftover and rebuild clean.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_stale_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("stale-integration-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        // Pre-create the leftover: a plain, non-empty directory at the integration
+                        // path that is not a registered git worktree, so the best-effort cleanup
+                        // cannot remove it and it survives into worktree recreation.
+                        string integrationPath = Path.Combine(settings.DocksDirectory, "_merge-queue", entry.Id);
+                        Directory.CreateDirectory(integrationPath);
+                        await File.WriteAllTextAsync(Path.Combine(integrationPath, "leftover.txt"), "stale scratch content").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status,
+                            "A stale non-worktree leftover at the integration path must be cleared so the entry lands, not fail on a dirty scratch worktree");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)

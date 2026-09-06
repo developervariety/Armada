@@ -895,6 +895,36 @@ namespace Armada.Core.Services
             try { await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false); }
             catch { }
 
+            // CleanupWorktreeAsync is best-effort and swallows failures: a locked worktree, an
+            // interrupted merge, or a partially completed prior removal can leave the disposable
+            // integration directory on disk in a dirty state (for example uncommitted tracked
+            // deletions from a crashed checkout). CreateWorktreeAsync below would then either fail
+            // to add over the existing path or trip its tracked-files-clean guard, and the whole
+            // landing fails with "contains tracked modifications" on a scratch worktree. The
+            // integration worktree is disposable and is always rebuilt from the target branch, so
+            // if it survived cleanup, delete the directory outright and prune the stale worktree
+            // registration to guarantee CreateWorktreeAsync starts from a clean, non-existent path.
+            if (Directory.Exists(integrationPath))
+            {
+                try
+                {
+                    Directory.Delete(integrationPath, true);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not delete stale integration worktree " + integrationPath + ": " + ex.Message);
+                }
+
+                try
+                {
+                    await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "worktree prune failed for " + repoPath + " after stale integration removal: " + ex.Message);
+                }
+            }
+
             try { await _Git.DeleteLocalBranchAsync(repoPath, integrationBranch, token).ConfigureAwait(false); }
             catch (Exception ex) { _Logging.Debug(_Header + "integration branch cleanup skipped for " + integrationBranch + ": " + ex.Message); }
 
