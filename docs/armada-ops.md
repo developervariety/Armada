@@ -139,9 +139,15 @@ Use mission mode `Implementation` for work that must produce a commit. Use
 `Audit` or `Research` for report-only work. Read-only modes do not require a
 commit and must not receive implementation-only instructions.
 
-Autonomous (scheduler) dispatch has no per-mission `mode` argument, so it
-selects the mode from the objective `Kind`: a `Research` objective runs its
-missions read-only; every other Kind runs `Implementation`.
+Both dispatch paths derive the mode from the objective `Kind` when a mission
+does not state its own: a `Research` objective runs its missions read-only;
+every other Kind runs `Implementation`. Autonomous (scheduler) dispatch has no
+per-mission `mode` argument and relies on this entirely. Operator dispatch
+(`armada_dispatch` / REST) applies the same rule to any mission linked through
+`objectiveId` that omits `mode`, so a `Research` objective dispatched through an
+Implementation pipeline (for example `Tested`) drops the diff-dependent Test
+Engineer stage and keeps a read-only Judge that accepts a no-commit report; an
+explicit per-mission `mode` overrides it.
 
 Use the vessel's configured pipeline unless the approved work calls for a
 different existing pipeline. Use the full configured persona path. Do not

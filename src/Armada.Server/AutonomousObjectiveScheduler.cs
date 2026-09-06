@@ -825,17 +825,17 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Derive the mission mode for an autonomously dispatched objective from its Kind. A Research
-        /// objective produces a report, so its missions run read-only: no commit is required and the
-        /// Judge accepts an unchanged branch as success rather than failing it for an empty diff.
-        /// Every other Kind changes code and keeps the default Implementation mode (null lets
-        /// MissionModes.Parse fall back to Implementation).
+        /// Derive the mission mode for an autonomously dispatched objective from its Kind. Delegates
+        /// to the shared <see cref="MissionModes.FromObjectiveKind"/> so the autonomous scheduler and
+        /// the operator dispatch path apply one rule: a Research objective runs read-only (no commit
+        /// required, the Judge accepts an unchanged branch), and every other Kind keeps the
+        /// Implementation default.
         /// </summary>
         /// <param name="kind">The objective kind.</param>
         /// <returns>"Research" for a Research objective, otherwise null (Implementation default).</returns>
         public static string? DeriveMissionMode(ObjectiveKindEnum kind)
         {
-            return kind == ObjectiveKindEnum.Research ? MissionModeEnum.Research.ToString() : null;
+            return MissionModes.FromObjectiveKind(kind);
         }
 
         private static string BuildMissionDescription(Objective objective)

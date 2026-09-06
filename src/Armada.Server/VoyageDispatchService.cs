@@ -167,6 +167,13 @@ namespace Armada.Server
             if (preconditions != null) return preconditions;
             LogDispatchInfo("dispatch step preconditions_ok elapsedMs=" + dispatchWatch.ElapsedMilliseconds);
 
+            // A Research objective linked to this dispatch runs its missions read-only, so a mission
+            // that did not state its own mode inherits the objective's mode before the pipeline
+            // expands. Without this the operator path produced Implementation missions for a
+            // report-only objective and the Judge failed the correct empty diff -- the autonomous
+            // scheduler already derives the mode; this is the same rule on the operator path.
+            await ApplyObjectiveModeDefaultAsync(objectiveId, request.ObjectiveAuthContext, missions).ConfigureAwait(false);
+
             Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
             {
@@ -422,6 +429,42 @@ namespace Armada.Server
                 return VoyageDispatchResult.NotFound(new { Error = "Objective not found: " + objectiveId });
 
             return null;
+        }
+
+        /// <summary>
+        /// When a dispatch is linked to a Research objective, a mission that did not state its own
+        /// mode inherits the objective's read-only mode, so the Judge accepts its no-commit report and
+        /// the pipeline drops the diff-dependent stage. An explicit per-mission mode always wins, and a
+        /// non-Research objective changes nothing (the derivation returns null and the mission keeps
+        /// the Implementation default). This applies the one shared
+        /// <see cref="MissionModes.FromObjectiveKind"/> rule to the operator dispatch path, matching
+        /// the autonomous scheduler, so a Research objective is judged the same way however it is
+        /// dispatched.
+        /// </summary>
+        /// <param name="objectiveId">The linked objective id, or null when the dispatch is unlinked.</param>
+        /// <param name="authContext">Auth context for reading the objective, or null for the default tenant admin.</param>
+        /// <param name="missions">Mission descriptions to mutate in place before dispatch.</param>
+        private async Task ApplyObjectiveModeDefaultAsync(string? objectiveId, AuthContext? authContext, List<MissionDescription>? missions)
+        {
+            if (String.IsNullOrEmpty(objectiveId) || _ObjectiveService == null || missions == null || missions.Count == 0)
+                return;
+
+            AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
+            Objective? objective = await _ObjectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
+            if (objective == null) return;
+
+            string? derivedMode = MissionModes.FromObjectiveKind(objective.Kind);
+            if (String.IsNullOrEmpty(derivedMode)) return;
+
+            foreach (MissionDescription mission in missions)
+            {
+                if (mission != null && String.IsNullOrWhiteSpace(mission.Mode))
+                {
+                    mission.Mode = derivedMode;
+                    LogDispatchInfo("derived read-only mode '" + derivedMode + "' for mission '" + mission.Title
+                        + "' from objective " + objectiveId + " Kind=" + objective.Kind);
+                }
+            }
         }
 
         private async Task<string?> ResolvePipelineIdAsync(string? requestedPipelineId, string? requestedPipeline)

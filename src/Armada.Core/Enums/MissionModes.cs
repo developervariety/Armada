@@ -40,5 +40,25 @@ namespace Armada.Core.Enums
             return Enum.TryParse<MissionModeEnum>(value.Trim(), true, out parsed) &&
                 Enum.IsDefined(typeof(MissionModeEnum), parsed);
         }
+
+        /// <summary>
+        /// Derives the mission mode a dispatched objective should run in from its Kind. A Research
+        /// objective produces a report, so its missions run read-only: no commit is required and the
+        /// Judge accepts an unchanged branch as success rather than failing it for an empty diff.
+        /// Every other Kind changes code and keeps the Implementation default (a null return lets
+        /// <see cref="Parse"/> fall back to Implementation), so existing dispatches are unaffected.
+        ///
+        /// This is the single definition both dispatch paths call — the autonomous scheduler and the
+        /// operator/queued dispatch — so a Research objective is judged the same way however it is
+        /// dispatched. Without a shared derivation, a Research objective linked to an operator
+        /// dispatch produced Implementation missions and its correct no-commit report was failed at
+        /// the Judge for an empty diff.
+        /// </summary>
+        /// <param name="kind">The objective kind.</param>
+        /// <returns>"Research" for a Research objective, otherwise null (Implementation default).</returns>
+        public static string? FromObjectiveKind(ObjectiveKindEnum kind)
+        {
+            return kind == ObjectiveKindEnum.Research ? MissionModeEnum.Research.ToString() : null;
+        }
     }
 }
