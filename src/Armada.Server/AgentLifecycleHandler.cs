@@ -832,6 +832,15 @@ namespace Armada.Server
 
             if (String.IsNullOrEmpty(captainId)) return;
 
+            // A parsed progress or [ARMADA:ACTIVITY] tool signal is the provider making progress: it
+            // chose to narrate a step or call a tool. Record it as provider progress so a captain
+            // that is actively working through a long tool run (a foreground test suite, a large
+            // source read) while quiet on token-usage narration is not misclassified as a
+            // provider_silent_stall and nudged mid-work. Previously only runtime token-usage updates
+            // (OnProviderProgressReceived) refreshed the tracker, which goes silent during a tool
+            // call, so a Judge running `dotnet test` for ninety seconds looked stalled.
+            _ProviderProgress?.Record(captainId, DateTime.UtcNow);
+
             // A papercut is a report about the work, not a report of progress. It takes its own path so
             // it never transitions a mission and never lands in the progress signal stream.
             if (String.Equals(signal.Type, PapercutParser.SignalType, StringComparison.OrdinalIgnoreCase))

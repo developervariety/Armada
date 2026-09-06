@@ -779,6 +779,43 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("HandleAgentOutput_ToolActivitySignal_RecordsProviderProgress", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    ProviderProgressTracker tracker = new ProviderProgressTracker();
+                    handler.SetProviderProgress(tracker);
+
+                    Vessel vessel = new Vessel("ActivityVessel", "https://github.com/test/activity");
+                    Voyage voyage = new Voyage("Activity voyage");
+                    Captain captain = new Captain("activity-captain", AgentRuntimeEnum.ClaudeCode);
+                    Mission mission = new Mission("Activity mission");
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = voyage.Id;
+                    mission.Persona = "Judge";
+                    mission.CaptainId = captain.Id;
+                    captain.CurrentMissionId = mission.Id;
+
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    int processId = 929292;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+
+                    // A Judge running a long foreground tool call (a test suite) emits activity lines
+                    // while its token-usage narration is quiet. That activity must refresh provider
+                    // progress so the captain is not misclassified as a provider_silent_stall.
+                    handler.HandleAgentOutput(processId, "[ARMADA:ACTIVITY] tool bash dotnet test src/Foo.Tests (ok)");
+
+                    bool recorded = tracker.TryGet(captain.Id, out DateTime? progressUtc);
+                    AssertTrue(recorded && progressUtc.HasValue,
+                        "A tool-activity signal must refresh provider progress, or an actively-working captain is nudged mid-work");
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null)
