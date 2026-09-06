@@ -1123,6 +1123,118 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, armed.Objects.Count, "Disabling arming must disable it on every dispatch path.");
             }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_FailedOriginalWithCompletedRescue_ReconcilesToCompleted", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Original voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                Mission failedMission = await testDb.Driver.Missions.CreateAsync(new Mission("Original judge")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Rescue voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Missions.CreateAsync(new Mission("Rescue worker")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    ParentMissionId = failedMission.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Failed original, landed rescue",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { failedVoyage.Id, rescueVoyage.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 3
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.Completed, reconciled!.Status,
+                    "An objective whose failed original voyage was re-done by a landed rescue voyage must reconcile to Completed, not sit InProgress forever.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_FailedOriginalWithNoRescue_StaysInProgress", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Original voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                await testDb.Driver.Missions.CreateAsync(new Mission("Original judge")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Failed original, never rescued",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { failedVoyage.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 3
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? still = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, still!.Status,
+                    "An objective whose failed voyage was never rescued must not reconcile to Completed.");
+            }).ConfigureAwait(false);
         }
 
         private static AutonomousObjectiveScheduler CreateScheduler(

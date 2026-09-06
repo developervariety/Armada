@@ -505,14 +505,79 @@ namespace Armada.Server
 
         private async Task<bool> AllLinkedVoyagesCompletedAsync(Objective objective, CancellationToken token)
         {
+            List<Voyage> voyages = new List<Voyage>();
             foreach (string voyageId in objective.VoyageIds)
             {
                 Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
-                if (voyage == null) continue;
-                if (voyage.Status != VoyageStatusEnum.Complete) return false;
+                if (voyage != null) voyages.Add(voyage);
             }
 
-            return true;
+            bool anyComplete = false;
+            foreach (Voyage voyage in voyages)
+            {
+                if (voyage.Status == VoyageStatusEnum.Complete)
+                {
+                    anyComplete = true;
+                    continue;
+                }
+
+                // A voyage still running blocks completion.
+                if (IsActiveVoyageStatus(voyage.Status)) return false;
+
+                // A terminal non-complete voyage (Failed/Cancelled) blocks completion UNLESS a
+                // Complete rescue voyage for it is also linked. The autonomous rescue re-does the
+                // failed voyage's work under its own voyage (LinkRescueVoyageToObjectivesAsync links
+                // it here), so an objective whose original voyage failed but whose rescue landed
+                // should reconcile to Completed instead of sitting InProgress for ever. A genuinely
+                // unresolved failure (no completed rescue) still blocks, so this never
+                // false-completes an objective whose work never landed.
+                if (!await HasCompletedRescueAmongAsync(voyage, voyages, token).ConfigureAwait(false))
+                {
+                    return false;
+                }
+            }
+
+            // Require at least one voyage to have actually landed: an objective all of whose voyages
+            // are Cancelled (nothing landed) is not complete.
+            return anyComplete;
+        }
+
+        /// <summary>
+        /// Whether one of <paramref name="linkedVoyages"/> is a Complete rescue of
+        /// <paramref name="failedVoyage"/>. An autonomous rescue carries the failed mission as the
+        /// <see cref="Mission.ParentMissionId"/> of its stage, so a Complete linked voyage that
+        /// contains a stage whose parent is one of the failed voyage's missions re-did that voyage's
+        /// work. This keeps a Failed/Cancelled original from blocking objective completion once its
+        /// rescue has landed, without completing an objective whose failure was never rescued.
+        /// </summary>
+        private async Task<bool> HasCompletedRescueAmongAsync(Voyage failedVoyage, List<Voyage> linkedVoyages, CancellationToken token)
+        {
+            List<Mission> failedMissions = await _Database.Missions.EnumerateByVoyageAsync(failedVoyage.Id, token).ConfigureAwait(false);
+            if (failedMissions.Count == 0) return false;
+
+            HashSet<string> failedMissionIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Mission failedMission in failedMissions)
+            {
+                if (!String.IsNullOrEmpty(failedMission.Id)) failedMissionIds.Add(failedMission.Id);
+            }
+
+            foreach (Voyage candidate in linkedVoyages)
+            {
+                if (String.Equals(candidate.Id, failedVoyage.Id, StringComparison.Ordinal)) continue;
+                if (candidate.Status != VoyageStatusEnum.Complete) continue;
+
+                List<Mission> rescueMissions = await _Database.Missions.EnumerateByVoyageAsync(candidate.Id, token).ConfigureAwait(false);
+                foreach (Mission rescueMission in rescueMissions)
+                {
+                    if (!String.IsNullOrEmpty(rescueMission.ParentMissionId)
+                        && failedMissionIds.Contains(rescueMission.ParentMissionId))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
