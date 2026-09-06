@@ -1480,6 +1480,76 @@ namespace Armada.Test.Unit.Suites.Services
                 GitService service = CreateService();
                 await AssertThrowsAsync<ArgumentNullException>(() => service.GetConflictedFilesAsync(null!)).ConfigureAwait(false);
             });
+
+            await RunTest("ResolveTrackedPathSuffixAsync_NestedFileCitedByBasename_Resolves", async () =>
+            {
+                // Regression: git ls-tree does not support the ':(glob)' pathspec magic, so the
+                // suffix resolver used to throw on every call and report a present nested file as
+                // absent (e.g. src/Project/Project.Core/.../Foo.cs cited as Foo.cs).
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_suffix_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    string repoDir = Path.Combine(rootDir, "repo");
+                    Directory.CreateDirectory(repoDir);
+                    await RunGitAsync(repoDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    string nestedDir = Path.Combine(repoDir, "src", "Consumer", "Consumer.Core", "Feature", "Area");
+                    Directory.CreateDirectory(nestedDir);
+                    await File.WriteAllTextAsync(Path.Combine(nestedDir, "WidgetCatalog.cs"), "// nested").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "add", ".").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "commit", "-m", "Add nested file").ConfigureAwait(false);
+
+                    GitService git = CreateService();
+
+                    bool existsAtRoot = await git.PathExistsOnRevisionAsync(repoDir, "HEAD", "WidgetCatalog.cs").ConfigureAwait(false);
+                    AssertFalse(existsAtRoot, "A nested file is not tracked at the repo root by its bare name");
+
+                    string? resolved = await git.ResolveTrackedPathSuffixAsync(repoDir, "HEAD", "WidgetCatalog.cs").ConfigureAwait(false);
+                    AssertNotNull(resolved, "The suffix resolver must find the single nested file cited by basename");
+                    AssertTrue(resolved!.EndsWith("Consumer.Core/Feature/Area/WidgetCatalog.cs", StringComparison.Ordinal),
+                        "Resolved path should be the nested Consumer.Core file, got: " + resolved);
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ResolveTrackedPathSuffixAsync_AmbiguousBasename_ReturnsNull", async () =>
+            {
+                // Two tracked files share a basename: the resolver must refuse rather than assert one
+                // candidate, because asserting one of several is how a brief sends a captain wrong.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_ambig_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    string repoDir = Path.Combine(rootDir, "repo");
+                    Directory.CreateDirectory(repoDir);
+                    await RunGitAsync(repoDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    string dirA = Path.Combine(repoDir, "src", "A");
+                    string dirB = Path.Combine(repoDir, "src", "B");
+                    Directory.CreateDirectory(dirA);
+                    Directory.CreateDirectory(dirB);
+                    await File.WriteAllTextAsync(Path.Combine(dirA, "Shared.cs"), "// a").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(dirB, "Shared.cs"), "// b").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "add", ".").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "commit", "-m", "Add duplicate basenames").ConfigureAwait(false);
+
+                    GitService git = CreateService();
+                    string? resolved = await git.ResolveTrackedPathSuffixAsync(repoDir, "HEAD", "Shared.cs").ConfigureAwait(false);
+                    AssertTrue(resolved == null, "An ambiguous basename must not resolve to a single path");
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
