@@ -322,6 +322,97 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync_UnresolvableBuildParticipantSibling_FailsTheDock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    // A build-participant sibling with neither a VesselRef nor a RepoUrl cannot be
+                    // resolved. Because it is a required build participant, provisioning must fail
+                    // the dock loudly instead of swallowing the error and leaving a hollow dock.
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RelativePath = "../RequiredSibling",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main",
+                            BuildParticipant = true
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("required-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("required-sibling-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    // Provisioning fails the dock: ProvisionSiblingReposAsync throws for the required
+                    // sibling, and ProvisionAsync's outer handler turns that into a null dock (a
+                    // provisioning failure the caller fails the mission on) plus a
+                    // dock.sibling_provision_failed event -- instead of a hollow dock that builds green.
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/reqSiblingMission", "reqSiblingMission").ConfigureAwait(false);
+                    AssertTrue(dock == null, "A required build-participant sibling that cannot be resolved must fail the dock (null return), not be swallowed into a hollow dock");
+
+                    List<ArmadaEvent> failureEvents = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_provision_failed", 50).ConfigureAwait(false);
+                    AssertTrue(failureEvents.Count > 0, "A failed required-sibling provisioning must emit a dock.sibling_provision_failed event");
+                }
+            });
+
+            await RunTest("ProvisionAsync_UnresolvableNonBuildParticipantSibling_IsToleratedAndDockProvisions", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitInfoGitService git = new GitInfoGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    // Same unresolvable sibling, but NOT a build participant (a read-only artifact
+                    // tree whose absence is a tolerated skip boundary). Provisioning warns and
+                    // continues, and the dock still comes up.
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RelativePath = "../OptionalSibling",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main",
+                            BuildParticipant = false
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("optional-sibling-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("optional-sibling-captain");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/optSiblingMission", "optSiblingMission").ConfigureAwait(false);
+                    AssertNotNull(dock, "A non-build-participant sibling that cannot be resolved is tolerated and the dock still provisions");
+                }
+            });
+
             await RunTest("ProvisionAsync with null missionId omits the OpenCode playbooks root", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

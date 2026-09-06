@@ -755,6 +755,63 @@ namespace Armada.Core.Services
             }
         }
 
+        private static bool SiblingWorktreeHasContent(string siblingWorktreePath)
+        {
+            if (!Directory.Exists(siblingWorktreePath)) return false;
+            foreach (string unused in Directory.EnumerateFileSystemEntries(siblingWorktreePath))
+            {
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A sibling declared with <c>BuildParticipant = true</c> is a consumer that builds the
+        /// sibling through a project reference, so its absence or an empty checkout does not
+        /// degrade gracefully -- it breaks the build or silently skips a whole verification stage,
+        /// and the failure then reads as the captain's defect. When such a sibling cannot be
+        /// provisioned, fail the dock loudly with a <c>dock.sibling_provision_failed</c> event
+        /// rather than swallowing the error and letting a broken dock proceed. Non-build-participant
+        /// siblings (read-only artifact trees whose absence is a known, tolerated skip boundary)
+        /// keep the warn-and-continue path.
+        /// </summary>
+        private async Task FailBuildParticipantSiblingAsync(Vessel vessel, string dockId, SiblingRepo sibling, string? siblingWorktreePath, string reason, CancellationToken token)
+        {
+            string message = "Dock " + dockId + " could not provision required build-participant sibling '"
+                + sibling.RelativePath + "' for vessel " + vessel.Id + ": " + reason;
+            _Logging.Warn(_Header + message);
+
+            try
+            {
+                ArmadaEvent failedEvent = new ArmadaEvent("dock.sibling_provision_failed", message);
+                failedEvent.TenantId = vessel.TenantId;
+                failedEvent.UserId = vessel.UserId;
+                failedEvent.EntityType = "dock";
+                failedEvent.EntityId = dockId;
+                failedEvent.VesselId = vessel.Id;
+                failedEvent.Payload = JsonSerializer.Serialize(new
+                {
+                    DockId = dockId,
+                    VesselId = vessel.Id,
+                    SiblingRelativePath = sibling.RelativePath,
+                    SiblingWorktreePath = siblingWorktreePath,
+                    BuildParticipant = true,
+                    Reason = reason
+                });
+                await _Database.Events.CreateAsync(failedEvent, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record dock.sibling_provision_failed for dock " + dockId + ": " + ex.Message);
+            }
+
+            throw new InvalidOperationException(message);
+        }
+
         private async Task ProvisionSiblingReposAsync(Vessel vessel, string worktreePath, string dockBranchName, string dockId, CancellationToken token)
         {
             List<SiblingRepo> siblings = vessel.GetSiblingRepos();
@@ -773,6 +830,11 @@ namespace Armada.Core.Services
                     string? siblingRepoPath = await ResolveSiblingRepoPathAsync(sibling, token).ConfigureAwait(false);
                     if (String.IsNullOrEmpty(siblingRepoPath))
                     {
+                        if (sibling.BuildParticipant)
+                        {
+                            throw new InvalidOperationException("could not resolve source for build-participant sibling repo (relativePath=" + sibling.RelativePath + ")");
+                        }
+
                         _Logging.Warn(_Header + "could not resolve source for sibling repo (relativePath=" + sibling.RelativePath + ") on vessel " + vessel.Id);
                         continue;
                     }
@@ -840,6 +902,14 @@ namespace Armada.Core.Services
             await _Git.CreateWorktreeAsync(siblingRepoPath, siblingWorktreePath, siblingBranch, fallbackBranch, detached: true, token: token).ConfigureAwait(false);
             _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (branch " + siblingBranch + ") for vessel " + vessel.Id);
 
+            // A build-participant sibling that came out of provisioning empty (a checkout that
+            // silently produced no files) will break the consumer build or skip a verification
+            // stage; surface it as a provisioning failure rather than proceeding with a hollow dock.
+            if (sibling.BuildParticipant && !SiblingWorktreeHasContent(siblingWorktreePath))
+            {
+                throw new InvalidOperationException("build-participant sibling provisioned empty (0 files) at " + siblingWorktreePath);
+            }
+
             await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
             await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
                 }
@@ -849,6 +919,15 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
+                    if (sibling.BuildParticipant)
+                    {
+                        // A required build-participant sibling failed to provision. Record a loud
+                        // event and fail the dock so the operator sees a provisioning fault instead
+                        // of a captain "defect" when the consumer build later measures a missing tree.
+                        string failedSiblingPath = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
+                        await FailBuildParticipantSiblingAsync(vessel, dockId, sibling, failedSiblingPath, ex.Message, token).ConfigureAwait(false);
+                    }
+
                     _Logging.Warn(_Header + "failed to provision sibling repo (relativePath=" + sibling.RelativePath + ") for vessel " + vessel.Id + ": " + ex.Message);
                 }
             }
