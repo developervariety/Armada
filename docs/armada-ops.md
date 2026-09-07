@@ -178,6 +178,14 @@ voyage and mission rows exist. Assignment, dock provisioning, and captain
 launch continue asynchronously. Save the voyage ID. Do not redispatch only
 because the first status call shows `Pending`.
 
+A mission title that already carries a stage-persona prefix such as
+`[Worker] `, `[Test Engineer] `, or `[Judge] ` is rejected with 400 and code
+`mission_title_carries_stage_persona_prefix`. Such a title is a materialized
+pipeline STAGE, not a task: the pipeline prepends the persona itself, so
+dispatching prior stage missions as tasks multiplies the work by the stage
+count. Dispatch the objective's ORIGINAL task once, with the leading
+`[<persona>] ` tag removed.
+
 Long operations can return an accepted job. Poll `armada_job_status` with the
 returned job ID. Background jobs are reaped on a health-loop cadence: a job
 left Accepted or Running past the stale threshold (a worker that hung or died)

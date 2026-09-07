@@ -601,6 +601,80 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Validation_MissionTitleWithStagePersonaPrefix_Returns400", async () =>
+            {
+                // A dispatch whose mission title already carries a "[<persona>] " tag is a prior
+                // run's materialized STAGE mission resubmitted as a task. The pipeline prepends the
+                // persona itself, so expanding it multiplies the work by the stage count (3 -> 9 ->
+                // 27). Validation must reject it before any voyage row exists.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("persona-prefix-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    // Every persona spelling the pipeline prepends is rejected as a task title.
+                    List<string> taggedTitles = new List<string>
+                    {
+                        "[Worker] Fix the queue naming",
+                        "[Worker] [Worker] Fix the queue naming",
+                        "[TestEngineer] Fix the queue naming",
+                        "[Test Engineer] Fix the queue naming",
+                        "[Judge] Fix the queue naming",
+                        "[Architect] Fix the queue naming",
+                        "[Product Manager] Fix the queue naming"
+                    };
+                    foreach (string tagged in taggedTitles)
+                    {
+                        SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                        {
+                            Title = "persona-prefix voyage",
+                            VesselId = vessel.Id,
+                            CodeContextMode = "off",
+                            Missions = new List<MissionDescription>
+                            {
+                                new MissionDescription(tagged, "a prior run's stage mission resubmitted as a task")
+                            }
+                        };
+                        VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+                        AssertEqual(400, result.StatusCode, "a '" + tagged + "' title must be rejected before any voyage is created");
+                        AssertContains("mission_title_carries_stage_persona_prefix", JsonSerializer.Serialize(result.Value),
+                            "the rejection must name the stage-persona-prefix code for '" + tagged + "'");
+                    }
+
+                    // A normal task title dispatches.
+                    SharedVoyageDispatchRequest ok = new SharedVoyageDispatchRequest
+                    {
+                        Title = "normal voyage",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Fix the queue naming prefix divergence", "the real task")
+                        }
+                    };
+                    VoyageDispatchResult okResult = await NewService(testDb).DispatchAsync(ok).ConfigureAwait(false);
+                    AssertTrue(okResult.Succeeded, "a normal task title must dispatch");
+
+                    // A bracket tag that is NOT a persona must not trip the guard (no false positive).
+                    SharedVoyageDispatchRequest bracket = new SharedVoyageDispatchRequest
+                    {
+                        Title = "bracket voyage",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("[URGENT] Fix the queue naming", "a non-persona bracket tag")
+                        }
+                    };
+                    VoyageDispatchResult bracketResult = await NewService(testDb).DispatchAsync(bracket).ConfigureAwait(false);
+                    AssertTrue(bracketResult.Succeeded, "a non-persona bracket prefix must NOT be rejected");
+                }
+            });
+
             await RunTest("AliasDependency_ResolvesToConcreteMissionId_ThroughSharedPath", async () =>
             {
                 // The alias-aware branch is shared by REST and MCP. A dependsOnMissionAlias must be
