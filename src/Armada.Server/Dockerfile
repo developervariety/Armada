@@ -43,6 +43,10 @@ RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS runtime
 WORKDIR /app
 
+# CLI_REFRESH busts this layer so @latest actually re-pulls. Pass
+# --build-arg CLI_REFRESH=$(date +%s) to refresh the agent CLIs on a rebuild;
+# omit it to keep the last-built versions (Docker caches this RUN otherwise).
+ARG CLI_REFRESH=0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl default-jdk-headless gh git glab gnupg iproute2 \
     && mkdir -p /etc/apt/keyrings \
@@ -52,7 +56,8 @@ RUN apt-get update \
         > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli @nothumanwork/cursor-agent-cli opencode-ai \
+    && echo "cli-refresh=${CLI_REFRESH}" \
+    && npm install -g @anthropic-ai/claude-code@latest @openai/codex@latest @google/gemini-cli@latest @nothumanwork/cursor-agent-cli@latest opencode-ai@latest \
     && apt-get purge -y --auto-remove gnupg \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 
