@@ -702,8 +702,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             dock.WorktreePath = NullableString(reader["worktree_path"]);
             dock.BranchName = NullableString(reader["branch_name"]);
             dock.Active = Convert.ToInt64(reader["active"]) == 1;
-            dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            dock.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            dock.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return dock;
         }
 

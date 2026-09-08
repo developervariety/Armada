@@ -504,8 +504,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 Description = reader["description"] == DBNull.Value ? null : reader["description"].ToString(),
                 Content = reader["content"].ToString() ?? String.Empty,
                 Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
         }
 
@@ -520,9 +520,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 DeliveryMode = ParseDeliveryMode(reader["delivery_mode"]),
                 ResolvedPath = reader["resolved_path"] == DBNull.Value ? null : reader["resolved_path"].ToString(),
                 WorktreeRelativePath = reader["worktree_relative_path"] == DBNull.Value ? null : reader["worktree_relative_path"].ToString(),
-                SourceLastUpdateUtc = reader["source_last_update_utc"] == DBNull.Value
-                    ? null
-                    : Convert.ToDateTime(reader["source_last_update_utc"]).ToUniversalTime()
+                SourceLastUpdateUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["source_last_update_utc"])
             };
         }
 

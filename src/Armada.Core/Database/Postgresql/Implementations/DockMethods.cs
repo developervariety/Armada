@@ -720,8 +720,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             dock.WorktreePath = NullableString(reader["worktree_path"]);
             dock.BranchName = NullableString(reader["branch_name"]);
             dock.Active = (bool)reader["active"];
-            dock.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            dock.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            dock.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            dock.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return dock;
         }
 

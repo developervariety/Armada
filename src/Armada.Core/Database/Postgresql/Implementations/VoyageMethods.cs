@@ -622,9 +622,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             voyage.Title = reader["title"].ToString()!;
             voyage.Description = NullableString(reader["description"]);
             voyage.Status = Enum.Parse<VoyageStatusEnum>(reader["status"].ToString()!);
-            voyage.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
+            voyage.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             voyage.CompletedUtc = NullableDateTime(reader["completed_utc"]);
-            voyage.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            voyage.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             voyage.AutoPush = NullableBool(reader["auto_push"]);
             voyage.AutoCreatePullRequests = NullableBool(reader["auto_create_pull_requests"]);
             voyage.AutoMergePullRequests = NullableBool(reader["auto_merge_pull_requests"]);
@@ -653,7 +653,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return PostgresqlDatabaseDriver.ReadUtc(value);
         }
 
         #endregion

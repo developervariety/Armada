@@ -358,8 +358,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { persona.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
             try { persona.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             persona.Active = Convert.ToBoolean(reader["active"]);
-            persona.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            persona.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            persona.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            persona.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return persona;
         }
 

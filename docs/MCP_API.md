@@ -41,6 +41,33 @@ Do not start `armada mcp stdio` inside a host that already runs the Admiral.
 That command creates a second service graph. It does not control the running
 Admiral.
 
+To register Armada with Claude Code manually, add it as an HTTP MCP server:
+
+```bash
+claude mcp add --transport http --scope user armada http://localhost:7891/mcp
+```
+
+Drop `--scope user` to add it for the current project only. The MCP server is
+unauthenticated on localhost, so no token or header is required; if you
+changed `McpPort`, substitute your port. `armada mcp install` (or
+`scripts/*/install-mcp`) configures this automatically for Claude Code and the
+other supported runtimes.
+
+**Enterprise-managed Claude Code.** If the add is rejected with
+`Cannot add MCP server 'armada': not allowed by enterprise policy`, your
+organization's Claude Code managed settings restrict which MCP servers may be
+added (`allowedMcpServers`). This cannot be overridden by a user, a project
+`.mcp.json`, or `--mcp-config`. Ask a Claude Code administrator to allow the
+Armada endpoint:
+
+```json
+{ "allowedMcpServers": [ { "serverUrl": "http://localhost:7891/mcp" } ] }
+```
+
+Run `/status` in Claude Code to see the active setting sources. If Claude Code
+stays locked down, the same HTTP endpoint works from any other MCP client that
+is not under that policy.
+
 ## Initialization
 
 Example request:

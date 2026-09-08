@@ -498,8 +498,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 Description = MysqlDatabaseDriver.NullableString(reader["description"]),
                 Content = reader["content"].ToString() ?? String.Empty,
                 Active = Convert.ToInt64(reader["active"]) == 1,
-                CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
+                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
         }
 

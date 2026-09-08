@@ -454,8 +454,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cred.BearerToken = reader["bearer_token"].ToString()!;
             cred.IsProtected = (bool)reader["is_protected"];
             cred.Active = (bool)reader["active"];
-            cred.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            cred.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            cred.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            cred.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return cred;
         }
 

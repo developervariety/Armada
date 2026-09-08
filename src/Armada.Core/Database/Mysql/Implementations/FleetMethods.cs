@@ -647,8 +647,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
             try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
-            fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            fleet.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            fleet.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return fleet;
         }
 

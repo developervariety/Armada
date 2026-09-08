@@ -271,10 +271,10 @@ namespace Armada.Core.Database.Mysql.Implementations
                 Status = ObjectivePersistenceHelper.ParseEnum(reader["status"], ObjectiveRefinementSessionStatusEnum.Created),
                 ProcessId = MysqlDatabaseDriver.NullableInt(reader["process_id"]),
                 FailureReason = MysqlDatabaseDriver.NullableString(reader["failure_reason"]),
-                CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
+                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
                 StartedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
                 CompletedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
+                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
         }
     }

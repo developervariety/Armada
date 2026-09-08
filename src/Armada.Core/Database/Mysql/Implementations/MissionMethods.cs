@@ -1113,11 +1113,11 @@ namespace Armada.Core.Database.Mysql.Implementations
             mission.CommitHash = NullableString(reader["commit_hash"]);
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);
             try { mission.AgentOutput = NullableString(reader["agent_output"]); } catch { }
-            mission.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            mission.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             mission.StartedUtc = FromIso8601Nullable(reader["started_utc"]);
             mission.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             try { mission.TotalRuntimeMs = NullableLong(reader["total_runtime_ms"]); } catch { }
-            mission.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            mission.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { object sv = reader["stage_order"]; mission.StageOrder = (sv == null || sv == DBNull.Value) ? (int?)null : Convert.ToInt32(sv); } catch { }

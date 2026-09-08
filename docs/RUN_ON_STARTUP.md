@@ -29,7 +29,10 @@ Canonical helpers:
 > directory), and an external dashboard there wins over the embedded legacy
 > UI. When you deploy the Admiral through Docker (`docker compose build/up`),
 > run `scripts/common/deploy-dashboard.sh` on the host afterward so the
-> dashboard matches the new server commit.
+> dashboard matches the new server commit. Add `--insecure` if npm fails
+> behind a TLS-inspecting proxy; if Node.js is not installed the script
+> copies the committed `src/Armada.Dashboard/dist/` instead. See the README
+> subsection "Behind an enterprise proxy or firewall".
 
 `healthcheck-server` probes `http://localhost:7890/api/v1/status/health` by default. If your Admiral port is not `7890`, set `ARMADA_BASE_URL` before invoking the platform wrapper:
 

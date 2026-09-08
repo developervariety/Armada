@@ -703,9 +703,23 @@ namespace Armada.Core.Database.Mysql
         internal static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);
+        }
+
+        /// <summary>
+        /// Read a required UTC timestamp from a MySQL DATETIME(6) without dropping the fraction
+        /// or shifting it through local time. ToString() on a DateTime loses microseconds.
+        /// </summary>
+        /// <param name="value">Column value.</param>
+        /// <returns>The instant tagged as UTC.</returns>
+        internal static DateTime ReadUtc(object value)
+        {
+            if (value == null || value == DBNull.Value)
+                throw new InvalidCastException("UTC timestamp column was null.");
+            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
         }
 
         internal static string? NullableString(object value)
@@ -728,8 +742,8 @@ namespace Armada.Core.Database.Mysql
             tenant.Name = reader["name"].ToString()!;
             tenant.Active = Convert.ToInt64(reader["active"]) == 1;
             tenant.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            tenant.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            tenant.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            tenant.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            tenant.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return tenant;
         }
 
@@ -746,8 +760,8 @@ namespace Armada.Core.Database.Mysql
             user.IsTenantAdmin = Convert.ToInt64(reader["is_tenant_admin"]) == 1;
             user.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
             user.Active = Convert.ToInt64(reader["active"]) == 1;
-            user.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            user.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            user.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            user.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return user;
         }
 
@@ -761,8 +775,8 @@ namespace Armada.Core.Database.Mysql
             cred.BearerToken = reader["bearer_token"].ToString()!;
             cred.Active = Convert.ToInt64(reader["active"]) == 1;
             cred.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            cred.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            cred.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            cred.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            cred.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return cred;
         }
 
@@ -778,8 +792,8 @@ namespace Armada.Core.Database.Mysql
             try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
             try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
-            fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            fleet.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            fleet.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return fleet;
         }
 
@@ -809,8 +823,8 @@ namespace Armada.Core.Database.Mysql
             catch { vessel.AllowConcurrentMissions = false; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
-            vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            vessel.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            vessel.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            vessel.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return vessel;
         }
 
@@ -838,8 +852,8 @@ namespace Armada.Core.Database.Mysql
             try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
             try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
             try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
-            captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            captain.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            captain.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return captain;
         }
 
@@ -854,7 +868,7 @@ namespace Armada.Core.Database.Mysql
             signal.Type = Enum.Parse<SignalTypeEnum>(reader["type"].ToString()!);
             signal.Payload = NullableString(reader["payload"]);
             signal.Read = Convert.ToBoolean(reader["read"]);
-            signal.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            signal.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             return signal;
         }
 
@@ -873,7 +887,7 @@ namespace Armada.Core.Database.Mysql
             evt.VoyageId = NullableString(reader["voyage_id"]);
             evt.Message = reader["message"].ToString()!;
             evt.Payload = NullableString(reader["payload"]);
-            evt.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            evt.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             return evt;
         }
 
@@ -893,8 +907,8 @@ namespace Armada.Core.Database.Mysql
             entry.TestCommand = NullableString(reader["test_command"]);
             entry.TestOutput = NullableString(reader["test_output"]);
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
-            entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            entry.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            entry.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             try { entry.AuditLane = reader["audit_lane"] as string; } catch { }

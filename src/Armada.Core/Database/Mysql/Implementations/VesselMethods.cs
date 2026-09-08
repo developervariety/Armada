@@ -810,8 +810,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
-            vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            vessel.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            vessel.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            vessel.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return vessel;
         }
 

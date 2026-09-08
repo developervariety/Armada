@@ -664,7 +664,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             signal.Type = Enum.Parse<SignalTypeEnum>(reader["type"].ToString()!);
             signal.Payload = NullableString(reader["payload"]);
             signal.Read = Convert.ToBoolean(reader["read"]);
-            signal.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            signal.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             return signal;
         }
 

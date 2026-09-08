@@ -392,7 +392,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                         {
                             results.Add(new MissionHistoryPoint
                             {
-                                CreatedUtc = FromIso8601(reader["created_utc"].ToString()!),
+                                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
                                 Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!),
                                 VesselId = NullableString(reader["vessel_id"])
                             });
@@ -482,11 +482,11 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 DescriptionLength = Convert.ToInt32(reader["description_length"]),
                 DiffSnapshotLength = Convert.ToInt32(reader["diff_snapshot_length"]),
                 AgentOutputLength = Convert.ToInt32(reader["agent_output_length"]),
-                CreatedUtc = FromIso8601(reader["created_utc"].ToString()!),
+                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
                 StartedUtc = FromIso8601Nullable(reader["started_utc"]),
                 CompletedUtc = FromIso8601Nullable(reader["completed_utc"]),
                 TotalRuntimeMs = reader["total_runtime_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["total_runtime_ms"]),
-                LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!)
+                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
 
             string? reviewDenyAction = NullableString(reader["review_deny_action"]);

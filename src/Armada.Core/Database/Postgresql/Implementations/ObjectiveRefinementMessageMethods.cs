@@ -196,8 +196,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 Sequence = Convert.ToInt32(reader["sequence"]),
                 Content = NullableString(reader["content"]) ?? String.Empty,
                 IsSelected = Convert.ToBoolean(reader["is_selected"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
         }
 

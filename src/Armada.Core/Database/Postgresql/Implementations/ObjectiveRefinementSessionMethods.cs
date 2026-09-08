@@ -271,10 +271,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 Status = ObjectivePersistenceHelper.ParseEnum(reader["status"], ObjectiveRefinementSessionStatusEnum.Created),
                 ProcessId = NullableInt(reader["process_id"]),
                 FailureReason = NullableString(reader["failure_reason"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
+                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
                 StartedUtc = NullableDateTime(reader["started_utc"]),
                 CompletedUtc = NullableDateTime(reader["completed_utc"]),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
         }
 
@@ -294,7 +294,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return Convert.ToDateTime(value).ToUniversalTime();
+            return PostgresqlDatabaseDriver.ReadUtc(value);
         }
     }
 }

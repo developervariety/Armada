@@ -920,8 +920,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }
             try { captain.QuarantineUntilUtc = NullableDateTime(reader["quarantine_until_utc"]); } catch { }
             try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
-            captain.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            captain.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            captain.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            captain.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
@@ -947,7 +947,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return PostgresqlDatabaseDriver.ReadUtc(value);
         }
 
         #endregion

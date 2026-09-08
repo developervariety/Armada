@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System.Text.RegularExpressions;
+    using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -223,7 +224,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Build the direct runtime launch prompt from the same shared context used by mission instructions.
         /// </summary>
-        public static async Task<string> BuildLaunchPromptAsync(
+        public static Task<string> BuildLaunchPromptAsync(
             Mission mission,
             Vessel vessel,
             Captain captain,
@@ -274,11 +275,11 @@ namespace Armada.Core.Services
 
             string prompt = SanitizeLaunchText(String.Join(" ", sections.Select(s => s.Replace("\r", " ").Replace("\n", " ").Trim())).Trim());
             if (prompt.Length <= MaxLaunchPromptChars)
-                return prompt;
+                return Task.FromResult(prompt);
 
             string overflowMessage = "\n\n" + instructionDirective + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
             int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
-            return SanitizeLaunchText(prompt.Substring(0, allowed).TrimEnd() + overflowMessage);
+            return Task.FromResult(SanitizeLaunchText(prompt.Substring(0, allowed).TrimEnd() + overflowMessage));
         }
 
         private static string BuildInstructionDirective(

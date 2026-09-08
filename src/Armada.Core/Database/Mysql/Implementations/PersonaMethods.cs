@@ -388,8 +388,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { persona.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
             try { persona.LearnedPlaybookId = MysqlDatabaseDriver.NullableString(reader["learned_playbook_id"]); } catch { }
             persona.Active = Convert.ToInt64(reader["active"]) == 1;
-            persona.CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            persona.LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
+            persona.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            persona.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return persona;
         }
 

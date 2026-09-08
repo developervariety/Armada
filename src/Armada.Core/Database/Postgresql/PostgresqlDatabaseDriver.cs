@@ -265,6 +265,30 @@ namespace Armada.Core.Database.Postgresql
             return new NpgsqlConnection(_ConnectionString);
         }
 
+        /// <summary>
+        /// Read a required UTC timestamp without shifting it through local time.
+        /// Npgsql returns DateTimeKind.Unspecified; ToUniversalTime() would treat that as local.
+        /// </summary>
+        /// <param name="value">Column value.</param>
+        /// <returns>The instant tagged as UTC.</returns>
+        internal static DateTime ReadUtc(object value)
+        {
+            if (value == null || value == DBNull.Value)
+                throw new InvalidCastException("UTC timestamp column was null.");
+            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
+        }
+
+        /// <summary>
+        /// Read an optional UTC timestamp without shifting it through local time.
+        /// </summary>
+        /// <param name="value">Column value.</param>
+        /// <returns>The instant tagged as UTC, or null.</returns>
+        internal static DateTime? ReadUtcNullable(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
+        }
+
         #endregion
 
         #region Private-Methods

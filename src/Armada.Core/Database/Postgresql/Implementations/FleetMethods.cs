@@ -614,8 +614,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
             try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = (bool)reader["active"];
-            fleet.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            fleet.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            fleet.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            fleet.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return fleet;
         }
 

@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Upstream absorb (isolated)
+- PostgreSQL and MySQL timestamp reads now tag stored UTC values as UTC without a local-time shift. Npgsql and MySqlConnector return `DateTimeKind.Unspecified`; `ToUniversalTime()` treated that as local time. MySQL also keeps `DATETIME(6)` fractions instead of dropping them through `ToString()`.
+- SQL Server captain delete nulls `signals.from_captain_id` / `to_captain_id` first. SQL Server cannot declare two `ON DELETE SET NULL` FKs to the same parent, so a captain referenced by a signal previously failed to delete.
+- Install and dashboard-deploy scripts accept `--insecure` / `-k` so npm works behind a TLS-inspecting proxy, and they copy the committed `src/Armada.Dashboard/dist/` when Node.js is not installed.
+- Docs: `claude mcp add` plus the enterprise `allowedMcpServers` caveat. Remaining unused-async CS1998 sites that did not already await real work now return `Task.FromResult`. Package bumps: `Microsoft.Data.Sqlite` 10.0.11, `MySqlConnector` 2.6.2, `SyslogLogging` 2.2.1.
+
 ### Routing and settings (code to config)
 - Captain routing, specialist-persona reservation, model-family classification, the stage-persona title guard, and the six specialist reviewer personas/pipelines/templates are no longer hardcoded. Product defaults are empty and policy-neutral (random within an unconfigured pool, guard off, no family or persona assumption). The former behavior lives in `factory/settings.fleet.example.json` and `Test.Shared.Infrastructure.FleetRoutingSettings`.
 - Dashboard Settings now edits tier lists, family rules, within-tier strategy, non-native preference, specialist personas, the dispatch title-prefix guard, model providers, and additional personas/pipelines/templates. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional assets load at startup (the Settings page says so).

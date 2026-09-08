@@ -86,6 +86,11 @@ upstream equivalent. Its Judge gate reads a green Check as a statement about
 one commit: a Check that passed for an earlier commit than the tip under
 review holds the PASS and is superseded by a fresh record for the tip, so a
 green earned by a stage several commits back cannot vouch for later work.
+Isolated upstream reliability and install fixes have been absorbed: server
+providers now tag stored UTC timestamps as UTC without a local-time shift, SQL
+Server nulls signal captain references before a captain delete, npm install
+scripts accept `--insecure` behind a TLS-inspecting proxy, and dashboard deploy
+falls back to the committed `dist/` when Node.js is absent.
 
 The fork's autonomy layer is the largest current delta. It adds bounded lead
 cycles with timer and wake triggers, single-flight execution, an explicit
@@ -373,6 +378,17 @@ Install the local deployment:
 Run the install script once, then use the update script after each rebuild to republish the
 server and restart the service. The health-check helper verifies the dashboard responds.
 
+#### Behind an enterprise proxy or firewall
+
+If npm fails with `SELF_SIGNED_CERT_IN_CHAIN` on an SSL-inspecting corporate
+proxy, add `--insecure` (or `-k`) to the install or dashboard-deploy script so
+that run disables strict TLS checks for npm/Node only. Example:
+`scripts/macos/install.sh --insecure` or
+`scripts\windows\install.bat net10.0 --insecure`. Put the framework first on
+Windows, then the flag. `dotnet` and NuGet still use the OS certificate store.
+The same scripts deploy the committed `src/Armada.Dashboard/dist/` when Node.js
+is not installed.
+
 ---
 
 ## MCP Integration
@@ -386,6 +402,20 @@ http://localhost:7891/mcp
 Armada uses the official MCP C# SDK and supports the stateless MCP
 `2026-07-28` protocol as well as legacy initialization-based clients. The
 former `/rpc` path remains available as a compatibility alias.
+
+To add Armada to Claude Code manually instead of using `armada mcp install`,
+register its default HTTP MCP endpoint (`http://localhost:7891/mcp`):
+
+```bash
+claude mcp add --transport http --scope user armada http://localhost:7891/mcp
+```
+
+Drop `--scope user` to add it for the current project only; substitute your
+port if you changed `McpPort`. On enterprise-managed Claude Code this may fail
+with `not allowed by enterprise policy` — that restriction is set by your IT
+administrator (Claude Code's `allowedMcpServers` managed setting) and cannot be
+overridden locally. See [docs/MCP_API.md](docs/MCP_API.md#transport) for the
+managed-settings snippet and alternatives.
 
 Common MCP tool groups:
 

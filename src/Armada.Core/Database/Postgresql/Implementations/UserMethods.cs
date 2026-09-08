@@ -423,8 +423,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             user.IsTenantAdmin = (bool)reader["is_tenant_admin"];
             user.IsProtected = (bool)reader["is_protected"];
             user.Active = (bool)reader["active"];
-            user.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            user.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            user.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            user.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return user;
         }
 

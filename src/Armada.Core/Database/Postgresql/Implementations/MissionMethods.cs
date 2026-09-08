@@ -930,11 +930,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
             mission.CommitHash = NullableString(reader["commit_hash"]);
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);
             try { mission.AgentOutput = NullableString(reader["agent_output"]); } catch { }
-            mission.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
+            mission.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             mission.StartedUtc = NullableDateTime(reader["started_utc"]);
             mission.CompletedUtc = NullableDateTime(reader["completed_utc"]);
             try { mission.TotalRuntimeMs = NullableLong(reader["total_runtime_ms"]); } catch { }
-            mission.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            mission.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { object sv = reader["stage_order"]; mission.StageOrder = (sv == null || sv == DBNull.Value) ? (int?)null : Convert.ToInt32(sv); } catch { }
@@ -1011,7 +1011,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static DateTime? NullableDateTime(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return ((DateTime)value).ToUniversalTime();
+            return PostgresqlDatabaseDriver.ReadUtc(value);
         }
 
         #endregion

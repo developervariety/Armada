@@ -207,8 +207,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             job.TargetBranch = reader["target_branch"].ToString()!;
             job.State = Enum.Parse<LandingJobStateEnum>(reader["state"].ToString()!);
             job.RetryCount = Convert.ToInt32(reader["retry_count"]);
-            job.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            job.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            job.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            job.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             job.StartedUtc = FromIso8601Nullable(reader["started_utc"]);
             job.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             job.LastError = reader["last_error"] as string;

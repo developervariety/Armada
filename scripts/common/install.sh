@@ -3,10 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=resolve-insecure.sh
+. "${SCRIPT_DIR}/resolve-insecure.sh"
+armada_resolve_insecure "$@"
 
 echo
 echo "[install] Deploying dashboard..."
-"$SCRIPT_DIR/deploy-dashboard.sh"
+"$SCRIPT_DIR/deploy-dashboard.sh" "$@"
 
 echo
 echo "[install] Building Armada solution..."

@@ -475,8 +475,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             pipeline.Description = MysqlDatabaseDriver.NullableString(reader["description"]);
             pipeline.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
             pipeline.Active = Convert.ToInt64(reader["active"]) == 1;
-            pipeline.CreatedUtc = MysqlDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            pipeline.LastUpdateUtc = MysqlDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
+            pipeline.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            pipeline.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return pipeline;
         }
 

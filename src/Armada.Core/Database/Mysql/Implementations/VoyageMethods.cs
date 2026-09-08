@@ -667,9 +667,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             voyage.Title = reader["title"].ToString()!;
             voyage.Description = NullableString(reader["description"]);
             voyage.Status = Enum.Parse<VoyageStatusEnum>(reader["status"].ToString()!);
-            voyage.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
+            voyage.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             voyage.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            voyage.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            voyage.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             voyage.AutoPush = NullableBool(reader["auto_push"]);
             voyage.AutoCreatePullRequests = NullableBool(reader["auto_create_pull_requests"]);
             voyage.AutoMergePullRequests = NullableBool(reader["auto_merge_pull_requests"]);

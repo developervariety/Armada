@@ -725,8 +725,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = (bool)reader["active"];
-            vessel.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            vessel.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            vessel.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            vessel.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return vessel;
         }
 

@@ -12,12 +12,41 @@ set "LOCAL_BIN_DIR=%DASHBOARD_DIR%\node_modules\.bin"
 set "LOCAL_TSC=%LOCAL_BIN_DIR%\tsc.cmd"
 set "LOCAL_VITE=%LOCAL_BIN_DIR%\vite.cmd"
 
+call "%SCRIPT_DIR%\resolve-insecure.bat" %*
+
 echo.
 echo [deploy-dashboard] Starting dashboard build and deploy
 
 if not exist "%DASHBOARD_DIR%\package.json" (
     echo ERROR: Dashboard project not found at %DASHBOARD_DIR%
     exit /b 1
+)
+
+where node >nul 2>&1
+if errorlevel 1 (
+    if not exist "%DIST_DIR%\index.html" (
+        echo ERROR: Node.js is not installed and %DIST_DIR%\index.html is missing.
+        echo Install Node.js, or commit a built dashboard under src\Armada.Dashboard\dist\.
+        exit /b 1
+    )
+    echo [deploy-dashboard] Node.js is not installed; deploying the committed pre-built dashboard from %DIST_DIR%
+    if exist "%STAGING_DIR%" rmdir /s /q "%STAGING_DIR%"
+    mkdir "%STAGING_DIR%" >nul 2>nul
+    xcopy "%DIST_DIR%\*" "%STAGING_DIR%\" /E /I /Y >nul
+    if errorlevel 1 (
+        if exist "%STAGING_DIR%" rmdir /s /q "%STAGING_DIR%"
+        echo ERROR: Failed to stage pre-built dashboard for deployment to %TARGET_DIR%
+        exit /b 1
+    )
+    if exist "%TARGET_DIR%" rmdir /s /q "%TARGET_DIR%"
+    move "%STAGING_DIR%" "%TARGET_DIR%" >nul
+    if errorlevel 1 (
+        if exist "%STAGING_DIR%" rmdir /s /q "%STAGING_DIR%"
+        echo ERROR: Failed to deploy dashboard to %TARGET_DIR%
+        exit /b 1
+    )
+    echo Dashboard deployed to %TARGET_DIR%
+    exit /b 0
 )
 
 pushd "%DASHBOARD_DIR%"

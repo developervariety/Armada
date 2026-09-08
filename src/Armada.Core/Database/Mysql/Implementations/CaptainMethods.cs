@@ -973,8 +973,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
             try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
             try { captain.QuarantineReason = reader["quarantine_reason"] == DBNull.Value ? null : reader["quarantine_reason"].ToString(); } catch { }
-            captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            captain.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            captain.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }

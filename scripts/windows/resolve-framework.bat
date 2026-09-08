@@ -2,6 +2,8 @@
 set "FRAMEWORK=%ARMADA_TARGET_FRAMEWORK%"
 if "%FRAMEWORK%"=="" set "FRAMEWORK=net10.0"
 
+call "%~dp0resolve-insecure.bat" %*
+
 if /I "%~1"=="-f" (
     if "%~2"=="" (
         echo ERROR: Missing framework value after -f.

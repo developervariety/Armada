@@ -561,25 +561,25 @@ namespace Armada.Runtimes
         /// <param name="processId">Process ID to check.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the process is running.</returns>
-        public virtual async Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
+        public virtual Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
         {
             // A non-positive id is never a live process. Process.GetProcessById rejects it with a
             // platform-dependent exception (ArgumentException on Windows, InvalidOperationException
             // on Unix), so screen it here instead of relying on the exception type.
-            if (processId <= 0) return false;
+            if (processId <= 0) return Task.FromResult(false);
 
             try
             {
                 Process process = Process.GetProcessById(processId);
-                return !process.HasExited;
+                return Task.FromResult(!process.HasExited);
             }
             catch (ArgumentException)
             {
-                return false;
+                return Task.FromResult(false);
             }
             catch (InvalidOperationException)
             {
-                return false;
+                return Task.FromResult(false);
             }
         }
 

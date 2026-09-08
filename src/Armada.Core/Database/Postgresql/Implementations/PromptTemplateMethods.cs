@@ -344,8 +344,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             template.Content = reader["content"].ToString()!;
             template.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
             template.Active = Convert.ToBoolean(reader["active"]);
-            template.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();
-            template.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            template.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            template.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return template;
         }
 

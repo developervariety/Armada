@@ -767,8 +767,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             entry.TestCommand = NullableString(reader["test_command"]);
             entry.TestOutput = NullableString(reader["test_output"]);
             entry.TestExitCode = NullableInt(reader["test_exit_code"]);
-            entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            entry.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
+            entry.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             try { entry.PrUrl = reader["pr_url"] as string; } catch { }
