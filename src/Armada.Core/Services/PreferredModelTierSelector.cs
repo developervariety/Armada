@@ -488,17 +488,19 @@ namespace Armada.Core.Services
 
                 if (hasPreferenceOrder && preferenceOrder != null && preferenceOrder.Count > 0)
                 {
-                    // Ranked models are those the operator listed in the preference order that
-                    // also have an eligible captain, in listed order. Only these are ordered;
-                    // models absent from the list are deliberately unranked peers and must NOT
-                    // be appended in enumeration order (that would deterministically favor the
-                    // first-enumerated captain and defeat the random-peer contract below).
+                    // Preference RANK dominates the native/external split: rank across ALL
+                    // eligible models (native and external alike), not the external-first
+                    // selectionPool, so a higher-ranked model wins even when it is native and a
+                    // lower-ranked peer is external-provider served. Ranked models are those the
+                    // operator listed that also have an eligible captain, taken in listed order;
+                    // models absent from the list are deliberately unranked peers and are handled
+                    // by the external-first / random fallback below.
                     List<string> rankedEligible = new List<string>();
                     foreach (string preferred in preferenceOrder)
                     {
                         if (String.IsNullOrWhiteSpace(preferred))
                             continue;
-                        foreach (string eligible in selectionPool)
+                        foreach (string eligible in eligibleModels)
                         {
                             if (String.Equals(eligible, preferred, StringComparison.OrdinalIgnoreCase)
                                 && !ContainsModel(rankedEligible, eligible))
@@ -508,9 +510,9 @@ namespace Armada.Core.Services
                     if (rankedEligible.Count > 0)
                         return rankedEligible[0];
 
-                    // No ranked model has an eligible captain. Unlisted models are equivalent
-                    // (the operator chose not to rank them), so pick randomly among them rather
-                    // than deterministically favoring the first enumerated captain.
+                    // No ranked model has an eligible captain. The remaining models are unranked
+                    // peers; keep the non-native-first tiebreak (external pool wins when present)
+                    // and pick randomly among them rather than favoring the first enumerated one.
                     if (selectionPool.Count > 0)
                         return selectionPool[randomPick(selectionPool.Count)];
 

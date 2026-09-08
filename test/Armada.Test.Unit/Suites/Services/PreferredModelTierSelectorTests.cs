@@ -365,6 +365,39 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectModel_High_RankedNativeModel_BeatsExternalLowerRankedModel", () =>
+            {
+                // Preference rank must dominate the native/external split. Here the higher-ranked
+                // model runs on an OpenCode captain (counts NATIVE) while the lower-ranked model
+                // runs on a ClaudeCode captain carrying its own base URL (counts EXTERNAL). The
+                // old code pre-filtered to the external pool before applying the preference order,
+                // so the lower-ranked external model was chosen. Rank must win instead.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("opencode-provider/model-a"),
+                    MakeCaptain("claude-ext")
+                };
+                captains[0].Runtime = Armada.Core.Enums.AgentRuntimeEnum.OpenCode;
+                captains[0].ApiBaseUrl = "https://opencode.example.com/v1";
+                captains[1].Runtime = Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode;
+                captains[1].ApiBaseUrl = "https://api.example.com/v1";
+
+                ModelTierSettings settings = new ModelTierSettings
+                {
+                    HighTierModels = new List<string> { "opencode-provider/model-a", "claude-ext" }
+                };
+                Dictionary<string, List<string>> order = new Dictionary<string, List<string>>
+                {
+                    { "high", new List<string> { "opencode-provider/model-a", "claude-ext" } }
+                };
+
+                string? a = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, order, settings);
+                string? b = PreferredModelTierSelector.SelectModel("high", captains, null, n => n - 1, null, order, settings);
+                AssertEqual("opencode-provider/model-a", a, "the higher-ranked native model must win over a lower-ranked external model (index 0)");
+                AssertEqual("opencode-provider/model-a", b, "rank dominates the external pre-filter regardless of randomPick");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_Mid_SelectsGpt56Luna", () =>
             {
                 List<Captain> captains = new List<Captain>
