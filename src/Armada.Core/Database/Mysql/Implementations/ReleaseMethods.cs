@@ -312,9 +312,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 TagName = MysqlDatabaseDriver.NullableString(reader["tag_name"]),
                 Summary = MysqlDatabaseDriver.NullableString(reader["summary"]),
                 Notes = MysqlDatabaseDriver.NullableString(reader["notes"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime(),
-                PublishedUtc = reader["published_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["published_utc"]).ToUniversalTime()
+                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]),
+                PublishedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["published_utc"])
             };
 
             if (Enum.TryParse(reader["status"].ToString(), true, out ReleaseStatusEnum status))

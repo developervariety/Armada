@@ -52,6 +52,16 @@ namespace Armada.Core.Services.Interfaces
         Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default);
 
         /// <summary>
+        /// Operator recovery for a wedged dock: release any captain still holding it back to Idle
+        /// and reclaim the dock's worktree, so a dock stuck with a non-recoverable captain does not
+        /// pin capacity. Committed branch history is preserved (only the worktree is removed).
+        /// </summary>
+        /// <param name="dockId">Dock identifier.</param>
+        /// <param name="tenantId">Optional tenant ID for tenant-scoped reads. Null for system/admin context.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default);
+
+        /// <summary>
         /// Delete a dock by ID, cleaning up its worktree.
         /// Blocked if an active mission is using the dock.
         /// </summary>

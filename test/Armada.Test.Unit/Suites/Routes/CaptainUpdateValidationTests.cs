@@ -740,6 +740,7 @@ namespace Armada.Test.Unit.Suites.Routes
             {
                 return Task.CompletedTask;
             }
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
 
             public Task HealthCheckAsync(CancellationToken token = default)
             {

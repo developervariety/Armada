@@ -225,7 +225,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
                 TotalTokens = Convert.ToInt64(reader["total_tokens"]),
                 Estimated = Convert.ToBoolean(reader["estimated"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!)
+                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc)
             };
         }
 

@@ -6,13 +6,29 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+This section is the fork delta on top of v0.9.0. It includes fork-only
+capabilities and isolated upstream hunks that were still missing after the
+first absorb. Fork-owned routing, the coordination board, autonomy, recovery,
+and the code index stay richer than the upstream copies; those were not
+replaced.
+
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Upstream absorb (isolated)
 - PostgreSQL and MySQL timestamp reads now tag stored UTC values as UTC without a local-time shift. Npgsql and MySqlConnector return `DateTimeKind.Unspecified`; `ToUniversalTime()` treated that as local time. MySQL also keeps `DATETIME(6)` fractions instead of dropping them through `ToString()`.
+- Remaining MySQL delivery/workflow readers (check runs, releases, deployments, request history, workflow profiles) and local `FromIso8601Nullable` helpers use the same UTC-kind path. PostgreSQL and SQL Server token-usage `CreatedUtc` reads no longer go through `ToString()`.
 - SQL Server captain delete nulls `signals.from_captain_id` / `to_captain_id` first. SQL Server cannot declare two `ON DELETE SET NULL` FKs to the same parent, so a captain referenced by a signal previously failed to delete.
-- Install and dashboard-deploy scripts accept `--insecure` / `-k` so npm works behind a TLS-inspecting proxy, and they copy the committed `src/Armada.Dashboard/dist/` when Node.js is not installed.
-- Docs: `claude mcp add` plus the enterprise `allowedMcpServers` caveat. Remaining unused-async CS1998 sites that did not already await real work now return `Task.FromResult`. Package bumps: `Microsoft.Data.Sqlite` 10.0.11, `MySqlConnector` 2.6.2, `SyslogLogging` 2.2.1.
+- Install, update, reinstall, publish-server, MCP, and dashboard-deploy scripts accept `--insecure` / `-k` so npm works behind a TLS-inspecting proxy, and they copy the committed `src/Armada.Dashboard/dist/` when Node.js is not installed.
+- Docs: `claude mcp add` plus the enterprise `allowedMcpServers` caveat. Remaining unused-async CS1998 sites that did not already await real work now return `Task.FromResult`. Package bumps: `Microsoft.Data.Sqlite` 10.0.11, `MySqlConnector` 2.6.2, `SyslogLogging` 2.2.1. Helm packs symbols (`snupkg`).
+- Mission briefs teach `[ARMADA:TOKENS]` so OpenCode/Cursor runs can report real counts; the parser already existed.
+- Planning dispatch releases the reserved captain and dock (server `DispatchAsync` plus the in-place Dashboard Dispatch button). `POST /api/v1/planning-sessions/{id}/stop-turn` aborts an in-flight turn without ending the session.
+- Vessel readiness and landing-preview REST routes are wired to the existing evaluators (`GET /api/v1/vessels/{id}/readiness`, `GET /api/v1/vessels/{id}/landing-preview`).
+- Dock repair and unstick are exposed on REST and MCP (`armada_repair_dock`, `armada_unstick_dock`). Unstick releases a held captain to Idle and reclaims the worktree.
+- Setup-wizard objective container is taller and pins step actions so Register Vessel / Create Captain stay visible.
+- Admiral shutdown now kills working agent processes before the token cancel and database dispose, so Helm stop/start does not leave orphan PIDs. Stale-captain cleanup treats a recycled OS PID as dead (`ProcessSupervisor.IsTrackedProcessAlive`).
+- Dashboard Chat Stop is an abort, not a timeout. Captain detail can lift quarantine. The captain-tools probe waits 120s. Windows update scripts stop every `Armada.Server` process, including a repo-launched host.
+
+Skipped from upstream (already equal or richer here): captain-map, token-usage charts, dashboard nav, fork-parity cores, Touchstone/test move, Mux install, `POST /api/v1/server/restart`, heartbeat 30s→10s, and the AutoLandPredicate alternate evaluator.
 
 ### Routing and settings (code to config)
 - Captain routing, specialist-persona reservation, model-family classification, the stage-persona title guard, and the six specialist reviewer personas/pipelines/templates are no longer hardcoded. Product defaults are empty and policy-neutral (random within an unconfigured pool, guard off, no family or persona assumption). The former behavior lives in `factory/settings.fleet.example.json` and `Test.Shared.Infrastructure.FleetRoutingSettings`.

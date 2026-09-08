@@ -204,11 +204,13 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
   const controller = new AbortController();
   const timeoutMs = opts?.timeout ?? 30000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const external = opts?.signal;
 
+  const onExternalAbort = () => controller.abort();
   // A caller's signal aborts the same controller, so timeout and manual cancel share one path.
-  if (opts?.signal) {
-    if (opts.signal.aborted) controller.abort();
-    else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener('abort', onExternalAbort, { once: true });
   }
 
   try {
@@ -248,11 +250,20 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
     const json = await res.json();
     return camelizeKeys(json) as T;
   } catch (err) {
-    clearTimeout(timeoutId);
+    // An external abort is a deliberate cancel (Stop), not a timeout — surface it distinctly so callers
+    // can treat it as a clean stop instead of an error.
+    if (external?.aborted) {
+      const aborted = new Error('Aborted');
+      aborted.name = 'AbortError';
+      throw aborted;
+    }
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error('Request timed out');
     }
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (external) external.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -694,12 +705,15 @@ export const deleteObjectiveRefinementSession = (sessionId: string) =>
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
-export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`);
+// The runtime tool probe launches the CLI and can take tens of seconds; allow well
+// beyond the default 30s so slow probes resolve instead of aborting and reading as "unknown".
+export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`, { timeout: 120000 });
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
 export const getCaptainLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}`);
 export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/stop`);
+export const unquarantineCaptain = (id: string) => post<Captain>(`/api/v1/captains/${id}/unquarantine`);
 export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
 export const listMuxEndpoints = (configDirectory?: string | null) =>

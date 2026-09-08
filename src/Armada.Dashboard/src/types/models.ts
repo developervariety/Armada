@@ -153,6 +153,8 @@ export interface Captain {
   preferredPersona: string | null;
   runtimeOptionsJson?: string | null;
   state: string;
+  quarantineUntilUtc?: string | null;
+  quarantineReason?: string | null;
   currentMissionId: string | null;
   currentDockId: string | null;
   processId: number | null;

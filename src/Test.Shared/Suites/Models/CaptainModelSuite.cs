@@ -120,7 +120,7 @@ namespace Test.Shared.Suites.Models
                 AssertTrue(builtIn.SupportsPlanningSessions);
                 AssertNull(builtIn.PlanningSessionSupportReason);
                 AssertFalse(custom.SupportsPlanningSessions);
-                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
+                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
             }));
 
             cases.Add(Case("state_enum_serializes_as_string", "Captain state enum serializes as string", TestTags.Positive, () =>

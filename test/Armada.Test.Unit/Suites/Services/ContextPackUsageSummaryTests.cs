@@ -507,6 +507,7 @@ namespace Armada.Test.Unit.Suites.Services
             /// <summary>Not used in status tests.</summary>
             public Task RecallAllAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
 
             /// <summary>Not used in status tests.</summary>
             public Task HealthCheckAsync(CancellationToken token = default)

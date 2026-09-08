@@ -935,6 +935,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static DateTime? FromIso8601Nullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             string str = value.ToString()!;
             if (string.IsNullOrEmpty(str)) return null;
             return FromIso8601(str);

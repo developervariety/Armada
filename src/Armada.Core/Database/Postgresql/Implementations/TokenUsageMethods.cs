@@ -223,7 +223,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
                 TotalTokens = Convert.ToInt64(reader["total_tokens"]),
                 Estimated = Convert.ToBoolean(reader["estimated"]),
-                CreatedUtc = FromIso8601(reader["created_utc"].ToString()!)
+                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"])
             };
         }
 

@@ -292,6 +292,40 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Abort the in-flight planning turn while keeping the session active.
+        /// </summary>
+        /// <param name="session">Planning session.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The session after the turn is aborted.</returns>
+        public async Task<PlanningSession> AbortTurnAsync(PlanningSession session, CancellationToken token = default)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+
+            session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+            if (session.Status != PlanningSessionStatusEnum.Responding)
+                return session;
+
+            if (session.ProcessId.HasValue)
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(session.CaptainId, token).ConfigureAwait(false);
+                if (captain != null)
+                {
+                    try
+                    {
+                        Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
+                        await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error aborting planning turn process " + session.ProcessId.Value + " for session " + session.Id + ": " + ex.Message);
+                    }
+                }
+            }
+
+            return session;
+        }
+
+        /// <summary>
         /// Create a voyage from a planning session.
         /// </summary>
         public async Task<Voyage> DispatchAsync(PlanningSession session, PlanningSessionDispatchRequest request, CancellationToken token = default)
@@ -346,6 +380,18 @@ namespace Armada.Server
                 null,
                 session.VesselId,
                 voyage.Id).ConfigureAwait(false);
+
+            // The planning session has served its purpose once the work is dispatched, so release the reserved
+            // captain and dock automatically instead of leaving them pinned until the operator ends the session
+            // by hand. Best-effort: a release failure must not fail the dispatch that already succeeded.
+            try
+            {
+                await RequestStopAsync(session, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error releasing planning session " + session.Id + " after dispatch: " + ex.Message);
+            }
 
             return voyage;
         }

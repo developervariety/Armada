@@ -341,10 +341,10 @@ namespace Armada.Core.Database.Mysql.Implementations
                 Output = MysqlDatabaseDriver.NullableString(reader["output"]),
                 Summary = MysqlDatabaseDriver.NullableString(reader["summary"]),
                 DurationMs = reader["duration_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["duration_ms"]),
-                StartedUtc = reader["started_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["started_utc"]).ToUniversalTime(),
-                CompletedUtc = reader["completed_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["completed_utc"]).ToUniversalTime(),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                StartedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
+                CompletedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
+                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
 
             if (Enum.TryParse(reader["check_type"].ToString(), true, out CheckRunTypeEnum type))

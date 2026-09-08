@@ -328,6 +328,7 @@ The proxy currently supports live requests for:
 - `armada.planning-session.message`
 - `armada.planning-session.summarize`
 - `armada.planning-session.dispatch`
+- `armada.planning-session.stop-turn`
 - `armada.planning-session.stop`
 - `armada.planning-session.delete`
 - `armada.workflow-profiles.list`

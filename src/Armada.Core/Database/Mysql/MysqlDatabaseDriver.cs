@@ -722,6 +722,18 @@ namespace Armada.Core.Database.Mysql
             return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
         }
 
+        /// <summary>
+        /// Read an optional UTC timestamp from a MySQL DATETIME(6) without dropping the fraction
+        /// or shifting it through local time.
+        /// </summary>
+        /// <param name="value">Column value.</param>
+        /// <returns>The instant tagged as UTC, or null.</returns>
+        internal static DateTime? ReadUtcNullable(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
+        }
+
         internal static string? NullableString(object value)
         {
             if (value == null || value == DBNull.Value) return null;

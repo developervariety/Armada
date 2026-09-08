@@ -65,7 +65,7 @@ operator controls for larger multi-agent workflows.
 | Core workflow | Missions, voyages, captains, docks, pipelines, and landing | Same model, with more pipeline stages and stronger handoff checks |
 | Planning and delivery | Objectives are dispatched by an operator | Autonomous scheduling, build/test gates, recovery, incidents, and durable landing jobs |
 | Repository context | Agents work from supplied mission context | Per-vessel code index, symbol graph, semantic search, and dispatch-ready context packs |
-| Model routing | Tier-based routing and per-stage captain assignment | Same model, with additional provider-neutral policy and routing controls |
+| Model routing | Tier-based routing and per-stage captain assignment | Settings-driven policy (empty vanilla defaults; fleet overlay restores specialist reservation, family classification, title-prefix guard, and preference order) |
 | Runtimes | Multi-runtime support, including OpenCode | Same runtimes, with additional cross-runtime hardening and diagnostics |
 | Operator experience | REST, MCP, dashboard, and delivery records | Adds coordination board, session claims, prompt-budget visibility, telemetry, captain chat, and expanded MCP tools |
 | Safety and verification | Review and landing workflows | Boundary scanning, isolated checks, sibling-consumer builds, no-op detection, and evidence-driven recovery |
@@ -89,8 +89,15 @@ green earned by a stage several commits back cannot vouch for later work.
 Isolated upstream reliability and install fixes have been absorbed: server
 providers now tag stored UTC timestamps as UTC without a local-time shift, SQL
 Server nulls signal captain references before a captain delete, npm install
-scripts accept `--insecure` behind a TLS-inspecting proxy, and dashboard deploy
-falls back to the committed `dist/` when Node.js is absent.
+scripts accept `--insecure` behind a TLS-inspecting proxy, dashboard deploy
+falls back to the committed `dist/` when Node.js is absent, planning dispatch
+releases the reserved captain, vessel readiness and landing-preview REST
+routes are wired, and dock repair/unstick are on REST and MCP. Admiral
+shutdown kills working agent processes, stale-captain cleanup rejects a
+recycled PID, Chat Stop is an abort rather than a timeout, and captain
+detail can lift quarantine. A full upstream merge was not taken:
+captain-map, token-usage UI, dashboard nav, and fork-parity cores already
+exist here in a more complete form.
 
 The fork's autonomy layer is the largest current delta. It adds bounded lead
 cycles with timer and wake triggers, single-flight execution, an explicit
@@ -174,13 +181,15 @@ Personas are stored records, not hardcoded prompt strings. Custom personas and p
 
 ### Model-Tier Routing
 
-Dispatchers can use `preferredModel` as routing guidance:
+Dispatchers can use `preferredModel` as routing guidance. Product defaults are
+policy-neutral (empty tier lists, random within an unconfigured pool, guard
+off). A deployment applies fleet policy from settings, not from C#.
 
 - `mid` and `high` select among available captains in a complexity tier; the legacy `low` value maps to `mid`.
 - Literal model names remain available for direct pins.
 - Pipeline stages can override mission-level routing with their own `PreferredModel`.
-- Specialist personas such as Judge, Architect, TestEngineer, and MemoryConsolidator are reserved for high-tier captains by default.
-- Reserved high-tier slots keep strong captains available for downstream specialist work instead of being consumed on first-stage Worker missions.
+- Specialist reservation, family classification, within-tier preference order, non-native-first, reserved high-tier slots, and the stage-persona title-prefix guard live in `ArmadaSettings` (`factory/settings.fleet.example.json` is the overlay that restores the former hardcoded fleet).
+- Dashboard Settings edits those fields. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
 ### Code Index, Context Packs, and Graph Search
 
@@ -387,7 +396,10 @@ that run disables strict TLS checks for npm/Node only. Example:
 `scripts\windows\install.bat net10.0 --insecure`. Put the framework first on
 Windows, then the flag. `dotnet` and NuGet still use the OS certificate store.
 The same scripts deploy the committed `src/Armada.Dashboard/dist/` when Node.js
-is not installed.
+is not installed. Install, update, reinstall, publish-server, MCP, and
+dashboard-deploy scripts honor `--insecure`. Prefer not to pass the flag each
+time: set `NODE_TLS_REJECT_UNAUTHORIZED=0` (`set` on Windows, `export` on
+Linux/macOS) in your shell, or run `npm config set strict-ssl false` once.
 
 ---
 

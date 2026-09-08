@@ -1118,6 +1118,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 throw new NotImplementedException();
             }
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
 
             public Task HealthCheckAsync(CancellationToken token = default)
             {

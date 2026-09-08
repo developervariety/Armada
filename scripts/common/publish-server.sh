@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=resolve-insecure.sh
+. "${SCRIPT_DIR}/resolve-insecure.sh"
+armada_resolve_insecure "$@"
 PUBLISH_DIR="${HOME}/.armada/bin"
 SERVER_EXE="${PUBLISH_DIR}/Armada.Server"
 
@@ -12,7 +15,7 @@ dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release -f net10.0 -o "${PUBL
 
 echo
 echo "[publish-server] Deploying dashboard assets..."
-if ! "${SCRIPT_DIR}/deploy-dashboard.sh"; then
+if ! "${SCRIPT_DIR}/deploy-dashboard.sh" "$@"; then
     echo "[publish-server] WARNING: Dashboard deploy failed. Armada will fall back to the embedded dashboard if available."
 fi
 

@@ -1173,6 +1173,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task RecallAllAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
 
             public Task HealthCheckAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
@@ -1229,6 +1230,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default) => throw new NotImplementedException();
             public Task RecallCaptainAsync(string captainId, CancellationToken token = default) => throw new NotImplementedException();
             public Task RecallAllAsync(CancellationToken token = default) => throw new NotImplementedException();
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
             public Task HealthCheckAsync(CancellationToken token = default) => throw new NotImplementedException();
             public Task CleanupStaleCaptainsAsync(CancellationToken token = default) => throw new NotImplementedException();
             public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)

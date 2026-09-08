@@ -718,6 +718,17 @@ namespace Armada.Server
             catch
             {
             }
+            // Kill agent subprocesses so none survive as orphans after the Admiral exits.
+            // Runs before the token is cancelled and the database is disposed (it needs both).
+            try
+            {
+                _Admiral?.StopAllAgentProcessesAsync().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error stopping agent processes on shutdown: " + ex.Message);
+            }
+
             _TokenSource.Cancel();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
@@ -809,6 +820,8 @@ namespace Armada.Server
             // Vessels
             new VesselRoutes(
                 _Database,
+                _VesselReadinessService,
+                _LandingPreviewService,
                 EmitEventAsync,
                 _JsonOptions,
                 _Docks,

@@ -460,6 +460,35 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
+
+            Dock? dock = !String.IsNullOrEmpty(tenantId)
+                ? await _Database.Docks.ReadAsync(tenantId, dockId, token).ConfigureAwait(false)
+                : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
+            if (dock == null) throw new InvalidOperationException("Dock not found: " + dockId);
+
+            if (!String.IsNullOrEmpty(dock.CaptainId))
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(dock.CaptainId, token).ConfigureAwait(false);
+                if (captain != null && captain.CurrentDockId == dock.Id)
+                {
+                    _Logging.Warn(_Header + "unstick: releasing captain " + captain.Id + " holding dock " + dockId);
+                    captain.State = CaptainStateEnum.Idle;
+                    captain.CurrentMissionId = null;
+                    captain.CurrentDockId = null;
+                    captain.ProcessId = null;
+                    captain.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                }
+            }
+
+            await ReclaimAsync(dockId, tenantId, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "unstuck dock " + dockId);
+        }
+
+        /// <inheritdoc />
         public async Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));

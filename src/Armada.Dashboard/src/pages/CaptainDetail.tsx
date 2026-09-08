@@ -6,6 +6,7 @@ import {
   getCaptainTools,
   getCaptainLog,
   stopCaptain,
+  unquarantineCaptain,
   recallCaptain,
   getMission,
   listMissionSummaries,
@@ -177,6 +178,15 @@ export default function CaptainDetail() {
         } catch { setError(t('Failed to stop captain.')); }
       },
     });
+  }
+
+  async function handleUnquarantine() {
+    if (!captain) return;
+    try {
+      await unquarantineCaptain(captain.id);
+      pushToast('success', t('Quarantine lifted for "{{name}}".', { name: captain.name }));
+      load();
+    } catch { setError(t('Failed to lift quarantine.')); }
   }
 
   function handleRecall() {
@@ -408,6 +418,18 @@ export default function CaptainDetail() {
           <span className="detail-label">{t('State')}</span>
           <StatusBadge status={captain.state} />
         </div>
+        {captain.state === 'Quarantined' && (
+          <div className="detail-field">
+            <span className="detail-label">{t('Quarantine')}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <span className="text-dim">
+                {captain.quarantineReason || t('quarantined')}
+                {captain.quarantineUntilUtc ? ` (${t('until')} ${formatDateTime(captain.quarantineUntilUtc)})` : ''}
+              </span>
+              <button type="button" className="btn btn-sm" onClick={handleUnquarantine}>{t('Lift Quarantine')}</button>
+            </span>
+          </div>
+        )}
         <div className="detail-field">
           <span className="detail-label">{t('Current Mission')}</span>
           {captain.currentMissionId ? (

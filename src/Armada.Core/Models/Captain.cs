@@ -63,7 +63,7 @@ namespace Armada.Core.Models
         /// </summary>
         public string? PlanningSessionSupportReason => SupportsPlanningSessions
             ? null
-            : "Planning sessions currently support only the built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes.";
+            : "Planning sessions currently support only the built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes.";
 
         /// <summary>
         /// Optional model override for the captain's runtime.

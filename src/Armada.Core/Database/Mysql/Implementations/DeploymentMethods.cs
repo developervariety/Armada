@@ -389,7 +389,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 Notes = MysqlDatabaseDriver.NullableString(reader["notes"]),
                 ApprovalRequired = Convert.ToBoolean(reader["approval_required"]),
                 ApprovedByUserId = MysqlDatabaseDriver.NullableString(reader["approved_by_user_id"]),
-                ApprovedUtc = reader["approved_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["approved_utc"]).ToUniversalTime(),
+                ApprovedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["approved_utc"]),
                 ApprovalComment = MysqlDatabaseDriver.NullableString(reader["approval_comment"]),
                 DeployCheckRunId = MysqlDatabaseDriver.NullableString(reader["deploy_check_run_id"]),
                 SmokeTestCheckRunId = MysqlDatabaseDriver.NullableString(reader["smoke_test_check_run_id"]),
@@ -397,17 +397,17 @@ namespace Armada.Core.Database.Mysql.Implementations
                 DeploymentVerificationCheckRunId = MysqlDatabaseDriver.NullableString(reader["deployment_verification_check_run_id"]),
                 RollbackCheckRunId = MysqlDatabaseDriver.NullableString(reader["rollback_check_run_id"]),
                 RollbackVerificationCheckRunId = MysqlDatabaseDriver.NullableString(reader["rollback_verification_check_run_id"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                StartedUtc = reader["started_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["started_utc"]).ToUniversalTime(),
-                CompletedUtc = reader["completed_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["completed_utc"]).ToUniversalTime(),
-                VerifiedUtc = reader["verified_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["verified_utc"]).ToUniversalTime(),
-                RolledBackUtc = reader["rolled_back_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["rolled_back_utc"]).ToUniversalTime(),
-                MonitoringWindowEndsUtc = reader["monitoring_window_ends_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["monitoring_window_ends_utc"]).ToUniversalTime(),
-                LastMonitoredUtc = reader["last_monitored_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["last_monitored_utc"]).ToUniversalTime(),
-                LastRegressionAlertUtc = reader["last_regression_alert_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["last_regression_alert_utc"]).ToUniversalTime(),
+                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                StartedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
+                CompletedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
+                VerifiedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["verified_utc"]),
+                RolledBackUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["rolled_back_utc"]),
+                MonitoringWindowEndsUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["monitoring_window_ends_utc"]),
+                LastMonitoredUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["last_monitored_utc"]),
+                LastRegressionAlertUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["last_regression_alert_utc"]),
                 LatestMonitoringSummary = MysqlDatabaseDriver.NullableString(reader["latest_monitoring_summary"]),
                 MonitoringFailureCount = reader["monitoring_failure_count"] == DBNull.Value ? 0 : Convert.ToInt32(reader["monitoring_failure_count"]),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
 
             if (Enum.TryParse(reader["status"].ToString(), true, out DeploymentStatusEnum status))

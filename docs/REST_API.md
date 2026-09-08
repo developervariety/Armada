@@ -38,6 +38,7 @@
   - [Personas](#personas)
   - [Pipelines](#pipelines)
   - [Workspace](#workspace)
+  - [Planning Sessions](#planning-sessions)
   - [Inbox](#inbox)
   - [Backup and Restore](#backup-and-restore)
 - [Data Types](#data-types)
@@ -124,6 +125,15 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/prompt-templates` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/personas` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/pipelines` | ALL | Authenticated | Tenant-scoped |
+| `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
+| `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}` | DELETE | TenantAdmin | Delete one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}/messages` | POST | TenantAdmin | Send one planning turn |
+| `/api/v1/planning-sessions/{id}/summarize` | POST | TenantAdmin | Generate a dispatch draft without launching |
+| `/api/v1/planning-sessions/{id}/dispatch` | POST | TenantAdmin | Launch a voyage from planning output |
+| `/api/v1/planning-sessions/{id}/stop` | POST | TenantAdmin | Stop an active planning session |
+| `/api/v1/planning-sessions/{id}/stop-turn` | POST | TenantAdmin | Abort an in-flight turn without ending the session |
 | `/api/v1/tenants` | GET (list) | AdminOnly | Global admin only |
 | `/api/v1/tenants` | POST | AdminOnly | Global admin only |
 | `/api/v1/tenants/{id}` | GET | Authenticated | Global admin: any; tenant admin or regular user: own tenant only |
@@ -1110,6 +1120,39 @@ curl -X PATCH http://localhost:7890/api/v1/vessels/vsl_abc123/context \
 
 ---
 
+#### GET /api/v1/vessels/{id}/readiness
+
+Returns readiness warnings and blocking issues for a vessel. Optional query:
+`workflowProfileId`, `checkType`, `environmentName`, `includeWorkflowRequirements`.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Vessel ID (`vsl_` prefix) |
+
+**Response:** `200 OK` - vessel readiness summary
+**Error:** `400` - Invalid `checkType`
+**Error:** `404` - Vessel not found
+
+---
+
+#### GET /api/v1/vessels/{id}/landing-preview
+
+Predicts how Armada would land a branch for this vessel. Optional query:
+`sourceBranch`.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Vessel ID (`vsl_` prefix) |
+
+**Response:** `200 OK` - landing preview
+**Error:** `404` - Vessel not found
+
+---
+
 ### Voyages
 
 A voyage is a batch of related missions tracked together.
@@ -1557,6 +1600,22 @@ curl http://localhost:8080/api/v1/missions/msn_abc123/log?lines=50 \
 curl http://localhost:8080/api/v1/missions/msn_abc123/log?offset=100&lines=100 \
   -H "X-Api-Key: your-key"
 ```
+
+---
+
+#### GET /api/v1/missions/{id}/landing-preview
+
+Predicts how Armada would land this mission's branch. The mission must have a vessel.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Response:** `200 OK` - landing preview
+**Error:** `400` - Mission has no vessel
+**Error:** `404` - Mission not found
 
 ---
 
@@ -2080,6 +2139,53 @@ Force purge a dock and its git worktree, even if a mission references it. **This
 ```json
 {
   "Status": "purged",
+  "DockId": "dck_abc123"
+}
+```
+
+**Error:** `404` - Dock not found
+
+---
+
+#### `POST /api/v1/docks/{id}/repair`
+
+Runs git worktree repair on the dock. Non-destructive: no work is removed.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Dock ID (`dck_` prefix) |
+
+**Response:** `200 OK`
+
+```json
+{
+  "Status": "repaired",
+  "DockId": "dck_abc123"
+}
+```
+
+**Error:** `404` - Dock not found
+
+---
+
+#### `POST /api/v1/docks/{id}/unstick`
+
+Releases any captain still holding the dock back to Idle and reclaims its
+worktree so it stops pinning capacity. Committed branch history is preserved.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Dock ID (`dck_` prefix) |
+
+**Response:** `200 OK`
+
+```json
+{
+  "Status": "unstuck",
   "DockId": "dck_abc123"
 }
 ```
@@ -2966,6 +3072,109 @@ curl -X POST http://localhost:7890/api/v1/workspace/vessels/vsl_abc123/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status", "timeoutSeconds": 30}'
 ```
+
+---
+
+### Planning Sessions
+
+Planning sessions back the dashboard captain-chat flow and transcript-to-dispatch handoff. These routes are implemented for SQLite first; other database backends return `501 Not Supported`.
+
+#### GET /api/v1/planning-sessions
+
+List planning sessions visible to the authenticated caller.
+
+- Response: `200 OK` - `PlanningSession[]`
+
+#### POST /api/v1/planning-sessions
+
+Create a planning session, reserve the selected captain, and provision a planning dock.
+
+```json
+{
+  "Title": "Refactor request history filters",
+  "CaptainId": "cpt_abc123",
+  "VesselId": "vsl_def456",
+  "FleetId": "flt_xyz789",
+  "PipelineId": "pln_fullpipeline",
+  "SelectedPlaybooks": []
+}
+```
+
+- Response: `201 Created`
+- Response shape:
+
+```json
+{
+  "Session": { "...": "PlanningSession" },
+  "Messages": [],
+  "Captain": { "...": "Captain" },
+  "Vessel": { "...": "Vessel" }
+}
+```
+
+#### GET /api/v1/planning-sessions/{id}
+
+Read one planning session with transcript, captain, and vessel context.
+
+- Response: `200 OK`
+- Errors: `404 Not Found`
+
+#### POST /api/v1/planning-sessions/{id}/messages
+
+Append one user message and launch the next planning turn.
+
+```json
+{
+  "Content": "Summarize the changes and propose a safe rollout."
+}
+```
+
+- Response: `200 OK` - same detail shape as `GET /api/v1/planning-sessions/{id}`
+
+#### POST /api/v1/planning-sessions/{id}/summarize
+
+Generate a dispatch-ready draft from a selected or inferred assistant message without launching the voyage.
+
+```json
+{
+  "MessageId": "psm_abc123",
+  "Title": "Refresh request history docs"
+}
+```
+
+- Response: `200 OK` - `PlanningSessionSummaryResponse`
+
+#### POST /api/v1/planning-sessions/{id}/dispatch
+
+Create a voyage directly from planning output. Dispatch also releases the reserved captain and dock.
+
+```json
+{
+  "MessageId": "psm_abc123",
+  "Title": "Refresh request history docs",
+  "Description": "Update docs and validation assets for the shipped request-history feature."
+}
+```
+
+- Response: `200 OK` - `Voyage`
+
+#### POST /api/v1/planning-sessions/{id}/stop-turn
+
+Abort an in-flight planning turn without ending the session. The reserved captain and dock stay held.
+
+- Response: `200 OK`
+
+#### POST /api/v1/planning-sessions/{id}/stop
+
+Stop an active planning session and release its resources.
+
+- Response: `200 OK` - same detail shape as `GET /api/v1/planning-sessions/{id}`
+
+#### DELETE /api/v1/planning-sessions/{id}
+
+Delete a planning session and its transcript. Active sessions are stopped first.
+
+- Response: `204 No Content`
 
 ---
 
@@ -4186,6 +4395,22 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 82 | POST | `/api/v1/vessels/{vesselId}/code-index/explore` | Explore a bounded graph neighborhood | Yes |
 | 83 | POST | `/api/v1/vessels/{vesselId}/code-index/impact` | Traverse symbol impact | Yes |
 | 84 | POST | `/api/v1/vessels/{vesselId}/code-index/affected-tests` | Suggest affected tests | Yes |
+| 85 | GET | `/api/v1/vessels/{id}/readiness` | Vessel readiness summary | Yes |
+| 86 | GET | `/api/v1/vessels/{id}/landing-preview` | Vessel landing preview | Yes |
+| 87 | GET | `/api/v1/missions/{id}/landing-preview` | Mission landing preview | Yes |
+| 88 | POST | `/api/v1/docks/{id}/repair` | Repair a dock worktree | Yes |
+| 89 | POST | `/api/v1/docks/{id}/unstick` | Release a held captain and reclaim the dock | Yes |
+| 90 | GET | `/api/v1/planning-sessions` | List planning sessions | Yes |
+| 91 | POST | `/api/v1/planning-sessions` | Create a planning session | Yes |
+| 92 | GET | `/api/v1/planning-sessions/{id}` | Get a planning session | Yes |
+| 93 | POST | `/api/v1/planning-sessions/{id}/messages` | Send a planning turn | Yes |
+| 94 | POST | `/api/v1/planning-sessions/{id}/summarize` | Summarize planning into a draft | Yes |
+| 95 | POST | `/api/v1/planning-sessions/{id}/dispatch` | Dispatch a voyage from planning | Yes |
+| 96 | POST | `/api/v1/planning-sessions/{id}/stop-turn` | Abort the in-flight planning turn | Yes |
+| 97 | POST | `/api/v1/planning-sessions/{id}/stop` | Stop a planning session | Yes |
+| 98 | DELETE | `/api/v1/planning-sessions/{id}` | Delete a planning session | Yes |
+
+This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 
 \* Gated by `AllowSelfRegistration` setting.
 \*\* Non-admin users are scoped to their own records only.

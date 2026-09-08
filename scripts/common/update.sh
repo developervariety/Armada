@@ -3,6 +3,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=resolve-insecure.sh
+. "${SCRIPT_DIR}/resolve-insecure.sh"
+armada_resolve_insecure "$@"
 HELM_DLL="$REPO_ROOT/src/Armada.Helm/bin/Debug/net10.0/Armada.Helm.dll"
 
 run_helm() {

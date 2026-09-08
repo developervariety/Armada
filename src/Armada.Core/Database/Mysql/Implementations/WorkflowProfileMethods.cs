@@ -351,8 +351,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 PerformanceCommand = MysqlDatabaseDriver.NullableString(reader["performance_command"]),
                 DeploymentVerificationCommand = MysqlDatabaseDriver.NullableString(reader["deployment_verification_command"]),
                 RollbackVerificationCommand = MysqlDatabaseDriver.NullableString(reader["rollback_verification_command"]),
-                CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
-                LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
+                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
 
             if (Enum.TryParse(reader["scope"].ToString(), true, out WorkflowProfileScopeEnum scope))

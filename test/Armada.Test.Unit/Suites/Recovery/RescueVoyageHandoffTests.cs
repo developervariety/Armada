@@ -1259,6 +1259,7 @@ namespace Armada.Test.Unit.Suites.Recovery
             /// <inheritdoc />
             public Task RecallAllAsync(CancellationToken token = default)
                 => Task.CompletedTask;
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
 
             /// <inheritdoc />
             public Task HealthCheckAsync(CancellationToken token = default)

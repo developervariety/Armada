@@ -39,6 +39,16 @@ armada mcp install
 
 This configures Armada MCP for Claude Code, Codex, Gemini, and Cursor, and installs the Claude Code orchestrator agent. Use `armada mcp remove` to remove those entries later.
 
+To add Armada to Claude Code by hand:
+
+```bash
+claude mcp add --transport http --scope user armada http://localhost:7891/mcp
+```
+
+On enterprise-managed Claude Code this may fail with `not allowed by enterprise policy`. An administrator must allow `http://localhost:7891/mcp` in `allowedMcpServers`. See [docs/MCP_API.md](docs/MCP_API.md#transport).
+
+If npm fails with `SELF_SIGNED_CERT_IN_CHAIN` behind a TLS-inspecting proxy, add `--insecure` to the install or dashboard-deploy script. See the README subsection "Behind an enterprise proxy or firewall".
+
 ## Start the server
 
 ```bash
@@ -153,8 +163,9 @@ Dashboard Planning UI
 
 Current planning-session constraints:
 
-- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, and `Mux` runtimes. `Custom` captains are blocked there.
+- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `OpenCode`, and `Mux` runtimes. `Custom` captains are blocked there.
 - A planning session reserves the selected captain and a dock/worktree for the selected vessel until you stop the session.
+- `POST /api/v1/planning-sessions/{id}/stop-turn` (the planning Stop button) aborts an in-flight turn without ending the session.
 - The captain can inspect and modify the repository while planning.
 - Planning is transcript-backed today. Each turn relaunches the runtime with the preserved transcript and repo context instead of keeping a persistent interactive stdin session alive.
 - Planning-session persistence is SQLite-first. Non-SQLite backends currently return an explicit unsupported response for planning-session endpoints.

@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <Description>CLI interface for Armada multi-agent orchestration</Description>
     <PackAsTool>true</PackAsTool>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <ToolCommandName>armada</ToolCommandName>
     <PackageId>Armada.Helm</PackageId>
     <Version>0.9.0</Version>

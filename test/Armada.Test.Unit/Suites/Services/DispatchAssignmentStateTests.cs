@@ -1327,6 +1327,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.RepairAsync(dockId, tenantId, token);
 
+            public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.UnstickAsync(dockId, tenantId, token);
+
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.DeleteAsync(dockId, tenantId, token);
 
@@ -1373,6 +1376,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.RepairAsync(dockId, tenantId, token);
 
+            public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.UnstickAsync(dockId, tenantId, token);
+
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.DeleteAsync(dockId, tenantId, token);
 
@@ -1410,6 +1416,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.RepairAsync(dockId, tenantId, token);
+
+            public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.UnstickAsync(dockId, tenantId, token);
 
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.DeleteAsync(dockId, tenantId, token);

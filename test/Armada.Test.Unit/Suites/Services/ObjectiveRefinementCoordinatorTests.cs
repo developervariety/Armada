@@ -47,7 +47,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("User", userMessage.Role);
                 AssertEqual(2, persistedMessages.Count);
                 AssertContains("Refinement response failed", assistantMessage.Content);
-                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes", persistedSession.FailureReason ?? String.Empty);
+                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes", persistedSession.FailureReason ?? String.Empty);
                 AssertEqual(ObjectiveRefinementSessionStatusEnum.Active, persistedSession.Status);
             }).ConfigureAwait(false);
 

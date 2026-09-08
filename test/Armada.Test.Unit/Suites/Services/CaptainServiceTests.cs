@@ -279,6 +279,11 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }
 
+            public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+            {
+                return Task.CompletedTask;
+            }
+
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default)
             {
                 throw new NotImplementedException();

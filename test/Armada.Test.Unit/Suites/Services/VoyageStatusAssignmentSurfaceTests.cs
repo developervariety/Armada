@@ -531,6 +531,7 @@ namespace Armada.Test.Unit.Suites.Services
             /// <summary>Not invoked by the handlers under test.</summary>
             public Task RecallAllAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
 
             /// <summary>Not invoked by the handlers under test.</summary>
             public Task HealthCheckAsync(CancellationToken token = default)

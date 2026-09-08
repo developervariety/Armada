@@ -605,6 +605,7 @@ export default function Planning() {
         title: dispatchTitle.trim() || undefined,
         description: dispatchDescription.trim(),
       });
+      await releaseSessionOnDispatch();
 
       pushToast('success', t('Dispatch created from planning session.'));
       navigate(`/voyages/${voyage.id}`);

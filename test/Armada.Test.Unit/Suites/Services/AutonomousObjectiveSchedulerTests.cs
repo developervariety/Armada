@@ -1340,6 +1340,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task RecallAllAsync(CancellationToken token = default)
                 => Task.CompletedTask;
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => Task.CompletedTask;
 
             public Task HealthCheckAsync(CancellationToken token = default)
                 => Task.CompletedTask;

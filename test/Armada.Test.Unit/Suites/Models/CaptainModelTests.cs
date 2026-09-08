@@ -86,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertTrue(builtIn.SupportsPlanningSessions);
                 AssertNull(builtIn.PlanningSessionSupportReason);
                 AssertFalse(custom.SupportsPlanningSessions);
-                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
+                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
             });
 
             await RunTest("Captain StateEnum SerializesAsString", () =>
