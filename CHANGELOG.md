@@ -8,6 +8,10 @@ All notable changes to Armada are documented in this file.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Dispatch and model selection
+- Within a tier, models absent from `withinTierPreferenceOrder` are now chosen at RANDOM among the eligible peers instead of being returned in captain-enumeration order. Previously the ordering helper appended unranked models after the ranked ones and the caller returned the first, so the "random among unranked peers" path was dead whenever any preference order existed - two specialist models (e.g. `gpt-5.6-sol` vs `claude-opus-5`) always resolved to the first-enumerated captain. Ranked models still win by rank (Judges); only genuinely unranked peers are randomized. (`PreferredModelTierSelector.SelectModel`; covered by `SelectModel_High_UnrankedPeers_UseRandomPick_NotEnumerationOrder` and `SelectModel_High_RankedModel_PreferredOverUnranked_RegardlessOfRandom`.)
+- The admiral image pins `@openai/codex@0.153.4`, the CLI version whose model list includes the `gpt-6-astra` frontier model, so it survives a rebuild.
+
 ### Objectives and the scheduler
 - An objective can carry a `StartFromRef` (`startFromRef` on `create_objective` / `update_objective`): the first stage of a voyage dispatched for it is cut from that ref instead of the vessel default branch, so a requeue from a `recover/<name>-<sha>` ref continues accepted work instead of rebuilding it. A ref that does not resolve refuses the dispatch before any voyage row exists (`start_from_ref_missing`, reported as the scheduler skip reason and an `objective_scheduler.start_from_ref_missing` event), and a ref that has gone by assignment time fails the mission by name. There is no fallback to the default branch.
 - A requeued objective whose linked voyages have all ended dispatches again instead of sitting in `Dispatched` for ever.

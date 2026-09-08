@@ -488,11 +488,27 @@ namespace Armada.Core.Services
 
                 if (hasPreferenceOrder && preferenceOrder != null && preferenceOrder.Count > 0)
                 {
-                    List<string> ordered = OrderModelsByPreference(selectionPool, preferenceOrder);
-                    if (ordered.Count > 0)
-                        return ordered[0];
+                    // Ranked models are those the operator listed in the preference order that
+                    // also have an eligible captain, in listed order. Only these are ordered;
+                    // models absent from the list are deliberately unranked peers and must NOT
+                    // be appended in enumeration order (that would deterministically favor the
+                    // first-enumerated captain and defeat the random-peer contract below).
+                    List<string> rankedEligible = new List<string>();
+                    foreach (string preferred in preferenceOrder)
+                    {
+                        if (String.IsNullOrWhiteSpace(preferred))
+                            continue;
+                        foreach (string eligible in selectionPool)
+                        {
+                            if (String.Equals(eligible, preferred, StringComparison.OrdinalIgnoreCase)
+                                && !ContainsModel(rankedEligible, eligible))
+                                rankedEligible.Add(eligible);
+                        }
+                    }
+                    if (rankedEligible.Count > 0)
+                        return rankedEligible[0];
 
-                    // No listed model has an eligible captain. Unlisted models are equivalent
+                    // No ranked model has an eligible captain. Unlisted models are equivalent
                     // (the operator chose not to rank them), so pick randomly among them rather
                     // than deterministically favoring the first enumerated captain.
                     if (selectionPool.Count > 0)

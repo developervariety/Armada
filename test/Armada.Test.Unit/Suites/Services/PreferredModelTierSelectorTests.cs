@@ -322,6 +322,49 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectModel_High_UnrankedPeers_UseRandomPick_NotEnumerationOrder", () =>
+            {
+                // Two high-tier peers (both classify high by canonical pattern), neither listed
+                // in the preference order -> they are unranked equals and MUST be chosen randomly,
+                // not pinned to captain-enumeration order. Regression guard for the bug where
+                // unranked models were appended in enumeration order and the first was returned.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-opus-5"),
+                    MakeCaptain("claude-mythos-5")
+                };
+                Dictionary<string, List<string>> order = new Dictionary<string, List<string>>
+                {
+                    { "high", new List<string> { "claude-fable-5" } }
+                };
+                string? pickFirst = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, order);
+                string? pickSecond = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 1, null, order);
+                AssertNotNull(pickFirst, "non-empty pool must select something at index 0");
+                AssertNotNull(pickSecond, "non-empty pool must select something at index 1");
+                AssertTrue(pickFirst != pickSecond, "unranked high peers must vary with randomPick (random), not be pinned to enumeration order");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_High_RankedModel_PreferredOverUnranked_RegardlessOfRandom", () =>
+            {
+                // A ranked model (listed in the preference order) that is eligible must win over an
+                // unranked peer regardless of the random index -- ranking still governs Judges.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-opus-5"),
+                    MakeCaptain("claude-fable-5")
+                };
+                Dictionary<string, List<string>> order = new Dictionary<string, List<string>>
+                {
+                    { "high", new List<string> { "claude-fable-5" } }
+                };
+                string? a = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, order);
+                string? b = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 1, null, order);
+                AssertEqual("claude-fable-5", a, "ranked model must win regardless of randomPick (index 0)");
+                AssertEqual("claude-fable-5", b, "ranked model must win regardless of randomPick (index 1)");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_Mid_SelectsGpt56Luna", () =>
             {
                 List<Captain> captains = new List<Captain>
