@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Settings
     using Armada.Core.Settings;
     using Armada.Server.Mcp;
     using Armada.Test.Common;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Covers two related fleet-management gaps:
@@ -56,7 +57,7 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("Laguna_NotPromotedIntoWithinTierPreferenceOrder", () =>
             {
-                ModelTierSettings s = new ModelTierSettings();
+                ModelTierSettings s = FleetRoutingSettings.CreateModelTier();
                 if (s.WithinTierPreferenceOrder.TryGetValue("mid", out var order))
                 {
                     AssertFalse(order.Contains("opencode/laguna-s-2.1-free"),
@@ -68,22 +69,24 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("KnownTierMembership_Unchanged_ByLagunaAddition", () =>
             {
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "gpt-5.6-luna stays mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max"), "qwen stays mid");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "opus-4-7 stays high");
+                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", fleet), "gpt-5.6-luna stays mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max", fleet), "qwen stays mid");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", fleet), "opus-4-7 stays high");
                 return Task.CompletedTask;
             });
 
             await RunTest("ChallengerPool_AllRoutable_AsMidTier", () =>
             {
                 // The mid-tier roster is luna (native), deepseek (opencode-go), and qwen (opencode-go).
+                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
                 string[] challengers =
                 {
                     "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max"
                 };
                 foreach (string m in challengers)
                 {
-                    AssertEqual("mid", PreferredModelTierSelector.ClassifyModel(m),
+                    AssertEqual("mid", PreferredModelTierSelector.ClassifyModel(m, fleet),
                         m + " must classify as mid tier or Armada will never assign it work");
                 }
                 return Task.CompletedTask;
@@ -91,7 +94,7 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("MidPreferenceOrder_IsEmpty_AllWorkerModelsEqual", () =>
             {
-                ModelTierSettings s = new ModelTierSettings();
+                ModelTierSettings s = FleetRoutingSettings.CreateModelTier();
                 AssertTrue(s.WithinTierPreferenceOrder.TryGetValue("mid", out var order), "mid order must exist");
                 AssertEqual(0, order!.Count, "all worker models are equal: the mid preference order is empty");
                 return Task.CompletedTask;
@@ -99,7 +102,7 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("NonPreferredModels_AreNotInPreferenceOrder", () =>
             {
-                ModelTierSettings s = new ModelTierSettings();
+                ModelTierSettings s = FleetRoutingSettings.CreateModelTier();
                 if (s.WithinTierPreferenceOrder.TryGetValue("mid", out var order))
                 {
                     foreach (string m in new[]
@@ -116,7 +119,7 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("ChallengerPool_HasCapabilityProfiles", () =>
             {
-                ModelTierSettings s = new ModelTierSettings();
+                ModelTierSettings s = FleetRoutingSettings.CreateModelTier();
                 foreach (string m in new[]
                 {
                     "opencode-go/deepseek-v4-flash",
@@ -131,26 +134,32 @@ namespace Armada.Test.Unit.Suites.Settings
 
             await RunTest("ConfiguredModels_AllClassify", () =>
             {
-                var expected = new (string Model, string Tier)[]
+                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
+                string[] models = new string[]
                 {
-                    ("gpt-5.6-luna", "mid"),
-                    ("opencode-go/deepseek-v4-flash", "mid"), ("opencode-go/qwen3.8-max", "mid"),
-                    ("claude-fable-5", "high"),
-                    ("claude-opus-4-7", "high"), ("claude-opus-4-8", "high"), ("claude-opus-5", "high"),
-                    ("gpt-5.6-sol", "high")
+                    "gpt-5.6-luna",
+                    "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max",
+                    "claude-fable-5",
+                    "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5",
+                    "gpt-5.6-sol"
                 };
-                foreach (var e in expected)
+                string[] tiers = new string[]
                 {
-                    AssertEqual(e.Tier, PreferredModelTierSelector.ClassifyModel(e.Model),
-                        e.Model + " must classify " + e.Tier);
+                    "mid", "mid", "mid", "high", "high", "high", "high", "high"
+                };
+                for (int i = 0; i < models.Length; i++)
+                {
+                    AssertEqual(tiers[i], PreferredModelTierSelector.ClassifyModel(models[i], fleet),
+                        models[i] + " must classify " + tiers[i]);
                 }
                 return Task.CompletedTask;
             });
 
             await RunTest("DeepEngineeringModels_RemainHighTier", () =>
             {
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "gpt-5.6-sol stays high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5"), "fable-5 must resolve high (canonical fable pattern)");
+                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", fleet), "gpt-5.6-sol stays high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5", fleet), "fable-5 must resolve high (canonical fable pattern)");
                 return Task.CompletedTask;
             });
         }

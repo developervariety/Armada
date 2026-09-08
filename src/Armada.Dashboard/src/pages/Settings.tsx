@@ -23,6 +23,96 @@ interface ServerSettings {
   reposDirectory: string;
 }
 
+interface RoutingDraft {
+  midTierModels: string;
+  highTierModels: string;
+  specialistPersonas: string;
+  reservedHighTierSlots: number;
+  preferNonNativeFirst: boolean;
+  withinTierStrategy: string;
+  withinTierPreferenceOrder: string;
+  familyClassificationRules: string;
+  rejectStagePersonaTitlePrefixes: boolean;
+  stagePersonaTitlePrefixes: string;
+  modelProviders: string;
+  additionalPromptTemplates: string;
+  additionalPersonas: string;
+  additionalPipelines: string;
+  modelProvidersHotReload: boolean;
+  additionalAssetsHotReload: boolean;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function listToLines(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  return value.map((item) => String(item)).join('\n');
+}
+
+function linesToList(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function prettyJson(value: unknown, fallback: string): string {
+  try {
+    return JSON.stringify(value ?? JSON.parse(fallback), null, 2);
+  } catch {
+    return fallback;
+  }
+}
+
+function emptyRoutingDraft(): RoutingDraft {
+  return {
+    midTierModels: '',
+    highTierModels: '',
+    specialistPersonas: '',
+    reservedHighTierSlots: 0,
+    preferNonNativeFirst: false,
+    withinTierStrategy: 'Random',
+    withinTierPreferenceOrder: '{}',
+    familyClassificationRules: '[]',
+    rejectStagePersonaTitlePrefixes: false,
+    stagePersonaTitlePrefixes: '',
+    modelProviders: '{\n  "providers": {}\n}',
+    additionalPromptTemplates: '[]',
+    additionalPersonas: '[]',
+    additionalPipelines: '[]',
+    modelProvidersHotReload: false,
+    additionalAssetsHotReload: false,
+  };
+}
+
+function routingFromSettings(raw: Record<string, unknown>): RoutingDraft {
+  const modelTier = asRecord(raw.modelTier);
+  const voyageDispatch = asRecord(raw.voyageDispatch);
+  return {
+    midTierModels: listToLines(modelTier.midTierModels),
+    highTierModels: listToLines(modelTier.highTierModels),
+    specialistPersonas: listToLines(modelTier.specialistPersonas),
+    reservedHighTierSlots: Number(modelTier.reservedHighTierSlots ?? 0),
+    preferNonNativeFirst: Boolean(modelTier.preferNonNativeFirst),
+    withinTierStrategy: String(modelTier.withinTierStrategy ?? 'Random'),
+    withinTierPreferenceOrder: prettyJson(modelTier.withinTierPreferenceOrder, '{}'),
+    familyClassificationRules: prettyJson(modelTier.familyClassificationRules, '[]'),
+    rejectStagePersonaTitlePrefixes: Boolean(voyageDispatch.rejectStagePersonaTitlePrefixes),
+    stagePersonaTitlePrefixes: listToLines(voyageDispatch.stagePersonaTitlePrefixes),
+    modelProviders: prettyJson(raw.modelProviders, '{\n  "providers": {}\n}'),
+    additionalPromptTemplates: prettyJson(raw.additionalPromptTemplates, '[]'),
+    additionalPersonas: prettyJson(raw.additionalPersonas, '[]'),
+    additionalPipelines: prettyJson(raw.additionalPipelines, '[]'),
+    modelProvidersHotReload: Boolean(raw.modelProvidersHotReload),
+    additionalAssetsHotReload: Boolean(raw.additionalAssetsHotReload),
+  };
+}
+
 interface HealthInfo {
   status: string;
   uptime: string;
@@ -33,6 +123,7 @@ export default function Settings() {
   const { t } = useLocale();
   const proxyContext = useProxySessionContext();
   const [settings, setSettings] = useState<ServerSettings | null>(null);
+  const [routing, setRouting] = useState<RoutingDraft>(emptyRoutingDraft());
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -51,7 +142,11 @@ export default function Settings() {
         getSettings().catch(() => null),
         getHealth().catch(() => null),
       ]);
-      if (s) setSettings(s as unknown as ServerSettings);
+      if (s) {
+        const raw = s as Record<string, unknown>;
+        setSettings(s as unknown as ServerSettings);
+        setRouting(routingFromSettings(raw));
+      }
       if (h) setHealth(h as unknown as HealthInfo);
       if (!s) setError(t('Failed to load settings.'));
     } catch {
@@ -71,6 +166,24 @@ export default function Settings() {
     if (!settings) return;
     setSaving(true);
     try {
+      let familyClassificationRules: unknown;
+      let withinTierPreferenceOrder: unknown;
+      let modelProviders: unknown;
+      let additionalPromptTemplates: unknown;
+      let additionalPersonas: unknown;
+      let additionalPipelines: unknown;
+      try {
+        familyClassificationRules = JSON.parse(routing.familyClassificationRules || '[]');
+        withinTierPreferenceOrder = JSON.parse(routing.withinTierPreferenceOrder || '{}');
+        modelProviders = JSON.parse(routing.modelProviders || '{"providers":{}}');
+        additionalPromptTemplates = JSON.parse(routing.additionalPromptTemplates || '[]');
+        additionalPersonas = JSON.parse(routing.additionalPersonas || '[]');
+        additionalPipelines = JSON.parse(routing.additionalPipelines || '[]');
+      } catch {
+        showToast(t('Routing JSON is not valid. Fix the highlighted fields and save again.'));
+        return;
+      }
+
       const updated = await updateSettings({
         admiralPort: settings.admiralPort,
         mcpPort: settings.mcpPort,
@@ -79,8 +192,28 @@ export default function Settings() {
         stallThresholdMinutes: settings.stallThresholdMinutes,
         idleCaptainTimeoutSeconds: settings.idleCaptainTimeoutSeconds,
         autoCreatePr: settings.autoCreatePr,
+        modelTier: {
+          midTierModels: linesToList(routing.midTierModels),
+          highTierModels: linesToList(routing.highTierModels),
+          specialistPersonas: linesToList(routing.specialistPersonas),
+          reservedHighTierSlots: routing.reservedHighTierSlots,
+          preferNonNativeFirst: routing.preferNonNativeFirst,
+          withinTierStrategy: routing.withinTierStrategy,
+          withinTierPreferenceOrder,
+          familyClassificationRules,
+        },
+        voyageDispatch: {
+          rejectStagePersonaTitlePrefixes: routing.rejectStagePersonaTitlePrefixes,
+          stagePersonaTitlePrefixes: linesToList(routing.stagePersonaTitlePrefixes),
+        },
+        modelProviders,
+        additionalPromptTemplates,
+        additionalPersonas,
+        additionalPipelines,
       });
+      const raw = updated as Record<string, unknown>;
       setSettings(updated as unknown as ServerSettings);
+      setRouting(routingFromSettings(raw));
       showToast(t('Settings saved successfully'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('Unknown error');
@@ -259,6 +392,195 @@ export default function Settings() {
                   <span>{t('Auto-Create Pull Requests')}</span>
                 </label>
               </div>
+            </div>
+          </div>
+          </fieldset>
+
+          <fieldset disabled={remoteProxyMode} style={{ border: 'none', margin: 0, padding: 0 }}>
+          <div className="settings-section" style={{ marginTop: '1.5rem' }}>
+            <h3>{t('Model routing')}</h3>
+            <p className="text-muted">
+              {t('Tier lists, family rules, and routing policy hot-reload. Empty lists are the product default: random assignment among idle captains, with no model-family or specialist assumption.')}
+            </p>
+            <div className="settings-grid">
+              <div className="form-group">
+                <label>{t('Mid-tier models (one per line)')}</label>
+                <textarea
+                  rows={5}
+                  value={routing.midTierModels}
+                  onChange={(e) => setRouting({ ...routing, midTierModels: e.target.value })}
+                  title={t('Concrete model ids that classify as mid')}
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('High-tier models (one per line)')}</label>
+                <textarea
+                  rows={5}
+                  value={routing.highTierModels}
+                  onChange={(e) => setRouting({ ...routing, highTierModels: e.target.value })}
+                  title={t('Concrete model ids that classify as high')}
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('Specialist personas (one per line)')}</label>
+                <textarea
+                  rows={5}
+                  value={routing.specialistPersonas}
+                  onChange={(e) => setRouting({ ...routing, specialistPersonas: e.target.value })}
+                  title={t('Personas reserved for high-tier captains')}
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('Reserved high-tier slots')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={routing.reservedHighTierSlots}
+                  onChange={(e) =>
+                    setRouting({ ...routing, reservedHighTierSlots: parseInt(e.target.value) || 0 })
+                  }
+                  title={t('Idle high-tier slots held for specialist work (0 disables)')}
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('Within-tier strategy')}</label>
+                <select
+                  value={routing.withinTierStrategy}
+                  onChange={(e) => setRouting({ ...routing, withinTierStrategy: e.target.value })}
+                  title={t('Random is the product default')}
+                >
+                  <option value="Random">{t('Random')}</option>
+                  <option value="PreferenceOrderThenRandom">{t('Preference order, then random')}</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="settings-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={routing.preferNonNativeFirst}
+                    onChange={(e) =>
+                      setRouting({ ...routing, preferNonNativeFirst: e.target.checked })
+                    }
+                  />
+                  <span>{t('Prefer non-native captains first')}</span>
+                </label>
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label>{t('Within-tier preference order (JSON object)')}</label>
+                <textarea
+                  rows={6}
+                  className="mono"
+                  value={routing.withinTierPreferenceOrder}
+                  onChange={(e) =>
+                    setRouting({ ...routing, withinTierPreferenceOrder: e.target.value })
+                  }
+                  title={t('Used only when the strategy is Preference order, then random')}
+                />
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label>{t('Family classification rules (JSON array of {pattern, tier})')}</label>
+                <textarea
+                  rows={6}
+                  className="mono"
+                  value={routing.familyClassificationRules}
+                  onChange={(e) =>
+                    setRouting({ ...routing, familyClassificationRules: e.target.value })
+                  }
+                  title={t('Regex patterns applied when a model is not in a tier list')}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-section" style={{ marginTop: '1.5rem' }}>
+            <h3>{t('Voyage dispatch guard')}</h3>
+            <p className="text-muted">
+              {t('Off by default. When on, a mission title that opens with a listed stage-persona prefix is rejected.')}
+            </p>
+            <div className="settings-grid">
+              <div className="form-group">
+                <label className="settings-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={routing.rejectStagePersonaTitlePrefixes}
+                    onChange={(e) =>
+                      setRouting({
+                        ...routing,
+                        rejectStagePersonaTitlePrefixes: e.target.checked,
+                      })
+                    }
+                  />
+                  <span>{t('Reject stage-persona title prefixes')}</span>
+                </label>
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label>{t('Stage-persona prefixes (one per line, include trailing space)')}</label>
+                <textarea
+                  rows={5}
+                  value={routing.stagePersonaTitlePrefixes}
+                  onChange={(e) =>
+                    setRouting({ ...routing, stagePersonaTitlePrefixes: e.target.value })
+                  }
+                  title={t('Example: [Worker] ')}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-section" style={{ marginTop: '1.5rem' }}>
+            <h3>{t('Model providers')}</h3>
+            <p className="text-muted">
+              {routing.modelProvidersHotReload
+                ? t('Model providers hot-reload on save.')
+                : t('Model providers load at startup. Restart the Admiral after you save this block.')}
+            </p>
+            <div className="form-group">
+              <label>{t('modelProviders JSON')}</label>
+              <textarea
+                rows={8}
+                className="mono"
+                value={routing.modelProviders}
+                onChange={(e) => setRouting({ ...routing, modelProviders: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="settings-section" style={{ marginTop: '1.5rem' }}>
+            <h3>{t('Additional personas, pipelines, and templates')}</h3>
+            <p className="text-muted">
+              {routing.additionalAssetsHotReload
+                ? t('Additional assets hot-reload on save.')
+                : t('Additional prompt templates, personas, and pipelines seed at startup. Restart the Admiral after you save these blocks.')}
+            </p>
+            <div className="form-group">
+              <label>{t('additionalPromptTemplates JSON array')}</label>
+              <textarea
+                rows={8}
+                className="mono"
+                value={routing.additionalPromptTemplates}
+                onChange={(e) =>
+                  setRouting({ ...routing, additionalPromptTemplates: e.target.value })
+                }
+              />
+            </div>
+            <div className="form-group">
+              <label>{t('additionalPersonas JSON array')}</label>
+              <textarea
+                rows={6}
+                className="mono"
+                value={routing.additionalPersonas}
+                onChange={(e) => setRouting({ ...routing, additionalPersonas: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>{t('additionalPipelines JSON array')}</label>
+              <textarea
+                rows={8}
+                className="mono"
+                value={routing.additionalPipelines}
+                onChange={(e) => setRouting({ ...routing, additionalPipelines: e.target.value })}
+              />
             </div>
           </div>
           </fieldset>

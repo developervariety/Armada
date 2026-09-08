@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Unit tests for PreferredModelTierSelector: tier recognition, model selection,
@@ -26,6 +27,11 @@ namespace Armada.Test.Unit.Suites.Services
             c.AllowedPersonas = allowedPersonas;
             c.State = CaptainStateEnum.Idle;
             return c;
+        }
+
+        private static ModelTierSettings Fleet()
+        {
+            return FleetRoutingSettings.CreateModelTier();
         }
 
         /// <summary>Run all tests.</summary>
@@ -79,7 +85,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("GetTierAndAboveModels_LowTier_IncludesAllTiers", () =>
             {
-                IReadOnlyList<string> models = PreferredModelTierSelector.GetTierAndAboveModels("low");
+                IReadOnlyList<string> models = PreferredModelTierSelector.GetTierAndAboveModels("low", Fleet());
                 AssertTrue(models.Count > 0, "Should have models in low tier and above");
                 bool hasMid = false;
                 bool hasHigh = false;
@@ -95,9 +101,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("GetTierAndAboveModels_HighTier_IncludesOnlyHigh", () =>
             {
-                IReadOnlyList<string> lowModels = PreferredModelTierSelector.GetTierModels("low");
-                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid");
-                IReadOnlyList<string> highModels = PreferredModelTierSelector.GetTierAndAboveModels("high");
+                IReadOnlyList<string> lowModels = PreferredModelTierSelector.GetTierModels("low", Fleet());
+                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid", Fleet());
+                IReadOnlyList<string> highModels = PreferredModelTierSelector.GetTierAndAboveModels("high", Fleet());
 
                 foreach (string m in lowModels)
                 {
@@ -127,10 +133,10 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? first = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
+                string? first = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder, Fleet());
                 AssertNotNull(first, "Should select a model when mid-tier captains are available");
                 AssertEqual("opencode-go/deepseek-v4-flash", first, "random stub 0 selects the first eligible worker model");
-                string? last = PreferredModelTierSelector.SelectModel("mid", captains, null, n => n - 1, null, defaultOrder);
+                string? last = PreferredModelTierSelector.SelectModel("mid", captains, null, n => n - 1, null, defaultOrder, Fleet());
                 AssertEqual("gpt-5.6-luna", last, "a different random index selects a different equal worker model");
                 return Task.CompletedTask;
             });
@@ -152,7 +158,7 @@ namespace Armada.Test.Unit.Suites.Services
                 captains[2].ApiBaseUrl = "https://api.example.com/v1";
                 captains[3].Runtime = Armada.Core.Enums.AgentRuntimeEnum.Codex;
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertEqual("gpt-5.6-luna", selected,
                     "the model with an idle non-native captain must be selected before native-only models");
                 return Task.CompletedTask;
@@ -169,10 +175,10 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("gpt-5.6-luna")
                 };
 
-                string? first = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                string? first = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", first,
                     "with no idle non-native captain, random stub 0 selects the first native model");
-                string? last = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", n => n - 1);
+                string? last = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", n => n - 1, null, null, Fleet());
                 AssertEqual("gpt-5.6-luna", last, "the native fallback pool remains random");
                 return Task.CompletedTask;
             });
@@ -190,7 +196,7 @@ namespace Armada.Test.Unit.Suites.Services
                 captains[0].Runtime = Armada.Core.Enums.AgentRuntimeEnum.OpenCode;
                 captains[0].ApiBaseUrl = "https://api.example.com/v1";
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected,
                     "an OpenCode captain with a base URL stays in the native pool; the pool is random, not external-prioritized");
                 return Task.CompletedTask;
@@ -198,12 +204,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("ConfiguredTierModels_ClassifyIntoTheirTiers", () =>
             {
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "gpt-5.6-luna must participate in mid-tier routing");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max"), "grok-4.5 must participate in mid-tier routing");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash"), "deepseek-v4-flash must participate in mid-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "gpt-5.6-sol must participate in high-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5"), "claude-opus-5 must participate in high-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5"), "claude-fable-5 must participate in high-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "gpt-5.6-luna must participate in mid-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max", Fleet()), "grok-4.5 must participate in mid-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "deepseek-v4-flash must participate in mid-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", Fleet()), "gpt-5.6-sol must participate in high-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "claude-opus-5 must participate in high-tier routing");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5", Fleet()), "claude-fable-5 must participate in high-tier routing");
                 return Task.CompletedTask;
             });
 
@@ -216,7 +222,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder, Fleet());
 
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "with no ranked primary, random stub 0 selects the first eligible worker model");
                 return Task.CompletedTask;
@@ -236,7 +242,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder, Fleet());
 
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "random stub 0 selects the first eligible model regardless of idle counts");
                 return Task.CompletedTask;
@@ -251,7 +257,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("gpt-5.6-sol", "[\"Worker\",\"Judge\"]")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Should find a model eligible for Judge persona");
                 AssertEqual("gpt-5.6-sol", selected, "Only the gpt-5.6-sol captain allows Judge persona");
                 return Task.CompletedTask;
@@ -266,10 +272,10 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("low", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("low", captains, null, _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Should upgrade to mid when low has no eligible captains");
 
-                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid");
+                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid", Fleet());
                 bool isMidModel = false;
                 foreach (string m in midModels) { if (m == selected) { isMidModel = true; break; } }
                 AssertTrue(isMidModel, "Upgraded selection should be a mid-tier model");
@@ -285,10 +291,10 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-5")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Should upgrade to high when mid has no eligible captains");
 
-                IReadOnlyList<string> highModels = PreferredModelTierSelector.GetTierModels("high");
+                IReadOnlyList<string> highModels = PreferredModelTierSelector.GetTierModels("high", Fleet());
                 bool isHighModel = false;
                 foreach (string m in highModels) { if (m == selected) { isHighModel = true; break; } }
                 AssertTrue(isHighModel, "Upgraded selection should be a high-tier model");
@@ -304,7 +310,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, null, Fleet());
                 AssertNull(selected, "High tier should never downgrade -- should return null when no high captains available");
                 return Task.CompletedTask;
             });
@@ -316,7 +322,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-5")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "High tier should match the claude-opus-5 captain");
                 AssertEqual("claude-opus-5", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
@@ -329,7 +335,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("gpt-5.6-luna")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Mid tier should match the gpt-5.6-luna captain");
                 AssertEqual("gpt-5.6-luna", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
@@ -342,7 +348,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("opencode-go/qwen3.8-max")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Mid tier should match the qwen captain");
                 AssertEqual("opencode-go/qwen3.8-max", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
@@ -355,7 +361,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Mid tier should match the deepseek captain");
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
@@ -368,7 +374,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("gpt-5.6-sol-max")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, null, Fleet());
                 AssertNull(selected, "High tier should not select an unlisted variant of a high model");
                 return Task.CompletedTask;
             });
@@ -381,7 +387,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-8-max")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNull(selected, "Mid tier should not select unlisted variants of mid models");
                 return Task.CompletedTask;
             });
@@ -389,7 +395,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("SelectModel_ReturnsNull_WhenNoEligibleCaptains", () =>
             {
                 List<Captain> captains = new List<Captain>();
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNull(selected, "Should return null when no captains are available");
                 return Task.CompletedTask;
             });
@@ -402,7 +408,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("some-custom-model")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNull(selected, "Captain with a non-tier model should not be selected by tier dispatch");
                 return Task.CompletedTask;
             });
@@ -415,7 +421,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("gpt-5.6-luna", "[\"Worker\"]")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Null persona should accept captains with any AllowedPersonas");
                 return Task.CompletedTask;
             });
@@ -429,19 +435,19 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7", null)
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0, null, null, Fleet());
                 AssertNotNull(selected, "Captain with null AllowedPersonas should serve any persona including Judge");
                 return Task.CompletedTask;
             });
 
             await RunTest("ClassifyModel_CuratedAndCanonicalFamilies_MapToExpectedTier", () =>
             {
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "canonical opus is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5"), "canonical opus bump is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5"), "canonical fable is high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "curated gpt-5.6-luna is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max"), "curated grok-4.5 is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash"), "curated deepseek-v4-flash is mid");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", Fleet()), "canonical opus is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "canonical opus bump is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5", Fleet()), "canonical fable is high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "curated gpt-5.6-luna is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max", Fleet()), "curated grok-4.5 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "curated deepseek-v4-flash is mid");
                 return Task.CompletedTask;
             });
 
@@ -453,14 +459,14 @@ namespace Armada.Test.Unit.Suites.Services
                 // opencode/deepseek-v4-flash with the other prefix is NOT registered and must
                 // stay unclassified. This test fails if a future edit drops the entry from
                 // the mid list or adds an unlisted sibling to the curated arrays.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash"), "opencode-go/deepseek-v4-flash is curated mid");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash"), "opencode/deepseek-v4-flash is not registered -- only the opencode-go/ curated entry counts");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "opencode-go/deepseek-v4-flash is curated mid");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash", Fleet()), "opencode/deepseek-v4-flash is not registered -- only the opencode-go/ curated entry counts");
 
                 // Critical ordering guard: opencode-go/deepseek-v4-flash contains "deepseek" but
                 // does NOT start with a bare family token, so no fallback catches it. Only the
                 // curated mid entry can classify it; an unlisted sibling variant is
                 // unregistered and must NOT be absorbed.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash-lite"), "an unlisted sibling variant is not registered");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash-lite", Fleet()), "an unlisted sibling variant is not registered");
                 return Task.CompletedTask;
             });
 
@@ -469,14 +475,14 @@ namespace Armada.Test.Unit.Suites.Services
                 // A sibling opencode model that was NOT registered must stay null: the slash
                 // prefix keeps it out of the bare family fallbacks. Proves the curated
                 // registration -- not a pattern -- is what makes opencode-go/deepseek-v4-flash count.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash"), "unregistered opencode deepseek prefix is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v5"), "unregistered opencode deepseek variant is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash", Fleet()), "unregistered opencode deepseek prefix is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v5", Fleet()), "unregistered opencode deepseek variant is not classified");
                 return Task.CompletedTask;
             });
 
             await RunTest("GetTierModels_ContainsRegisteredOpencodeModels", () =>
             {
-                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid");
+                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid", Fleet());
                 AssertTrue(midModels.Contains("opencode-go/deepseek-v4-flash"), "mid tier must list opencode-go/deepseek-v4-flash");
                 AssertFalse(midModels.Contains("opencode/deepseek-v4-flash"), "the unregistered opencode prefix must not appear");
                 return Task.CompletedTask;
@@ -485,8 +491,8 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ModelMatchesTierOrAbove_UpwardFallback_SatisfiesLowPin", () =>
             {
                 // A mid model must satisfy a low-tier pin (upward fallback).
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("gpt-5.6-luna", "low"), "mid model satisfies low pin via upward fallback");
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "low"), "promoted deepseek model satisfies a low pin");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("gpt-5.6-luna", "low", Fleet()), "mid model satisfies low pin via upward fallback");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "low", Fleet()), "promoted deepseek model satisfies a low pin");
                 return Task.CompletedTask;
             });
 
@@ -494,21 +500,21 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // The bug this guards: an Opus version bump (4-7 -> 4-8 -> 5) must classify high
                 // WITHOUT being added to the curated array, and a Fable bump registers the same way.
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-8"), "opus 4-8 auto-registers high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5"), "opus 5 auto-registers high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-6"), "fable bump auto-registers high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gemini-4.0-pro"), "gemini pro bump auto-registers mid");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-8", Fleet()), "opus 4-8 auto-registers high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "opus 5 auto-registers high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-6", Fleet()), "fable bump auto-registers high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gemini-4.0-pro", Fleet()), "gemini pro bump auto-registers mid");
                 return Task.CompletedTask;
             });
 
             await RunTest("ClassifyModel_VariantSuffixes_AreNotRecognized", () =>
             {
                 // Anchored family patterns must not absorb unlisted suffix variants.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-preview"), "unlisted sol preview is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-preview"), "unlisted luna preview is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-5-preview"), "unlisted opus preview is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("some-custom-model"), "unknown model is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel(null), "null is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-preview", Fleet()), "unlisted sol preview is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-preview", Fleet()), "unlisted luna preview is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-5-preview", Fleet()), "unlisted opus preview is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("some-custom-model", Fleet()), "unknown model is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel(null, Fleet()), "null is not classified");
                 return Task.CompletedTask;
             });
 
@@ -521,17 +527,17 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-8", "[\"MemoryConsolidator\"]")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "MemoryConsolidator", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "MemoryConsolidator", _ => 0, null, null, Fleet());
                 AssertEqual("claude-opus-4-8", selected, "Upgraded Opus captain should be selectable for a high-tier MemoryConsolidator mission");
                 return Task.CompletedTask;
             });
 
             await RunTest("ModelMatchesTierOrAbove_RespectsUpwardChain", () =>
             {
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "high"), "opus 4-8 satisfies high");
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "mid"), "high model satisfies a mid pin (upward chain)");
-                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("gpt-5.6-luna", "high"), "mid model does not satisfy a high pin");
-                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("some-custom-model", "low"), "unclassified model satisfies no tier pin");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "high", Fleet()), "opus 4-8 satisfies high");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "mid", Fleet()), "high model satisfies a mid pin (upward chain)");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("gpt-5.6-luna", "high", Fleet()), "mid model does not satisfy a high pin");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("some-custom-model", "low", Fleet()), "unclassified model satisfies no tier pin");
                 return Task.CompletedTask;
             });
 
@@ -545,7 +551,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "Non-specialist work should take the idle mid captain, not the high one");
                 return Task.CompletedTask;
             });
@@ -559,8 +565,8 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel(selected), "High is selected as a last resort when no mid/low captain is idle");
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel(selected, Fleet()), "High is selected as a last resort when no mid/low captain is idle");
                 return Task.CompletedTask;
             });
 
@@ -574,7 +580,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "A non-specialist mid request must try low before high");
                 return Task.CompletedTask;
             });
@@ -588,7 +594,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Judge", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Judge", _ => 0, null, null, Fleet());
                 AssertEqual("claude-opus-4-7", selected, "Specialist persona must resolve to the high-tier captain only");
                 return Task.CompletedTask;
             });
@@ -604,7 +610,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "random stub 0 selects the first eligible worker model");
                 return Task.CompletedTask;
             });
@@ -619,7 +625,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "random stub 0 selects the first eligible idle worker model");
                 return Task.CompletedTask;
             });
@@ -635,7 +641,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder, Fleet());
                 AssertEqual("opencode-go/qwen3.8-max", selected, "random stub 0 selects the first eligible model (qwen)");
                 return Task.CompletedTask;
             });
@@ -655,7 +661,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "Custom preference order should place composer ahead of the ranked mid models");
                 return Task.CompletedTask;
             });
@@ -674,7 +680,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "Should skip missing luna and grok captains and land on composer");
                 return Task.CompletedTask;
             });
@@ -682,12 +688,8 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ModelTierSettings_WithinTierPreferenceOrder_DefaultsAndRestores", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertTrue(defaults.WithinTierPreferenceOrder.ContainsKey("mid"), "default preference order contains mid tier");
-                List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual(0, midOrder.Count, "all worker models are equal: the default mid preference order is empty (random peer selection)");
-                List<string> highOrder = defaults.WithinTierPreferenceOrder["high"];
-                AssertEqual(1, highOrder.Count, "the high preference order lists only the Judge-primary fable");
-                AssertEqual("claude-fable-5", highOrder[0], "fable is the only ranked high model; sol and opus are equal peers");
+                AssertEqual(0, defaults.WithinTierPreferenceOrder.Count, "product default preference order is empty");
+                AssertFalse(defaults.HasConfiguredTierMembership, "product defaults configure no tier membership");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
@@ -698,18 +700,22 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(custom.WithinTierPreferenceOrder.ContainsKey("low"), "custom preference order contains the operator-supplied low entry");
 
                 custom.WithinTierPreferenceOrder = null!;
-                AssertTrue(custom.WithinTierPreferenceOrder.ContainsKey("mid"), "null setter restores the built-in default preference order");
+                AssertEqual(0, custom.WithinTierPreferenceOrder.Count, "null setter restores the empty product default preference order");
                 return Task.CompletedTask;
             });
 
             await RunTest("IsSpecialistPersona_ConfigurableViaSettings", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertTrue(defaults.IsSpecialistPersona("Judge"), "Judge is a default specialist");
-                AssertTrue(defaults.IsSpecialistPersona("memoryconsolidator"), "specialist match is case-insensitive");
+                AssertFalse(defaults.IsSpecialistPersona("Judge"), "product defaults reserve no specialist personas");
                 AssertFalse(defaults.IsSpecialistPersona("Worker"), "Worker is not a specialist");
                 AssertFalse(defaults.IsSpecialistPersona(null), "null persona is not a specialist");
-                AssertEqual(10, defaults.SpecialistPersonas.Count, "default specialist set has the 10 reserved personas");
+                AssertEqual(0, defaults.SpecialistPersonas.Count, "product default specialist set is empty");
+
+                ModelTierSettings fleet = Fleet();
+                AssertTrue(fleet.IsSpecialistPersona("Judge"), "fleet overlay treats Judge as a specialist");
+                AssertTrue(fleet.IsSpecialistPersona("memoryconsolidator"), "specialist match is case-insensitive");
+                AssertEqual(10, fleet.SpecialistPersonas.Count, "fleet specialist set has the 10 reserved personas");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.SpecialistPersonas = new List<string> { "Curator" };
@@ -719,7 +725,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(PreferredModelTierSelector.RequiresHighTier("Judge", custom.SpecialistPersonas), "selector excludes Judge under the custom set");
 
                 custom.SpecialistPersonas = null!;
-                AssertTrue(custom.IsSpecialistPersona("Judge"), "null setter restores the built-in default specialists");
+                AssertFalse(custom.IsSpecialistPersona("Judge"), "null setter restores the empty product default specialists");
                 return Task.CompletedTask;
             });
 
@@ -738,10 +744,11 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // Specialist personas are reserved for high: any sub-high tier selector (or an
                 // unset preferred model) is forced up to high at create time.
-                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge"), "specialist mid request is upgraded to high");
-                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("low", "Architect"), "specialist low request is upgraded to high");
-                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona(null, "TestEngineer"), "specialist with no preferred model defaults to high");
-                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("high", "Judge"), "specialist that already asked for high stays high");
+                IReadOnlyCollection<string> specialists = Fleet().SpecialistPersonas;
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge", specialists), "specialist mid request is upgraded to high");
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("low", "Architect", specialists), "specialist low request is upgraded to high");
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona(null, "TestEngineer", specialists), "specialist with no preferred model defaults to high");
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("high", "Judge", specialists), "specialist that already asked for high stays high");
                 return Task.CompletedTask;
             });
 
@@ -749,7 +756,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // An operator-pinned literal model name is honored verbatim even for a specialist;
                 // the runtime tier-fallback handles the case where no matching captain is idle.
-                AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.EnforceHighTierForPersona("gpt-5.6-luna", "Judge"), "specialist literal pin is not rewritten to a tier selector");
+                AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.EnforceHighTierForPersona("gpt-5.6-luna", "Judge", Fleet().SpecialistPersonas), "specialist literal pin is not rewritten to a tier selector");
                 return Task.CompletedTask;
             });
 
@@ -776,7 +783,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("low", captains, "Worker", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("low", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "A non-specialist low request must try mid before falling up to high");
                 return Task.CompletedTask;
             });
@@ -791,7 +798,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Worker", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertEqual("claude-opus-4-7", selected, "An explicit high request by a non-specialist resolves to the high captain, not the idle mid one");
                 return Task.CompletedTask;
             });
@@ -818,9 +825,9 @@ namespace Armada.Test.Unit.Suites.Services
                 // gpt-5.6-sol must classify high through its explicit curated entry, not a fragile
                 // regex or prefix fallback. Nearby variants that are not explicitly listed must remain
                 // unclassified.
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol"), "gpt-5.6-sol is explicitly high");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-max"), "no gpt prefix fallback absorbs variants");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-lite"), "no gpt prefix fallback absorbs sibling names");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", Fleet()), "gpt-5.6-sol is explicitly high");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-max", Fleet()), "no gpt prefix fallback absorbs variants");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-lite", Fleet()), "no gpt prefix fallback absorbs sibling names");
                 return Task.CompletedTask;
             });
 
@@ -828,9 +835,9 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // gpt-5.6-luna must reliably resolve to the mid tier through its explicit
                 // curated entry, while unlisted variants stay unclassified.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "gpt-5.6-luna is mid");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-max"), "an unlisted luna variant stays unclassified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-2"), "a versioned luna variant stays unclassified");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "gpt-5.6-luna is mid");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-max", Fleet()), "an unlisted luna variant stays unclassified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-2", Fleet()), "a versioned luna variant stays unclassified");
                 return Task.CompletedTask;
             });
 
@@ -844,7 +851,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("claude-opus-4-7")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "TestEngineer", _ => 0);
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "TestEngineer", _ => 0, null, null, Fleet());
                 AssertEqual("claude-opus-4-7", selected, "Specialist mid dispatch is forced to high-tier captain");
                 return Task.CompletedTask;
             });
@@ -855,8 +862,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // mid request selects randomly among the eligible models. The random stub index
                 // 0 picks the first eligible model in captain order.
                 ModelTierSettings defaults = new ModelTierSettings();
-                List<string> midOrder = defaults.WithinTierPreferenceOrder["mid"];
-                AssertEqual(0, midOrder.Count, "no worker model is ranked above another");
+                AssertEqual(0, defaults.WithinTierPreferenceOrder.Count, "no worker model is ranked above another");
 
                 List<Captain> captains = new List<Captain>
                 {
@@ -892,10 +898,12 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 string? builtIn = PreferredModelTierSelector.SelectModel(
-                    "mid", captains, "Worker", _ => 0, null, new ModelTierSettings().WithinTierPreferenceOrder, new ModelTierSettings());
+                    "mid", captains, "Worker", _ => 0, null, Fleet().WithinTierPreferenceOrder, Fleet());
                 AssertEqual("gpt-5.6-luna", builtIn, "the built-in ranking prefers the luna captain");
+                ModelTierSettings fileWithStrategy = fileTier;
+                fileWithStrategy.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
                 string? fromFile = PreferredModelTierSelector.SelectModel(
-                    "mid", captains, "Worker", _ => 0, null, fileTier.WithinTierPreferenceOrder, fileTier);
+                    "mid", captains, "Worker", _ => 0, null, fileTier.WithinTierPreferenceOrder, fileWithStrategy);
                 AssertEqual("opencode-go/deepseek-v4-flash", fromFile, "the loaded settings file must win over the built-in ranking");
 
                 AssertEqual(2, fileTier.MidTierModels.Count, "the file's mid membership replaces the built-in list");
@@ -998,9 +1006,9 @@ namespace Armada.Test.Unit.Suites.Services
                 // The gpt-5.6-luna entry is exact-match only: only the curated string classifies
                 // mid. Adjacent or suffixed variants (luna-max, luna-2) must NOT be absorbed --
                 // they match no family pattern and are not curated.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna"), "the exact curated luna entry is mid");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-max"), "a suffixed luna variant is NOT absorbed");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-2"), "a versioned luna variant is NOT absorbed");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "the exact curated luna entry is mid");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-max", Fleet()), "a suffixed luna variant is NOT absorbed");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-2", Fleet()), "a versioned luna variant is NOT absorbed");
                 return Task.CompletedTask;
             });
 
@@ -1029,7 +1037,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("house-model-x")
                 };
 
-                string? withoutConfig = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0);
+                string? withoutConfig = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
                 AssertNull(withoutConfig, "an unclassified model is not selectable for a mid request under defaults");
 
                 ModelTierSettings custom = new ModelTierSettings();
@@ -1097,9 +1105,10 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ResolveTierForPersona_SpecialistPersona_StillUpgradesToHigh", () =>
             {
                 // The cap must not weaken the existing upgrade: specialist personas keep high.
-                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", "Judge"), "a Judge keeps high");
-                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", "Judge"), "a Judge is upgraded from mid to high");
-                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona(null, "TestEngineer"), "a TestEngineer with no tier is set to high");
+                IReadOnlyCollection<string> specialists = Fleet().SpecialistPersonas;
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", "Judge", specialists), "a Judge keeps high");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", "Judge", specialists), "a Judge is upgraded from mid to high");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona(null, "TestEngineer", specialists), "a TestEngineer with no tier is set to high");
                 return Task.CompletedTask;
             });
 
@@ -1109,6 +1118,65 @@ namespace Armada.Test.Unit.Suites.Services
                 // tier-fallback handles the runtime case when no captain matches.
                 AssertEqual("claude-opus-4-7", PreferredModelTierSelector.ResolveTierForPersona("claude-opus-4-7", "Worker"), "a literal model name is not capped");
                 AssertEqual("gpt-5.6-sol", PreferredModelTierSelector.ResolveTierForPersona("gpt-5.6-sol", "Judge"), "a literal model name is not upgraded");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("VanillaDefaults_ClassifyNoFamilyAndJudgeIsNotSpecialist", () =>
+            {
+                ModelTierSettings defaults = new ModelTierSettings();
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", defaults), "vanilla classifies no opus family");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-fable-5", defaults), "vanilla classifies no fable family");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", defaults), "vanilla classifies no sonnet family");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gemini-3-pro", defaults), "vanilla classifies no gemini family");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("kimi-k2.7", defaults), "vanilla classifies no kimi family");
+                AssertFalse(defaults.IsSpecialistPersona("Judge"), "vanilla reserves no Judge specialist");
+                AssertFalse(defaults.PreferNonNativeFirst, "vanilla does not prefer non-native captains");
+                AssertEqual(ModelTierSettings.WithinTierStrategyRandom, defaults.WithinTierStrategy, "vanilla within-tier strategy is Random");
+                AssertEqual(0, defaults.ReservedHighTierSlots, "vanilla reserved high-tier slots is zero");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("VanillaDefaults_SelectModel_RandomAmongEligibleNoNonNativePreference", () =>
+            {
+                ModelTierSettings defaults = new ModelTierSettings();
+                Captain native = MakeCaptain("claude-opus-4-7");
+                native.Runtime = AgentRuntimeEnum.OpenCode;
+                Captain external = MakeCaptain("gpt-5.6-luna");
+                external.Runtime = AgentRuntimeEnum.ClaudeCode;
+                external.ApiBaseUrl = "https://example.com";
+                List<Captain> captains = new List<Captain> { native, external };
+
+                string? first = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, defaults);
+                AssertEqual("claude-opus-4-7", first, "vanilla random stub 0 picks the first eligible model, including native");
+                string? last = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", n => n - 1, null, null, defaults);
+                AssertEqual("gpt-5.6-luna", last, "vanilla random stub last picks the other eligible model");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("FleetOverlay_Regression_MatchesFormerHardcodedDecisions", () =>
+            {
+                ModelTierSettings fleet = Fleet();
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", fleet), "fleet opus family is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-6", fleet), "fleet fable version-bump is high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", fleet), "fleet sonnet family is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gemini-4.0-pro", fleet), "fleet gemini pro family is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7", fleet), "fleet kimi family is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", fleet), "fleet curated luna is mid");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", fleet), "fleet curated sol is high");
+                AssertTrue(fleet.IsSpecialistPersona("Judge"), "fleet Judge is a specialist");
+                AssertTrue(fleet.PreferNonNativeFirst, "fleet prefers non-native captains");
+                AssertEqual(ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom, fleet.WithinTierStrategy, "fleet uses preference-order then random");
+                AssertEqual(1, fleet.ReservedHighTierSlots, "fleet reserves one high-tier slot");
+                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge", fleet.SpecialistPersonas), "fleet Judge mid request upgrades to high");
+
+                Captain native = MakeCaptain("opencode-go/deepseek-v4-flash");
+                native.Runtime = AgentRuntimeEnum.OpenCode;
+                Captain external = MakeCaptain("gpt-5.6-luna");
+                external.Runtime = AgentRuntimeEnum.ClaudeCode;
+                external.ApiBaseUrl = "https://example.com";
+                List<Captain> captains = new List<Captain> { native, external };
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, fleet);
+                AssertEqual("gpt-5.6-luna", selected, "fleet non-native-first picks the external luna captain over native deepseek");
                 return Task.CompletedTask;
             });
         }

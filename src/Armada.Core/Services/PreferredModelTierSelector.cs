@@ -15,9 +15,12 @@ namespace Armada.Core.Services
     ///
     /// Tier membership is config-driven through <see cref="ModelTierSettings"/>:
     /// the MidTierModels and HighTierModels lists determine which concrete models
-    /// belong to each tier. There is no low tier; the legacy low selector maps to
-    /// mid. When no settings are supplied, a fresh built-in default set is used so
-    /// existing call sites keep working.
+    /// belong to each tier. Family-classification rules, specialist personas, and
+    /// within-tier policy (non-native preference, random vs preference-order) also
+    /// come from that object. Product defaults are empty and policy-neutral: no
+    /// model family is assumed, no persona is reserved for high, and selection is
+    /// random within a tier. There is no low tier; the legacy low selector maps to
+    /// mid.
     /// </summary>
     public static class PreferredModelTierSelector
     {
@@ -60,34 +63,6 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
-        // Canonical model-family patterns. These let routine version bumps within a known
-        // family (e.g. claude-opus-4-7 -> claude-opus-4-8 -> claude-opus-5) classify into
-        // the correct tier WITHOUT editing the configured membership lists, which is the
-        // whole point of tier selectors. Patterns are deliberately anchored to the canonical
-        // vendor naming so alias/preview variants (claude-4.6-opus-high-preview,
-        // gemini-3.1-pro-preview) do NOT leak in -- those must be listed explicitly in the
-        // configured membership list to count.
-        private static readonly Regex _CanonicalOpusPattern =
-            new Regex(@"^claude-opus-\d+(?:-\d+)*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex _CanonicalSonnetPattern =
-            new Regex(@"^claude-sonnet-\d+(?:-\d+)*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        // Anthropic's most-capable widely-released family (Fable) and its Project Glasswing
-        // sibling (Mythos) are top-tier -> high. Anchored to canonical naming so version bumps
-        // (claude-fable-5 -> claude-fable-6) register automatically, like the opus pattern.
-        private static readonly Regex _CanonicalFablePattern =
-            new Regex(@"^claude-(?:fable|mythos)-\d+(?:-\d+)*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex _GeminiProPattern =
-            new Regex(@"^gemini-[\d.]+-pro$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        // Kimi K2.7 is explicitly mid-tier. This pattern anchors the version so future
-        // K2.7 aliases classify mid without requiring each slash-prefixed variant to be
-        // added by hand.
-        private static readonly Regex _CanonicalKimiK27Pattern =
-            new Regex(@"^(?:opencode(?:-go)?/)?kimi-k2\.7(?:[-.].*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
         private static readonly Dictionary<string, string> _Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             { "quick", MidTier },
@@ -102,24 +77,6 @@ namespace Armada.Core.Services
         private static readonly HashSet<string> _CapabilityHintNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             AuditHint, ReasoningHeavyHint, MechanicalHint, DocOnlyHint
-        };
-
-        // Personas that can only be filled by high-tier captains. Mid- and low-tier
-        // captains carry ["Worker"] allow-lists and would never match these personas
-        // anyway, but enforcing the tier at mission-create time keeps the stored
-        // PreferredModel honest and surfaces dispatch errors before they hit routing.
-        private static readonly HashSet<string> _HighTierOnlyPersonas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Judge",
-            "Architect",
-            "TestEngineer",
-            "DiagnosticProtocolReviewer",
-            "TenantSecurityReviewer",
-            "MigrationDataReviewer",
-            "PerformanceMemoryReviewer",
-            "PortingReferenceAnalyst",
-            "FrontendWorkflowReviewer",
-            "MemoryConsolidator"
         };
 
         #endregion
@@ -163,11 +120,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Returns true when the persona is a specialist reserved for high-tier captains
-        /// (Judge, Architect, TestEngineer, specialist reviewers, MemoryConsolidator).
+        /// Returns true when the persona is in the supplied specialist set.
         /// Worker and null personas return false. When <paramref name="specialistPersonas"/>
-        /// is null the built-in default specialist set is used, so existing call sites keep
-        /// their original behavior; operators can override the set via settings.
+        /// is null or empty, no persona is reserved for high: product defaults are empty.
         /// </summary>
         /// <param name="persona">Persona name to test.</param>
         /// <param name="specialistPersonas">Optional override set; null uses the built-in default.</param>
@@ -182,12 +137,12 @@ namespace Armada.Core.Services
         /// below "high" to "high". Null/empty preferredModel becomes "high" when the persona
         /// requires it; literal model names are passed through unchanged (operator-pinned
         /// literals stay honest -- the dispatcher's tier-fallback handles the runtime case
-        /// if no captain matches). When <paramref name="specialistPersonas"/> is null the
-        /// built-in default specialist set is used.
+        /// if no captain matches). When <paramref name="specialistPersonas"/> is null or
+        /// empty, no persona is treated as a specialist.
         /// </summary>
         /// <param name="preferredModel">Requested tier selector or literal model name.</param>
         /// <param name="persona">Persona the mission requires.</param>
-        /// <param name="specialistPersonas">Optional override set; null uses the built-in default.</param>
+        /// <param name="specialistPersonas">Optional specialist set; null or empty treats no persona as a specialist.</param>
         public static string? EnforceHighTierForPersona(
             string? preferredModel,
             string? persona,
@@ -223,7 +178,7 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="preferredModel">Requested tier selector or literal model name.</param>
         /// <param name="persona">Persona the mission will actually run as.</param>
-        /// <param name="specialistPersonas">Optional override set; null uses the built-in default.</param>
+        /// <param name="specialistPersonas">Optional specialist set; null or empty treats no persona as a specialist.</param>
         public static string? ResolveTierForPersona(
             string? preferredModel,
             string? persona,
@@ -305,8 +260,9 @@ namespace Armada.Core.Services
         /// <summary>
         /// Classifies a concrete model name into its complexity tier (mid or high),
         /// or null when the model is not recognized as belonging to any tier. A model counts
-        /// when it is in the configured tier membership lists. When no settings object
-        /// is supplied, built-in family inference also recognizes routine version bumps.
+        /// when it is in the configured tier membership lists. When those lists miss, the
+        /// configured family-classification rules are applied in order. Product defaults
+        /// have empty lists and empty rules, so an unclassified model stays unclassified.
         /// </summary>
         /// <param name="model">Concrete model name (not a tier selector).</param>
         /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
@@ -318,23 +274,11 @@ namespace Armada.Core.Services
             ModelTierSettings settings = modelTierSettings ?? CreateDefaultSettings();
 
             // Configured membership lists win first -- they are the authority for alias-style
-            // names (e.g. claude-4.6-opus-high) that intentionally do not match a pattern, and
-            // for explicit entries such as gpt-5.5.
+            // names that intentionally do not match a pattern, and for explicit entries.
             if (ContainsModel(settings.HighTierModels, normalized)) return HighTier;
             if (ContainsModel(settings.MidTierModels, normalized)) return MidTier;
 
-            // A supplied settings object is authoritative. Do not let family heuristics
-            // silently re-add or reclassify a model the operator removed from its lists.
-            if (modelTierSettings != null) return null;
-
-            // Canonical family patterns -- forward-compatible with version bumps.
-            if (_CanonicalOpusPattern.IsMatch(normalized)) return HighTier;
-            if (_CanonicalFablePattern.IsMatch(normalized)) return HighTier;
-            if (_CanonicalKimiK27Pattern.IsMatch(normalized)) return MidTier;
-            if (_CanonicalSonnetPattern.IsMatch(normalized)) return MidTier;
-            if (_GeminiProPattern.IsMatch(normalized)) return MidTier;
-
-            return null;
+            return ClassifyByFamilyRules(normalized, settings.FamilyClassificationRules);
         }
 
         /// <summary>
@@ -407,10 +351,18 @@ namespace Armada.Core.Services
                 throw new ArgumentNullException(nameof(randomPick));
 
             ModelTierSettings settings = modelTierSettings ?? CreateDefaultSettings();
+            if (!settings.HasConfiguredTierMembership)
+                return SelectFromUnconfiguredPool(idleCaptains, persona, randomPick);
+
             string normalized = NormalizeTier(tierValue);
-            bool isSpecialist = IsSpecialistPersona(persona, specialistPersonas);
+            IReadOnlyCollection<string>? resolvedSpecialists = specialistPersonas ?? settings.SpecialistPersonas;
+            bool isSpecialist = IsSpecialistPersona(persona, resolvedSpecialists);
             string[] tierOrder = BuildTierOrder(isSpecialist, normalized);
             string? resolvedHint = NormalizeCapabilityHint(capabilityHint);
+            bool preferNonNative = settings.PreferNonNativeFirst;
+            bool usePreferenceOrderStrategy = settings.UsesPreferenceOrderThenRandom();
+            IReadOnlyDictionary<string, List<string>>? effectivePreferenceOrder =
+                withinTierPreferenceOrder ?? settings.WithinTierPreferenceOrder;
 
             foreach (string tier in tierOrder)
             {
@@ -435,24 +387,28 @@ namespace Armada.Core.Services
                 if (eligibleModels.Count == 0)
                     continue;
 
-                // Non-native-first: when any idle eligible captain for a model is
-                // external-provider served (non-OpenCode runtime carrying its own base URL),
-                // models with external availability are selected before native-only models.
-                // OpenCode-runtime captains are treated as native. Native models remain equal
-                // random peers among themselves, and so do the external ones.
-                List<string> externalEligible = new List<string>();
-                List<string> nativeEligible = new List<string>();
-                foreach (string model in eligibleModels)
+                // Non-native-first is opt-in. When enabled, models with an idle
+                // external-provider captain (non-OpenCode runtime carrying its own base URL)
+                // are selected before native-only models. OpenCode-runtime captains count as
+                // native. When disabled, every eligible model stays in one random pool.
+                List<string> selectionPool = eligibleModels;
+                if (preferNonNative)
                 {
-                    if (HasExternalIdleCaptain(idleCaptains, model, persona))
-                        externalEligible.Add(model);
-                    else
-                        nativeEligible.Add(model);
+                    List<string> externalEligible = new List<string>();
+                    List<string> nativeEligible = new List<string>();
+                    foreach (string model in eligibleModels)
+                    {
+                        if (HasExternalIdleCaptain(idleCaptains, model, persona))
+                            externalEligible.Add(model);
+                        else
+                            nativeEligible.Add(model);
+                    }
+                    selectionPool = externalEligible.Count > 0 ? externalEligible : nativeEligible;
                 }
-                List<string> selectionPool = externalEligible.Count > 0 ? externalEligible : nativeEligible;
 
                 IReadOnlyList<string>? preferenceOrder = null;
-                bool hasPreferenceOrder = TryGetWithinTierPreferenceOrder(tier, withinTierPreferenceOrder, out preferenceOrder);
+                bool hasConfiguredPreferenceOrder = TryGetWithinTierPreferenceOrder(tier, effectivePreferenceOrder, out preferenceOrder);
+                bool hasPreferenceOrder = usePreferenceOrderStrategy && hasConfiguredPreferenceOrder;
 
                 // When a recognized capability hint maps to a profile dimension, sort eligible
                 // models descending by their score for that dimension before the preference-order
@@ -554,6 +510,31 @@ namespace Armada.Core.Services
         private static ModelTierSettings CreateDefaultSettings()
         {
             return new ModelTierSettings();
+        }
+
+        /// <summary>
+        /// Vanilla path: no membership lists and no family rules, so every idle
+        /// persona-eligible captain is an equal peer. Picks one model at random.
+        /// </summary>
+        private static string? SelectFromUnconfiguredPool(
+            IReadOnlyList<Captain> idleCaptains,
+            string? persona,
+            Func<int, int> randomPick)
+        {
+            List<string> eligibleModels = new List<string>();
+            foreach (Captain captain in idleCaptains)
+            {
+                if (captain == null || String.IsNullOrEmpty(captain.Model))
+                    continue;
+                if (!IsPersonaEligible(captain, persona))
+                    continue;
+                if (!ContainsModel(eligibleModels, captain.Model))
+                    eligibleModels.Add(captain.Model);
+            }
+
+            if (eligibleModels.Count == 0)
+                return null;
+            return eligibleModels[randomPick(eligibleModels.Count)];
         }
 
         private static bool ContainsModel(IReadOnlyList<string> models, string model)
@@ -664,11 +645,41 @@ namespace Armada.Core.Services
             return true;
         }
 
+        private static string? ClassifyByFamilyRules(string model, IReadOnlyList<ModelFamilyClassificationRule> rules)
+        {
+            if (rules == null || rules.Count == 0)
+                return null;
+
+            foreach (ModelFamilyClassificationRule rule in rules)
+            {
+                if (rule == null || String.IsNullOrWhiteSpace(rule.Pattern) || String.IsNullOrWhiteSpace(rule.Tier))
+                    continue;
+
+                try
+                {
+                    if (!Regex.IsMatch(model, rule.Pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                        continue;
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+
+                if (String.Equals(rule.Tier, HighTier, StringComparison.OrdinalIgnoreCase))
+                    return HighTier;
+                if (String.Equals(rule.Tier, MidTier, StringComparison.OrdinalIgnoreCase)
+                    || String.Equals(rule.Tier, LowTier, StringComparison.OrdinalIgnoreCase))
+                    return MidTier;
+            }
+
+            return null;
+        }
+
         private static bool IsSpecialistPersona(string? persona, IReadOnlyCollection<string>? specialistPersonas)
         {
             if (String.IsNullOrWhiteSpace(persona)) return false;
-            IEnumerable<string> set = specialistPersonas ?? _HighTierOnlyPersonas;
-            foreach (string specialist in set)
+            if (specialistPersonas == null) return false;
+            foreach (string specialist in specialistPersonas)
             {
                 if (String.Equals(specialist, persona, StringComparison.OrdinalIgnoreCase))
                     return true;

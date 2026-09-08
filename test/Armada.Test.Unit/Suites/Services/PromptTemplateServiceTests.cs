@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services.Interfaces;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Tests for the PromptTemplateService: seeding, resolving, rendering, resetting, and listing templates.
@@ -60,7 +61,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
 
                     List<PromptTemplate> personaTemplates = await service.ListAsync("persona").ConfigureAwait(false);
@@ -95,7 +96,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
                     Dictionary<string, string> expectedRoleNames = new Dictionary<string, string>
                     {
                         { "persona.diagnostic_protocol_reviewer", "DiagnosticProtocolReviewer" },
@@ -129,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
 
                     // The embedded template renders its focus string and guidance bullets into
                     // the Specialist Focus / Review Checklist sections of Content. Guard against a
@@ -157,7 +158,7 @@ namespace Armada.Test.Unit.Suites.Services
                     existing.IsBuiltIn = false;
                     await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
 
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
 
                     PromptTemplate? resolved = await service.ResolveAsync("persona.diagnostic_protocol_reviewer").ConfigureAwait(false);

@@ -207,13 +207,15 @@ Built-in personas:
 - `Usability Engineer`
 - `Judge`
 - `TestEngineer`
-- `DiagnosticProtocolReviewer`
-- `TenantSecurityReviewer`
-- `MigrationDataReviewer`
-- `PerformanceMemoryReviewer`
-- `PortingReferenceAnalyst`
-- `FrontendWorkflowReviewer`
 - `MemoryConsolidator`
+
+Specialist reviewer personas (`DiagnosticProtocolReviewer`,
+`TenantSecurityReviewer`, `MigrationDataReviewer`,
+`PerformanceMemoryReviewer`, `PortingReferenceAnalyst`,
+`FrontendWorkflowReviewer`) are not built in. Seed them from
+`additionalPersonas` and `additionalPromptTemplates` in settings (see
+`factory/settings.fleet.example.json`). They are also editable on the
+Dashboard Settings page. They load at startup.
 
 Use `armada_enumerate(entityType: "personas")`, `get_persona`,
 `create_persona`, `update_persona`, and `delete_persona`. Built-in personas
@@ -235,14 +237,13 @@ Built-in pipelines:
 | `Tested` | Worker, TestEngineer, Judge |
 | `FullPipeline` | Architect, Worker, TestEngineer, Judge |
 | `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge |
-| `DiagnosticProtocolTested` | Worker, DiagnosticProtocolReviewer, TestEngineer, Judge |
-| `TenantSecurityTested` | Worker, TenantSecurityReviewer, TestEngineer, Judge |
-| `MigrationDataTested` | Worker, MigrationDataReviewer, TestEngineer, Judge |
-| `PerformanceMemoryTested` | Worker, PerformanceMemoryReviewer, TestEngineer, Judge |
-| `ReferencePortingTested` | Worker, PortingReferenceAnalyst, TestEngineer, Judge |
-| `FrontendWorkflowTested` | Worker, FrontendWorkflowReviewer, TestEngineer, Judge |
 | `Reflections` | MemoryConsolidator |
 | `ReflectionsDualJudge` | MemoryConsolidator, then two parallel Judge stages |
+
+Specialist-tested pipelines (`DiagnosticProtocolTested`,
+`TenantSecurityTested`, `MigrationDataTested`, `PerformanceMemoryTested`,
+`ReferencePortingTested`, `FrontendWorkflowTested`) are not built in.
+Seed them from `additionalPipelines` in settings. They load at startup.
 
 Use `armada_enumerate(entityType: "pipelines")`, `get_pipeline`,
 `create_pipeline`, `update_pipeline`, and `delete_pipeline`.

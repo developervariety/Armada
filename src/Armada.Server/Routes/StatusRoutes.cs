@@ -427,8 +427,30 @@ namespace Armada.Server.Routes
                     body.ModelTier.ApplyTo(_settings.ModelTier);
                     _logging.Info(_Header + "model-tier routing updated via API: reservedHighTierSlots="
                         + _settings.ModelTier.ReservedHighTierSlots
-                        + " specialistPersonas=" + _settings.ModelTier.SpecialistPersonas.Count);
+                        + " specialistPersonas=" + _settings.ModelTier.SpecialistPersonas.Count
+                        + " preferNonNativeFirst=" + _settings.ModelTier.PreferNonNativeFirst
+                        + " withinTierStrategy=" + _settings.ModelTier.WithinTierStrategy);
                 }
+
+                if (body.VoyageDispatch != null)
+                {
+                    body.VoyageDispatch.ApplyTo(_settings.VoyageDispatch);
+                    _logging.Info(_Header + "voyage-dispatch settings updated via API: rejectStagePersonaTitlePrefixes="
+                        + _settings.VoyageDispatch.RejectStagePersonaTitlePrefixes
+                        + " prefixCount=" + _settings.VoyageDispatch.StagePersonaTitlePrefixes.Count);
+                }
+
+                if (body.AdditionalPromptTemplates != null)
+                    _settings.AdditionalPromptTemplates = body.AdditionalPromptTemplates;
+
+                if (body.AdditionalPersonas != null)
+                    _settings.AdditionalPersonas = body.AdditionalPersonas;
+
+                if (body.AdditionalPipelines != null)
+                    _settings.AdditionalPipelines = body.AdditionalPipelines;
+
+                if (body.ModelProviders != null)
+                    _settings.ModelProviders = body.ModelProviders;
 
                 await _settings.SaveAsync().ConfigureAwait(false);
 
@@ -543,7 +565,14 @@ namespace Armada.Server.Routes
                 ReposDirectory = _settings.ReposDirectory,
                 RemoteControl = _settings.RemoteControl,
                 ResourcePressureAdmission = _settings.ResourcePressureAdmission,
-                ModelTier = _settings.ModelTier
+                ModelTier = _settings.ModelTier,
+                VoyageDispatch = _settings.VoyageDispatch,
+                AdditionalPromptTemplates = _settings.AdditionalPromptTemplates,
+                AdditionalPersonas = _settings.AdditionalPersonas,
+                AdditionalPipelines = _settings.AdditionalPipelines,
+                ModelProviders = _settings.ModelProviders,
+                ModelProvidersHotReload = false,
+                AdditionalAssetsHotReload = false
             };
         }
 

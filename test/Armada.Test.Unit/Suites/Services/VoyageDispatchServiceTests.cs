@@ -20,6 +20,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Server.Routes;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Tests for the shared voyage dispatch service used by REST and MCP dispatch paths.
@@ -639,7 +640,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 new MissionDescription(tagged, "a prior run's stage mission resubmitted as a task")
                             }
                         };
-                        VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+                        VoyageDispatchResult result = await NewService(testDb, FleetRoutingSettings.CreateArmadaSettings()).DispatchAsync(request).ConfigureAwait(false);
                         AssertEqual(400, result.StatusCode, "a '" + tagged + "' title must be rejected before any voyage is created");
                         AssertContains("mission_title_carries_stage_persona_prefix", JsonSerializer.Serialize(result.Value),
                             "the rejection must name the stage-persona-prefix code for '" + tagged + "'");
@@ -656,7 +657,7 @@ namespace Armada.Test.Unit.Suites.Services
                             new MissionDescription("Fix the queue naming prefix divergence", "the real task")
                         }
                     };
-                    VoyageDispatchResult okResult = await NewService(testDb).DispatchAsync(ok).ConfigureAwait(false);
+                    VoyageDispatchResult okResult = await NewService(testDb, FleetRoutingSettings.CreateArmadaSettings()).DispatchAsync(ok).ConfigureAwait(false);
                     AssertTrue(okResult.Succeeded, "a normal task title must dispatch");
 
                     // A bracket tag that is NOT a persona must not trip the guard (no false positive).
@@ -670,8 +671,34 @@ namespace Armada.Test.Unit.Suites.Services
                             new MissionDescription("[URGENT] Fix the queue naming", "a non-persona bracket tag")
                         }
                     };
-                    VoyageDispatchResult bracketResult = await NewService(testDb).DispatchAsync(bracket).ConfigureAwait(false);
+                    VoyageDispatchResult bracketResult = await NewService(testDb, FleetRoutingSettings.CreateArmadaSettings()).DispatchAsync(bracket).ConfigureAwait(false);
                     AssertTrue(bracketResult.Succeeded, "a non-persona bracket prefix must NOT be rejected");
+                }
+            });
+
+            await RunTest("Validation_MissionTitleWithStagePersonaPrefix_DefaultSettingsAllows", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("vanilla-prefix-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "vanilla prefix voyage",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("[Worker] Fix the queue naming", "vanilla defaults must not reject a stage-persona prefix")
+                        }
+                    };
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "product defaults leave the stage-persona title guard off");
                 }
             });
 
@@ -964,7 +991,7 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private static VoyageDispatchService NewService(TestDatabase testDb)
+        private static VoyageDispatchService NewService(TestDatabase testDb, ArmadaSettings? settings = null)
         {
             return new VoyageDispatchService(
                 testDb.Driver,
@@ -972,7 +999,7 @@ namespace Armada.Test.Unit.Suites.Services
                 null,
                 null,
                 null,
-                null);
+                settings);
         }
 
         private static async Task<Mission> WaitForMissionPrestagedAsync(DatabaseDriver database, string missionId)

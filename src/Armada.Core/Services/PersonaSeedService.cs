@@ -7,6 +7,7 @@ namespace Armada.Core.Services
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
 
     /// <summary>
     /// Seeds built-in personas and pipelines into the database on startup.
@@ -18,6 +19,8 @@ namespace Armada.Core.Services
         private string _Header = "[PersonaSeedService] ";
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
+        private readonly IReadOnlyList<AdditionalPersonaSettings> _AdditionalPersonas;
+        private readonly IReadOnlyList<AdditionalPipelineSettings> _AdditionalPipelines;
 
         #endregion
 
@@ -28,10 +31,18 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Logging module.</param>
-        public PersonaSeedService(DatabaseDriver database, LoggingModule logging)
+        /// <param name="additionalPersonas">Optional extra personas from settings.</param>
+        /// <param name="additionalPipelines">Optional extra pipelines from settings.</param>
+        public PersonaSeedService(
+            DatabaseDriver database,
+            LoggingModule logging,
+            IReadOnlyList<AdditionalPersonaSettings>? additionalPersonas = null,
+            IReadOnlyList<AdditionalPipelineSettings>? additionalPipelines = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _AdditionalPersonas = additionalPersonas ?? Array.Empty<AdditionalPersonaSettings>();
+            _AdditionalPipelines = additionalPipelines ?? Array.Empty<AdditionalPipelineSettings>();
         }
 
         #endregion
@@ -59,13 +70,14 @@ namespace Armada.Core.Services
             await SeedPersonaAsync("Usability Engineer", "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
             await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("DiagnosticProtocolReviewer", "Specialist reviewer for binary/wire protocol parsing, security-sensitive access paths, and high-risk hardware-affecting operations.", "persona.diagnostic_protocol_reviewer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("TenantSecurityReviewer", "Specialist reviewer for multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.", "persona.tenant_security_reviewer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("MigrationDataReviewer", "Specialist reviewer for migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.", "persona.migration_data_reviewer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("PerformanceMemoryReviewer", "Specialist reviewer for memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.", "persona.performance_memory_reviewer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("PortingReferenceAnalyst", "Specialist analyst for approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.", "persona.porting_reference_analyst", token).ConfigureAwait(false);
-            await SeedPersonaAsync("FrontendWorkflowReviewer", "Specialist reviewer for frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.", "persona.frontend_workflow_reviewer", token).ConfigureAwait(false);
             await SeedPersonaAsync("MemoryConsolidator", "Curates the per-vessel learned-facts playbook from completed-mission evidence. Read-only on logs/diffs/notes; writes proposals to AgentOutput only.", "persona.memory_consolidator", token).ConfigureAwait(false);
+
+            foreach (AdditionalPersonaSettings extra in _AdditionalPersonas)
+            {
+                if (extra == null || String.IsNullOrWhiteSpace(extra.Name) || String.IsNullOrWhiteSpace(extra.PromptTemplateName))
+                    continue;
+                await SeedPersonaAsync(extra.Name.Trim(), extra.Description ?? String.Empty, extra.PromptTemplateName.Trim(), token).ConfigureAwait(false);
+            }
         }
 
         private async Task SeedPersonaAsync(string name, string description, string templateName, CancellationToken token)
@@ -141,42 +153,6 @@ namespace Armada.Core.Services
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
-                "DiagnosticProtocolTested",
-                "Worker then DiagnosticProtocolReviewer then TestEngineer then Judge.",
-                BuildSpecialistTestedStages("DiagnosticProtocolReviewer"),
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
-                "TenantSecurityTested",
-                "Worker then TenantSecurityReviewer then TestEngineer then Judge.",
-                BuildSpecialistTestedStages("TenantSecurityReviewer"),
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
-                "MigrationDataTested",
-                "Worker then MigrationDataReviewer then TestEngineer then Judge.",
-                BuildSpecialistTestedStages("MigrationDataReviewer"),
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
-                "PerformanceMemoryTested",
-                "Worker then PerformanceMemoryReviewer then TestEngineer then Judge.",
-                BuildSpecialistTestedStages("PerformanceMemoryReviewer"),
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
-                "ReferencePortingTested",
-                "Worker then PortingReferenceAnalyst then TestEngineer then Judge.",
-                BuildSpecialistTestedStages("PortingReferenceAnalyst"),
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
-                "FrontendWorkflowTested",
-                "Worker then FrontendWorkflowReviewer then TestEngineer then Judge.",
-                BuildSpecialistTestedStages("FrontendWorkflowReviewer"),
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
                 "Reflections",
                 "Single-stage memory consolidation. Output is the candidate playbook + diff; orchestrator reviews. No TestEngineer or Judge stage runs.",
                 new List<PipelineStage> { new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" } },
@@ -192,6 +168,28 @@ namespace Armada.Core.Services
                     new PipelineStage(2, "Judge") { PreferredModel = "high" }
                 },
                 token).ConfigureAwait(false);
+
+            foreach (AdditionalPipelineSettings extra in _AdditionalPipelines)
+            {
+                if (extra == null || String.IsNullOrWhiteSpace(extra.Name) || extra.Stages == null || extra.Stages.Count == 0)
+                    continue;
+
+                List<PipelineStage> stages = new List<PipelineStage>();
+                foreach (AdditionalPipelineStageSettings stage in extra.Stages)
+                {
+                    if (stage == null || String.IsNullOrWhiteSpace(stage.PersonaName))
+                        continue;
+                    PipelineStage built = new PipelineStage(stage.Order < 1 ? 1 : stage.Order, stage.PersonaName.Trim());
+                    if (!String.IsNullOrWhiteSpace(stage.PreferredModel))
+                        built.PreferredModel = stage.PreferredModel.Trim();
+                    stages.Add(built);
+                }
+
+                if (stages.Count == 0)
+                    continue;
+
+                await SeedPipelineAsync(extra.Name.Trim(), extra.Description ?? String.Empty, stages, token).ConfigureAwait(false);
+            }
         }
 
         private async Task SeedPipelineAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)
@@ -272,17 +270,6 @@ namespace Armada.Core.Services
             }
 
             return true;
-        }
-
-        private static List<PipelineStage> BuildSpecialistTestedStages(string specialistPersonaName)
-        {
-            return new List<PipelineStage>
-            {
-                new PipelineStage(1, "Worker"),
-                new PipelineStage(2, specialistPersonaName) { PreferredModel = "high" },
-                new PipelineStage(3, "TestEngineer"),
-                new PipelineStage(4, "Judge")
-            };
         }
 
         #endregion

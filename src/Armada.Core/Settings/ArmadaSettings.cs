@@ -1051,11 +1051,53 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Model-tier reservation settings: which personas are reserved for high-tier
         /// captains versus routed to mid/low with high held back as a last resort.
+        /// Product defaults are empty and policy-neutral.
         /// </summary>
         public ModelTierSettings ModelTier
         {
             get => _ModelTier;
             set => _ModelTier = value ?? new ModelTierSettings();
+        }
+
+        /// <summary>
+        /// Dispatch-time validation policy, including the optional stage-persona title
+        /// prefix guard. Default off with an empty prefix list.
+        /// </summary>
+        public VoyageDispatchSettings VoyageDispatch
+        {
+            get => _VoyageDispatch;
+            set => _VoyageDispatch = value ?? new VoyageDispatchSettings();
+        }
+
+        /// <summary>
+        /// Extra prompt templates seeded on startup. Product defaults are empty; a
+        /// deployment adds specialist-reviewer templates here instead of baking them
+        /// into code. Applied at process start; a change requires a restart.
+        /// </summary>
+        public List<AdditionalPromptTemplateSettings> AdditionalPromptTemplates
+        {
+            get => _AdditionalPromptTemplates;
+            set => _AdditionalPromptTemplates = value ?? new List<AdditionalPromptTemplateSettings>();
+        }
+
+        /// <summary>
+        /// Extra personas seeded on startup. Product defaults are empty. Applied at
+        /// process start; a change requires a restart.
+        /// </summary>
+        public List<AdditionalPersonaSettings> AdditionalPersonas
+        {
+            get => _AdditionalPersonas;
+            set => _AdditionalPersonas = value ?? new List<AdditionalPersonaSettings>();
+        }
+
+        /// <summary>
+        /// Extra pipelines seeded on startup. Product defaults are empty. Applied at
+        /// process start; a change requires a restart.
+        /// </summary>
+        public List<AdditionalPipelineSettings> AdditionalPipelines
+        {
+            get => _AdditionalPipelines;
+            set => _AdditionalPipelines = value ?? new List<AdditionalPipelineSettings>();
         }
 
         /// <summary>
@@ -1212,6 +1254,10 @@ namespace Armada.Core.Settings
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
         private SelfDeploySettings _SelfDeploy = new SelfDeploySettings();
         private ModelTierSettings _ModelTier = new ModelTierSettings();
+        private VoyageDispatchSettings _VoyageDispatch = new VoyageDispatchSettings();
+        private List<AdditionalPromptTemplateSettings> _AdditionalPromptTemplates = new List<AdditionalPromptTemplateSettings>();
+        private List<AdditionalPersonaSettings> _AdditionalPersonas = new List<AdditionalPersonaSettings>();
+        private List<AdditionalPipelineSettings> _AdditionalPipelines = new List<AdditionalPipelineSettings>();
         private ModelProvidersSettings _ModelProviders = new ModelProvidersSettings();
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
@@ -1349,6 +1395,7 @@ namespace Armada.Core.Settings
             // Read through the shared settings instance today, but merged in place so a
             // future by-reference consumer does not silently go stale.
             ModelTier.CopyFrom(source.ModelTier);
+            VoyageDispatch.CopyFrom(source.VoyageDispatch);
 
             // Read through the shared settings instance on every use.
             CaptainQuarantine = source.CaptainQuarantine;

@@ -11,6 +11,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Tests for the scheduler high-tier capacity reservation: specialist (downstream)
@@ -38,10 +39,10 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("ReservedHighTierSlots_DefaultValue_IsOne", () =>
+            await RunTest("ReservedHighTierSlots_DefaultValue_IsZero", () =>
             {
                 ModelTierSettings settings = new ModelTierSettings();
-                AssertEqual(1, settings.ReservedHighTierSlots, "Default ReservedHighTierSlots should be 1");
+                AssertEqual(0, settings.ReservedHighTierSlots, "Product default ReservedHighTierSlots should be 0");
                 return Task.CompletedTask;
             });
 
@@ -190,6 +191,7 @@ namespace Armada.Test.Unit.Suites.Services
             logging.Settings.EnableConsole = false;
 
             ArmadaSettings settings = new ArmadaSettings();
+            settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_capacity_docks_" + System.Guid.NewGuid().ToString("N"));
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_capacity_repos_" + System.Guid.NewGuid().ToString("N"));
 
@@ -239,7 +241,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static bool IsHighTier(string? model)
         {
             return string.Equals(
-                PreferredModelTierSelector.ClassifyModel(model),
+                PreferredModelTierSelector.ClassifyModel(model, FleetRoutingSettings.CreateModelTier()),
                 PreferredModelTierSelector.HighTier,
                 System.StringComparison.OrdinalIgnoreCase);
         }

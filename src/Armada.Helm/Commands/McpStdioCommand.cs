@@ -46,7 +46,7 @@ namespace Armada.Helm.Commands
             IGitService git = new GitService(logging);
             IDockService dockService = new DockService(logging, database, armadaSettings, git);
             ICaptainService captainService = new CaptainService(logging, database, armadaSettings, git, dockService);
-            IPromptTemplateService promptTemplateService = new PromptTemplateService(database, logging);
+            IPromptTemplateService promptTemplateService = new PromptTemplateService(database, logging, armadaSettings.AdditionalPromptTemplates);
             IMessageTemplateService messageTemplateService = new MessageTemplateService(logging, promptTemplateService);
             IMissionService missionService = new MissionService(logging, database, armadaSettings, dockService, captainService, promptTemplateService, git);
             IVoyageService voyageService = new VoyageService(logging, database);

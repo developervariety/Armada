@@ -186,7 +186,7 @@ namespace Armada.Server
             _Docks = dockService;
             ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
             // Prompt template service must be created before MissionService so it can resolve templates
-            _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
+            _PromptTemplateService = new PromptTemplateService(_Database, _Logging, _Settings.AdditionalPromptTemplates);
             HttpClient codeIndexHttpClient = new HttpClient();
             foreach (string warning in BuildCodeIndexConfigurationWarnings(_Settings.CodeIndex))
             {
@@ -290,7 +290,7 @@ namespace Armada.Server
             await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "prompt template seeding completed");
 
-            _PersonaSeedService = new PersonaSeedService(_Database, _Logging);
+            _PersonaSeedService = new PersonaSeedService(_Database, _Logging, _Settings.AdditionalPersonas, _Settings.AdditionalPipelines);
             await _PersonaSeedService.SeedAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "persona and pipeline seeding completed");
 

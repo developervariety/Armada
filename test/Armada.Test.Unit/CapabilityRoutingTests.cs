@@ -7,6 +7,7 @@ namespace Armada.Test.Unit
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Unit tests for the M1 config-driven capability routing feature: the
@@ -57,6 +58,8 @@ namespace Armada.Test.Unit
             s.MidTierModels = new List<string>(_MidMembers);
             s.HighTierModels = new List<string> { "claude-opus-5", "claude-fable-5" };
             s.WithinTierPreferenceOrder = DefaultMidOrder();
+            s.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
+            s.SpecialistPersonas = new List<string> { "Judge", "Architect", "TestEngineer" };
             return s;
         }
 
@@ -369,7 +372,7 @@ namespace Armada.Test.Unit
                 // Guard the shipped seed direction: with the built-in default profiles, an audit
                 // hint must prefer the high-audit gpt-5.6-luna over the throughput-tuned
                 // composer. Uses default settings (no custom profiles) to pin the seed values.
-                ModelTierSettings defaults = new ModelTierSettings();
+                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
@@ -377,8 +380,8 @@ namespace Armada.Test.Unit
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
-                    "mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults, "audit");
-                AssertEqual("gpt-5.6-luna", selected, "default seeds give luna a higher AuditReasoningFit than composer");
+                    "mid", captains, "Worker", _ => 0, null, fleet.WithinTierPreferenceOrder, fleet, "audit");
+                AssertEqual("gpt-5.6-luna", selected, "fleet seeds give luna a higher AuditReasoningFit than composer");
                 return Task.CompletedTask;
             });
 
@@ -466,8 +469,11 @@ namespace Armada.Test.Unit
             await RunTest("ModelTierSettings_ModelCapabilityProfiles_DefaultsAndNullReset", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "default profiles include a seeded high-tier model");
-                AssertTrue(defaults.ModelCapabilityProfiles.ContainsKey("gpt-5.6-luna"), "default profiles include a seeded mid-tier model");
+                AssertEqual(0, defaults.ModelCapabilityProfiles.Count, "product default profiles are empty");
+
+                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
+                AssertTrue(fleet.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "fleet profiles include a seeded high-tier model");
+                AssertTrue(fleet.ModelCapabilityProfiles.ContainsKey("gpt-5.6-luna"), "fleet profiles include a seeded mid-tier model");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.ModelCapabilityProfiles = new Dictionary<string, ModelCapabilityProfile>(System.StringComparer.OrdinalIgnoreCase)
@@ -478,7 +484,7 @@ namespace Armada.Test.Unit
                 AssertFalse(custom.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "default seeds do not leak into a custom profile map");
 
                 custom.ModelCapabilityProfiles = null!;
-                AssertTrue(custom.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "null setter restores the built-in default profiles");
+                AssertEqual(0, custom.ModelCapabilityProfiles.Count, "null setter restores the empty product default profiles");
                 return Task.CompletedTask;
             });
 

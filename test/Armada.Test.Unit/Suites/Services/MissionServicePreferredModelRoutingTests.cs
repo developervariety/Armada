@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Tests MissionService preferredModel routing for literal pins and tier selectors.
@@ -29,6 +30,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             string id = Guid.NewGuid().ToString("N");
             ArmadaSettings settings = new ArmadaSettings();
+            settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_model_route_docks_" + id);
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_model_route_repos_" + id);
             settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_model_route_logs_" + id);

@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
     /// Tests for startup seeding and reconciliation of built-in personas and pipelines.
@@ -29,7 +30,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    PersonaSeedService service = NewFleetService(testDb);
                     await service.SeedAsync().ConfigureAwait(false);
 
                     Dictionary<string, string> expectedPersonas = GetSpecialistPersonaTemplates();
@@ -50,6 +51,20 @@ namespace Armada.Test.Unit.Suites.Services
                         Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync(kvp.Key).ConfigureAwait(false);
                         AssertSpecialistPipeline(kvp.Key, kvp.Value, pipeline);
                     }
+                }
+            });
+
+            await RunTest("Vanilla seed does not create specialist reviewer personas", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? specialist = await testDb.Driver.Personas.ReadByNameAsync("DiagnosticProtocolReviewer").ConfigureAwait(false);
+                    AssertNull(specialist, "product defaults must not seed DiagnosticProtocolReviewer");
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("DiagnosticProtocolTested").ConfigureAwait(false);
+                    AssertNull(pipeline, "product defaults must not seed DiagnosticProtocolTested");
                 }
             });
 
@@ -145,7 +160,7 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     await testDb.Driver.Pipelines.CreateAsync(existingPipeline).ConfigureAwait(false);
 
-                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    PersonaSeedService service = NewFleetService(testDb);
                     await service.SeedAsync().ConfigureAwait(false);
 
                     Persona? persona = await testDb.Driver.Personas.ReadByNameAsync("DiagnosticProtocolReviewer").ConfigureAwait(false);
@@ -166,7 +181,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    PersonaSeedService service = NewFleetService(testDb);
                     await service.SeedAsync().ConfigureAwait(false);
 
                     // Fresh-seed path: the existing "upgrades existing" test only asserts the
@@ -492,6 +507,15 @@ namespace Armada.Test.Unit.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
+        }
+
+        private static PersonaSeedService NewFleetService(TestDatabase testDb)
+        {
+            return new PersonaSeedService(
+                testDb.Driver,
+                CreateLogging(),
+                FleetRoutingSettings.CreateAdditionalPersonas(),
+                FleetRoutingSettings.CreateAdditionalPipelines());
         }
 
         private static Dictionary<string, string> GetSpecialistPersonaTemplates()

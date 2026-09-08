@@ -10,6 +10,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
 
     /// <summary>
     /// Service for resolving and rendering prompt templates.
@@ -37,11 +38,19 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Logging module.</param>
-        public PromptTemplateService(DatabaseDriver database, LoggingModule logging)
+        /// <param name="additionalTemplates">
+        /// Optional extra templates from settings. Product defaults do not include
+        /// deployment-specific specialist reviewers; those are supplied here.
+        /// </param>
+        public PromptTemplateService(
+            DatabaseDriver database,
+            LoggingModule logging,
+            IReadOnlyList<AdditionalPromptTemplateSettings>? additionalTemplates = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _EmbeddedDefaults = BuildEmbeddedDefaults();
+            MergeAdditionalTemplates(additionalTemplates);
         }
 
         #endregion
@@ -687,65 +696,6 @@ namespace Armada.Core.Services
                     "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.\n"
             };
 
-            defaults["persona.diagnostic_protocol_reviewer"] = BuildSpecialistPersonaTemplate(
-                "persona.diagnostic_protocol_reviewer",
-                "Diagnostic protocol reviewer persona for binary/wire protocol and hardware-safety checks.",
-                "DiagnosticProtocolReviewer",
-                "binary/wire protocol parsing, security-sensitive access paths, and high-risk hardware-affecting operations.",
-                "- Check protocol-parsing and security-sensitive access code for scope, auditability, and secret handling.\n" +
-                "- Treat high-risk hardware-affecting operations as out of bounds unless the mission explicitly authorizes a guarded analysis-only change.\n" +
-                "- Flag any path that could weaken a high-risk safety boundary.\n");
-
-            defaults["persona.tenant_security_reviewer"] = BuildSpecialistPersonaTemplate(
-                "persona.tenant_security_reviewer",
-                "Tenant security reviewer persona for authorization, tenant isolation, secrets, and auditability.",
-                "TenantSecurityReviewer",
-                "multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.",
-                "- Verify authorization and authentication checks are applied at every entry point and background path touched by the diff.\n" +
-                "- Check tenant scoping on queries, events, logs, caches, queues, and identifiers.\n" +
-                "- Look for secrets in logs, exceptions, persisted payloads, test fixtures, and client-visible responses.\n" +
-                "- Confirm audit trails are complete enough to explain sensitive access or cross-tenant administration.\n");
-
-            defaults["persona.migration_data_reviewer"] = BuildSpecialistPersonaTemplate(
-                "persona.migration_data_reviewer",
-                "Migration and data reviewer persona for schema, provider parity, and data-loss risk.",
-                "MigrationDataReviewer",
-                "migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.",
-                "- Verify every supported provider has equivalent schema, index, nullability, default, and reader/writer behavior.\n" +
-                "- Check backfills and migrations for idempotency, restart safety, ordering, and large-data behavior.\n" +
-                "- Look for data-loss, truncation, casing, collation, timestamp, and enum/string compatibility risks.\n" +
-                "- Confirm rollback or failure behavior is documented or contained when a migration cannot be reversed.\n");
-
-            defaults["persona.performance_memory_reviewer"] = BuildSpecialistPersonaTemplate(
-                "persona.performance_memory_reviewer",
-                "Performance and memory reviewer persona for allocation, retention, throughput, and lifetime risks.",
-                "PerformanceMemoryReviewer",
-                "memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.",
-                "- Look for unbounded collections, retained object graphs, large string accumulation, and process output/log growth.\n" +
-                "- Check database materialization, pagination, projection size, streaming, and repeated query patterns.\n" +
-                "- Review allocation-heavy loops, async lifetime, timer/task cleanup, disposal, cancellation, and retry behavior.\n" +
-                "- Validate that throughput-sensitive paths keep resource usage bounded under repeated orchestration operations.\n");
-
-            defaults["persona.porting_reference_analyst"] = BuildSpecialistPersonaTemplate(
-                "persona.porting_reference_analyst",
-                "Porting reference analyst persona for evidence-based parity work against known references.",
-                "PortingReferenceAnalyst",
-                "approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.",
-                "- Compare the implementation to approved reference material, decompiler-derived notes, vendor traces, protocol captures, or other semantic parity evidence cited by the mission.\n" +
-                "- Distinguish evidence-backed parity from guesses, and flag missing references or assumptions explicitly.\n" +
-                "- Check naming, constants, byte layouts, state transitions, error mapping, and edge-case behavior against the cited evidence.\n" +
-                "- Keep changes traceable to the referenced behavior without copying unrelated implementation structure.\n");
-
-            defaults["persona.frontend_workflow_reviewer"] = BuildSpecialistPersonaTemplate(
-                "persona.frontend_workflow_reviewer",
-                "Frontend workflow reviewer persona for UX, accessibility, responsive states, and design consistency.",
-                "FrontendWorkflowReviewer",
-                "frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.",
-                "- Walk the affected user workflow end to end, including empty, loading, error, disabled, success, and permission states.\n" +
-                "- Check accessibility semantics, keyboard flow, focus management, contrast, labels, and screen-reader impact.\n" +
-                "- Review responsive layout, text fit, i18n-ready copy, validation messages, and recoverability from failures.\n" +
-                "- Keep visual changes consistent with the existing design system and avoid introducing workflow dead ends.\n");
-
             defaults["persona.memory_consolidator"] = new EmbeddedTemplate
             {
                 Name = "persona.memory_consolidator",
@@ -925,6 +875,41 @@ namespace Armada.Core.Services
             };
 
             return defaults;
+        }
+
+        private void MergeAdditionalTemplates(IReadOnlyList<AdditionalPromptTemplateSettings>? additionalTemplates)
+        {
+            if (additionalTemplates == null)
+                return;
+
+            foreach (AdditionalPromptTemplateSettings extra in additionalTemplates)
+            {
+                if (extra == null || String.IsNullOrWhiteSpace(extra.Name))
+                    continue;
+
+                EmbeddedTemplate template;
+                if (!String.IsNullOrWhiteSpace(extra.Content))
+                {
+                    template = new EmbeddedTemplate
+                    {
+                        Name = extra.Name.Trim(),
+                        Description = extra.Description,
+                        Category = extra.Category,
+                        Content = extra.Content
+                    };
+                }
+                else
+                {
+                    template = BuildSpecialistPersonaTemplate(
+                        extra.Name.Trim(),
+                        extra.Description,
+                        extra.RoleName,
+                        extra.Focus,
+                        extra.Checklist);
+                }
+
+                _EmbeddedDefaults[template.Name] = template;
+            }
         }
 
         private static EmbeddedTemplate BuildSpecialistPersonaTemplate(string name, string description, string roleName, string focus, string checklist)

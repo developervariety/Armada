@@ -72,6 +72,8 @@ namespace Armada.Test.Unit.Suites.Services
                 { "mid", new List<string> { _PreferencePrimary, _HighAudit, _MidAudit, _Throughput, _LowAudit } },
                 { "high", new List<string> { _Opus } }
             };
+            settings.ModelTier.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
+            settings.ModelTier.SpecialistPersonas = new List<string> { "Judge", "Architect", "TestEngineer" };
             settings.ModelTier.ModelCapabilityProfiles = new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
             {
                 { _PreferencePrimary, new ModelCapabilityProfile { AuditReasoningFit = 92, MechanicalThroughput = 58 } },

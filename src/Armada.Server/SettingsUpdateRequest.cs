@@ -101,6 +101,37 @@ namespace Armada.Server
         /// tier membership lists or the capability profiles.
         /// </summary>
         public ModelTierUpdate? ModelTier { get; set; }
+
+        /// <summary>
+        /// Optional dispatch-guard update. Every member is individually optional.
+        /// </summary>
+        public VoyageDispatchUpdate? VoyageDispatch { get; set; }
+
+        /// <summary>
+        /// Optional extra prompt templates. When supplied, replaces the list outright.
+        /// Applied at the next process start for seeding; the in-memory settings
+        /// update immediately and persist to settings.json.
+        /// </summary>
+        public List<AdditionalPromptTemplateSettings>? AdditionalPromptTemplates { get; set; }
+
+        /// <summary>
+        /// Optional extra personas. When supplied, replaces the list outright.
+        /// Seeding applies at the next process start.
+        /// </summary>
+        public List<AdditionalPersonaSettings>? AdditionalPersonas { get; set; }
+
+        /// <summary>
+        /// Optional extra pipelines. When supplied, replaces the list outright.
+        /// Seeding applies at the next process start.
+        /// </summary>
+        public List<AdditionalPipelineSettings>? AdditionalPipelines { get; set; }
+
+        /// <summary>
+        /// Optional model-provider registry. When supplied, replaces the registry
+        /// outright. Provider resolution is bound at startup; a change persists but
+        /// does not re-bind live runtimes until the Admiral restarts.
+        /// </summary>
+        public ModelProvidersSettings? ModelProviders { get; set; }
     }
 
     /// <summary>
@@ -190,6 +221,21 @@ namespace Armada.Server
         public List<string>? HighTierModels { get; set; }
 
         /// <summary>
+        /// Model-family classification rules (pattern to tier).
+        /// </summary>
+        public List<ModelFamilyClassificationRule>? FamilyClassificationRules { get; set; }
+
+        /// <summary>
+        /// When true, prefer models that have an idle non-native captain.
+        /// </summary>
+        public bool? PreferNonNativeFirst { get; set; }
+
+        /// <summary>
+        /// Within-tier selection strategy: Random or PreferenceOrderThenRandom.
+        /// </summary>
+        public string? WithinTierStrategy { get; set; }
+
+        /// <summary>
         /// Apply the supplied members to the live settings object, in place.
         /// </summary>
         /// <param name="target">Live settings object to mutate.</param>
@@ -203,6 +249,39 @@ namespace Armada.Server
             if (CapabilityHintDimensionMap != null) target.CapabilityHintDimensionMap = CapabilityHintDimensionMap;
             if (MidTierModels != null) target.MidTierModels = MidTierModels;
             if (HighTierModels != null) target.HighTierModels = HighTierModels;
+            if (FamilyClassificationRules != null) target.FamilyClassificationRules = FamilyClassificationRules;
+            if (PreferNonNativeFirst.HasValue) target.PreferNonNativeFirst = PreferNonNativeFirst.Value;
+            if (WithinTierStrategy != null) target.WithinTierStrategy = WithinTierStrategy;
+        }
+    }
+
+    /// <summary>
+    /// Partial update for voyage dispatch guards. A null member leaves the current
+    /// value in place; a supplied prefix list replaces that list outright.
+    /// </summary>
+    public class VoyageDispatchUpdate
+    {
+        /// <summary>
+        /// When true, reject mission titles that already carry a stage-persona prefix.
+        /// </summary>
+        public bool? RejectStagePersonaTitlePrefixes { get; set; }
+
+        /// <summary>
+        /// Title prefixes treated as materialized pipeline stage tags.
+        /// </summary>
+        public List<string>? StagePersonaTitlePrefixes { get; set; }
+
+        /// <summary>
+        /// Apply the supplied members to the live settings object, in place.
+        /// </summary>
+        /// <param name="target">Live settings object to mutate.</param>
+        public void ApplyTo(VoyageDispatchSettings target)
+        {
+            if (target == null) return;
+            if (RejectStagePersonaTitlePrefixes.HasValue)
+                target.RejectStagePersonaTitlePrefixes = RejectStagePersonaTitlePrefixes.Value;
+            if (StagePersonaTitlePrefixes != null)
+                target.StagePersonaTitlePrefixes = StagePersonaTitlePrefixes;
         }
     }
 }

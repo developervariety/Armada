@@ -338,7 +338,7 @@ namespace Armada.Server
             await arming.ArmAsync(voyage, vessel, "dispatch", token).ConfigureAwait(false);
         }
 
-        private static VoyageDispatchResult? ValidateRequest(string title, List<MissionDescription>? missions)
+        private VoyageDispatchResult? ValidateRequest(string title, List<MissionDescription>? missions)
         {
             if (String.IsNullOrWhiteSpace(title)) return VoyageDispatchResult.BadRequest(new
             {
@@ -377,17 +377,16 @@ namespace Armada.Server
                     Action = "Provide a non-empty description for mission " + missionNumber + "."
                 });
 
-                // Reject a title that already carries a stage-persona prefix. AdmiralService prepends
-                // "[<persona>] " to each pipeline stage's title, so a dispatched title that already
-                // begins with "[Worker] "/"[Judge] "/... is a prior run's MATERIALIZED stage mission,
-                // not a task. Expanding the pipeline over N such descriptions multiplies the work by
-                // the stage count (three stage missions become nine, then twenty-seven on the next
-                // retry). This has no legitimate use: a real task title never opens with a persona tag.
+                // Optional: reject a title that already carries a configured stage-persona prefix.
+                // AdmiralService prepends "[<persona>] " to each pipeline stage's title, so a
+                // dispatched title that already begins with one is a prior run's MATERIALIZED
+                // stage mission. The guard is off by default; operators enable it and supply
+                // the prefix list in settings.
                 if (TitleCarriesStagePersonaPrefix(mission.Title)) return VoyageDispatchResult.BadRequest(new
                 {
                     Error = "armada_dispatch mission " + missionNumber + " has a title that already carries a stage-persona prefix: '" + mission.Title!.Trim() + "'.",
                     Code = "mission_title_carries_stage_persona_prefix",
-                    Reason = "A title that begins with a persona tag such as '[Worker] ' or '[Judge] ' is a materialized pipeline STAGE mission, not a task. The pipeline prepends the persona itself, so dispatching stage missions as tasks multiplies the work by the stage count.",
+                    Reason = "A title that begins with a configured stage-persona prefix is a materialized pipeline STAGE mission, not a task. The pipeline prepends the persona itself, so dispatching stage missions as tasks multiplies the work by the stage count.",
                     Action = "Dispatch the objective's ORIGINAL task once, not a prior run's per-stage missions. Remove the leading '[<persona>] ' tag from the title."
                 });
 
@@ -408,50 +407,33 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Title prefixes the pipeline itself prepends to a stage mission. AdmiralService writes
-        /// "[" + stage.PersonaName + "] " ahead of the base title, so a dispatched MissionDescription
-        /// whose title already opens with one of these is a materialized stage mission, not a task.
-        /// Every persona spelling is covered, including the legacy Test Engineer name.
-        /// </summary>
-        private static readonly string[] _StagePersonaTitlePrefixes = BuildStagePersonaTitlePrefixes();
-
-        /// <summary>
-        /// Builds the "[<persona>] " prefixes for every known pipeline persona.
-        /// </summary>
-        /// <returns>The stage-persona title prefixes.</returns>
-        private static string[] BuildStagePersonaTitlePrefixes()
-        {
-            string[] personas = new string[]
-            {
-                PersonaCatalog.Worker,
-                PersonaCatalog.Architect,
-                PersonaCatalog.ProductManager,
-                PersonaCatalog.UsabilityEngineer,
-                PersonaCatalog.TestEngineer,
-                PersonaCatalog.LegacyTestEngineer,
-                PersonaCatalog.Judge
-            };
-            List<string> prefixes = new List<string>(personas.Length);
-            foreach (string persona in personas) prefixes.Add("[" + persona + "] ");
-            return prefixes.ToArray();
-        }
-
-        /// <summary>
-        /// Reports whether a mission title already carries a stage-persona prefix that the pipeline
-        /// would otherwise add itself. Such a title is a prior run's materialized stage mission
-        /// resubmitted as a task, which multiplies the work by the pipeline stage count. Leading
-        /// whitespace is tolerated; the match is case-insensitive.
+        /// Reports whether a mission title already carries a configured stage-persona prefix.
+        /// The guard is off unless settings enable it and supply at least one prefix.
+        /// Leading whitespace is tolerated; the match is case-insensitive.
         /// </summary>
         /// <param name="title">The mission title to inspect.</param>
-        /// <returns>True when the title opens with a known stage-persona prefix.</returns>
-        private static bool TitleCarriesStagePersonaPrefix(string? title)
+        /// <returns>True when the guard is on and the title opens with a configured prefix.</returns>
+        private bool TitleCarriesStagePersonaPrefix(string? title)
         {
-            if (String.IsNullOrWhiteSpace(title)) return false;
+            VoyageDispatchSettings guard = _Settings?.VoyageDispatch ?? new VoyageDispatchSettings();
+            if (!guard.RejectStagePersonaTitlePrefixes)
+                return false;
+            if (String.IsNullOrWhiteSpace(title))
+                return false;
+
             string trimmed = title.TrimStart();
-            foreach (string prefix in _StagePersonaTitlePrefixes)
+            IReadOnlyList<string> prefixes = guard.StagePersonaTitlePrefixes;
+            if (prefixes == null || prefixes.Count == 0)
+                return false;
+
+            foreach (string prefix in prefixes)
             {
-                if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+                if (String.IsNullOrWhiteSpace(prefix))
+                    continue;
+                if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
             }
+
             return false;
         }
 

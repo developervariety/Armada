@@ -178,13 +178,15 @@ voyage and mission rows exist. Assignment, dock provisioning, and captain
 launch continue asynchronously. Save the voyage ID. Do not redispatch only
 because the first status call shows `Pending`.
 
-A mission title that already carries a stage-persona prefix such as
-`[Worker] `, `[Test Engineer] `, or `[Judge] ` is rejected with 400 and code
-`mission_title_carries_stage_persona_prefix`. Such a title is a materialized
-pipeline STAGE, not a task: the pipeline prepends the persona itself, so
-dispatching prior stage missions as tasks multiplies the work by the stage
-count. Dispatch the objective's ORIGINAL task once, with the leading
-`[<persona>] ` tag removed.
+When `voyageDispatch.rejectStagePersonaTitlePrefixes` is true and the
+prefix list is not empty, a mission title that already carries a listed
+stage-persona prefix such as `[Worker] ` is rejected with 400 and code
+`mission_title_carries_stage_persona_prefix`. The product default leaves
+this guard off. Such a title is a materialized pipeline STAGE, not a
+task: the pipeline prepends the persona itself, so dispatching prior
+stage missions as tasks multiplies the work by the stage count. Dispatch
+the objective's ORIGINAL task once, with the leading `[<persona>] ` tag
+removed.
 
 Long operations can return an accepted job. Poll `armada_job_status` with the
 returned job ID. Background jobs are reaped on a health-loop cadence: a job
@@ -861,6 +863,46 @@ credential prompts, so a wedged git cannot hang the endpoints.
 Backups can contain operational state. Store them in an approved location and
 apply retention limits. Restore, delete, purge, stop, and bulk operations need
 an explicit operator decision.
+
+### Model routing and dispatch policy
+
+Product defaults are empty and policy-neutral. A fresh `settings.json`
+classifies no model family, reserves no specialist persona, selects
+randomly among idle persona-eligible captains, and leaves the
+stage-persona title guard off. Edit these keys in `settings.json` or on
+the Dashboard Settings page:
+
+| Setting | Hot-reload | Product default | Dashboard control |
+| --- | --- | --- | --- |
+| `modelTier.midTierModels` / `highTierModels` | Yes | empty | Mid-tier / high-tier model lists |
+| `modelTier.familyClassificationRules` | Yes | empty | Family classification rules JSON |
+| `modelTier.specialistPersonas` | Yes | empty | Specialist persona list |
+| `modelTier.withinTierStrategy` | Yes | `Random` | Within-tier strategy |
+| `modelTier.withinTierPreferenceOrder` | Yes | empty | Preference-order JSON |
+| `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native first |
+| `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved high-tier slots |
+| `voyageDispatch.rejectStagePersonaTitlePrefixes` | Yes | `false` | Reject stage-persona title prefixes |
+| `voyageDispatch.stagePersonaTitlePrefixes` | Yes | empty | Prefix list |
+| `modelProviders` | No (startup) | empty | modelProviders JSON |
+| `additionalPromptTemplates` / `additionalPersonas` / `additionalPipelines` | No (startup) | empty | Additional-asset JSON |
+
+When both tier lists and family rules are empty, every idle
+persona-eligible captain is an equal peer. That is the vanilla dispatch
+path. Low still maps to mid: that is the platform two-tier architecture,
+not a fleet rule.
+
+Copy `factory/settings.fleet.example.json` into the live settings file to
+restore the former hardcoded routing, guard, and specialist-reviewer
+assets. The live `~/.armada/settings.json` is not in the repository.
+Merge the fleet overlay before you deploy this build if you need today's
+behavior. Family rules now apply even when a settings object is supplied
+(lists still win), so an unlisted version-bump that matches a seeded
+family pattern classifies. That is a small expansion versus a
+lists-only production file.
+
+The `docker/` image pins (agent CLI set, `CLI_REFRESH`, `@latest`) are
+project infra for this deployment. They are not product defaults. Gate
+them with build args when you ship a generic image.
 
 ## 8. Complete MCP Tool Catalog
 
