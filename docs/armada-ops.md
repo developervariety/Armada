@@ -1188,6 +1188,15 @@ land work, close incidents, refill campaign lanes, or answer a helper. That
 operator layer is `scripts/autonomy/lead-cycle.sh`, which runs ONE bounded pass
 and exits.
 
+Objective closeout evaluates each failed chain in an original voyage. Every
+independent `Failed` or `LandingFailed` chain root needs a linked automatic
+rescue whose missions all reached `Complete`. A completed rescue for one branch
+does not cover a separate failed branch. Failed rescue attempts stay as history
+and do not become new closeout obligations; a later completed attempt can
+resolve the original failure. A missing linked voyage, a malformed mission
+graph, unlanded work, or a cancelled-only original voyage keeps the objective
+open.
+
 ```sh
 scripts/autonomy/lead-cycle.sh run      # one cycle now; refuses if one is running
 scripts/autonomy/lead-cycle.sh status   # running? and the last result

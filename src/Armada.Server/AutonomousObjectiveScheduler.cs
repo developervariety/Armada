@@ -505,36 +505,78 @@ namespace Armada.Server
 
         private async Task<bool> AllLinkedVoyagesCompletedAsync(Objective objective, CancellationToken token)
         {
-            List<Voyage> voyages = new List<Voyage>();
-            foreach (string voyageId in objective.VoyageIds)
+            Dictionary<string, Voyage> voyagesById = new Dictionary<string, Voyage>(StringComparer.Ordinal);
+            Dictionary<string, List<Mission>> missionsByVoyage = new Dictionary<string, List<Mission>>(StringComparer.Ordinal);
+            foreach (string voyageId in objective.VoyageIds.Distinct(StringComparer.Ordinal))
             {
                 Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
-                if (voyage != null) voyages.Add(voyage);
+                if (voyage == null) return false;
+                voyagesById[voyage.Id] = voyage;
+                missionsByVoyage[voyage.Id] = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
             }
 
-            bool anyComplete = false;
-            foreach (Voyage voyage in voyages)
+            Dictionary<string, Mission> missionsById = missionsByVoyage.Values
+                .SelectMany(missions => missions)
+                .Where(mission => !String.IsNullOrWhiteSpace(mission.Id))
+                .ToDictionary(mission => mission.Id, mission => mission, StringComparer.Ordinal);
+            Dictionary<string, Mission> dependencyMissionsById = new Dictionary<string, Mission>(missionsById, StringComparer.Ordinal);
+            Queue<string> dependencyIds = new Queue<string>(missionsById.Values
+                .Select(mission => mission.DependsOnMissionId)
+                .Where(id => !String.IsNullOrWhiteSpace(id))
+                .Select(id => id!));
+            while (dependencyIds.Count > 0)
+            {
+                string dependencyId = dependencyIds.Dequeue();
+                if (dependencyMissionsById.ContainsKey(dependencyId)) continue;
+                Mission? dependency = await _Database.Missions.ReadAsync(dependencyId, token).ConfigureAwait(false);
+                if (dependency == null) return false;
+                dependencyMissionsById[dependency.Id] = dependency;
+                if (!String.IsNullOrWhiteSpace(dependency.DependsOnMissionId))
+                    dependencyIds.Enqueue(dependency.DependsOnMissionId);
+            }
+
+            // Rescue attempts are evidence for an original chain, not new objective obligations.
+            // Every rescue root points through ParentMissionId to a mission in another linked
+            // voyage. A failed historical rescue must not keep the objective open after a later
+            // attempt resolves the original failure.
+            HashSet<string> rescueVoyageIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach ((string voyageId, List<Mission> missions) in missionsByVoyage)
+            {
+                if (missions.Any(mission =>
+                    RescueMissionMarker.IsAutoRescue(mission)
+                    && !String.IsNullOrWhiteSpace(mission.ParentMissionId)
+                    && missionsById.TryGetValue(mission.ParentMissionId, out Mission? parent)
+                    && (parent.Status == MissionStatusEnum.Failed
+                        || parent.Status == MissionStatusEnum.LandingFailed)
+                    && !String.Equals(parent.VoyageId, voyageId, StringComparison.Ordinal)))
+                {
+                    rescueVoyageIds.Add(voyageId);
+                }
+            }
+
+            List<Voyage> originalVoyages = voyagesById.Values
+                .Where(voyage => !rescueVoyageIds.Contains(voyage.Id))
+                .ToList();
+            if (originalVoyages.Count == 0) return false;
+
+            bool anyComplete = voyagesById.Values.Any(voyage => voyage.Status == VoyageStatusEnum.Complete);
+            foreach (Voyage voyage in originalVoyages)
             {
                 if (voyage.Status == VoyageStatusEnum.Complete)
                 {
-                    anyComplete = true;
+                    if (!IsSuccessfulVoyageMissionGraph(missionsByVoyage[voyage.Id], dependencyMissionsById)) return false;
                     continue;
                 }
 
                 // A voyage still running blocks completion.
                 if (IsActiveVoyageStatus(voyage.Status)) return false;
 
-                // A terminal non-complete voyage (Failed/Cancelled) blocks completion UNLESS a
-                // Complete rescue voyage for it is also linked. The autonomous rescue re-does the
-                // failed voyage's work under its own voyage (LinkRescueVoyageToObjectivesAsync links
-                // it here), so an objective whose original voyage failed but whose rescue landed
-                // should reconcile to Completed instead of sitting InProgress for ever. A genuinely
-                // unresolved failure (no completed rescue) still blocks, so this never
-                // false-completes an objective whose work never landed.
-                if (!await HasCompletedRescueAmongAsync(voyage, voyages, token).ConfigureAwait(false))
-                {
-                    return false;
-                }
+                if (!AreFailedChainsRecovered(
+                    missionsByVoyage[voyage.Id],
+                    rescueVoyageIds,
+                    voyagesById,
+                    missionsByVoyage,
+                    dependencyMissionsById)) return false;
             }
 
             // Require at least one voyage to have actually landed: an objective all of whose voyages
@@ -542,41 +584,164 @@ namespace Armada.Server
             return anyComplete;
         }
 
-        /// <summary>
-        /// Whether one of <paramref name="linkedVoyages"/> is a Complete rescue of
-        /// <paramref name="failedVoyage"/>. An autonomous rescue carries the failed mission as the
-        /// <see cref="Mission.ParentMissionId"/> of its stage, so a Complete linked voyage that
-        /// contains a stage whose parent is one of the failed voyage's missions re-did that voyage's
-        /// work. This keeps a Failed/Cancelled original from blocking objective completion once its
-        /// rescue has landed, without completing an objective whose failure was never rescued.
-        /// </summary>
-        private async Task<bool> HasCompletedRescueAmongAsync(Voyage failedVoyage, List<Voyage> linkedVoyages, CancellationToken token)
+        private static bool IsSuccessfulVoyageMissionGraph(
+            List<Mission> missions,
+            Dictionary<string, Mission> dependencyMissionsById)
         {
-            List<Mission> failedMissions = await _Database.Missions.EnumerateByVoyageAsync(failedVoyage.Id, token).ConfigureAwait(false);
-            if (failedMissions.Count == 0) return false;
+            if (missions.Count == 0 || !HasValidMissionDependencies(missions, dependencyMissionsById)) return false;
+            HashSet<string> localIds = missions.Select(mission => mission.Id).ToHashSet(StringComparer.Ordinal);
+            return missions.All(mission => mission.Status == MissionStatusEnum.Complete)
+                && DependenciesOutsideVoyageAreComplete(missions, localIds, dependencyMissionsById);
+        }
 
-            HashSet<string> failedMissionIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (Mission failedMission in failedMissions)
+        private static bool HasValidMissionDependencies(
+            List<Mission> missions,
+            Dictionary<string, Mission> dependencyMissionsById)
+        {
+            if (missions.Any(mission => String.IsNullOrWhiteSpace(mission.Id))) return false;
+
+            foreach (Mission mission in missions)
             {
-                if (!String.IsNullOrEmpty(failedMission.Id)) failedMissionIds.Add(failedMission.Id);
+                HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
+                Mission current = mission;
+                while (!String.IsNullOrWhiteSpace(current.DependsOnMissionId))
+                {
+                    if (!visited.Add(current.Id)
+                        || !dependencyMissionsById.TryGetValue(current.DependsOnMissionId, out Mission? dependency)) return false;
+                    current = dependency;
+                }
+            }
+            return true;
+        }
+
+        private static bool DependenciesOutsideVoyageAreComplete(
+            List<Mission> missions,
+            HashSet<string> localIds,
+            Dictionary<string, Mission> dependencyMissionsById)
+        {
+            foreach (Mission mission in missions)
+            {
+                Mission current = mission;
+                while (!String.IsNullOrWhiteSpace(current.DependsOnMissionId)
+                    && dependencyMissionsById.TryGetValue(current.DependsOnMissionId, out Mission? dependency))
+                {
+                    if (!localIds.Contains(dependency.Id) && dependency.Status != MissionStatusEnum.Complete) return false;
+                    current = dependency;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Require a completed linked rescue for every actual failure anchor in one original
+        /// voyage. Cancelled dependents are consequences of an upstream failure and do not create
+        /// extra obligations. A cancelled-only voyage has no proven recovery and fails closed.
+        /// </summary>
+        private static bool AreFailedChainsRecovered(
+            List<Mission> originalMissions,
+            HashSet<string> rescueVoyageIds,
+            Dictionary<string, Voyage> voyagesById,
+            Dictionary<string, List<Mission>> missionsByVoyage,
+            Dictionary<string, Mission> dependencyMissionsById)
+        {
+            if (originalMissions.Count == 0
+                || !HasValidMissionDependencies(originalMissions, dependencyMissionsById)) return false;
+
+            Dictionary<string, Mission> originalsById = originalMissions
+                .Where(mission => !String.IsNullOrWhiteSpace(mission.Id))
+                .ToDictionary(mission => mission.Id, mission => mission, StringComparer.Ordinal);
+            foreach (Mission cancelled in originalMissions.Where(mission => mission.Status == MissionStatusEnum.Cancelled))
+            {
+                HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
+                Mission current = cancelled;
+                bool causedByFailure = false;
+                while (!String.IsNullOrWhiteSpace(current.DependsOnMissionId)
+                    && visited.Add(current.Id)
+                    && originalsById.TryGetValue(current.DependsOnMissionId, out Mission? dependency))
+                {
+                    if (dependency.Status == MissionStatusEnum.Failed
+                        || dependency.Status == MissionStatusEnum.LandingFailed)
+                    {
+                        causedByFailure = true;
+                        break;
+                    }
+                    current = dependency;
+                }
+                if (!causedByFailure) return false;
             }
 
-            foreach (Voyage candidate in linkedVoyages)
-            {
-                if (String.Equals(candidate.Id, failedVoyage.Id, StringComparison.Ordinal)) continue;
-                if (candidate.Status != VoyageStatusEnum.Complete) continue;
+            HashSet<string> failureAnchors = originalMissions
+                .Where(mission => mission.Status == MissionStatusEnum.Failed
+                    || mission.Status == MissionStatusEnum.LandingFailed)
+                .Where(mission => !HasFailureAncestor(mission, originalsById))
+                .Select(mission => mission.Id)
+                .Where(id => !String.IsNullOrWhiteSpace(id))
+                .ToHashSet(StringComparer.Ordinal);
+            if (failureAnchors.Count == 0) return false;
 
-                List<Mission> rescueMissions = await _Database.Missions.EnumerateByVoyageAsync(candidate.Id, token).ConfigureAwait(false);
-                foreach (Mission rescueMission in rescueMissions)
+            HashSet<string> failureAncestorIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string failureAnchor in failureAnchors)
+            {
+                Mission current = originalsById[failureAnchor];
+                while (!String.IsNullOrWhiteSpace(current.DependsOnMissionId)
+                    && originalsById.TryGetValue(current.DependsOnMissionId, out Mission? dependency))
                 {
-                    if (!String.IsNullOrEmpty(rescueMission.ParentMissionId)
-                        && failedMissionIds.Contains(rescueMission.ParentMissionId))
+                    failureAncestorIds.Add(dependency.Id);
+                    current = dependency;
+                }
+            }
+            if (originalMissions.Any(mission => mission.Status != MissionStatusEnum.Complete
+                && mission.Status != MissionStatusEnum.Failed
+                && mission.Status != MissionStatusEnum.LandingFailed
+                && mission.Status != MissionStatusEnum.Cancelled
+                && (mission.Status != MissionStatusEnum.WorkProduced || !failureAncestorIds.Contains(mission.Id)))) return false;
+
+            List<Mission> successfulRescueRoots = rescueVoyageIds
+                .Where(voyageId => voyagesById[voyageId].Status == VoyageStatusEnum.Complete
+                    && IsSuccessfulVoyageMissionGraph(missionsByVoyage[voyageId], dependencyMissionsById))
+                .SelectMany(voyageId => missionsByVoyage[voyageId])
+                .Where(mission => RescueMissionMarker.IsAutoRescue(mission)
+                    && mission.Status == MissionStatusEnum.Complete
+                    && !String.IsNullOrWhiteSpace(mission.ParentMissionId))
+                .ToList();
+
+            Dictionary<string, Mission> allMissionsById = missionsByVoyage.Values
+                .SelectMany(missions => missions)
+                .Where(mission => !String.IsNullOrWhiteSpace(mission.Id))
+                .GroupBy(mission => mission.Id, StringComparer.Ordinal)
+                .Where(group => group.Count() == 1)
+                .ToDictionary(group => group.Key, group => group.Single(), StringComparer.Ordinal);
+            HashSet<string> recoveredAnchors = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Mission rescueRoot in successfulRescueRoots)
+            {
+                string? parentId = rescueRoot.ParentMissionId;
+                HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
+                while (!String.IsNullOrWhiteSpace(parentId) && visited.Add(parentId))
+                {
+                    if (failureAnchors.Contains(parentId))
                     {
-                        return true;
+                        recoveredAnchors.Add(parentId);
+                        break;
                     }
+                    if (!allMissionsById.TryGetValue(parentId, out Mission? parent)
+                        || !RescueMissionMarker.IsAutoRescue(parent)) break;
+                    parentId = parent.ParentMissionId;
                 }
             }
 
+            return failureAnchors.IsSubsetOf(recoveredAnchors);
+        }
+
+        private static bool HasFailureAncestor(Mission mission, Dictionary<string, Mission> missionsById)
+        {
+            Mission current = mission;
+            while (!String.IsNullOrWhiteSpace(current.DependsOnMissionId)
+                && missionsById.TryGetValue(current.DependsOnMissionId, out Mission? dependency))
+            {
+                if (dependency.Status == MissionStatusEnum.Failed
+                    || dependency.Status == MissionStatusEnum.LandingFailed) return true;
+                current = dependency;
+            }
             return false;
         }
 

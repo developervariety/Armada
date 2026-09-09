@@ -1135,11 +1135,19 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = VoyageStatusEnum.Failed
                 }).ConfigureAwait(false);
 
+                Mission originalWorker = await testDb.Driver.Missions.CreateAsync(new Mission("Original worker")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.WorkProduced
+                }).ConfigureAwait(false);
                 Mission failedMission = await testDb.Driver.Missions.CreateAsync(new Mission("Original judge")
                 {
                     TenantId = Constants.DefaultTenantId,
                     UserId = Constants.DefaultUserId,
                     VoyageId = failedVoyage.Id,
+                    DependsOnMissionId = originalWorker.Id,
                     Status = MissionStatusEnum.Failed
                 }).ConfigureAwait(false);
 
@@ -1150,12 +1158,21 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = VoyageStatusEnum.Complete
                 }).ConfigureAwait(false);
 
-                await testDb.Driver.Missions.CreateAsync(new Mission("Rescue worker")
+                Mission rescueWorker = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue worker")
                 {
                     TenantId = Constants.DefaultTenantId,
                     UserId = Constants.DefaultUserId,
                     VoyageId = rescueVoyage.Id,
+                    Description = RescueMissionMarker.Marker,
                     ParentMissionId = failedMission.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Rescue judge")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    DependsOnMissionId = rescueWorker.Id,
                     Status = MissionStatusEnum.Complete
                 }).ConfigureAwait(false);
 
@@ -1186,6 +1203,596 @@ namespace Armada.Test.Unit.Suites.Services
                 Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
                 AssertEqual(ObjectiveStatusEnum.Completed, reconciled!.Status,
                     "An objective whose failed original voyage was re-done by a landed rescue voyage must reconcile to Completed, not sit InProgress forever.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_OneOfTwoFailedChainsRescued_StaysInProgress", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Two-chain original voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                Mission workerA = await testDb.Driver.Missions.CreateAsync(new Mission("Completed Worker A")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Mission workerB = await testDb.Driver.Missions.CreateAsync(new Mission("Completed Worker B")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Mission rescuedFailure = await testDb.Driver.Missions.CreateAsync(new Mission("Failed Judge A")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    DependsOnMissionId = workerA.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission unresolvedFailure = await testDb.Driver.Missions.CreateAsync(new Mission("Failed Judge B")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    DependsOnMissionId = workerB.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Chain A rescue voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Chain A rescue")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    Description = RescueMissionMarker.Marker,
+                    ParentMissionId = rescuedFailure.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Only one independent chain recovered",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { failedVoyage.Id, rescueVoyage.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 3
+                    }
+                };
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, reconciled!.Status,
+                    "A completed rescue for chain A must not hide unresolved failed chain " + unresolvedFailure.Id + ".");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_EveryFailedChainRescued_ReconcilesToCompleted", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Two recovered chains")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failureA = await testDb.Driver.Missions.CreateAsync(new Mission("Failed chain A")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failureB = await testDb.Driver.Missions.CreateAsync(new Mission("Failed chain B")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Cancelled dependent of chain A")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    DependsOnMissionId = failureA.Id,
+                    Status = MissionStatusEnum.Cancelled
+                }).ConfigureAwait(false);
+
+                List<string> voyageIds = new List<string> { failedVoyage.Id };
+                Voyage failedRescueAttempt = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed historical rescue")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                voyageIds.Add(failedRescueAttempt.Id);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Failed rescue for chain A")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedRescueAttempt.Id,
+                    Description = RescueMissionMarker.Marker,
+                    ParentMissionId = failureA.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                foreach (Mission failure in new[] { failureA, failureB })
+                {
+                    Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Completed rescue for " + failure.Title)
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Status = VoyageStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    voyageIds.Add(rescueVoyage.Id);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("Rescue for " + failure.Title)
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VoyageId = rescueVoyage.Id,
+                        Description = RescueMissionMarker.Marker,
+                        ParentMissionId = failure.Id,
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                }
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Every independent chain recovered",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = voyageIds
+                }).ConfigureAwait(false);
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 3
+                    }
+                };
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.Completed, reconciled!.Status,
+                    "The objective can complete after every failed chain has its own completed rescue.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_TwoFailuresOnOneChain_OneRootRescueCompletes", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("One failed chain")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission rootFailure = await testDb.Driver.Missions.CreateAsync(new Mission("Root failure")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Downstream failure")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    DependsOnMissionId = rootFailure.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Root rescue")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Completed root rescue")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    Description = RescueMissionMarker.Marker,
+                    ParentMissionId = rootFailure.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "One chain has one recovery obligation",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { failedVoyage.Id, rescueVoyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.Completed, reconciled!.Status,
+                    "Two failed missions on one dependency path form one chain rooted at the first failure.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_GenericChildVoyage_DoesNotCountAsRescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed original")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failedMission = await testDb.Driver.Missions.CreateAsync(new Mission("Failed mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Voyage childVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Ordinary child voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Ordinary child mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = childVoyage.Id,
+                    ParentMissionId = failedMission.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Generic child is not recovery evidence",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { failedVoyage.Id, childVoyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, reconciled!.Status,
+                    "A generic cross-voyage parent link must not be treated as an automatic rescue.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_CompleteVoyageWithCancelledMission_StaysInProgress", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Invalid complete voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Landed mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = voyage.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Independent cancelled mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = voyage.Id,
+                    Status = MissionStatusEnum.Cancelled
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Cancelled branch is unresolved",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { voyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, reconciled!.Status,
+                    "A Complete voyage with an independent cancelled mission is not verified completion.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_RescueWithCancelledVerification_StaysInProgress", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed original")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failure = await testDb.Driver.Missions.CreateAsync(new Mission("Failed original mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Unverified rescue")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Mission rescue = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue worker")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    Description = RescueMissionMarker.Marker,
+                    ParentMissionId = failure.Id,
+                    Status = MissionStatusEnum.WorkProduced
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Cancelled rescue judge")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    DependsOnMissionId = rescue.Id,
+                    Status = MissionStatusEnum.Cancelled
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Unverified rescue does not close",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { failedVoyage.Id, rescueVoyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, reconciled!.Status,
+                    "A rescue whose verification mission was cancelled must not count as recovered.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_WorkProducedRescueWithCompletedJudge_StaysInProgress", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed original")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failure = await testDb.Driver.Missions.CreateAsync(new Mission("Failed original mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedVoyage.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Unlanded rescue")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Mission rescue = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue worker")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    Description = RescueMissionMarker.Marker,
+                    ParentMissionId = failure.Id,
+                    Status = MissionStatusEnum.WorkProduced
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Completed rescue judge")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id,
+                    DependsOnMissionId = rescue.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Reviewed rescue has not landed",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { failedVoyage.Id, rescueVoyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, reconciled!.Status,
+                    "A completed review must not close the objective while the rescue work is only WorkProduced.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_MarkedChildOfCompletedMission_IsNotARescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage completeVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Completed original")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Mission completedMission = await testDb.Driver.Missions.CreateAsync(new Mission("Completed original mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = completeVoyage.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Voyage failedChildVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed marked child")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Marked child mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = failedChildVoyage.Id,
+                    Description = RescueMissionMarker.Marker,
+                    ParentMissionId = completedMission.Id,
+                    Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Marked child does not hide failure",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { completeVoyage.Id, failedChildVoyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, reconciled!.Status,
+                    "A marked child of a completed mission is not a recovery attempt and stays an objective obligation.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_CompleteVoyageWithDanglingDependency_StaysInProgress", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Malformed complete voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Mission with missing dependency")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = voyage.Id,
+                    DependsOnMissionId = "missing-mission",
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Malformed graph stays open",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { voyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, reconciled!.Status,
+                    "A dangling dependency must fail closeout closed even when the voyage status is Complete.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_CompleteVoyageWithCompletedExternalDependency_Completes", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Mission external = await testDb.Driver.Missions.CreateAsync(new Mission("Completed external prerequisite")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Valid complete voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Completed dependent mission")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = voyage.Id,
+                    DependsOnMissionId = external.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "External prerequisite is valid",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { voyage.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective? reconciled = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.Completed, reconciled!.Status,
+                    "A valid completed external dependency must not block objective closeout.");
             }).ConfigureAwait(false);
 
             await RunTest("ReconcileObjective_FailedOriginalWithNoRescue_StaysInProgress", async () =>
@@ -1254,6 +1861,20 @@ namespace Armada.Test.Unit.Suites.Services
                 logging,
                 null,
                 dispatchHold);
+        }
+
+        private static ArmadaSettings EnabledSchedulerSettings()
+        {
+            return new ArmadaSettings
+            {
+                AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                {
+                    Enabled = true,
+                    IntervalMinutes = 1,
+                    MaxConcurrentVoyages = 3,
+                    MaxConcurrentVoyagesPerVessel = 3
+                }
+            };
         }
 
         private sealed class StubMergeQueueService : IMergeQueueService
