@@ -83,6 +83,7 @@ namespace Armada.Core.Database.Mysql
             Releases = new ReleaseMethods(_ConnectionString);
             Deployments = new DeploymentMethods(_ConnectionString);
             VesselPackHints = new VesselPackHintMethods(_ConnectionString, _Settings, _Logging);
+            JudgeFollowUps = new JudgeFollowUpMethods(_ConnectionString);
             ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
             Skills = new SkillMethods(_ConnectionString);
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
@@ -686,6 +687,11 @@ namespace Armada.Core.Database.Mysql
                     72,
                     "Add start_from_ref to objectives and missions",
                     TableQueries.MigrationV72Statements
+                ),
+                new SchemaMigration(
+                    73,
+                    "Add durable Judge follow-ups",
+                    TableQueries.MigrationV73Statements
                 )
             };
         }

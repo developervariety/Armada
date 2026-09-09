@@ -91,6 +91,7 @@ namespace Armada.Core.Database.Sqlite
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
+            JudgeFollowUps = new JudgeFollowUpMethods(this);
             ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
             Skills = new SkillMethods(this, _Settings, _Logging);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
@@ -140,6 +141,7 @@ namespace Armada.Core.Database.Sqlite
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
+            JudgeFollowUps = new JudgeFollowUpMethods(this);
             ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
             Skills = new SkillMethods(this, _Settings, _Logging);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);

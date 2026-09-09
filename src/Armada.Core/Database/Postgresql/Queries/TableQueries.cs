@@ -966,6 +966,31 @@ namespace Armada.Core.Database.Postgresql.Queries
                         ALTER COLUMN response_body_truncated DROP DEFAULT,
                         ALTER COLUMN response_body_truncated TYPE BOOLEAN USING (response_body_truncated::text IN ('1', 't', 'true')),
                         ALTER COLUMN response_body_truncated SET DEFAULT FALSE;"
+                ),
+                new SchemaMigration(82, "Add durable Judge follow-ups",
+                    @"CREATE TABLE IF NOT EXISTS judge_follow_ups (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        judge_mission_id TEXT NOT NULL,
+                        reviewed_mission_id TEXT NOT NULL,
+                        voyage_id TEXT,
+                        vessel_id TEXT,
+                        merge_entry_id TEXT,
+                        judge_verdict TEXT NOT NULL,
+                        suggested_follow_ups TEXT,
+                        audit_verdict TEXT NOT NULL DEFAULT 'Pending',
+                        audit_notes TEXT,
+                        audit_recommended_action TEXT,
+                        audit_completed_utc TIMESTAMPTZ,
+                        created_utc TIMESTAMPTZ NOT NULL,
+                        last_update_utc TIMESTAMPTZ NOT NULL
+                    );",
+                    @"CREATE UNIQUE INDEX IF NOT EXISTS ux_judge_follow_ups_judge_mission ON judge_follow_ups(judge_mission_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_reviewed_mission ON judge_follow_ups(reviewed_mission_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_merge_entry ON judge_follow_ups(merge_entry_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_vessel_pending ON judge_follow_ups(vessel_id, audit_verdict, audit_completed_utc, created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_tenant_created ON judge_follow_ups(tenant_id, created_utc);"
                 )
             };
         }

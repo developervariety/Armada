@@ -61,6 +61,7 @@ namespace Armada.Core.Services
         private IResourcePressureAdmission _ResourcePressureAdmission;
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
+        private JudgeFollowUpService _JudgeFollowUps;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
@@ -241,6 +242,7 @@ namespace Armada.Core.Services
                 ?? new ResourcePressureAdmission(_Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
             _PromptTemplates = promptTemplates;
             _Prestaging = new PrestagedFileCopier(_Logging);
+            _JudgeFollowUps = new JudgeFollowUpService(_Database, _Logging);
         }
 
         #endregion
@@ -898,19 +900,28 @@ namespace Armada.Core.Services
                 return;
             }
 
+            bool handledSuccessfully = false;
             try
             {
                 await HandleCompletionCoreAsync(captain, missionId, token).ConfigureAwait(false);
+                handledSuccessfully = true;
             }
             finally
             {
                 gate.TrySetResult(true);
-                // Remove after a delay so late-arriving duplicate calls still see the entry
-                _ = Task.Run(async () =>
+                if (!handledSuccessfully)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
                     _InFlightCompletions.TryRemove(missionId, out _);
-                });
+                }
+                else
+                {
+                    // Remove after a delay so late-arriving duplicate calls still see the entry.
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                        _InFlightCompletions.TryRemove(missionId, out _);
+                    });
+                }
             }
         }
 
@@ -1369,6 +1380,11 @@ namespace Armada.Core.Services
             {
                 _Logging.Debug(_Header + "mission " + missionId + " already in post-work state " + mission.Status + " -- skipping completion handler");
 
+                // Mission state and the durable audit item cannot share one transaction on every
+                // provider. Replay the idempotent outbox write before returning so a transient
+                // follow-up storage fault on the first completion attempt cannot lose the item.
+                await ReplayJudgeFollowUpCaptureAsync(mission, token).ConfigureAwait(false);
+
                 // A caller may have persisted terminal Failed/Cancelled state BEFORE invoking the
                 // completion handler (e.g. a process-exit failure path), so the earlier reap block
                 // below never runs for it. Reap here as well -- the helper no-ops for any non-terminal
@@ -1734,14 +1750,13 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing with verdict " + verdict);
                 }
 
-                // Audit-flag wiring: NEEDS_REVISION OR a PASS with non-empty Suggested Follow-ups
-                // marks the upstream Worker's merge entry as deep-picked so the next
-                // armada_drain_audit_queue surfaces it. Judge SUGGESTS, orchestrator decides.
+                // Persist the Judge request before any delivery-record lookup. A merge entry can
+                // appear later, but the audit item must already exist and survive that race.
                 string? followUps = ExtractSuggestedFollowUps(mission.AgentOutput);
                 bool hasFollowUps = !String.IsNullOrEmpty(followUps);
-                if (verdict == JudgeVerdict.NeedsRevision || (verdict == JudgeVerdict.Pass && hasFollowUps))
+                if (verdict == JudgeVerdict.NeedsRevision || hasFollowUps)
                 {
-                    await TryFlagUpstreamMergeEntryForAuditAsync(mission, verdict, followUps, token).ConfigureAwait(false);
+                    await CaptureJudgeFollowUpAsync(mission, verdict, followUps, token).ConfigureAwait(false);
                 }
             }
 
@@ -6863,7 +6878,7 @@ namespace Armada.Core.Services
         /// Returns null when the section is missing, empty, or contains only the
         /// `(none)` sentinel. The body is everything between this heading and the next
         /// `## ` heading (or end of output). Used by the audit-flag wiring to decide
-        /// whether to surface a PASS verdict to the orchestrator's audit drain.
+        /// whether to surface the Judge request to the orchestrator's audit drain.
         /// </summary>
         private static string? ExtractSuggestedFollowUps(string? agentOutput)
         {
@@ -6898,49 +6913,36 @@ namespace Armada.Core.Services
             return text;
         }
 
-        /// <summary>
-        /// When the Judge wants the orchestrator to look at the upstream Worker's merge
-        /// entry (NEEDS_REVISION verdict, or PASS with non-empty Suggested Follow-ups),
-        /// mark the entry deep-picked so <c>armada_drain_audit_queue</c> surfaces it.
-        /// Worker mission id comes from the Judge's <see cref="Mission.DependsOnMissionId"/>;
-        /// best-effort lookup -- enumeration scan is fine for typical merge_queue volume.
-        /// </summary>
-        private async Task TryFlagUpstreamMergeEntryForAuditAsync(Mission judgeMission, JudgeVerdict verdict, string? suggestedFollowUps, CancellationToken token)
+        private async Task ReplayJudgeFollowUpCaptureAsync(Mission mission, CancellationToken token)
         {
-            try
-            {
-                if (String.IsNullOrEmpty(judgeMission.DependsOnMissionId)) return;
-                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
-                MergeEntry? upstream = null;
-                foreach (MergeEntry e in entries)
-                {
-                    if (!String.Equals(e.MissionId, judgeMission.DependsOnMissionId, StringComparison.Ordinal)) continue;
-                    if (upstream == null || e.CreatedUtc > upstream.CreatedUtc) upstream = e;
-                }
-                if (upstream == null) return;
+            if (!String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase)) return;
 
-                string verdictLabel = verdict switch
-                {
-                    JudgeVerdict.NeedsRevision => "NEEDS_REVISION",
-                    JudgeVerdict.Pass => "PASS_with_followups",
-                    _ => verdict.ToString()
-                };
-                string notesPayload = "Judge " + verdictLabel + " (mission " + judgeMission.Id + ")";
-                if (!String.IsNullOrEmpty(suggestedFollowUps))
-                {
-                    notesPayload += "\n\n## Suggested Follow-ups\n" + suggestedFollowUps;
-                }
-
-                upstream.AuditDeepPicked = true;
-                upstream.AuditDeepNotes = notesPayload;
-                upstream.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.MergeEntries.UpdateAsync(upstream, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "judge mission " + judgeMission.Id + " flagged upstream merge entry " + upstream.Id + " for audit (" + verdictLabel + ")");
-            }
-            catch (Exception ex)
+            string? followUps = ExtractSuggestedFollowUps(mission.AgentOutput);
+            JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
+            if (verdict == JudgeVerdict.Pass && mission.Status == MissionStatusEnum.Failed)
             {
-                _Logging.Warn(_Header + "failed to flag upstream merge entry from judge mission " + judgeMission.Id + ": " + ex.Message);
+                verdict = mission.FailureReason?.StartsWith("Judge PASS verdict", StringComparison.Ordinal) == true
+                    ? JudgeVerdict.NeedsRevision
+                    : JudgeVerdict.Fail;
             }
+
+            if (verdict != JudgeVerdict.NeedsRevision && String.IsNullOrEmpty(followUps)) return;
+            await CaptureJudgeFollowUpAsync(mission, verdict, followUps, token).ConfigureAwait(false);
+        }
+
+        private Task<JudgeFollowUp> CaptureJudgeFollowUpAsync(
+            Mission mission,
+            JudgeVerdict verdict,
+            string? followUps,
+            CancellationToken token)
+        {
+            string verdictLabel = verdict switch
+            {
+                JudgeVerdict.NeedsRevision => "NEEDS_REVISION",
+                JudgeVerdict.Fail => "FAIL",
+                _ => "PASS"
+            };
+            return _JudgeFollowUps.CaptureAsync(mission, verdictLabel, followUps, token);
         }
 
         /// <summary>

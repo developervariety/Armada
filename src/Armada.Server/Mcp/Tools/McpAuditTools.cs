@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Memory;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -17,6 +18,13 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpAuditTools
     {
+        private class AuditQueueItem
+        {
+            public DateTime CreatedUtc { get; set; }
+            public MergeEntry? MergeEntry { get; set; }
+            public JudgeFollowUp? JudgeFollowUp { get; set; }
+        }
+
         /// <summary>
         /// Registers audit MCP tools with the server.
         /// </summary>
@@ -30,6 +38,7 @@ namespace Armada.Server.Mcp.Tools
             IRemoteTriggerService? remoteTriggerService = null,
             ReflectionDispatcher? reflectionDispatcher = null)
         {
+            JudgeFollowUpService followUpService = new JudgeFollowUpService(database, new SyslogLogging.LoggingModule());
             register(
                 "armada_drain_audit_queue",
                 "Returns Pending deep-review merge entries oldest-first for orchestrator audit processing",
@@ -51,22 +60,85 @@ namespace Armada.Server.Mcp.Tools
                     if (args.HasValue && args.Value.TryGetProperty("limit", out JsonElement l) && l.ValueKind == JsonValueKind.Number)
                         limit = Math.Clamp(l.GetInt32(), 1, 50);
 
+                    await followUpService.ReconcilePendingAssociationsAsync(vesselId).ConfigureAwait(false);
+
                     List<MergeEntry> all = await database.MergeEntries.EnumerateAsync().ConfigureAwait(false);
-                    IEnumerable<MergeEntry> pending = all
+                    List<JudgeFollowUp> pendingFollowUps = await database.JudgeFollowUps
+                        .EnumeratePendingAsync(vesselId)
+                        .ConfigureAwait(false);
+                    HashSet<string> linkedEntryIds = pendingFollowUps
+                        .Where(followUp => !String.IsNullOrWhiteSpace(followUp.MergeEntryId))
+                        .Select(followUp => followUp.MergeEntryId!)
+                        .ToHashSet(StringComparer.Ordinal);
+                    IEnumerable<MergeEntry> pendingEntries = all
                         .Where(e => e.AuditDeepPicked == true
                                  && e.AuditDeepVerdict == "Pending"
                                  && e.AuditDeepCompletedUtc == null
-                                 && (vesselId == null || e.VesselId == vesselId))
-                        .OrderBy(e => e.CreatedUtc)
-                        .Take(limit);
+                                 && (vesselId == null || e.VesselId == vesselId));
+
+                    List<AuditQueueItem> pending = new List<AuditQueueItem>();
+                    foreach (MergeEntry entry in pendingEntries)
+                    {
+                        if (linkedEntryIds.Contains(entry.Id)) continue;
+                        JudgeFollowUp? canonical = await database.JudgeFollowUps
+                            .ReadByMergeEntryAsync(entry.Id)
+                            .ConfigureAwait(false);
+                        if (canonical != null) continue;
+                        pending.Add(new AuditQueueItem
+                        {
+                            CreatedUtc = entry.CreatedUtc,
+                            MergeEntry = entry
+                        });
+                    }
+                    pending.AddRange(pendingFollowUps.Select(followUp => new AuditQueueItem
+                    {
+                        CreatedUtc = followUp.CreatedUtc,
+                        JudgeFollowUp = followUp
+                    }));
 
                     List<object> results = new List<object>();
-                    foreach (MergeEntry entry in pending)
+                    foreach (AuditQueueItem item in pending
+                        .OrderBy(candidate => candidate.CreatedUtc)
+                        .ThenBy(candidate => candidate.MergeEntry?.Id ?? candidate.JudgeFollowUp!.Id, StringComparer.Ordinal)
+                        .Take(limit))
                     {
+                        if (item.JudgeFollowUp != null)
+                        {
+                            JudgeFollowUp followUp = item.JudgeFollowUp;
+                            MergeEntry? linkedEntry = String.IsNullOrWhiteSpace(followUp.MergeEntryId)
+                                ? null
+                                : all.FirstOrDefault(entry => String.Equals(entry.Id, followUp.MergeEntryId, StringComparison.Ordinal));
+                            Vessel? followUpVessel = String.IsNullOrWhiteSpace(followUp.VesselId)
+                                ? null
+                                : await database.Vessels.ReadAsync(followUp.VesselId).ConfigureAwait(false);
+                            bool followUpCalibration = (followUpVessel?.AutoLandCalibrationLandedCount ?? 0) < 50;
+                            results.Add(new
+                            {
+                                kind = "judgeFollowUp",
+                                auditItemId = followUp.Id,
+                                followUpId = followUp.Id,
+                                judgeMissionId = followUp.JudgeMissionId,
+                                missionId = followUp.ReviewedMissionId,
+                                entryId = followUp.MergeEntryId,
+                                vesselId = followUp.VesselId,
+                                judgeVerdict = followUp.JudgeVerdict,
+                                suggestedFollowUps = followUp.SuggestedFollowUps,
+                                branchName = linkedEntry?.BranchName,
+                                auditLane = linkedEntry?.AuditLane,
+                                auditCriticalTrigger = linkedEntry?.AuditCriticalTrigger,
+                                auditConventionNotes = linkedEntry?.AuditConventionNotes,
+                                isCalibration = followUpCalibration
+                            });
+                            continue;
+                        }
+
+                        MergeEntry entry = item.MergeEntry!;
                         Vessel? vessel = await database.Vessels.ReadAsync(entry.VesselId!).ConfigureAwait(false);
                         bool isCalibration = (vessel?.AutoLandCalibrationLandedCount ?? 0) < 50;
                         results.Add(new
                         {
+                            kind = "mergeEntry",
+                            auditItemId = entry.Id,
                             entryId = entry.Id,
                             missionId = entry.MissionId,
                             vesselId = entry.VesselId,
@@ -230,18 +302,26 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        entryId = new { type = "string", description = "Merge entry ID (mrg_ prefix)" },
+                        entryId = new { type = "string", description = "Merge entry ID (mrg_ prefix); mutually exclusive with followUpId" },
+                        followUpId = new { type = "string", description = "Judge follow-up ID (jfu_ prefix); mutually exclusive with entryId" },
                         verdict = new { type = "string", description = "Pass | Concern | Critical" },
                         notes = new { type = "string", description = "Subagent audit notes" },
                         recommendedAction = new { type = "string", description = "Required when verdict = Critical; null otherwise" }
                     },
-                    required = new[] { "entryId", "verdict", "notes" }
+                    required = new[] { "verdict", "notes" }
                 },
                 async (args) =>
                 {
                     if (!args.HasValue) return (object)new { Error = "missing args" };
 
-                    string entryId = args.Value.GetProperty("entryId").GetString()!;
+                    string? entryId = args.Value.TryGetProperty("entryId", out JsonElement entryIdElement)
+                        && entryIdElement.ValueKind == JsonValueKind.String
+                        ? entryIdElement.GetString()
+                        : null;
+                    string? followUpId = args.Value.TryGetProperty("followUpId", out JsonElement followUpIdElement)
+                        && followUpIdElement.ValueKind == JsonValueKind.String
+                        ? followUpIdElement.GetString()
+                        : null;
                     string verdict = args.Value.GetProperty("verdict").GetString()!;
                     string notes = args.Value.GetProperty("notes").GetString()!;
                     string? recAction = null;
@@ -252,8 +332,50 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "verdict must be Pass | Concern | Critical" };
                     if (verdict == "Critical" && string.IsNullOrEmpty(recAction))
                         return (object)new { Error = "recommendedAction required when verdict = Critical" };
+                    if (String.IsNullOrWhiteSpace(entryId) == String.IsNullOrWhiteSpace(followUpId))
+                        return (object)new { Error = "provide exactly one of entryId or followUpId" };
 
-                    MergeEntry? entry = await database.MergeEntries.ReadAsync(entryId).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(followUpId) && !String.IsNullOrWhiteSpace(entryId))
+                    {
+                        List<JudgeFollowUp> linkedPending = await database.JudgeFollowUps
+                            .EnumeratePendingAsync()
+                            .ConfigureAwait(false);
+                        followUpId = linkedPending
+                            .FirstOrDefault(item => String.Equals(item.MergeEntryId, entryId, StringComparison.Ordinal))
+                            ?.Id;
+                    }
+
+                    if (!String.IsNullOrWhiteSpace(followUpId))
+                    {
+                        JudgeFollowUp? followUp = await database.JudgeFollowUps.ReadAsync(followUpId).ConfigureAwait(false);
+                        if (followUp == null) return (object)new { Error = "judge follow-up not found: " + followUpId };
+
+                        DateTime completedUtc = DateTime.UtcNow;
+                        followUp = await followUpService.CompleteAuditAsync(
+                            followUp.Id,
+                            verdict,
+                            notes,
+                            recAction,
+                            completedUtc).ConfigureAwait(false);
+
+                        if (verdict == "Critical" && remoteTriggerService != null)
+                        {
+                            string followUpContext = "audit Critical on Judge follow-up " + followUp.Id + " :: "
+                                + notes + " :: ACTION: " + (recAction ?? "(none)");
+                            try
+                            {
+                                await remoteTriggerService.FireCriticalAsync(followUpContext).ConfigureAwait(false);
+                            }
+                            catch (Exception)
+                            {
+                                // Fire failure does not affect verdict recording.
+                            }
+                        }
+
+                        return (object)followUp;
+                    }
+
+                    MergeEntry? entry = await database.MergeEntries.ReadAsync(entryId!).ConfigureAwait(false);
                     if (entry == null) return (object)new { Error = "merge entry not found: " + entryId };
 
                     entry.AuditDeepVerdict = verdict;

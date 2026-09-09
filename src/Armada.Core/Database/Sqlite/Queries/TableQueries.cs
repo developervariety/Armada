@@ -1495,6 +1495,31 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(79, "Add start_from_ref to objectives and missions",
                     @"ALTER TABLE objectives ADD COLUMN start_from_ref TEXT;",
                     @"ALTER TABLE missions ADD COLUMN start_from_ref TEXT;"
+                ),
+                new SchemaMigration(80, "Add durable Judge follow-ups",
+                    @"CREATE TABLE IF NOT EXISTS judge_follow_ups (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        judge_mission_id TEXT NOT NULL,
+                        reviewed_mission_id TEXT NOT NULL,
+                        voyage_id TEXT,
+                        vessel_id TEXT,
+                        merge_entry_id TEXT,
+                        judge_verdict TEXT NOT NULL,
+                        suggested_follow_ups TEXT,
+                        audit_verdict TEXT NOT NULL DEFAULT 'Pending',
+                        audit_notes TEXT,
+                        audit_recommended_action TEXT,
+                        audit_completed_utc TEXT,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE UNIQUE INDEX IF NOT EXISTS ux_judge_follow_ups_judge_mission ON judge_follow_ups(judge_mission_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_reviewed_mission ON judge_follow_ups(reviewed_mission_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_merge_entry ON judge_follow_ups(merge_entry_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_vessel_pending ON judge_follow_ups(vessel_id, audit_verdict, audit_completed_utc, created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_tenant_created ON judge_follow_ups(tenant_id, created_utc);"
                 )
             };
         }

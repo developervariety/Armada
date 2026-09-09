@@ -151,6 +151,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PrFallbackPersistenceTests());
             runner.AddSuite(new PrFallbackUnblockTests());
             runner.AddSuite(new JudgeHybridFollowUpsTests());
+            runner.AddSuite(new JudgeFollowUpPersistenceTests());
             runner.AddSuite(new JudgeVerdictRobustnessTests());
             runner.AddSuite(new DependsOnMissionIdDispatchTests());
             runner.AddSuite(new AutoLandEvaluatorTests());

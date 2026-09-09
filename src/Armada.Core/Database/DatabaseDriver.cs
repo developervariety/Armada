@@ -179,6 +179,11 @@ namespace Armada.Core.Database
         public IVesselPackHintMethods VesselPackHints { get; protected set; } = null!;
 
         /// <summary>
+        /// Durable Judge follow-up operations.
+        /// </summary>
+        public IJudgeFollowUpMethods JudgeFollowUps { get; protected set; } = null!;
+
+        /// <summary>
         /// Project profile operations. A provider that does not assign this leaves it null, and the
         /// first caller then fails with a NullReferenceException naming nothing useful; see
         /// <see cref="FindUnwiredMethodSets"/> for the check that reports the gap instead.
@@ -235,6 +240,7 @@ namespace Armada.Core.Database
             if (ProjectProfiles == null) missing.Add(nameof(ProjectProfiles));
             if (Skills == null) missing.Add(nameof(Skills));
             if (CoordinationLeases == null) missing.Add(nameof(CoordinationLeases));
+            if (JudgeFollowUps == null) missing.Add(nameof(JudgeFollowUps));
 
             return missing;
         }

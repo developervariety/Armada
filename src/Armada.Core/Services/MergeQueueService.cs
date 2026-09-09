@@ -33,6 +33,7 @@ namespace Armada.Core.Services
         private ICodeIndexService? _CodeIndexService;
         private IMergeRecoveryHandler? _RecoveryHandler;
         private ISelfDeployService? _SelfDeployService;
+        private JudgeFollowUpService _JudgeFollowUps;
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
@@ -72,6 +73,7 @@ namespace Armada.Core.Services
             _Classifier = classifier ?? throw new ArgumentNullException(nameof(classifier));
             _PullRequestServiceFactory = pullRequestServiceFactory;
             _CodeIndexService = codeIndexService;
+            _JudgeFollowUps = new JudgeFollowUpService(_Database, _Logging);
         }
 
         /// <summary>
@@ -108,6 +110,14 @@ namespace Armada.Core.Services
             entry.LastUpdateUtc = DateTime.UtcNow;
             await _Database.MergeEntries.CreateAsync(entry, token).ConfigureAwait(false);
             await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
+            try
+            {
+                await _JudgeFollowUps.AssociateForMergeEntryAsync(entry, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not associate Judge follow-ups for entry " + entry.Id + ": " + ex.Message);
+            }
 
             _Logging.Info(_Header + "enqueued " + entry.Id + " branch " + entry.BranchName + " -> " + entry.TargetBranch);
             return entry;

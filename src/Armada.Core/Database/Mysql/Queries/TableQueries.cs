@@ -1151,6 +1151,36 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v73 statements for durable Judge follow-ups.
+        /// </summary>
+        public static readonly string[] MigrationV73Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS judge_follow_ups (
+                id VARCHAR(255) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(255) NULL,
+                user_id VARCHAR(255) NULL,
+                judge_mission_id VARCHAR(255) NOT NULL,
+                reviewed_mission_id VARCHAR(255) NOT NULL,
+                voyage_id VARCHAR(255) NULL,
+                vessel_id VARCHAR(255) NULL,
+                merge_entry_id VARCHAR(255) NULL,
+                judge_verdict VARCHAR(64) NOT NULL,
+                suggested_follow_ups LONGTEXT NULL,
+                audit_verdict VARCHAR(64) NOT NULL DEFAULT 'Pending',
+                audit_notes LONGTEXT NULL,
+                audit_recommended_action LONGTEXT NULL,
+                audit_completed_utc DATETIME(6) NULL,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                UNIQUE KEY ux_judge_follow_ups_judge_mission (judge_mission_id),
+                KEY idx_judge_follow_ups_reviewed_mission (reviewed_mission_id),
+                KEY idx_judge_follow_ups_merge_entry (merge_entry_id),
+                KEY idx_judge_follow_ups_vessel_pending (vessel_id, audit_verdict, audit_completed_utc, created_utc),
+                KEY idx_judge_follow_ups_tenant_created (tenant_id, created_utc)
+            );"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

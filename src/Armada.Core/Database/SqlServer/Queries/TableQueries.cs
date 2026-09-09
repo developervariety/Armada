@@ -826,6 +826,34 @@ namespace Armada.Core.Database.SqlServer.Queries
                     "Add start_from_ref to objectives and missions",
                     @"IF COL_LENGTH('objectives', 'start_from_ref') IS NULL ALTER TABLE objectives ADD start_from_ref NVARCHAR(512) NULL;",
                     @"IF COL_LENGTH('missions', 'start_from_ref') IS NULL ALTER TABLE missions ADD start_from_ref NVARCHAR(512) NULL;"
+                ),
+                new SchemaMigration(
+                    76,
+                    "Add durable Judge follow-ups",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'judge_follow_ups')
+                    CREATE TABLE judge_follow_ups (
+                        id NVARCHAR(255) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(255) NULL,
+                        user_id NVARCHAR(255) NULL,
+                        judge_mission_id NVARCHAR(255) NOT NULL,
+                        reviewed_mission_id NVARCHAR(255) NOT NULL,
+                        voyage_id NVARCHAR(255) NULL,
+                        vessel_id NVARCHAR(255) NULL,
+                        merge_entry_id NVARCHAR(255) NULL,
+                        judge_verdict NVARCHAR(64) NOT NULL,
+                        suggested_follow_ups NVARCHAR(MAX) NULL,
+                        audit_verdict NVARCHAR(64) NOT NULL DEFAULT 'Pending',
+                        audit_notes NVARCHAR(MAX) NULL,
+                        audit_recommended_action NVARCHAR(MAX) NULL,
+                        audit_completed_utc NVARCHAR(64) NULL,
+                        created_utc NVARCHAR(64) NOT NULL,
+                        last_update_utc NVARCHAR(64) NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ux_judge_follow_ups_judge_mission') CREATE UNIQUE INDEX ux_judge_follow_ups_judge_mission ON judge_follow_ups(judge_mission_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_judge_follow_ups_reviewed_mission') CREATE INDEX idx_judge_follow_ups_reviewed_mission ON judge_follow_ups(reviewed_mission_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_judge_follow_ups_merge_entry') CREATE INDEX idx_judge_follow_ups_merge_entry ON judge_follow_ups(merge_entry_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_judge_follow_ups_vessel_pending') CREATE INDEX idx_judge_follow_ups_vessel_pending ON judge_follow_ups(vessel_id, audit_verdict, audit_completed_utc, created_utc);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_judge_follow_ups_tenant_created') CREATE INDEX idx_judge_follow_ups_tenant_created ON judge_follow_ups(tenant_id, created_utc);"
                 )
             };
         }

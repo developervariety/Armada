@@ -534,6 +534,15 @@ switch the step off entirely.
 Read the mission diff and relevant logs. Drain the audit queue and record the
 audit verdict when needed. Check the merge entry before processing it.
 
+A Judge `NEEDS_REVISION` always creates a durable Judge follow-up. Any other
+Judge verdict creates one when it has a non-empty Suggested Follow-ups section.
+Armada stores this item before it looks for a merge entry. The audit queue can
+therefore return the item with no `entryId`.
+Record its verdict with `followUpId`. Armada associates a later merge entry and
+mirrors the audit result when delivery metadata becomes available. A linked
+follow-up and merge entry appear as one queue item. The older `entryId` verdict
+form resolves the linked canonical follow-up and remains safe to use.
+
 Use `armada_process_merge_entry` for one reviewed entry. Use
 `armada_process_merge_queue` only when the operator intends to start queue
 processing. It returns an accepted job and can no-op when a queue run is

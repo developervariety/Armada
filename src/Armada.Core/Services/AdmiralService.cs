@@ -1876,8 +1876,16 @@ namespace Armada.Core.Services
                 int pendingCount = 0;
                 foreach (MergeEntry e in entries)
                 {
-                    if (e.AuditDeepPicked == true && !e.AuditDeepCompletedUtc.HasValue) pendingCount++;
+                    if (e.AuditDeepPicked != true || e.AuditDeepCompletedUtc.HasValue) continue;
+                    JudgeFollowUp? canonical = await _Database.JudgeFollowUps
+                        .ReadByMergeEntryAsync(e.Id, token)
+                        .ConfigureAwait(false);
+                    if (canonical == null) pendingCount++;
                 }
+                List<JudgeFollowUp> followUps = await _Database.JudgeFollowUps
+                    .EnumeratePendingAsync(token: token)
+                    .ConfigureAwait(false);
+                pendingCount += followUps.Count;
                 if (pendingCount < threshold) return;
 
                 int debounceMinutes = Math.Max(1, _Settings.AuditQueueNotifyDebounceMinutes);
