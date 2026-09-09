@@ -14,6 +14,11 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Operator documentation
+- Monitoring guidance now uses the WebSocket watcher instead of a foreground
+  polling loop. It also states that Mail and Nudge reach a Pending downstream
+  stage at handoff and cannot change a running stage's frozen brief.
+
 ### Upstream absorb (isolated)
 - PostgreSQL and MySQL timestamp reads now tag stored UTC values as UTC without a local-time shift. Npgsql and MySqlConnector return `DateTimeKind.Unspecified`; `ToUniversalTime()` treated that as local time. MySQL also keeps `DATETIME(6)` fractions instead of dropping them through `ToString()`.
 - Remaining MySQL delivery/workflow readers (check runs, releases, deployments, request history, workflow profiles) and local `FromIso8601Nullable` helpers use the same UTC-kind path. PostgreSQL and SQL Server token-usage `CreatedUtc` reads no longer go through `ToString()`.

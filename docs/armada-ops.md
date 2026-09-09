@@ -340,21 +340,22 @@ State the finished set, not the busy set.
 
 Dispatch is the start of the operator loop.
 
-1. Poll `armada_voyage_status` in summary mode.
-2. Read `armada_mission_status` for the active or failed stage.
+1. Subscribe with `scripts/autonomy/watch-armada.mjs`. Use `--voyage` for one
+   voyage and `--participant` for directed board messages. Use
+   `--exit-on-terminal` for a bounded watch.
+2. Treat each mission-change event as a stage boundary. Read the mission when
+   the event needs more detail.
 3. Read mission and captain logs when progress is unclear.
 4. Use `armada_captain_diagnostics` before deep process inspection.
-5. Poll incidents and Checks on the same cadence.
-6. Use `armada_nudge_voyage` or `armada_send_signal` only for live work that
-   needs missing context.
-7. Inside a blocking monitor loop, watch for the `[ARMADA WAKE]` banner. When
-   your client sends the participant header (below), Armada appends pending
-   directed messages to ANY tool result, so a status poll delivers your mail.
-   Pause and address those first, then acknowledge each with
-   `armada_mark_signal_read`. Without the header, heartbeat or read the board
-   with your participantKey between iterations instead; those two tools are the
-   only others that carry `UnreadWakes`.
-8. Do not steer a terminal mission. Use restart, recovery, or a new mission.
+5. Inspect incidents and Checks when their events change. Keep periodic state
+   reconciliation as a safety check.
+6. Send `Mail` or `Nudge` only to a Pending downstream stage. A running stage
+   has already frozen its brief and does not read the new signal.
+7. Do not use a foreground polling loop. It blocks board messages and misses
+   short stage boundaries.
+8. When a tool result carries an `[ARMADA WAKE]` banner, pause current work,
+   address the message, and acknowledge it with `armada_mark_signal_read`.
+9. Do not steer a terminal mission. Use restart, recovery, or a new mission.
 
 A quiet captain is not proof of a stall. Compare the mission state, process
 ID, dock status, log activity, and elapsed time.
