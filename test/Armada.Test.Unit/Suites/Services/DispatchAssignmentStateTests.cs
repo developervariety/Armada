@@ -466,7 +466,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    int launchCalls = 0;
+                    captainService.OnLaunchAgent = (_, _, _) =>
+                    {
+                        launchCalls++;
+                        return Task.FromResult(12345);
+                    };
                     IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
 
                     Vessel vessel = new Vessel("start-ref-vessel", "https://github.com/test/repo.git");
@@ -492,7 +497,9 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(gone.Id).ConfigureAwait(false);
                     AssertNotNull(readBack, "Mission must still exist");
                     AssertFalse(assigned, "An unresolvable start ref must not assign.");
-                    AssertEqual(MissionStatusEnum.Failed, readBack!.Status, "The mission fails rather than falling back to the default branch: " + (readBack.FailureReason ?? "(none)"));
+                    AssertTrue(readBack!.Status == MissionStatusEnum.Failed,
+                        "The mission fails rather than falling back to the default branch; assignment=" + assigned
+                        + ", state=" + readBack.AssignmentState + ", reason=" + (readBack.FailureReason ?? "(none)"));
                     AssertTrue((readBack.FailureReason ?? "").StartsWith("start_from_ref_missing", StringComparison.Ordinal), "The failure is named: " + (readBack.FailureReason ?? "(none)"));
                     AssertContains("recover/gone", readBack.FailureReason ?? "", "The failure names the ref.");
                     AssertNull(readBack.CaptainId, "No captain stays attached to a failed assignment.");
@@ -501,7 +508,9 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(CaptainStateEnum.Idle, captainAfter!.State, "The captain is released.");
 
                     // The same mission shape with a ref that resolves is cut at that commit before provisioning.
+                    missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
                     git.RevisionShaResult = "abc1234";
+                    git.IsAncestorResult = true;
                     Mission good = new Mission("Continue from the accepted tip", "Continues the slice.");
                     good.VesselId = vessel.Id;
                     good.Persona = "Worker";
@@ -518,6 +527,55 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(assignedGood, "A resolvable start ref assigns; state=" + goodBack!.AssignmentState + " status=" + goodBack.Status + " reason: " + (goodBack.FailureReason ?? "(none)"));
                     AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "The mission branch is cut once.");
                     AssertEqual(vessel.LocalPath + ":" + goodBack.BranchName + ":abc1234", git.ForceUpdateBranchRefCalls[0], "The branch is cut at the start ref's commit before provisioning.");
+                    AssertTrue(git.IsAncestorCalls.Any(call => call.EndsWith(":abc1234:HEAD", StringComparison.Ordinal)),
+                        "The provisioned checkout must be checked for the resolved start commit before launch.");
+
+                    goodBack.Status = MissionStatusEnum.Complete;
+                    await testDb.Driver.Missions.UpdateAsync(goodBack).ConfigureAwait(false);
+
+                    Captain rescueCaptain = new Captain("rescue-start-ref-captain") { State = CaptainStateEnum.Idle };
+                    rescueCaptain = await testDb.Driver.Captains.CreateAsync(rescueCaptain).ConfigureAwait(false);
+                    git.IsAncestorResult = false;
+                    Mission staleRescue = new Mission("Rescue from accepted tip", RescueMissionMarker.Marker + "\nRepair the reviewed work.")
+                    {
+                        VesselId = vessel.Id,
+                        Persona = "Worker",
+                        Status = MissionStatusEnum.Pending,
+                        StartFromRef = "recover/accepted-tip-abc1234"
+                    };
+                    staleRescue = await testDb.Driver.Missions.CreateAsync(staleRescue).ConfigureAwait(false);
+
+                    bool assignedStale = await missionService.TryAssignAsync(staleRescue, vessel).ConfigureAwait(false);
+                    Mission? staleBack = await testDb.Driver.Missions.ReadAsync(staleRescue.Id).ConfigureAwait(false);
+                    Captain? rescueCaptainBack = await testDb.Driver.Captains.ReadAsync(rescueCaptain.Id).ConfigureAwait(false);
+                    AssertFalse(assignedStale, "A rescue checkout that lacks the reviewed tip must not launch.");
+                    AssertEqual(MissionStatusEnum.Failed, staleBack!.Status);
+                    AssertContains("start_from_ref_base_missing", staleBack.FailureReason ?? String.Empty);
+                    AssertNull(staleBack.CaptainId, "The rejected rescue must release its captain linkage.");
+                    AssertEqual(CaptainStateEnum.Idle, rescueCaptainBack!.State, "The rejected rescue captain must return to Idle.");
+                    AssertEqual(1, launchCalls, "Only the verified start-ref mission may launch.");
+                    List<Dock> docksAfterStaleRejection = await testDb.Driver.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                    Dock? staleDock = docksAfterStaleRejection.FirstOrDefault(item =>
+                        String.Equals(item.BranchName, staleBack.BranchName, StringComparison.Ordinal));
+                    AssertTrue(staleDock != null && !staleDock.Active,
+                        "The rejected rescue dock must be reclaimed and marked inactive.");
+                    AssertFalse(Directory.Exists(staleDock!.WorktreePath),
+                        "The rejected rescue worktree must be removed.");
+
+                    git.IsAncestorResult = null;
+                    Mission unverifiedRescue = new Mission("Rescue with unknown base", RescueMissionMarker.Marker + "\nRepair the reviewed work.")
+                    {
+                        VesselId = vessel.Id,
+                        Persona = "Worker",
+                        Status = MissionStatusEnum.Pending,
+                        StartFromRef = "recover/accepted-tip-abc1234"
+                    };
+                    unverifiedRescue = await testDb.Driver.Missions.CreateAsync(unverifiedRescue).ConfigureAwait(false);
+                    bool assignedUnverified = await missionService.TryAssignAsync(unverifiedRescue, vessel).ConfigureAwait(false);
+                    Mission? unverifiedBack = await testDb.Driver.Missions.ReadAsync(unverifiedRescue.Id).ConfigureAwait(false);
+                    AssertFalse(assignedUnverified, "A rescue with unknown ancestry must fail closed.");
+                    AssertContains("start_from_ref_unverified", unverifiedBack!.FailureReason ?? String.Empty);
+                    AssertEqual(1, launchCalls, "Unknown rescue ancestry must not reach the agent launch.");
                 }
             });
 

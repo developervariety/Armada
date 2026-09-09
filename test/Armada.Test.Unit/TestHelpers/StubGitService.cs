@@ -216,10 +216,14 @@ namespace Armada.Test.Unit.TestHelpers
         /// default: a stub that consults no repository must not be able to answer "yes".
         /// </summary>
         public bool? IsAncestorResult { get; set; } = null;
+        public List<string> IsAncestorCalls { get; } = new List<string>();
 
         public Task<bool?> TryIsAncestorAsync(
             string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
-            => Task.FromResult(IsAncestorResult);
+        {
+            IsAncestorCalls.Add(repoPath + ":" + ancestorRef + ":" + descendantRef);
+            return Task.FromResult(IsAncestorResult);
+        }
 
         public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {

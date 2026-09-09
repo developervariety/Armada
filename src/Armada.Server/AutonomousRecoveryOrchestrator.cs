@@ -892,7 +892,23 @@ namespace Armada.Server
                     return;
                 }
 
-                Mission rescue = await DispatchRescueMissionAsync(latest, incident, token).ConfigureAwait(false);
+                string? rescueStartFromRef = await ResolveRescueStartFromRefAsync(latest, token).ConfigureAwait(false);
+                if (IsReviewerPersona(latest.Persona) && String.IsNullOrWhiteSpace(rescueStartFromRef))
+                {
+                    const string missingTipReason = "start_from_ref_missing: Armada could not find a durable reviewed commit for the reviewer rescue.";
+                    await MarkPolicyBlockedAsync(latest, token).ConfigureAwait(false);
+                    await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        RecoveryNotes = AppendNote(incident.RecoveryNotes,
+                            "Autonomous rescue blocked: " + missingTipReason)
+                    }, token).ConfigureAwait(false);
+                    await EmitEventAsync("autonomous_recovery.blocked",
+                        "Autonomous recovery opened incident " + incident.Id + " but did not dispatch a rescue for mission " + latest.Id + ": " + missingTipReason,
+                        latest, incident.Id, token).ConfigureAwait(false);
+                    return;
+                }
+
+                Mission rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, token).ConfigureAwait(false);
                 await ApplyClaudeThinkingDisableAsync(latest, rescue, token).ConfigureAwait(false);
                 latest.RecoveryAttempts++;
                 latest.LastRecoveryActionUtc = DateTime.UtcNow;
@@ -1168,7 +1184,11 @@ namespace Armada.Server
             }, token).ConfigureAwait(false);
         }
 
-        private async Task<Mission> DispatchRescueMissionAsync(Mission failedMission, Incident incident, CancellationToken token)
+        private async Task<Mission> DispatchRescueMissionAsync(
+            Mission failedMission,
+            Incident incident,
+            string? startFromRef,
+            CancellationToken token)
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
             string rescuePersona = ResolveRescuePersona(failedMission.Persona);
@@ -1190,6 +1210,7 @@ namespace Armada.Server
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
                 Description = BuildRescueDescription(failedMission, incident, attemptNumber),
+                StartFromRef = startFromRef,
                 // Carry the recovery budget forward onto the rescue itself. A rescue stage that
                 // fails again is picked up by the sweep with RecoveryAttempts already at the
                 // attempt count, so Classify blocks further rescues once the budget is spent and
@@ -1212,6 +1233,20 @@ namespace Armada.Server
                 return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
 
             return await DispatchRescueReviewLoopAsync(failedMission, rescue, attemptNumber, token).ConfigureAwait(false);
+        }
+
+        private async Task<string?> ResolveRescueStartFromRefAsync(Mission failedMission, CancellationToken token)
+        {
+            if (!String.IsNullOrWhiteSpace(failedMission.CommitHash)) return failedMission.CommitHash.Trim();
+            if (String.IsNullOrWhiteSpace(failedMission.DependsOnMissionId)) return null;
+
+            Mission? reviewed = await ReadMissionAsync(
+                failedMission.TenantId,
+                failedMission.DependsOnMissionId,
+                token).ConfigureAwait(false);
+            if (reviewed == null || !String.Equals(reviewed.VesselId, failedMission.VesselId, StringComparison.Ordinal))
+                return null;
+            return String.IsNullOrWhiteSpace(reviewed?.CommitHash) ? null : reviewed.CommitHash.Trim();
         }
 
         /// <summary>
@@ -2090,6 +2125,9 @@ namespace Armada.Server
             string[] environmentalMarkers =
             {
                 "stage_base_missing",
+                "start_from_ref_missing",
+                "start_from_ref_base_missing",
+                "start_from_ref_unverified",
                 "provisioning fault",
                 "ineffective_rescue",
                 "working_directory_sync_failed",

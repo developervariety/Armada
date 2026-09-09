@@ -591,6 +591,7 @@ namespace Armada.Core.Services
             mission.Status = MissionStatusEnum.Assigned;
             mission.AssignmentState = MissionAssignmentStateEnum.Provisioning;
             mission.LastUpdateUtc = DateTime.UtcNow;
+            string? resolvedStartCommit = null;
 
             // A first-stage mission with a start ref is cut from that ref, not from the default
             // branch. The ref is resolved in the vessel repository here, before provisioning, so the
@@ -601,8 +602,8 @@ namespace Armada.Core.Services
                 && String.IsNullOrEmpty(mission.DependsOnMissionId)
                 && !String.IsNullOrWhiteSpace(mission.StartFromRef))
             {
-                string? startCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);
-                if (String.IsNullOrEmpty(startCommit))
+                resolvedStartCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(resolvedStartCommit))
                 {
                     _Logging.Warn(_Header + "mission " + mission.Id + " start ref '" + mission.StartFromRef + "' does not resolve in vessel " + vessel.Id + "; failing assignment");
                     mission.Status = MissionStatusEnum.Failed;
@@ -617,7 +618,7 @@ namespace Armada.Core.Services
                     return false;
                 }
 
-                _Logging.Info(_Header + "mission " + mission.Id + " branch " + branchName + " cut from start ref " + mission.StartFromRef + " at " + startCommit);
+                _Logging.Info(_Header + "mission " + mission.Id + " branch " + branchName + " cut from start ref " + mission.StartFromRef + " at " + resolvedStartCommit);
             }
 
             // Persist Provisioning before the dock call. Provisioning can take seconds (worktree
@@ -676,6 +677,9 @@ namespace Armada.Core.Services
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }
+
+            if (!await VerifyStartFromRefBaseAsync(mission, dock, captain, resolvedStartCommit, token).ConfigureAwait(false))
+                return false;
 
             // Prove the stage is cut from its predecessor's commit before a captain works in it.
             // Inheriting a branch NAME is not the same as inheriting its commit: a local ref can
@@ -1103,19 +1107,60 @@ namespace Armada.Core.Services
 
 
         /// <summary>
-        /// Detect a captain "false complete" event: the captain ended its run within
-        /// seconds having done no real work, and the mission would otherwise be
-        /// accepted as WorkProduced with an empty diff. Two provider-side flavors are
-        /// caught:
-        /// <list type="bullet">
-        /// <item>The GLM 5.2 flavor reads AGENTS.md, emits
-        /// [ARMADA:RESULT] COMPLETE, and exits cleanly.</item>
-        /// <item>The DeepSeek V4 Pro flavor reads AGENTS.md and exits 0
-        /// after a brief acknowledgment, without any result marker.</item>
-        /// </list>
-        /// Both reach WorkProduced with an empty diff and a tiny AgentOutput, which the
-        /// pipeline downstream would otherwise accept as real progress.
+        /// Prove that a checkout provisioned from an explicit start ref contains the resolved
+        /// commit before the captain starts. Rescue missions fail closed when the proof is unknown.
         /// </summary>
+        private async Task<bool> VerifyStartFromRefBaseAsync(
+            Mission mission,
+            Dock dock,
+            Captain captain,
+            string? resolvedStartCommit,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(resolvedStartCommit)) return true;
+
+            bool? containsStartCommit = null;
+            if (_Git != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+            {
+                try
+                {
+                    containsStartCommit = await _Git.TryIsAncestorAsync(
+                        dock.WorktreePath!, resolvedStartCommit, "HEAD", token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "start-ref ancestry probe failed for mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            bool isRescue = RescueMissionMarker.IsAutoRescue(mission);
+            if (containsStartCommit == true || (containsStartCommit == null && !isRescue)) return true;
+
+            string reason = containsStartCommit == false
+                ? "start_from_ref_base_missing: the provisioned checkout does not contain resolved start commit " + resolvedStartCommit + "."
+                : "start_from_ref_unverified: Armada could not prove that the rescue checkout contains resolved start commit " + resolvedStartCommit + ".";
+            mission.AssignmentState = MissionAssignmentStateEnum.Failed;
+            mission.Status = MissionStatusEnum.Failed;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.FailureReason = reason;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await AppendMissionActivityAsync(mission.Id, "validation failed: " + reason, token).ConfigureAwait(false);
+            try
+            {
+                await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not reclaim dock " + dock.Id + " after start-ref verification failed: " + ex.Message);
+            }
+            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+            return false;
+        }
+
         /// <summary>
         /// Confirm a downstream pipeline stage's checkout contains its predecessor's commit.
         /// </summary>
@@ -1241,6 +1286,9 @@ namespace Armada.Core.Services
                 || agentOutput.Contains(VerdictMarker, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// Detect a captain false-complete event with the legacy diff-count signal.
+        /// </summary>
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
             return DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, diffLineCount > 0);

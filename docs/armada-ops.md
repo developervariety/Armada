@@ -759,6 +759,16 @@ close an incident only because a captain reported success.
 
 ### A rescue of a stage inside a voyage re-enters review
 
+The rescue root starts from the failed mission's captured commit. If that value
+is absent, Armada can use the immediate dependency commit only when both
+missions use the same vessel. Armada resolves this ref before provisioning and
+proves that the new checkout contains it before the captain starts. A missing
+ref, a false ancestry result, or an ancestry result that Armada cannot verify
+fails closed as a provisioning fault. If a reviewer rescue has no captured
+commit and no same-vessel dependency commit, Armada leaves the incident open
+and does not start a Worker from the vessel default branch. Later rescue stages
+inherit the verified Worker branch.
+
 A Worker that fails its gate inside a voyage has already cost that voyage its
 TestEngineer and Judge: the pipeline cancels them as blocked dependents when the
 Worker fails. Its rescue is therefore dispatched as a rescue VOYAGE — the Worker

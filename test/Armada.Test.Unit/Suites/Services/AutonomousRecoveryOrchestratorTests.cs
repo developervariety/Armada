@@ -56,6 +56,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "A missing stage base is a provisioning fault no captain can repair.");
                 AssertTrue(
                     AutonomousRecoveryOrchestrator.IsEnvironmentalFailure(
+                        "start_from_ref_unverified: Armada could not prove the rescue base"),
+                    "An unverified rescue base is a provisioning fault no captain can repair.");
+                AssertTrue(
+                    AutonomousRecoveryOrchestrator.IsEnvironmentalFailure(
                         "Check failed: ECULINK_PORT_ROOT environment variable is not set"),
                     "A missing environment variable cannot be fixed by re-running the brief.");
                 AssertFalse(
@@ -117,6 +121,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
                 Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
                 failed.Persona = "Judge";
+                failed.CommitHash = "1111111111111111111111111111111111111111";
                 await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
@@ -135,6 +140,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
                 AssertTrue(rescue != null, "Expected a linked rescue mission.");
                 AssertEqual("Worker", rescue!.Persona, "Reviewer-stage failures should dispatch Worker rescue missions.");
+                AssertEqual(failed.CommitHash, rescue.StartFromRef, "The rescue must start from the reviewed mission tip.");
                 AssertContains("Autonomous rescue", rescue!.Description ?? "", "Rescue mission should carry recovery context.");
 
                 AuthContext auth = AuthContext.Authenticated("ten_auto_recovery", "usr_auto_recovery", false, true, "UnitTest");
@@ -155,6 +161,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(1, executionPage.Objects.Count);
                 AssertEqual(RunbookExecutionStatusEnum.Completed, executionPage.Objects[0].Status);
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue start ref falls back only to a same-vessel dependency commit", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_ref", "usr_rescue_ref").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_ref", "usr_rescue_ref").ConfigureAwait(false);
+                Vessel otherVessel = new Vessel("Other Recovery Vessel", "file:///tmp/other-recovery.git")
+                {
+                    TenantId = "ten_rescue_ref",
+                    UserId = "usr_rescue_ref",
+                    LocalPath = "C:\\tmp\\other-recovery",
+                    WorkingDirectory = "C:\\tmp\\other-recovery",
+                    DefaultBranch = "main"
+                };
+                otherVessel = await testDb.Driver.Vessels.CreateAsync(otherVessel).ConfigureAwait(false);
+
+                Mission reviewed = new Mission("Reviewed work", "Accepted implementation")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Persona = "Worker",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = "2222222222222222222222222222222222222222"
+                };
+                reviewed = await testDb.Driver.Missions.CreateAsync(reviewed).ConfigureAwait(false);
+                Mission sameVesselFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                sameVesselFailure.Persona = "Judge";
+                sameVesselFailure.CommitHash = null;
+                sameVesselFailure.DependsOnMissionId = reviewed.Id;
+                await testDb.Driver.Missions.UpdateAsync(sameVesselFailure).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver, admiral, new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+                await orchestrator.HandleMissionOutcomeAsync(sameVesselFailure, false).ConfigureAwait(false);
+                AssertEqual(reviewed.CommitHash, admiral.DispatchedMissions.Single().StartFromRef,
+                    "A same-vessel dependency supplies the reviewed tip when the Judge commit is absent.");
+
+                Mission crossVesselFailure = await CreateFailedMissionAsync(testDb, otherVessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                crossVesselFailure.Persona = "Judge";
+                crossVesselFailure.CommitHash = null;
+                crossVesselFailure.DependsOnMissionId = reviewed.Id;
+                await testDb.Driver.Missions.UpdateAsync(crossVesselFailure).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(crossVesselFailure, false).ConfigureAwait(false);
+                AssertFalse(admiral.DispatchedMissions.Any(item => item.ParentMissionId == crossVesselFailure.Id),
+                    "A reviewer rescue must not start from the default branch when only a cross-vessel commit is available.");
+
+                Mission reviewedWithoutCommit = new Mission("Reviewed work without captured tip", "Accepted implementation")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Persona = "Worker",
+                    Status = MissionStatusEnum.Complete
+                };
+                reviewedWithoutCommit = await testDb.Driver.Missions.CreateAsync(reviewedWithoutCommit).ConfigureAwait(false);
+                Mission missingTipFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                missingTipFailure.Persona = "Judge";
+                missingTipFailure.CommitHash = null;
+                missingTipFailure.DependsOnMissionId = reviewedWithoutCommit.Id;
+                await testDb.Driver.Missions.UpdateAsync(missingTipFailure).ConfigureAwait(false);
+
+                await orchestrator.HandleMissionOutcomeAsync(missingTipFailure, false).ConfigureAwait(false);
+
+                AssertFalse(admiral.DispatchedMissions.Any(item => item.ParentMissionId == missingTipFailure.Id),
+                    "A reviewer rescue must not launch from the default branch when neither mission has a durable commit.");
+                Mission? blocked = await testDb.Driver.Missions.ReadAsync(missingTipFailure.Id).ConfigureAwait(false);
+                AssertTrue(blocked!.LastRecoveryActionUtc.HasValue, "The missing-tip failure must be marked handled instead of retried forever.");
             }).ConfigureAwait(false);
 
             await RunTest("Rescue dispatch attaches Build and UnitTest checks to the rescue voyage", async () =>
@@ -901,6 +978,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
                 Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
                 failed.Persona = "Judge";
+                failed.CommitHash = new string('3', 40);
                 failed.ReviewComment = "Add a regression test for the null-branch case before resubmitting.";
                 await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
 
@@ -915,6 +993,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Mission worker = admiral.DispatchedMissions[0];
                 AssertEqual("Worker", worker.Persona, "The dispatched root must be a Worker revision.");
                 AssertEqual(failed.Id, worker.ParentMissionId, "The Worker revision should link back to the failed reviewer mission.");
+                AssertEqual(failed.CommitHash, worker.StartFromRef, "The Worker revision must start from the failed reviewer's captured tip.");
                 AssertTrue(!String.IsNullOrEmpty(worker.VoyageId), "The Worker revision must run inside a dedicated rescue voyage so handoff can chain stages.");
                 AssertEqual(1, worker.RecoveryAttempts, "The Worker revision should carry the recovery budget forward to bound the loop.");
 
@@ -927,6 +1006,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("ARMADA:AUTO-RESCUE", judge.Description ?? "", "The re-Judge stage should be marked as autonomous rescue work.");
                 AssertEqual(1, judge.RecoveryAttempts, "The re-Judge stage should also carry the recovery budget so a repeat rejection is bounded.");
                 AssertTrue(String.IsNullOrEmpty(judge.ParentMissionId), "The re-Judge stage is a pipeline dependent, not a direct rescue of the original failure.");
+                AssertTrue(String.IsNullOrEmpty(judge.StartFromRef), "The downstream re-Judge inherits the rescue branch through its dependency, not a second start ref.");
             }).ConfigureAwait(false);
 
             await RunTest("ReviseRetestRejudge_BudgetExhausted_OpensHighIncidentWithoutDispatch", async () =>
@@ -1707,6 +1787,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Description = "Original mission description",
                 Status = MissionStatusEnum.Failed,
                 FailureReason = failureReason,
+                CommitHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
                 LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
             };

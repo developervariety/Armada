@@ -164,6 +164,8 @@ namespace Armada.Test.Unit.Suites.Services
                 Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
                 Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
                 Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-4", "Worker").ConfigureAwait(false);
+                worker.CommitHash = "4444444444444444444444444444444444444444";
+                await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
 
                 Mission judge = new Mission
                 {
@@ -189,6 +191,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "Failed leaf judge should dispatch a Worker rescue.");
                 AssertEqual("Worker", admiral.DispatchedMissions[0].Persona);
+                AssertEqual(worker.CommitHash, admiral.DispatchedMissions[0].StartFromRef,
+                    "The safety-net rescue must preserve the reviewed Worker tip.");
             }).ConfigureAwait(false);
 
             await RunTest("SweepAsync_AllTerminal_CompletesOpenVoyage", async () =>

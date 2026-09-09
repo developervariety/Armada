@@ -161,10 +161,11 @@ Skipped from upstream (already equal or richer here): captain-map, token-usage c
 - `IGitService` gained a three-state ancestry probe whose default answer is unknown rather than true, so an implementation that does not consult a real repository cannot report a verification it never performed
 
 ### Recovery
+- A suitable autonomous rescue now starts from the failed mission's captured HEAD instead of the vessel default branch. It falls back only to an immediate same-vessel dependency commit. A reviewer rescue is blocked when neither commit exists. Armada resolves the ref, then proves the provisioned rescue checkout contains that commit before launch; a missing or unverified base fails as a provisioning fault.
 - An autonomous rescue is now judged by what it CHANGED, not by whether it ran. A rescue whose change set is empty, or consists only of documentation, fails with `ineffective_rescue` and the change set named, instead of being accepted because the process stayed alive. The case this addresses ran for twenty-four hours, drew escalating stall nudges, died on a runtime crash, and left one changed documentation file behind - and every liveness measure the platform kept called that a working rescue
 - Only rescues are assessed, and only in Implementation mode. A first-attempt mission may legitimately have been dispatched to write documentation, and an Audit or Research mission delivers a report and is never expected to change code - judging those by a diff is the same mistake in the other direction
 - The assessment reads changed paths from the diff's `diff --git` headers only, so a hunk body containing a line that looks like a header cannot make a change set describe itself
-- It deliberately does NOT compare the rescue's paths against the original mission's: a rescue is expected to rewrite the prior branch from scratch over the same files, so an overlapping path set would flag the normal case
+- It deliberately does NOT compare the rescue's paths against the original mission's: a rescue continues from the preserved failed tip and normally changes the same files, so an overlapping path set would flag the normal case
 - The autonomous-rescue marker had two definitions in two files; both now delegate to one, so the rule cannot drift apart
 
 ### MCP
