@@ -179,7 +179,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM check_runs" + whereClause
-                        + " ORDER BY created_utc DESC OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY;";
+                        + " ORDER BY created_utc DESC, id DESC OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY;";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
                     cmd.Parameters.AddWithValue("@offset", query.Offset);
                     cmd.Parameters.AddWithValue("@page_size", pageSize);

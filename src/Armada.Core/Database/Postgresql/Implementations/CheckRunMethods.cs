@@ -180,7 +180,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM check_runs" + whereClause
-                        + " ORDER BY created_utc DESC LIMIT @page_size OFFSET @offset;";
+                        + " ORDER BY created_utc DESC, id DESC LIMIT @page_size OFFSET @offset;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
                     cmd.Parameters.AddWithValue("@page_size", pageSize);
                     cmd.Parameters.AddWithValue("@offset", offset);

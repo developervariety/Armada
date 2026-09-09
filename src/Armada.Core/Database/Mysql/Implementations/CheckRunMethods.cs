@@ -180,7 +180,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM check_runs" + whereClause
-                        + " ORDER BY created_utc DESC LIMIT " + pageSize + " OFFSET " + offset + ";";
+                        + " ORDER BY created_utc DESC, id DESC LIMIT " + pageSize + " OFFSET " + offset + ";";
                     foreach (MySqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {

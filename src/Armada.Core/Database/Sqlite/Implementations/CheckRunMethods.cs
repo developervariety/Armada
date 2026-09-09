@@ -161,7 +161,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteCommand cmd = conn.CreateCommand())
             {
                 cmd.CommandText = "SELECT * FROM check_runs" + whereClause +
-                    " ORDER BY created_utc DESC LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    " ORDER BY created_utc DESC, id DESC LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))

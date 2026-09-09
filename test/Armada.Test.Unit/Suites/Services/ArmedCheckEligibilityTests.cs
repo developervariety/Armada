@@ -176,6 +176,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Sweep finds an eligible check behind two hundred ineligible checks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("starved-armed-voyage")).ConfigureAwait(false);
+                    CheckRun armed = new CheckRun
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "Old eligible check",
+                        CreatedUtc = DateTime.UtcNow.AddHours(-4)
+                    };
+                    armed = await testDb.Driver.CheckRuns.CreateAsync(armed).ConfigureAwait(false);
+
+                    await CreateWorkMissionAsync(
+                        testDb, vessel, voyage, MissionStatusEnum.WorkProduced, "armada/worker/msn-old", "old123").ConfigureAwait(false);
+
+                    DateTime newerBaseUtc = DateTime.UtcNow.AddHours(-3);
+                    for (int index = 0; index < 200; index++)
+                    {
+                        CheckRun ineligible = new CheckRun
+                        {
+                            VesselId = vessel.Id,
+                            DeploymentId = "dpl_not-ready-" + index,
+                            Type = CheckRunTypeEnum.Build,
+                            Source = CheckRunSourceEnum.Armada,
+                            Status = CheckRunStatusEnum.Pending,
+                            Label = "Newer ineligible check " + index,
+                            CreatedUtc = newerBaseUtc.AddMilliseconds(index)
+                        };
+                        await testDb.Driver.CheckRuns.CreateAsync(ineligible).ConfigureAwait(false);
+                    }
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    int executed = await orchestrator.RunSweepAsync(default).ConfigureAwait(false);
+
+                    AssertEqual(1, executed, "An older eligible check must not be hidden by a full page of newer ineligible checks");
+                    CheckRun? reloaded = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
+                    AssertNotNull(reloaded, "The older eligible check should remain readable");
+                    AssertEqual("armada/worker/msn-old", reloaded!.BranchName, "The sweep must execute and stamp the older eligible check");
+                }
+            });
+
             await RunTest("Armed check on a completed voyage keeps measuring the default branch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

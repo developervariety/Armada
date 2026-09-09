@@ -472,6 +472,12 @@ the host at the moment the first captain starts work. An armed record reads
 `command = echo` with no branch until that stamp - that is the correct armed
 state, not a broken stub.
 
+Each sweep searches every stable page of Pending Armada Checks until it finds
+its bounded execution set or reaches the end. A full first page of ineligible
+records cannot hide an older eligible Check. If cancellation or a database
+error stops the search, the warning names the page and the number of records
+that the incomplete search scanned.
+
 Arming never fails a dispatch. A voyage that exists without its Checks can
 still be armed by hand, whereas refusing to dispatch over a Check record would
 turn a convenience into an outage. Set `VoyageCheckArming.Enabled` to `false`

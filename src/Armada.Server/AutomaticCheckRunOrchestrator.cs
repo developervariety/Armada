@@ -98,23 +98,7 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "stale-check supersession failed: " + ex.Message);
             }
 
-            CheckRunQuery query = new CheckRunQuery
-            {
-                Status = CheckRunStatusEnum.Pending,
-                Source = CheckRunSourceEnum.Armada,
-                PageNumber = 1,
-                PageSize = 200
-            };
-
-            EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
-            List<CheckRun> eligible = new List<CheckRun>();
-
-            foreach (CheckRun run in page.Objects.OrderBy(run => run.CreatedUtc))
-            {
-                if (eligible.Count >= MaxChecksPerSweep) break;
-                if (await IsEligibleAsync(run, token).ConfigureAwait(false))
-                    eligible.Add(run);
-            }
+            List<CheckRun> eligible = await FindEligiblePendingChecksAsync(token).ConfigureAwait(false);
 
             if (eligible.Count == 0) return 0;
 
@@ -131,6 +115,55 @@ namespace Armada.Server
             }
 
             return executed;
+        }
+
+        private async Task<List<CheckRun>> FindEligiblePendingChecksAsync(CancellationToken token)
+        {
+            CheckRunQuery query = new CheckRunQuery
+            {
+                Status = CheckRunStatusEnum.Pending,
+                Source = CheckRunSourceEnum.Armada,
+                ToUtc = DateTime.UtcNow,
+                PageNumber = 1,
+                PageSize = 200
+            };
+            List<CheckRun> eligible = new List<CheckRun>();
+            int scanned = 0;
+
+            try
+            {
+                while (eligible.Count < MaxChecksPerSweep)
+                {
+                    EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+                    foreach (CheckRun run in page.Objects
+                        .OrderBy(run => run.CreatedUtc)
+                        .ThenBy(run => run.Id, StringComparer.Ordinal))
+                    {
+                        scanned++;
+                        if (await IsEligibleAsync(run, token).ConfigureAwait(false))
+                            eligible.Add(run);
+                        if (eligible.Count >= MaxChecksPerSweep) break;
+                    }
+
+                    if (page.Objects.Count < query.PageSize || query.PageNumber >= page.TotalPages)
+                        break;
+                    query.PageNumber++;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _Logging.Warn(_Header + "pending-check search incomplete: canceled after scanning "
+                    + scanned + " record(s) through page " + query.PageNumber);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "pending-check search incomplete after scanning "
+                    + scanned + " record(s) through page " + query.PageNumber + ": " + ex.Message);
+                throw;
+            }
+
+            return eligible;
         }
 
         /// <summary>
