@@ -5,6 +5,11 @@
 **Protocol:** WebSocket (RFC 6455) via Watson7
 **Transport:** JSON text frames
 
+Each connected client has an independent bounded output queue. Armada preserves
+message order for that client without waiting for its network send in the event
+producer. Armada disconnects a client when its queue is full or its send fails,
+so one slow monitor cannot delay other clients.
+
 ## Remote Proxy Note
 
 When the dashboard is opened directly from `Armada.Server`, connect to `/ws` on the Armada origin as usual.

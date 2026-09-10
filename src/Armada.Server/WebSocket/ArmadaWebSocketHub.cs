@@ -30,7 +30,9 @@ namespace Armada.Server.WebSocket
         private LoggingModule _Logging;
         private IAdmiralService _Admiral;
         private WebSocketCommandHandler _CommandHandler;
-        private ConcurrentDictionary<Guid, WebSocketSession> _Sessions = new ConcurrentDictionary<Guid, WebSocketSession>();
+        private const int ClientOutputQueueCapacity = 256;
+        private ConcurrentDictionary<Guid, ClientConnection> _Sessions = new ConcurrentDictionary<Guid, ClientConnection>();
+        private readonly object _BroadcastLock = new object();
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -83,7 +85,17 @@ namespace Armada.Server.WebSocket
         /// <param name="session">Watson7 WebSocket session.</param>
         public async Task HandleWebSocketAsync(HttpContextBase ctx, WebSocketSession session)
         {
-            _Sessions.TryAdd(session.Id, session);
+            WebSocketClientOutputQueue output = new WebSocketClientOutputQueue(
+                ClientOutputQueueCapacity,
+                (message, token) => session.SendTextAsync(message, token));
+            ClientConnection connection = new ClientConnection(session, output);
+            output.Terminated += failure => HandleOutputTermination(session.Id, connection, failure);
+
+            if (!_Sessions.TryAdd(session.Id, connection))
+            {
+                await output.DisposeAsync().ConfigureAwait(false);
+                throw new InvalidOperationException("A WebSocket session with this ID is already registered.");
+            }
             _Logging.Info(_Header + "client connected: " + session.RemoteIp + ":" + session.RemotePort);
 
             try
@@ -91,7 +103,7 @@ namespace Armada.Server.WebSocket
                 await foreach (WebSocketMessage message in session.ReadMessagesAsync(ctx.Token))
                 {
                     if (message.MessageType != WebSocketMessageType.Text) continue;
-                    await HandleMessageAsync(session, message.Text).ConfigureAwait(false);
+                    await HandleMessageAsync(session.Id, message.Text).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException)
@@ -104,7 +116,8 @@ namespace Armada.Server.WebSocket
             }
             finally
             {
-                _Sessions.TryRemove(session.Id, out _);
+                RemoveConnection(session.Id, connection);
+                await output.DisposeAsync().ConfigureAwait(false);
                 _Logging.Info(_Header + "client disconnected: " + session.RemoteIp + ":" + session.RemotePort);
             }
         }
@@ -353,7 +366,7 @@ namespace Armada.Server.WebSocket
 
         #region Private-Methods
 
-        private async Task HandleMessageAsync(WebSocketSession session, string body)
+        private async Task HandleMessageAsync(Guid sessionId, string body)
         {
             string? route = null;
             try
@@ -382,7 +395,7 @@ namespace Armada.Server.WebSocket
                         data = status,
                         timestamp = DateTime.UtcNow
                     };
-                    await session.SendTextAsync(JsonSerializer.Serialize(initial, _JsonOptions)).ConfigureAwait(false);
+                    EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(initial, _JsonOptions));
                     return;
                 }
 
@@ -390,14 +403,14 @@ namespace Armada.Server.WebSocket
                 {
                     WebSocketCommand command = JsonSerializer.Deserialize<WebSocketCommand>(body, _JsonOptions) ?? new WebSocketCommand();
                     object result = await _CommandHandler.HandleCommandAsync(command.Action, command, body).ConfigureAwait(false);
-                    await session.SendTextAsync(JsonSerializer.Serialize(result, _JsonOptions)).ConfigureAwait(false);
+                    EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(result, _JsonOptions));
                     return;
                 }
 
                 string errorJson = JsonSerializer.Serialize(
                     new { type = "error", message = "Unknown route: " + (route ?? "null") + ". Send a message with route 'subscribe' or 'command'" },
                     _JsonOptions);
-                await session.SendTextAsync(errorJson).ConfigureAwait(false);
+                EnqueueOrDisconnect(sessionId, errorJson);
             }
             catch (Exception ex)
             {
@@ -405,7 +418,7 @@ namespace Armada.Server.WebSocket
                 try
                 {
                     string errorJson = JsonSerializer.Serialize(new { type = "command.error", error = ex.Message }, _JsonOptions);
-                    await session.SendTextAsync(errorJson).ConfigureAwait(false);
+                    EnqueueOrDisconnect(sessionId, errorJson);
                 }
                 catch
                 {
@@ -419,28 +432,83 @@ namespace Armada.Server.WebSocket
             try
             {
                 string json = JsonSerializer.Serialize(payload, _JsonOptions);
+                List<KeyValuePair<Guid, ClientConnection>> disconnected = new List<KeyValuePair<Guid, ClientConnection>>();
 
-                foreach (KeyValuePair<Guid, WebSocketSession> kvp in _Sessions)
+                lock (_BroadcastLock)
                 {
-                    WebSocketSession session = kvp.Value;
-                    if (!session.IsConnected)
+                    foreach (KeyValuePair<Guid, ClientConnection> kvp in _Sessions)
                     {
-                        _Sessions.TryRemove(kvp.Key, out _);
-                        continue;
+                        ClientConnection connection = kvp.Value;
+                        if (!connection.Session.IsConnected || !connection.Output.TryEnqueue(json))
+                            disconnected.Add(kvp);
                     }
-                    try
-                    {
-                        session.SendTextAsync(json).Wait();
-                    }
-                    catch
-                    {
-                        _Sessions.TryRemove(kvp.Key, out _);
-                    }
+                }
+
+                foreach (KeyValuePair<Guid, ClientConnection> kvp in disconnected)
+                {
+                    string reason = kvp.Value.Session.IsConnected
+                        ? "Outbound event queue reached its capacity; reconnect and reconcile state."
+                        : "WebSocket session disconnected.";
+                    DisconnectConnection(kvp.Key, kvp.Value, reason);
                 }
             }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "broadcast error: " + ex.Message);
+            }
+        }
+
+        private void EnqueueOrDisconnect(Guid sessionId, string json)
+        {
+            if (!_Sessions.TryGetValue(sessionId, out ClientConnection? connection)) return;
+            if (!connection.Output.TryEnqueue(json))
+                DisconnectConnection(sessionId, connection, "Outbound response queue reached its capacity.");
+        }
+
+        private void HandleOutputTermination(Guid sessionId, ClientConnection connection, Exception? failure)
+        {
+            if (failure == null) return;
+            _Logging.Warn(_Header + "client output failed: " + failure.Message);
+            DisconnectConnection(sessionId, connection, "Outbound send failed.");
+        }
+
+        private void DisconnectConnection(Guid sessionId, ClientConnection connection, string reason)
+        {
+            RemoveConnection(sessionId, connection);
+            connection.Output.Stop();
+            _Logging.Warn(_Header + "disconnecting client " + sessionId + ": " + reason);
+            _ = CloseSessionAsync(connection.Session, reason);
+        }
+
+        private void RemoveConnection(Guid sessionId, ClientConnection connection)
+        {
+            if (_Sessions.TryGetValue(sessionId, out ClientConnection? current)
+                && ReferenceEquals(current, connection))
+                _Sessions.TryRemove(sessionId, out _);
+        }
+
+        private static async Task CloseSessionAsync(WebSocketSession session, string reason)
+        {
+            try
+            {
+                using CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await session.CloseAsync(WebSocketCloseStatus.PolicyViolation, reason, timeout.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The failed or slow client can already be disconnected.
+            }
+        }
+
+        private sealed class ClientConnection
+        {
+            public WebSocketSession Session { get; }
+            public WebSocketClientOutputQueue Output { get; }
+
+            public ClientConnection(WebSocketSession session, WebSocketClientOutputQueue output)
+            {
+                Session = session;
+                Output = output;
             }
         }
 

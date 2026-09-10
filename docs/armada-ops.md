@@ -1201,6 +1201,11 @@ The Admiral's WebSocket hub already broadcasts every voyage, mission, incident
 and board change. Subscribe to it instead, and let each change arrive as an
 event:
 
+Each client has an independent bounded output queue. A slow client does not
+delay the event producer or another monitor. If a client cannot keep up, Armada
+disconnects it instead of silently dropping events. Reconnect and reconcile
+authoritative state after that disconnect.
+
 ```sh
 ssh <server> 'node <armada-checkout>/scripts/autonomy/watch-armada.mjs \
     --voyage <voyage-id> --participant <your-key> --exit-on-terminal'
