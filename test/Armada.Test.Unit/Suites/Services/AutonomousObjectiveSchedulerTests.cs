@@ -573,7 +573,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(objective.Id, "Objective fixture should have an id.");
             }).ConfigureAwait(false);
 
-            await RunTest("An operator-dispatched voyage counts toward the concurrency limit", async () =>
+            await RunTest("An unlinked operator voyage with repository work counts toward the concurrency limit", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
 
@@ -583,25 +583,28 @@ namespace Armada.Test.Unit.Suites.Services
                         TenantId = Constants.DefaultTenantId
                     }).ConfigureAwait(false);
 
-                // Armada cannot tell an operator's voyage from its own once both are linked to an
-                // objective, and it should not try: a second autonomous voyage against work a human
-                // is already doing duplicates it rather than adding throughput. The limit therefore
-                // gates what the SCHEDULER starts, and the count can exceed it.
                 Voyage operatorVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("operator-dispatched")
                 {
                     TenantId = Constants.DefaultTenantId,
                     Status = VoyageStatusEnum.InProgress
                 }).ConfigureAwait(false);
 
+                await testDb.Driver.Missions.CreateAsync(new Mission("operator mission", "Unlinked operator work.")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    VoyageId = operatorVoyage.Id,
+                    VesselId = vessel.Id,
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
                 await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
                     TenantId = Constants.DefaultTenantId,
                     UserId = Constants.DefaultUserId,
-                    Title = "Objective an operator is already working",
+                    Title = "Independent autonomous objective",
                     Status = ObjectiveStatusEnum.Scoped,
                     AutoDispatchEnabled = true,
-                    VesselIds = new List<string> { vessel.Id },
-                    VoyageIds = new List<string> { operatorVoyage.Id }
+                    VesselIds = new List<string> { vessel.Id }
                 }).ConfigureAwait(false);
 
                 ArmadaSettings settings = new ArmadaSettings
@@ -622,7 +625,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(
                     1,
                     scheduler.ActiveDispatchedCount,
-                    "An operator-dispatched voyage must count toward the concurrency number.");
+                    "An unlinked operator voyage with repository work must count toward the concurrency number.");
                 AssertEqual(
                     0,
                     admiral.DispatchVoyageCallCount,

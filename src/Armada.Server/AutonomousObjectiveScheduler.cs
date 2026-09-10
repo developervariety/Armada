@@ -366,7 +366,7 @@ namespace Armada.Server
                     eligible = dependencyReady;
                 }
 
-                ActiveVoyageSummary active = await CountActiveDispatchedAsync(snapshot, token).ConfigureAwait(false);
+                ActiveVoyageSummary active = await CountActiveDispatchedAsync(token).ConfigureAwait(false);
                 ActiveDispatchedCount = active.Total;
                 int capacity = MaxConcurrentVoyages - active.Total;
 
@@ -380,8 +380,8 @@ namespace Armada.Server
 
                 if (capacity <= 0)
                 {
-                    string concurrencyDetail = active.Total + " objective(s) have an active linked voyage, "
-                        + "including any dispatched by an operator; limit is " + MaxConcurrentVoyages;
+                    string concurrencyDetail = active.Total + " active voyage(s) contain repository work, "
+                        + "including unlinked voyages dispatched by an operator; limit is " + MaxConcurrentVoyages;
                     _Logging.Debug(_Header + "sweep: concurrency limit reached (" + concurrencyDetail + ").");
                     await EmitSystemEventAsync("objective_scheduler.skipped_max_concurrent",
                         "Autonomous objective scheduler dispatch skipped: " + concurrencyDetail + ".", token).ConfigureAwait(false);
@@ -430,7 +430,7 @@ namespace Armada.Server
                 // Every skip is counted by reason. A sweep that dispatches nothing must be
                 // able to say why; reporting dispatched=0 with no reason reads as an idle
                 // fleet, and hid two permanently undispatchable objectives for days.
-                Dictionary<string, HashSet<string>> lanes = await BuildLanesAsync(token).ConfigureAwait(false);
+                VesselLaneMap lanes = await BuildLanesAsync(token).ConfigureAwait(false);
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
 
                 foreach (Objective objective in eligible)
@@ -445,7 +445,7 @@ namespace Armada.Server
                         // one by a build-participating sibling declaration. A wave that writes a
                         // consumer's call sites is a writer on the consumer too, and the ceiling
                         // could not see that when it counted the owning vessel alone.
-                        HashSet<string> lane = LaneOf(lanes, candidateVesselId);
+                        IReadOnlySet<string> lane = lanes.MembersFor(candidateVesselId);
                         int activeOnVessel = CountActiveInLane(active, lane);
                         if (activeOnVessel >= MaxConcurrentVoyagesPerVessel)
                         {
@@ -475,8 +475,7 @@ namespace Armada.Server
                         if (objective.VesselIds.Count == 1)
                         {
                             string dispatchedVesselId = objective.VesselIds[0];
-                            active.ByVessel.TryGetValue(dispatchedVesselId, out int activeOnVessel);
-                            active.ByVessel[dispatchedVesselId] = activeOnVessel + 1;
+                            active.Add("sweep:" + objective.Id, new[] { dispatchedVesselId });
                         }
                     }
                     catch (ObjectiveSkippedException skipped)
@@ -809,9 +808,8 @@ namespace Armada.Server
         /// of that relation. A read-only sibling (a decompiled or artifact tree) joins no lane, so a
         /// research objective on a glossary vessel never waits for a voyage on the port it reads.
         /// </summary>
-        private async Task<Dictionary<string, HashSet<string>>> BuildLanesAsync(CancellationToken token)
+        private async Task<VesselLaneMap> BuildLanesAsync(CancellationToken token)
         {
-            Dictionary<string, HashSet<string>> lanes = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             List<Vessel> vessels;
             try
             {
@@ -820,78 +818,21 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not read vessels for lane derivation; counting each vessel alone: " + ex.Message);
-                return lanes;
+                return VesselLaneMap.Build(Array.Empty<Vessel>());
             }
-
-            Dictionary<string, string> parent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, string> idByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (Vessel vessel in vessels)
-            {
-                if (vessel == null || String.IsNullOrEmpty(vessel.Id)) continue;
-                parent[vessel.Id] = vessel.Id;
-                if (!String.IsNullOrEmpty(vessel.Name)) idByName[vessel.Name] = vessel.Id;
-            }
-
-            foreach (Vessel vessel in vessels)
-            {
-                if (vessel == null || String.IsNullOrEmpty(vessel.Id)) continue;
-                foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
-                {
-                    if (sibling == null || !sibling.BuildParticipant || String.IsNullOrWhiteSpace(sibling.VesselRef)) continue;
-                    string? otherId = parent.ContainsKey(sibling.VesselRef) ? sibling.VesselRef
-                        : (idByName.TryGetValue(sibling.VesselRef, out string? byName) ? byName : null);
-                    if (otherId == null)
-                    {
-                        _Logging.Warn(_Header + "vessel " + vessel.Id + " declares build-participating sibling " + sibling.VesselRef + " which is not a known vessel; ignored for lanes");
-                        continue;
-                    }
-                    parent[FindLaneRoot(parent, vessel.Id)] = FindLaneRoot(parent, otherId);
-                }
-            }
-
-            foreach (string vesselId in parent.Keys.ToList())
-            {
-                string root = FindLaneRoot(parent, vesselId);
-                if (!lanes.TryGetValue(root, out HashSet<string>? members))
-                {
-                    members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    lanes[root] = members;
-                }
-                members.Add(vesselId);
-            }
-
-            Dictionary<string, HashSet<string>> byVessel = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (HashSet<string> members in lanes.Values)
-            {
-                foreach (string member in members) byVessel[member] = members;
-            }
-            return byVessel;
+            return VesselLaneMap.Build(vessels,
+                message => _Logging.Warn(_Header + message));
         }
 
-        private static string FindLaneRoot(Dictionary<string, string> parent, string vesselId)
+        private static int CountActiveInLane(ActiveVoyageSummary active, IReadOnlySet<string> lane)
         {
-            string current = vesselId;
-            while (parent.TryGetValue(current, out string? next) && !String.Equals(next, current, StringComparison.OrdinalIgnoreCase))
-            {
-                current = next;
-            }
-            return current;
-        }
-
-        private static HashSet<string> LaneOf(Dictionary<string, HashSet<string>> lanes, string vesselId)
-        {
-            if (lanes.TryGetValue(vesselId, out HashSet<string>? lane)) return lane;
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase) { vesselId };
-        }
-
-        private static int CountActiveInLane(ActiveVoyageSummary active, HashSet<string> lane)
-        {
-            int count = 0;
+            HashSet<string> voyageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string vesselId in lane)
             {
-                if (active.ByVessel.TryGetValue(vesselId, out int activeOnVessel)) count += activeOnVessel;
+                if (active.VoyageIdsByVessel.TryGetValue(vesselId, out HashSet<string>? activeOnVessel))
+                    voyageIds.UnionWith(activeOnVessel);
             }
-            return count;
+            return voyageIds.Count;
         }
 
         private static bool IsDependencyBlocked(ObjectiveDispatchPreview preview)
@@ -922,20 +863,29 @@ namespace Armada.Server
                 token).ConfigureAwait(false);
         }
 
-        private async Task<ActiveVoyageSummary> CountActiveDispatchedAsync(List<Objective> snapshot, CancellationToken token)
+        private async Task<ActiveVoyageSummary> CountActiveDispatchedAsync(CancellationToken token)
         {
             ActiveVoyageSummary summary = new ActiveVoyageSummary();
-            foreach (Objective objective in snapshot)
+            List<Voyage> voyages = (await _Database.Voyages
+                .EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false))
+                .Concat(await _Database.Voyages
+                    .EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false))
+                .GroupBy(voyage => voyage.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+
+            foreach (Voyage voyage in voyages)
             {
-                if (!await HasActiveLinkedVoyageAsync(objective, token).ConfigureAwait(false)) continue;
+                List<MissionSummary> missions = await _Database.Missions
+                    .EnumerateMissionSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+                HashSet<string> vesselIds = missions
+                    .Where(mission => !String.IsNullOrWhiteSpace(mission.VesselId))
+                    .Select(mission => mission.VesselId!)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (vesselIds.Count == 0) continue;
 
                 summary.Total++;
-                if (objective.VesselIds.Count == 1)
-                {
-                    string vesselId = objective.VesselIds[0];
-                    summary.ByVessel.TryGetValue(vesselId, out int activeOnVessel);
-                    summary.ByVessel[vesselId] = activeOnVessel + 1;
-                }
+                summary.Add(voyage.Id, vesselIds);
             }
 
             return summary;
@@ -1259,8 +1209,21 @@ namespace Armada.Server
         {
             public int Total { get; set; }
 
-            public Dictionary<string, int> ByVessel { get; } =
-                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, HashSet<string>> VoyageIdsByVessel { get; } =
+                new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+            public void Add(string voyageId, IEnumerable<string> vesselIds)
+            {
+                foreach (string vesselId in vesselIds)
+                {
+                    if (!VoyageIdsByVessel.TryGetValue(vesselId, out HashSet<string>? voyages))
+                    {
+                        voyages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        VoyageIdsByVessel[vesselId] = voyages;
+                    }
+                    voyages.Add(voyageId);
+                }
+            }
         }
 
         #endregion

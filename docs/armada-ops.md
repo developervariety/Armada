@@ -255,6 +255,13 @@ vessel that builds the other; the scheduler then applies the per-vessel ceiling
 to every vessel in the lane and reports a refused dispatch as
 `lane_busy:<vesselA>+<vesselB>`. A read-only sibling (a decompiled or
 extraction-artifact tree) stays `false` and forms no lane.
+The same lane rule is an assignment gate for all dispatch sources, including
+operator missions, recovery missions, and missions inserted for a later sweep.
+Armada reserves all lane members with durable database leases before it checks
+active mission rows and provisions a dock. Thus, two server instances cannot
+both admit sibling writers after they read the same idle state. A mission that
+loses this short reservation waits in `WaitingForVesselMutex`. An unlinked
+operator voyage with repository work also consumes scheduler capacity.
 Armada-owned Checks serialize on the host interlock, but a captain can still run
 a suite directly in its dock.
 Use bounded read-only helpers to prepare future lanes; use captains and voyages

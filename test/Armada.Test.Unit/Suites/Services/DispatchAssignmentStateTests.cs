@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
+    using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -634,8 +635,64 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? secondBack = await testDb.Driver.Missions.ReadAsync(second.Id).ConfigureAwait(false);
                     Mission waiting = results[0] ? secondBack! : firstBack!;
                     AssertEqual(MissionStatusEnum.Pending, waiting.Status, "The mission that lost the captain stays Pending.");
-                    AssertEqual(MissionAssignmentStateEnum.WaitingForIdleCaptain, waiting.AssignmentState, "The mission that lost the captain waits for an idle captain, not for a failed claim.");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForVesselMutex, waiting.AssignmentState,
+                        "The concurrent pass must wait on the atomic admission transition without provisioning.");
                     AssertTrue(String.IsNullOrEmpty(waiting.BranchName), "No branch name is written for a mission that never provisioned.");
+                }
+            });
+
+            await RunTest("TryAssign_ActiveBuildSiblingMission_BlocksBeforeProvisioning", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    captains.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains);
+
+                    Vessel producer = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("lane-producer-assignment", "https://github.com/test/lane-producer-assignment.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            AllowConcurrentMissions = true
+                        }).ConfigureAwait(false);
+                    Vessel consumer = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("lane-consumer-assignment", "https://github.com/test/lane-consumer-assignment.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            AllowConcurrentMissions = true
+                        }).ConfigureAwait(false);
+                    consumer.SiblingRepos = "[{\"relativePath\":\"../producer\",\"vesselRef\":\""
+                        + producer.Id + "\",\"buildParticipant\":true}]";
+                    consumer = await testDb.Driver.Vessels.UpdateAsync(consumer).ConfigureAwait(false);
+
+                    await testDb.Driver.Missions.CreateAsync(new Mission("operator work", "No objective link.")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        VesselId = producer.Id,
+                        Status = MissionStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    Mission candidate = await testDb.Driver.Missions.CreateAsync(
+                        new Mission("candidate", "Must wait for the sibling lane.")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            VesselId = consumer.Id,
+                            Status = MissionStatusEnum.Pending
+                        }).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(new Captain("lane-captain")
+                    {
+                        State = CaptainStateEnum.Idle
+                    }).ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(candidate, consumer).ConfigureAwait(false);
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(candidate.Id).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "An active build sibling must block assignment.");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForVesselMutex, readBack!.AssignmentState);
+                    AssertEqual(0, git.WorktreeCalls.Count, "A blocked sibling mission must not provision a dock.");
                 }
             });
 

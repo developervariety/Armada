@@ -62,6 +62,7 @@ namespace Armada.Core.Services
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
         private JudgeFollowUpService _JudgeFollowUps;
+        private readonly SiblingLaneAdmission _SiblingLaneAdmission;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
@@ -243,6 +244,7 @@ namespace Armada.Core.Services
             _PromptTemplates = promptTemplates;
             _Prestaging = new PrestagedFileCopier(_Logging);
             _JudgeFollowUps = new JudgeFollowUpService(_Database, _Logging);
+            _SiblingLaneAdmission = new SiblingLaneAdmission(_Database, _Logging);
         }
 
         #endregion
@@ -454,15 +456,54 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            // Check for vessel-level lock (broad-scope missions block new assignments).
+            // Reserve the complete build-participating sibling lane while admission is checked and
+            // the winning mission is made durable. Coordination leases make the read-to-write
+            // transition atomic across server processes. Active mission rows hold the lane after
+            // this short reservation is released.
+            SiblingLaneReservation? laneReservation;
+            try
+            {
+                laneReservation = await _SiblingLaneAdmission.TryReserveAsync(vessel, mission.Id, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve or reserve the sibling lane for mission "
+                    + mission.Id + "; assignment fails closed: " + ex.Message);
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                return false;
+            }
+            await using SiblingLaneReservation? heldLaneReservation = laneReservation;
+            if (laneReservation == null)
+            {
+                _Logging.Info(_Header + "sibling lane reservation is held; deferring mission " + mission.Id);
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                return false;
+            }
+
+            // Check the full sibling lane for active work. The current vessel keeps its explicit
+            // AllowConcurrentMissions behavior, but a build-participating sibling is always another
+            // repository writer and therefore blocks this assignment.
             // Use lightweight summaries (id/title/status only) to avoid hydrating large
             // description, diff_snapshot, and agent_output columns for every pending check.
-            List<ActiveMissionSummary> activeSummaries = await _Database.Missions.GetActiveVesselSummariesAsync(vessel.Id, token).ConfigureAwait(false);
-            List<ActiveMissionSummary> broadMissions = activeSummaries.Where(m => IsBroadScope(m)).ToList();
+            List<ActiveMissionSummary> activeSummaries = new List<ActiveMissionSummary>();
+            List<ActiveMissionSummary> activeSiblingSummaries = new List<ActiveMissionSummary>();
+            foreach (string laneVesselId in laneReservation.Members)
+            {
+                List<ActiveMissionSummary> summaries = await _Database.Missions
+                    .GetActiveVesselSummariesAsync(laneVesselId, token).ConfigureAwait(false);
+                if (String.Equals(laneVesselId, vessel.Id, StringComparison.OrdinalIgnoreCase))
+                    activeSummaries.AddRange(summaries);
+                else
+                    activeSiblingSummaries.AddRange(summaries);
+            }
+            List<ActiveMissionSummary> laneSummaries = activeSummaries.Concat(activeSiblingSummaries).ToList();
+            List<ActiveMissionSummary> broadMissions = laneSummaries.Where(m => IsBroadScope(m)).ToList();
 
             if (broadMissions.Count > 0)
             {
-                _Logging.Warn(_Header + "vessel " + vessel.Id + " has a broad-scope mission in progress -- deferring assignment of " + mission.Id);
+                _Logging.Warn(_Header + "sibling lane for vessel " + vessel.Id + " has a broad-scope mission in progress -- deferring assignment of " + mission.Id);
                 mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
@@ -472,6 +513,15 @@ namespace Armada.Core.Services
             // Check if this mission is broad-scope and vessel already has active work.
             // activeSummaries already contains only Assigned/InProgress missions.
             int concurrentCount = activeSummaries.Count;
+
+            if (activeSiblingSummaries.Count > 0)
+            {
+                _Logging.Info(_Header + "sibling lane for vessel " + vessel.Id + " has "
+                    + activeSiblingSummaries.Count + " active mission(s); deferring " + mission.Id);
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                return false;
+            }
 
             if (IsBroadScope(mission) && concurrentCount > 0)
             {
