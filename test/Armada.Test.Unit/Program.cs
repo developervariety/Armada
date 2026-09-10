@@ -348,6 +348,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DispatchFailFastTests());
             runner.AddSuite(new DispatchCodeContextBoundedTests());
             runner.AddSuite(new McpObjectiveSchedulerToolsTests());
+            runner.AddSuite(new VerifiedProductionSummaryServiceTests());
+            runner.AddSuite(new McpProductionToolsTests());
             runner.AddSuite(new McpResultPreviewTests());
             runner.AddSuite(new DefinitionOfDoneGateTests());
             runner.AddSuite(new DockBoundaryHookExecutionTests());

@@ -115,6 +115,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new DockTests(authClient, unauthClient));
                 runner.AddSuite(new MergeQueueTests(authClient, unauthClient));
                 runner.AddSuite(new StatusTests(authClient, unauthClient));
+                runner.AddSuite(new ProductionTests(authClient, unauthClient));
                 runner.AddSuite(new LogTests(authClient, unauthClient, tempDir));
                 runner.AddSuite(new AuthenticationTests(authClient, unauthClient, baseUrl, apiKey));
                 runner.AddSuite(new AuthApiTests(authClient, unauthClient, baseUrl, apiKey));

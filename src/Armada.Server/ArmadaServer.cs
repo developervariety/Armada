@@ -947,6 +947,10 @@ namespace Armada.Server
             new TokenUsageRoutes(_Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Verified production baseline
+            new ProductionRoutes(new VerifiedProductionSummaryService(_Database))
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Merge queue
             new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);

@@ -18,6 +18,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Monitoring guidance now uses the WebSocket watcher instead of a foreground
   polling loop. It also states that Mail and Nudge reach a Pending downstream
   stage at handoff and cannot change a running stage's frozen brief.
+- Production measurement now has one metric contract and a dated first
+  baseline. The record separates 127 raw completed leaf slices from a verified
+  landed result that is not yet computed, reports coverage and unavailable
+  measures, and keeps concurrency unchanged until verified evidence exists.
+- A bounded production summary is available through
+  `GET /api/v1/production/summary` and `armada_production_summary`. It reports
+  verified landing evidence, declared-ready delay, armed-to-start Check delay,
+  execution time, rescue share, closeout delay, and explicit unavailable
+  states for host-slot delay and other facts that Armada does not yet record.
 
 ### Upstream absorb (isolated)
 - PostgreSQL and MySQL timestamp reads now tag stored UTC values as UTC without a local-time shift. Npgsql and MySqlConnector return `DateTimeKind.Unspecified`; `ToUniversalTime()` treated that as local time. MySQL also keeps `DATETIME(6)` fractions instead of dropping them through `ToString()`.

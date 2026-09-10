@@ -124,6 +124,7 @@ namespace Armada.Server.Mcp
             McpSignalTools.Register(register, database, () => remoteTriggerService?.GetAgentWakeStatus().EffectiveParticipantKey);
             McpEventTools.Register(register, database);
             McpTokenUsageTools.Register(register, database);
+            McpProductionTools.Register(register, database);
             McpPapercutTools.Register(register, database);
             if (logging != null) McpInboxTools.Register(register, database, logging);
             McpDockTools.Register(register, database, dockService);

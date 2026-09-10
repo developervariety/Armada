@@ -1580,6 +1580,19 @@ that is comparable across runtimes.
 | --- | --- |
 | Read | `token_usage_summary` |
 
+### 8.22 Verified Production
+
+`armada_production_summary` reports verified landed slices for a bounded UTC
+window. It also reports raw completed leaf objectives, evidence exclusions,
+Check timing, rescue share, and the measures that current records cannot
+calculate. Use `sourceFamily` and `workType` to select one cohort. Read
+`scan.truncated`, `isComplete`, and each metric's availability before you use a
+rate. The equivalent REST route is `GET /api/v1/production/summary`.
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_production_summary` |
+
 ## 9. Safety Rules
 
 - Read before write.
