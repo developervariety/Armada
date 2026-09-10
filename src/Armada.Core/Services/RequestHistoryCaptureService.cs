@@ -75,6 +75,11 @@ namespace Armada.Core.Services
             if (string.IsNullOrWhiteSpace(path)) return false;
             if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)) return false;
 
+            // Never capture the OAuth2 callback: its 302 Location redirect carries a
+            // live session token in the URL fragment, and header/body redaction is
+            // key-name based so it would otherwise be persisted verbatim.
+            if (path.StartsWith("/api/v1/auth/oauth/callback", StringComparison.OrdinalIgnoreCase)) return false;
+
             foreach (string excluded in _Settings.RequestHistoryExcludeRoutes)
             {
                 if (string.IsNullOrWhiteSpace(excluded)) continue;
